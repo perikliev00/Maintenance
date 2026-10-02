@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  reception
+  housekeeper
+  supervisor
+}
+
+enum CatalogStatus {
+  active
+  archived
+}
+
+enum Occupancy {
+  vacant
+  occupied
+  unknown
+}
+
+enum CleaningStatus {
+  dirty
+  in_progress
+  pending_inspection
+  verified_clean
+}
+
+enum ServiceStatus {
+  in_service
+  out_of_service
+  unknown
+}
+
+enum TaskStatus {
+  assigned
+  in_progress
+  completed
+  cancelled
+}
+
+enum SessionStatus {
+  running
+  completed
+  cancelled
+}
+
+enum Priority {
+  low
+  normal
+  high
+  urgent
+}
+
+model Property {
+  id        String     @id @default(cuid())
+  name      String
+  buildings Building[]
+  createdAt DateTime   @default(now())
+}
+
+model Building {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+  name       String
+  code       String
+  floors     Floor[]
+  createdAt  DateTime @default(now())
+
+  @@unique([propertyId, code])
+}
+
+model Floor {
+  id         String     @id @default(cuid())
+  buildingId String
+  building   Building   @relation(fields: [buildingId], references: [id])
+  number     Int
+  name       String
+  locations  Location[]
+  createdAt  DateTime   @default(now())
+
+  @@unique([buildingId, number])
+}
+
+model Location {
+  id             String         @id @default(cuid())
+  floorId        String
+  floor          Floor          @relation(fields: [floorId], references: [id])
+  number         String
+  catalogStatus  CatalogStatus  @default(active)
+  occupancy      Occupancy      @default(unknown)
+  cleaningStatus CleaningStatus @default(dirty)
+  serviceStatus  ServiceStatus  @default(in_service)
+  cleaningTasks  CleaningTask[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([floorId, number])
+}
+
+model Employee {
+  id               String            @id @default(cuid())
+  employeeNumber   String            @unique
+  fullName         String
+  department       String?
+  user             User?
+  assignedTasks    CleaningTask[]    @relation("TaskAssignee")
+  cleaningSessions CleaningSession[]
+  createdAt        DateTime          @default(now())
+}
+
+model User {
+  id           String   @id @default(cuid())
+  employeeId   String   @unique
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  email        String   @unique
+  passwordHash String
+  role         Role
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+model CleaningTask {
+  id                 String            @id @default(cuid())
+  locationId         String
+  location           Location          @relation(fields: [locationId], references: [id])
+  hotelDate          DateTime          @db.Date
+  priority           Priority          @default(normal)
+  assignedEmployeeId String?
+  assignedEmployee   Employee?         @relation("TaskAssignee", fields: [assignedEmployeeId], references: [id])
+  status             TaskStatus        @default(assigned)
+  version            Int               @default(1)
+  sessions           CleaningSession[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([hotelDate, status])
+  @@index([locationId, hotelDate])
+}
+
+model CleaningSession {
+  id                 String        @id @default(cuid())
+  taskId             String
+  task               CleaningTask  @relation(fields: [taskId], references: [id])
+  employeeId         String
+  employee           Employee      @relation(fields: [employeeId], references: [id])
+  startedAt          DateTime
+  finishedAt         DateTime?
+  status             SessionStatus @default(running)
+  startCommandId     String        @unique
+  completeCommandId  String?       @unique
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([taskId, status])
+  @@index([employeeId, status])
+}
