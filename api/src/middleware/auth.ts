@@ -1,49 +1,54 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
 import { Role } from "@prisma/client";
-import { Action, canPerform, isOwner } from "../permissions";
+import { Action, isOwner } from "../permissions";
+import { canPerform } from "../services/roleGrants";
+import { assertSessionActive } from "../services/authSessions";
+import {
+  signAccessToken,
+  verifyAccessToken,
+  type AuthUser,
+} from "../auth/tokens";
+import { extractAccessToken, type AuthVia } from "./session";
 
-export type AuthUser = {
-  userId: string;
-  employeeId: string;
-  role: Role;
-  email: string;
-};
+export type { AuthUser };
+export { signAccessToken, verifyAccessToken };
 
 declare global {
   namespace Express {
     interface Request {
       user?: AuthUser;
+      authVia?: AuthVia;
     }
   }
 }
 
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error("JWT_SECRET is not set");
-  }
-  return secret;
+/** @deprecated Prefer createSession() which issues access+refresh. */
+export function signToken(payload: AuthUser): string {
+  return signAccessToken(payload);
 }
 
-export function signToken(payload: AuthUser): string {
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: "12h" });
+/** Verify JWT + active AuthSession + active user. */
+export async function authenticateToken(token: string): Promise<AuthUser> {
+  const decoded = verifyAccessToken(token);
+  await assertSessionActive(decoded.sid, decoded.userId);
+  return decoded;
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  const extracted = extractAccessToken(req);
+  if (!extracted) {
     return res.status(401).json({ error: "unauthorized", message: "Missing token" });
   }
 
-  try {
-    const token = header.slice("Bearer ".length);
-    const decoded = jwt.verify(token, getJwtSecret()) as AuthUser;
-    req.user = decoded;
-    return next();
-  } catch {
-    return res.status(401).json({ error: "unauthorized", message: "Invalid token" });
-  }
+  authenticateToken(extracted.token)
+    .then((decoded) => {
+      req.user = decoded;
+      req.authVia = extracted.via;
+      next();
+    })
+    .catch(() => {
+      res.status(401).json({ error: "unauthorized", message: "Invalid token" });
+    });
 }
 
 /** Owner always passes. Otherwise role must be in the list. */
@@ -63,16 +68,20 @@ export function requireRoles(...roles: Role[]) {
 }
 
 export function requireAction(action: Action) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: "unauthorized", message: "Missing user" });
     }
-    if (canPerform(req.user.role, action)) {
-      return next();
+    try {
+      if (await canPerform(req.user.role, action)) {
+        return next();
+      }
+      return res.status(403).json({
+        error: "forbidden",
+        message: "Insufficient permissions",
+      });
+    } catch (err) {
+      return next(err);
     }
-    return res.status(403).json({
-      error: "forbidden",
-      message: "Insufficient permissions",
-    });
   };
 }

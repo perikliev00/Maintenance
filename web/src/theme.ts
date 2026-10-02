@@ -2,6 +2,10 @@ export type ThemeMode = "dark" | "light";
 
 const STORAGE_KEY = "theme";
 
+export function hasUserThemePreference(): boolean {
+  return localStorage.getItem(STORAGE_KEY) !== null;
+}
+
 export function getStoredTheme(): ThemeMode {
   const raw = localStorage.getItem(STORAGE_KEY);
   return raw === "light" ? "light" : "dark";

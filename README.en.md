@@ -47,26 +47,39 @@ Readiness is **not a single status** — it is composed from several independent
 | Login / logout (JWT) | ✅ | Login |
 | Capabilities (`panels`, `actions`, `landing`) | ✅ | `/auth/me`, login |
 | Room list + readiness reasons | ✅ | Rooms |
-| Mark dirty | ✅ | Rooms / API |
+| Common areas (catalog + cleaning/tickets) | ✅ | Common / `/common-areas` |
+| Mark dirty | ✅ | Rooms, Common / API |
 | Create cleaning task + assign HK | ✅ | Rooms, Control |
 | Start / Complete cleaning session | ✅ | Rooms |
 | Inspect approve / reject (+ findings) | ✅ | Rooms |
 | Reassign task | ✅ | Rooms / API |
 | Overdue sessions (> 4h running) | ✅ | Rooms (supervisor+), API |
-| Report maintenance issue (blocking / not) | ✅ | Rooms |
+| Live board (S09) | ✅ | Live / `/operations/live` |
+| Report maintenance issue (blocking / not) | ✅ | Rooms, Home |
+| Issue catalog — categories + options (S10) | ✅ | Settings → Issue options |
 | Resolve issue | ✅ | Home, Rooms |
 | Home feed — open issues | ✅ | Home |
 | Team — people list / filters | ✅ | Team |
 | Control — role changes | ✅ | Control |
+| Settings (modules, flags, operations, timeline) | ✅ | Settings / `/settings` |
+| Permissions — DB-driven role × panel/action matrix | ✅ | Permissions / `/permissions` |
 | Owner = superuser (all panels + actions) | ✅ | permissions |
 | Dark / light theme | ✅ | whole UI |
-| My Work / personal queue | ❌ | roadmap |
-| Dedicated Repairs panel | ❌ | roadmap |
-| Sectors / zones / shifts | ❌ | roadmap |
-| Attendance | ❌ | roadmap |
-| Analytics / cards / badges | ❌ | roadmap |
-| Audit log | ❌ | roadmap |
-| DB-driven permissions | ❌ | roadmap |
+| Live updates (SSE) | ✅ | `/events/stream` |
+| Daily plan Clock (S12) | ✅ | Plan / `/daily-plan` (+ JSON import; no live PMS) |
+| My Work / personal queue | ✅ | My Work / `/my-work` + PWA |
+| Dedicated Repairs panel | ✅ | Repairs panel / maintenance lifecycle UI |
+| Sectors / shifts (Housekeeping panel) | ✅ | Housekeeping / `/sectors`, `/shifts` |
+| Task sector + supervisor snapshot | ✅ | `CleaningTask.sectorId` / `sectorSupervisorEmployeeId` |
+| Supervisor “my sectors” data scope | ✅ | `dataScope` + Live/Plan/Rooms/Results/Analytics + ticket create, sync push, sectors (own), live audit/SSE |
+| Room QR codes | ✅ | QR tab + `#/room-qr/:token` (identify only) |
+| Attendance (S13) | ✅ | Attendance / `/attendance` |
+| Analytics — housekeeper results | ✅ | Results / `/cleaning/results` |
+| Smart analytics (S14, §9) | ✅ | Analytics / `/analytics/summary` |
+| Cards (S11) — UI + DB, no hardware encoder | ✅ | Cards / `/cards` |
+| Audit log | ✅ | Audit / `/audit`; Settings chronology; Live Board |
+| Offline sync | ✅ | IndexedDB outbox + `/sync/push|pull` |
+| Background jobs | ✅ | in-process scheduler (lock / overdue / SLA) |
 
 ---
 
@@ -75,7 +88,7 @@ Readiness is **not a single status** — it is composed from several independent
 | Part | Tech |
 |---|---|
 | `api/` | Node.js, Express, TypeScript, Prisma, JWT, Zod, bcrypt |
-| `web/` | Vite, React, TypeScript |
+| `web/` | Vite, React, TypeScript, PWA (vite-plugin-pwa) |
 | DB | PostgreSQL 16 (Docker), host port **5433** |
 
 ```bash
@@ -107,21 +120,23 @@ npm run dev
 Property (Meridian Resort)
   └── Building (MAIN | ANNEX | ROYAL)
         └── Floor
-              └── Location (room / unit)
+              └── Location (kind: room | common_area)
 ```
 
-**Location** is the operational unit. Cleaning tasks and maintenance tickets hang off it.
+**Location** is the operational unit. Cleaning tasks and maintenance tickets hang off it.  
+`kind` separates guest rooms from common areas; Rooms UI / `/rooms` lists only `room`, Common panel / `/common-areas` lists only `common_area`.
 
 ### Location dimensions (independent)
 
 | Field | Enum / meaning |
 |---|---|
+| `kind` | `room` \| `common_area` |
 | `catalogStatus` | `active` \| `archived` — in catalog or not |
-| `occupancy` | `vacant` \| `occupied` \| `unknown` |
+| `occupancy` | `vacant` \| `occupied` \| `unknown` (**rooms only** in readiness) |
 | `cleaningStatus` | `dirty` → `in_progress` → `pending_inspection` → `verified_clean` |
 | `serviceStatus` | `in_service` \| `out_of_service` \| `unknown` |
 
-These fields are **not collapsed** into one “room status”. UI and readiness expose them separately.
+These fields are **not collapsed** into one status. UI and readiness expose them separately.
 
 ### People
 
@@ -135,10 +150,10 @@ These fields are **not collapsed** into one “room status”. UI and readiness 
 | Entity | Meaning |
 |---|---|
 | `CleaningTask` | Cleaning job for a `hotelDate`, priority, assignee, `status`, `version` |
-| `CleaningSession` | Concrete work session (start→complete), idempotency keys; optional `notes` on complete |
+| `CleaningSession` | Concrete work session (start→complete|cancel), idempotency keys; optional `notes`; no pause / adjustment |
 | `Inspection` | Approve/reject by inspector + `findings` (required on reject) |
 
-**TaskStatus:** `assigned` → `in_progress` → `awaiting_inspection` → `completed` (or `cancelled`).
+**TaskStatus:** `assigned` → `in_progress` → `awaiting_inspection` → `completed` (or `cancelled`). On reject → `rework` (same task; new session on next Start).
 
 **SessionStatus:** `running` \| `completed` \| `cancelled`.
 
@@ -146,10 +161,12 @@ These fields are **not collapsed** into one “room status”. UI and readiness 
 
 | Entity | Meaning |
 |---|---|
-| `MaintenanceTicket` | Repair issue on a location; `blocksRoom` affects readiness; on resolve: `resolvedBy`, `resolvedAt`, `resolutionNotes` |
+| `MaintenanceCategory` | Configurable categories (key, BG/EN labels, sort, active/archived) |
+| `IssueOption` | Preset issue types (kind, category, optional defaults) |
+| `MaintenanceTicket` | Repair issue on a location; category snapshot on create; optional `issueOptionId`; `blocksRoom` affects readiness |
 
 **TicketStatus:** `new` \| `in_progress` \| `resolved` \| `closed`.  
-**Category:** climate, electrical, furniture, plumbing, other.  
+**Ticket category:** snapshot at create time (catalog edits do not rewrite history).  
 **Priority:** low, normal, high, urgent.
 
 ---
@@ -163,15 +180,16 @@ Result: `ready` | `not_ready` | `needs_check` plus a `reasons` list.
 ### Rules (in order)
 
 1. `catalogStatus !== active` → **not_ready** (`archived`)
-2. `occupancy` or `serviceStatus` = `unknown` → **needs_check**
+2. For **rooms**: `occupancy` or `serviceStatus` = `unknown` → **needs_check**  
+   For **common areas**: only `serviceStatus` = `unknown` → **needs_check** (occupancy ignored)
 3. Otherwise collect reasons:
    - `blocking_issue` — open ticket with `blocksRoom`
-   - `not_vacant` — occupancy ≠ vacant
+   - `not_vacant` — occupancy ≠ vacant (**rooms only**)
    - `cleaning_*` — cleaningStatus ≠ verified_clean
    - `out_of_service` — serviceStatus ≠ in_service
 4. No reasons → **ready**, else **not_ready**
 
-**Important:** completing cleaning does **not** make a room ready. Only an **approved inspection** sets `verified_clean`.
+**Important:** completing cleaning does **not** make a location ready. Only an **approved inspection** sets `verified_clean`.
 
 ---
 
@@ -194,8 +212,9 @@ Result: `ready` | `not_ready` | `needs_check` plus a `reasons` list.
    ┌────┴────┐
    ▼         ▼
 [Approve]  [Reject]
- verified   rework / findings
- clean      (room is NOT verified_clean)
+ verified   task → rework + findings
+ clean      (room → dirty; prior sessions kept;
+             new session on next Start)
 ```
 
 ### Who does what (API actions)
@@ -228,13 +247,14 @@ Changes `assignedEmployeeId`, stores `reassignReason`, bumps `version`. Used whe
 
 ### Create (Report issue)
 
-From Rooms UI / `POST /maintenance/tickets`:
+From Rooms / Home UI or `POST /maintenance/tickets` (action `tickets.report`):
 
-- `title`, `category`, `priority`, `blocksRoom`
+- **From option:** `issueOptionId`, optional `title` override, `priority`, `blocksRoom`
+- **Free text:** `title` + `categoryId` (active category), `priority`, `blocksRoom`
 - `reportedBy` = current employee
 - optional `commandId` for idempotency
 
-Any authenticated user can report.
+Catalog: `GET /maintenance/categories`, `GET /maintenance/issue-options`. Admin: `issue_options.manage` (manager/admin) under Settings.
 
 ### Blocking a room
 
@@ -254,7 +274,8 @@ Shown on **Home** (feed) and in Rooms for blocking issues.
 
 ## People, roles, and permissions
 
-Central registry: **`api/src/permissions.ts`**.
+Central catalog + defaults: **`api/src/permissions.ts`**.  
+Runtime grants: **`RoleGrant`** table (edited via Permissions panel).
 
 ### Roles
 
@@ -274,6 +295,13 @@ Central registry: **`api/src/permissions.ts`**.
 2. **`manager`** can use Control and `people.change_role`, but gets **403** when assigning/changing `owner` or `admin`.
 3. Cannot demote the **last active owner**.
 4. Auth is always required; owner ≠ anonymous.
+5. **Capability ≠ data scope.** `RoleGrant` (panel/action) decides *whether* you may perform an action. A separate **`dataScope`** layer (§5) limits *which* rows you can see/change:
+   - `owner` / `manager` / `admin` / `reception` → whole property
+   - `supervisor` → sectors where `primarySupervisorEmployeeId = me`
+   - `housekeeper` → tasks with `assignedEmployeeId = me` (+ related rooms/tickets)
+   - `technician` → tickets with `assigneeId = me` (+ those locations)
+   - List APIs filter; direct out-of-scope access → **403** (not 404 / “no data”)
+   - Covered paths: rooms/tasks/tickets (incl. create), sync push, sectors CRUD (own only), live audit + SSE
 
 ### Panels
 
@@ -281,8 +309,11 @@ Central registry: **`api/src/permissions.ts`**.
 |---|---|
 | `home` | everyone |
 | `rooms` | everyone |
+| `common` | everyone (same as `rooms`) |
 | `team` | supervisor, manager, admin, owner |
 | `control` | manager, owner |
+| `settings` | manager, admin, owner |
+| `permissions` | manager, admin, owner |
 
 ### Landing after login
 
@@ -309,6 +340,8 @@ tickets.resolve
 people.view
 people.change_role
 control.access
+settings.manage
+permissions.manage
 ```
 
 Login and `GET /auth/me` return `panels[]`, `actions[]`, `landing`.  
@@ -321,8 +354,11 @@ Middleware: `requireAction(action)` uses `canPerform` (owner → allow).
 |---|---|---|---|---|---|---|---|
 | Home | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Rooms | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Common | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Team | | | | ✓ | ✓ | ✓ | ✓ |
 | Control | | | | | ✓ | | ✓ |
+| Settings | | | | | ✓ | ✓ | ✓ |
+| Permissions | | | | | ✓ | ✓ | ✓ |
 
 ### Key actions × role matrix
 
@@ -337,6 +373,8 @@ Middleware: `requireAction(action)` uses `canPerform` (owner → allow).
 | people.view | | | | ✓ | ✓ | ✓ | ✓ |
 | people.change_role | | | | | ✓ | | ✓ |
 | control.access | | | | | ✓ | | ✓ |
+| settings.manage | | | | | ✓ | ✓ | ✓ |
+| permissions.manage | | | | | ✓ | ✓ | ✓ |
 
 *(Owner column is always ✓ for every known action.)*
 
@@ -385,22 +423,70 @@ Middleware: `requireAction(action)` uses `canPerform` (owner → allow).
 ## API
 
 Base: `http://localhost:4000`  
-Auth header: `Authorization: Bearer <token>`
+Auth: httpOnly cookies (`session` access JWT ~15m, `refresh` ~14d) + CSRF double-submit (`csrf` cookie + `X-CSRF-Token`). Scripts may use `Authorization: Bearer <access>`. Browser default API base: `/api` (Vite proxy → API).
 
 ### Auth
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/auth/login` | `{ email, password }` → `{ token, user }` with capabilities |
-| GET | `/auth/me` | current user + `panels`, `actions`, `landing` |
+| POST | `/auth/login` | `{ email, password }` → `{ user, expiresIn }` + Set-Cookie (session/refresh/csrf) |
+| POST | `/auth/refresh` | refresh cookie → new cookies + `{ ok, expiresIn }` |
+| POST | `/auth/logout` | revoke current session + clear cookies |
+| POST | `/auth/logout-all` | auth — revoke all sessions for user + clear cookies |
+| GET | `/auth/me` | auth → user + capabilities |
 
 ### Rooms
 
 | Method | Path | Permission |
 |---|---|---|
-| GET | `/rooms` | auth |
+| GET | `/rooms` | auth (`kind=room`) |
 | GET | `/rooms/:id` | auth |
 | POST | `/rooms/:id/mark-dirty` | `rooms.mark_dirty` |
+
+### Common areas
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/common-areas` | auth (`kind=common_area`) |
+| GET | `/common-areas/:id` | auth |
+| POST | `/common-areas/:id/mark-dirty` | `rooms.mark_dirty` |
+
+### Settings
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/settings/public` | auth (modules, interface, operations subset, flags subset) |
+| GET | `/settings` | `settings.manage` |
+| GET | `/settings/system` | `settings.manage` |
+| GET | `/settings/history` | `settings.manage` (reads `AuditEvent` where entityType=setting) |
+| PATCH | `/settings/:key` | `settings.manage` |
+
+### Audit
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/audit-events` | any of `settings.manage` \| `permissions.manage` \| `operations.view_live` |
+
+Query: `entityType`, `entityId`, `locationId`, `actorEmployeeId`, `action`, `from`, `to`, `limit`. Unified who/what log (§7). Settings and permissions history endpoints are filtered views over the same table.
+
+### Live events (SSE)
+
+| Method | Path | Permission |
+|---|---|---|
+| POST | `/events/ticket` | auth (Bearer) — short-lived ticket (~5 min, `purpose=sse`) for EventSource |
+| GET | `/events/stream` | auth: cookie session, Bearer access JWT, or `?ticket=` (short-lived SSE ticket). |
+
+Events: `connected`, `location.changed`, `cleaning.changed`, `ticket.changed`, `settings.changed`, `people.changed`. Clients treat them as invalidate signals and refetch.
+
+Delivery: `settings.changed` / `people.changed` — every authenticated subscriber; `location` / `cleaning` / `ticket` — only when IDs fall inside the subscriber’s `resolveDataScope` (no cross-sector / assignment over-sharing).
+
+### Permissions (role matrix)
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/permissions/matrix` | `permissions.manage` |
+| PUT | `/permissions/roles/:role` | `permissions.manage` |
+| GET | `/permissions/history` | `permissions.manage` |
 
 ### Cleaning
 
@@ -412,15 +498,39 @@ Auth header: `Authorization: Bearer <token>`
 | POST | `/cleaning/tasks/:id/inspect` | `cleaning.inspect` + `{ commandId, result, findings? }` (findings required on reject) |
 | POST | `/cleaning/tasks/:id/reassign` | `cleaning.reassign` |
 | POST | `/cleaning/sessions/:id/complete` | `cleaning.complete` + `{ commandId, notes? }` |
+| POST | `/cleaning/sessions/:id/cancel` | `cleaning.review_overdue` + `{ commandId, notes? }` (running → cancelled; no adjustment) |
 | GET | `/cleaning/sessions/review` | `cleaning.review_overdue` |
 | GET | `/cleaning/employees/housekeepers` | auth |
+
+### Operations (Live board S09)
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/operations/live` | `operations.view_live` |
+
+Aggregator for supervisor/manager: active sessions (elapsed, overdue, anomaly = 2× overdue threshold), just completed (60 min), needs attention (inspection / past due / blocking tickets), ops audit feed from `AuditEvent` (24h, ops-relevant actions). Client polls ~15s with stale/offline indicator.
+
+### Daily plan (S12 / Clock)
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/daily-plan?hotelDate=` | `plan.view` |
+| POST | `/daily-plan` | `plan.manage` — manual entry |
+| POST | `/daily-plan/import` | `plan.manage` — agreed JSON (not a live PMS) |
+| DELETE | `/daily-plan/:id` | `plan.manage` |
+
+Import resolves rooms by `buildingCode` + `roomNumber`, writes `source=import`, stores a `DailyPlanImportBatch`, and is idempotent on `externalId` / existing rows (manual entries are never overwritten). Example: `api/fixtures/daily-plan-import.example.json`.
 
 ### Maintenance
 
 | Method | Path | Permission |
 |---|---|---|
+| GET | `/maintenance/categories` | `tickets.report` |
+| POST/PATCH | `/maintenance/categories`, `…/:id/archive` | `issue_options.manage` |
+| GET | `/maintenance/issue-options` | `tickets.report` |
+| POST/PATCH | `/maintenance/issue-options`, `…/reorder`, `…/:id/archive` | `issue_options.manage` |
 | GET | `/maintenance/tickets` | auth (`status=open\|all\|resolved`, `locationId`, `limit`) |
-| POST | `/maintenance/tickets` | auth (report) |
+| POST | `/maintenance/tickets` | `tickets.report` — `issueOptionId` **or** `categoryId`+`title` |
 | POST | `/maintenance/tickets/:id/resolve` | `tickets.resolve` + `{ resolutionNotes? }` |
 
 ### People
@@ -429,6 +539,19 @@ Auth header: `Authorization: Bearer <token>`
 |---|---|---|
 | GET | `/people` | `people.view` (`q`, `role`, `includeInactive`) |
 | PATCH | `/people/:id/role` | `people.change_role` + `{ role }` |
+
+### Attendance (S13)
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/attendance/intervals` | `attendance.view` (`scope=month\|today\|week\|review`, `month`, `department`, `q`) |
+| GET | `/attendance/intervals/:id` | `attendance.view` |
+| GET | `/attendance/export.csv` | `attendance.view` (same filters) |
+| POST | `/attendance/events` | `attendance.ingest` — simulated terminal; idempotent on `(source, externalEventId)` |
+| POST | `/attendance/adjustments` | `attendance.request_adjustment` |
+| POST | `/attendance/adjustments/:id/review` | `attendance.approve_adjustment` + `{ decision: approved\|rejected }` |
+
+Original `AttendanceEvent` rows are never mutated on approved correction. Overnight shift is one interval; `hotelDate` = start date in `operations.hotelTimezone`.
 
 ### Health
 
@@ -481,7 +604,7 @@ Extra HK / tech / managers are also seeded.
 2. Owner is never hidden from a panel and never blocked on a known action.
 3. Manager does not manage owner/admin identities.
 4. Idempotency via `commandId` on critical commands.
-5. JWT ~12h; missing token → 401.
+5. Access JWT ~15m in httpOnly cookie (+ refresh ~14d); missing/invalid session → 401.
 6. Readiness is derived — not stored as a DB column.
 7. Postgres on host **5433**, not 5432.
 
@@ -499,29 +622,30 @@ maintenance/
 │   └── src/
 │       ├── permissions.ts
 │       ├── middleware/auth.ts
-│       ├── routes/ (auth, rooms, cleaning, maintenance, people)
+│       ├── routes/ (auth, rooms, cleaning, maintenance, people, settings, events)
+│       ├── events/bus.ts
 │       └── services/ (cleaning, readiness, maintenance)
 └── web/src/
     ├── App.tsx            # nav + landing from capabilities
     ├── api/client.ts
+    ├── hooks/useLiveRefresh.ts
     ├── theme.ts
-    └── pages/ (Login, Home, Rooms, Team, Control)
+    ├── offline/           # IndexedDB queue + My Work cache
+    ├── pages/ (Login, MyWork, Repairs, Audit, Home, Rooms, Team, Plan, Attendance, Cards, Results, Analytics, Control, Settings, Permissions)
 ```
 
 ---
 
 ## Roadmap
 
-After the current P0 foundation (not built yet):
+After the current foundation (not built yet):
 
-- **My Work** — personal queues for HK / technician
-- **Repairs** as a dedicated panel
-- **Sectors / zones / shifts**
-- **Attendance**
-- **Cards / badges**, **Analytics**
+- Physical card encoder adapter (hardware)
 - New roles (e.g. `hk_lead`)
-- DB permission tables + audit log
 - Drive all UI buttons from `actions[]` (no ad-hoc role ifs)
+- QR scan → confirm start/complete (identify only today)
+- Live PMS/Clock import adapters (`DailyPlanImportBatch` / JobRun skeleton exists)
+- QR scan → confirm start/complete (currently identify only)
 
 ---
 

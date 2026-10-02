@@ -47,26 +47,39 @@ Readiness **не е един статус**, а композиция от няк
 | Login / logout (JWT) | ✅ | Login |
 | Capabilities (`panels`, `actions`, `landing`) | ✅ | `/auth/me`, login |
 | Списък стаи + readiness reasons | ✅ | Rooms |
-| Mark dirty | ✅ | Rooms / API |
+| Общи части (каталог + cleaning/tickets) | ✅ | Общи части / `/common-areas` |
+| Mark dirty | ✅ | Rooms, Общи части / API |
 | Създаване на cleaning task + assign HK | ✅ | Rooms, Control |
 | Start / Complete cleaning session | ✅ | Rooms |
 | Inspect approve / reject (+ findings) | ✅ | Rooms |
 | Reassign task | ✅ | Rooms / API |
 | Overdue sessions (> 4h running) | ✅ | Rooms (supervisor+), API |
-| Report maintenance issue (blocking / non-blocking) | ✅ | Rooms |
+| Live табло (S09) | ✅ | Табло / `/operations/live` |
+| Report maintenance issue (blocking / non-blocking) | ✅ | Rooms, Home |
+| Каталог повреди — категории + опции (S10) | ✅ | Настройки → „Опции за проблеми“ |
 | Resolve issue | ✅ | Home, Rooms |
 | Home feed — отворени проблеми | ✅ | Home |
 | Team — списък хора / филтри | ✅ | Team |
 | Control — смяна на роли | ✅ | Control |
+| Настройки (модули, флагове, операции, хронология) | ✅ | Настройки / `/settings` |
+| Права — DB-driven матрица роли × панели/actions | ✅ | Права / `/permissions` |
 | Owner = суперпотребител (всички панели + actions) | ✅ | permissions |
 | Dark / light тема | ✅ | цялото UI |
-| My Work / персонална опашка | ❌ | roadmap |
-| Отделен Repairs панел | ❌ | roadmap |
-| Сектори / зони / смени | ❌ | roadmap |
-| Присъствие (attendance) | ❌ | roadmap |
-| Analytics / карти / badge-и | ❌ | roadmap |
-| Одит лог | ❌ | roadmap |
-| DB-driven permissions | ❌ | roadmap |
+| Live updates (SSE) | ✅ | `/events/stream` |
+| Дневен план Clock (S12) | ✅ | План / `/daily-plan` (+ JSON импорт; без реален PMS) |
+| My Work / персонална опашка | ✅ | Моите задачи / `/my-work` + PWA |
+| Отделен Repairs панел | ✅ | Повреди / `/maintenance` lifecycle UI |
+| Сектори / смени (панел Почистване) | ✅ | Почистване / `/sectors`, `/shifts` |
+| Snapshot сектор + отговорник на задача | ✅ | `CleaningTask.sectorId` / `sectorSupervisorEmployeeId` |
+| Data scope „мои сектори“ (супервайзър) | ✅ | `dataScope` + Live/Plan/Rooms/Results/Analytics + ticket create, sync push, sectors (own), live audit/SSE |
+| QR за помещения | ✅ | таб QR + `#/room-qr/:token` (само identify) |
+| Присъствие (attendance) | ✅ | Присъствие / `/attendance` |
+| Analytics — резултати по камериер | ✅ | Резултати / `/cleaning/results` |
+| Умна аналитика (S14, §9) | ✅ | Аналитика / `/analytics/summary` |
+| Карти (S11) — UI + БД, без хардуер | ✅ | Карти / `/cards` |
+| Одит лог | ✅ | Одит / `/audit` (+ JobRun в панела) |
+| Offline sync | ✅ | IndexedDB outbox + `/sync/push|pull` |
+| Фонови jobs | ✅ | in-process scheduler (lock / overdue / SLA) |
 
 ---
 
@@ -75,7 +88,7 @@ Readiness **не е един статус**, а композиция от няк
 | Част | Технология |
 |---|---|
 | `api/` | Node.js, Express, TypeScript, Prisma, JWT, Zod, bcrypt |
-| `web/` | Vite, React, TypeScript |
+| `web/` | Vite, React, TypeScript, PWA (vite-plugin-pwa) |
 | DB | PostgreSQL 16 (Docker), хост порт **5433** |
 
 ```bash
@@ -107,21 +120,23 @@ npm run dev
 Property (Meridian Resort)
   └── Building (MAIN | ANNEX | ROYAL)
         └── Floor
-              └── Location (стая / помещения)
+              └── Location (kind: room | common_area)
 ```
 
-**Location** е оперативната единица. Върху нея висят cleaning tasks и maintenance tickets.
+**Location** е оперативната единица. Върху нея висят cleaning tasks и maintenance tickets.  
+`kind` разделя стаи и общи части; Rooms UI / `/rooms` показва само `room`, панел „Общи части“ / `/common-areas` — само `common_area`.
 
 ### Измерения на Location (независими)
 
 | Поле | Enum / смисъл |
 |---|---|
-| `catalogStatus` | `active` \| `archived` — дали стаята изобщо е в каталога |
-| `occupancy` | `vacant` \| `occupied` \| `unknown` — заетост |
+| `kind` | `room` \| `common_area` |
+| `catalogStatus` | `active` \| `archived` — дали локацията е в каталога |
+| `occupancy` | `vacant` \| `occupied` \| `unknown` — заетост (**само за стаи** в readiness) |
 | `cleaningStatus` | `dirty` → `in_progress` → `pending_inspection` → `verified_clean` |
 | `serviceStatus` | `in_service` \| `out_of_service` \| `unknown` — технически в експлоатация |
 
-Тези полета **не се сриват** в един „статус на стаята“. UI и readiness ги показват отделно.
+Тези полета **не се сриват** в един „статус“. UI и readiness ги показват отделно.
 
 ### Хора
 
@@ -135,10 +150,10 @@ Property (Meridian Resort)
 | Entity | Смисъл |
 |---|---|
 | `CleaningTask` | Задача за почистване за `hotelDate`, приоритет, assignee, `status`, `version` |
-| `CleaningSession` | Конкретна работна сесия (start→complete), idempotency ключове; optional `notes` при complete |
+| `CleaningSession` | Конкретна работна сесия (start→complete|cancel), idempotency ключове; optional `notes`; няма pause / adjustment |
 | `Inspection` | Approve/reject от инспектор + `findings` (задължителни при reject) |
 
-**TaskStatus:** `assigned` → `in_progress` → `awaiting_inspection` → `completed` (или `cancelled`).
+**TaskStatus:** `assigned` → `in_progress` → `awaiting_inspection` → `completed` (или `cancelled`). При reject → `rework` (същата задача; нова сесия при следващ Start).
 
 **SessionStatus:** `running` \| `completed` \| `cancelled`.
 
@@ -146,10 +161,12 @@ Property (Meridian Resort)
 
 | Entity | Смисъл |
 |---|---|
-| `MaintenanceTicket` | Ремонтен проблем по location; `blocksRoom` влияе на readiness; при resolve: `resolvedBy`, `resolvedAt`, `resolutionNotes` |
+| `MaintenanceCategory` | Конфигурируеми категории (key, BG/EN име, подредба, active/archived) |
+| `IssueOption` | Предварително зададени опции за сигнал (вид, категория, defaults) |
+| `MaintenanceTicket` | Ремонтен проблем по location; snapshot на категорията (`categoryKey`, labels); optional `issueOptionId`; `blocksRoom` влияе на readiness |
 
 **TicketStatus:** `new` \| `in_progress` \| `resolved` \| `closed`.  
-**Category:** climate, electrical, furniture, plumbing, other.  
+**Категория на тикет:** snapshot при създаване (промяна в каталога не променя историята).  
 **Priority:** low, normal, high, urgent.
 
 ---
@@ -163,15 +180,16 @@ Property (Meridian Resort)
 ### Правила (по ред)
 
 1. `catalogStatus !== active` → **not_ready** (`archived`)
-2. `occupancy` или `serviceStatus` = `unknown` → **needs_check**
+2. За **стаи**: `occupancy` или `serviceStatus` = `unknown` → **needs_check**  
+   За **общи части**: само `serviceStatus` = `unknown` → **needs_check** (occupancy се игнорира)
 3. Иначе събира reasons:
    - `blocking_issue` — има отворен ticket с `blocksRoom`
-   - `not_vacant` — occupancy ≠ vacant
+   - `not_vacant` — occupancy ≠ vacant (**само стаи**)
    - `cleaning_*` — cleaningStatus ≠ verified_clean
    - `out_of_service` — serviceStatus ≠ in_service
 4. Ако няма reasons → **ready**, иначе **not_ready**
 
-**Важно:** complete на почистване **не** прави стаята ready. Само **approved inspection** → `verified_clean`.
+**Важно:** complete на почистване **не** прави локацията ready. Само **approved inspection** → `verified_clean`.
 
 ---
 
@@ -194,8 +212,9 @@ Property (Meridian Resort)
    ┌────┴────┐
    ▼         ▼
 [Approve]  [Reject]
- verified   rework / findings
- clean      (стаята НЕ е verified_clean)
+ verified   task → rework + findings
+ clean      (стаята → dirty; предишните сесии се пазят;
+             нова сесия при следващ Start)
 ```
 
 ### Кой какво прави (API actions)
@@ -228,13 +247,14 @@ Property (Meridian Resort)
 
 ### Създаване (Report issue)
 
-От Rooms UI / `POST /maintenance/tickets`:
+От Rooms / Home UI или `POST /maintenance/tickets` (action `tickets.report`):
 
-- `title`, `category`, `priority`, `blocksRoom`
+- **От опция:** `issueOptionId`, optional `title` override, `priority`, `blocksRoom`
+- **Свободен текст:** `title` + `categoryId` (активна категория), `priority`, `blocksRoom`
 - `reportedBy` = текущият employee
 - опционален `commandId` за идемпотентност
 
-Всеки логнат потребител може да репортва (authenticated).
+Каталог: `GET /maintenance/categories`, `GET /maintenance/issue-options` (report). Управление: action `issue_options.manage` (manager/admin) в Настройки.
 
 ### Блокиране на стая
 
@@ -254,7 +274,8 @@ Body (опционално): `{ resolutionNotes?: string }`.
 
 ## Хора, роли и права
 
-Централен регистър: **`api/src/permissions.ts`**.
+Централен каталог + defaults: **`api/src/permissions.ts`**.  
+Runtime grants: таблица **`RoleGrant`** (редакция през панел Права).
 
 ### Роли
 
@@ -274,6 +295,14 @@ Body (опционално): `{ resolutionNotes?: string }`.
 2. **`manager`** може Control и `people.change_role`, но **403** при опит да зададе/промени `owner` или `admin`.
 3. Не може да се demote **последният активен owner**.
 4. Auth винаги е задължителен; owner ≠ anonymous.
+5. **Capability ≠ data scope.** `RoleGrant` (панел/action) решава *дали* можеш действието. Отделен слой **`dataScope`** (§5) ограничава *кои* редове виждаш/променяш:
+   - `owner` / `manager` / `admin` / `reception` → целия обект
+   - `supervisor` → сектори с `primarySupervisorEmployeeId = me`
+   - `housekeeper` → задачи с `assignedEmployeeId = me` (+ стаи/тикети свързани с тях)
+   - `technician` → тикети с `assigneeId = me` (+ техните помещения)
+   - List API филтрира; директен достъп извън обхвата → **403** (не 404 / „няма данни“)
+   - Покрити пътища: rooms/tasks/tickets (вкл. create), sync push, sectors CRUD (само свои), live audit + SSE
+6. **Исторически назначения** пазят `CleaningTask.sectorId` и `sectorSupervisorEmployeeId` към момента на създаване (не се презаписват при местене на стая в друг сектор).
 
 ### Панели
 
@@ -281,8 +310,11 @@ Body (опционално): `{ resolutionNotes?: string }`.
 |---|---|
 | `home` | всички |
 | `rooms` | всички |
+| `common` | всички (същите като `rooms`) |
 | `team` | supervisor, manager, admin, owner |
 | `control` | manager, owner |
+| `settings` | manager, admin, owner |
+| `permissions` | manager, admin, owner |
 
 ### Landing след login
 
@@ -309,6 +341,8 @@ tickets.resolve
 people.view
 people.change_role
 control.access
+settings.manage
+permissions.manage
 ```
 
 Login и `GET /auth/me` връщат `panels[]`, `actions[]`, `landing`.  
@@ -321,8 +355,11 @@ Middleware: `requireAction(action)` ползва `canPerform` (owner → allow).
 |---|---|---|---|---|---|---|---|
 | Home | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Rooms | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Общи части | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Team | | | | ✓ | ✓ | ✓ | ✓ |
 | Control | | | | | ✓ | | ✓ |
+| Настройки | | | | | ✓ | ✓ | ✓ |
+| Права | | | | | ✓ | ✓ | ✓ |
 
 ### Матрица ключови actions × роля
 
@@ -337,6 +374,8 @@ Middleware: `requireAction(action)` ползва `canPerform` (owner → allow).
 | people.view | | | | ✓ | ✓ | ✓ | ✓ |
 | people.change_role | | | | | ✓ | | ✓ |
 | control.access | | | | | ✓ | | ✓ |
+| settings.manage | | | | | ✓ | ✓ | ✓ |
+| permissions.manage | | | | | ✓ | ✓ | ✓ |
 
 *(Owner колоната е винаги ✓ за всички известни actions.)*
 
@@ -385,22 +424,62 @@ Middleware: `requireAction(action)` ползва `canPerform` (owner → allow).
 ## API
 
 Base: `http://localhost:4000`  
-Auth header: `Authorization: Bearer <token>`
+Auth: httpOnly cookies (`session` access JWT ~15m, `refresh` ~14d) + CSRF double-submit (`csrf` cookie + `X-CSRF-Token`). Scripts may use `Authorization: Bearer <access>`. Browser default API base: `/api` (Vite proxy → API).
 
 ### Auth
 
 | Method | Path | Body / бележки |
 |---|---|---|
-| POST | `/auth/login` | `{ email, password }` → `{ token, user }` с capabilities |
-| GET | `/auth/me` | текущ user + `panels`, `actions`, `landing` |
+| POST | `/auth/login` | `{ email, password }` → `{ user, expiresIn }` + Set-Cookie (session/refresh/csrf) |
+| POST | `/auth/refresh` | refresh cookie → нови cookies + `{ ok, expiresIn }` |
+| POST | `/auth/logout` | revoke текуща сесия + clear cookies |
+| POST | `/auth/logout-all` | auth — revoke всички сесии на user + clear cookies |
+| GET | `/auth/me` | auth → user + capabilities |
 
 ### Rooms
 
 | Method | Path | Право |
 |---|---|---|
-| GET | `/rooms` | auth |
+| GET | `/rooms` | auth (`kind=room`) |
 | GET | `/rooms/:id` | auth |
 | POST | `/rooms/:id/mark-dirty` | `rooms.mark_dirty` |
+
+### Common areas
+
+| Method | Path | Право |
+|---|---|---|
+| GET | `/common-areas` | auth (`kind=common_area`) |
+| GET | `/common-areas/:id` | auth |
+| POST | `/common-areas/:id/mark-dirty` | `rooms.mark_dirty` |
+
+### Settings
+
+| Method | Path | Право |
+|---|---|---|
+| GET | `/settings/public` | auth (modules, interface, operations subset, flags subset) |
+| GET | `/settings` | `settings.manage` |
+| GET | `/settings/system` | `settings.manage` |
+| GET | `/settings/history` | `settings.manage` |
+| PATCH | `/settings/:key` | `settings.manage` |
+
+### Live events (SSE)
+
+| Method | Path | Право |
+|---|---|---|
+| POST | `/events/ticket` | auth (Bearer) — краткоживущ ticket (~5 мин, `purpose=sse`) за EventSource |
+| GET | `/events/stream` | auth: cookie session, Bearer access JWT, или `?ticket=` (краткоживущ SSE ticket). |
+
+Събития: `connected`, `location.changed`, `cleaning.changed`, `ticket.changed`, `settings.changed`, `people.changed`. Клиентите ги ползват като invalidate и презареждат.
+
+Доставка: `settings.changed` / `people.changed` — към всеки логнат; `location` / `cleaning` / `ticket` — само ако ID-тата са в `resolveDataScope` на абоната (без over-sharing между сектори/назначения).
+
+### Permissions (role matrix)
+
+| Method | Path | Право |
+|---|---|---|
+| GET | `/permissions/matrix` | `permissions.manage` |
+| PUT | `/permissions/roles/:role` | `permissions.manage` |
+| GET | `/permissions/history` | `permissions.manage` |
 
 ### Cleaning
 
@@ -412,15 +491,55 @@ Auth header: `Authorization: Bearer <token>`
 | POST | `/cleaning/tasks/:id/inspect` | `cleaning.inspect` + `{ commandId, result, findings? }` (findings задължителни при reject) |
 | POST | `/cleaning/tasks/:id/reassign` | `cleaning.reassign` |
 | POST | `/cleaning/sessions/:id/complete` | `cleaning.complete` + `{ commandId, notes? }` |
+| POST | `/cleaning/sessions/:id/cancel` | `cleaning.review_overdue` + `{ commandId, notes? }` (running → cancelled; без adjustment) |
 | GET | `/cleaning/sessions/review` | `cleaning.review_overdue` |
 | GET | `/cleaning/employees/housekeepers` | auth |
+| GET | `/cleaning/results?from=&to=&page=&pageSize=` | `cleaning.results_view` (scoped) |
+
+Резултати по камериер (S07–S08): агрегира completed sessions в периода. KPI — брой камериери с работа, почистени сесии, навреме % (`finishedAt ≤ dueAt`), производителност (сесии / сесийни часове). Графика по час; таблица с пагинация. При create/reassign задачата записва `sectorId` + `sectorSupervisorEmployeeId` snapshot.
+
+### Сектори / смени / QR
+
+| Method | Path | Право |
+|---|---|---|
+| GET | `/sectors` | `sectors.manage` |
+| GET | `/sectors/mine` | auth — активни сектори с primary supervisor = текущия служител |
+| GET/POST/PATCH | `/sectors`, `…/:id`, `…/:id/locations` | `sectors.manage` |
+| GET/POST/PATCH | `/shifts`, `…/:id` | `shifts.manage` |
+| GET | `/locations/:id/qr` | `sectors.manage` — payload + scan URL |
+| GET | `/locations/by-qr/:token` | auth — идентифицира помещение (без auto start/complete) |
+
+Scan UI: `#/room-qr/:token`. Печат: таб QR в Почистване.
+
+### Operations (Live board S09)
+
+| Method | Path | Право |
+|---|---|---|
+| GET | `/operations/live` | `operations.view_live` |
+
+Агрегат за супервайзър/мениджър: активни сесии (elapsed, overdue, anomaly = 2× overdue праг), току-що завършени (60 мин), needs attention (инспекция / past due / blocking tickets), одит feed (инспекции + completes, 24ч). Клиентът ползва polling ~15s и stale/offline индикатор.
+
+### Daily plan (S12 / Clock)
+
+| Method | Path | Право |
+|---|---|---|
+| GET | `/daily-plan?hotelDate=` | `plan.view` |
+| POST | `/daily-plan` | `plan.manage` — ръчен запис |
+| POST | `/daily-plan/import` | `plan.manage` — договорен JSON (не жив PMS) |
+| DELETE | `/daily-plan/:id` | `plan.manage` |
+
+Импортът резолва стаи по `buildingCode` + `roomNumber`, пише `source=import`, пази `DailyPlanImportBatch` и е идемпотентен по `externalId` / съществуващ запис (ръчните не се презаписват). Пример: `api/fixtures/daily-plan-import.example.json`.
 
 ### Maintenance
 
 | Method | Path | Право |
 |---|---|---|
+| GET | `/maintenance/categories` | `tickets.report` (`includeInactive` за admin UI) |
+| POST/PATCH | `/maintenance/categories`, `…/:id/archive` | `issue_options.manage` |
+| GET | `/maintenance/issue-options` | `tickets.report` |
+| POST/PATCH | `/maintenance/issue-options`, `…/reorder`, `…/:id/archive` | `issue_options.manage` |
 | GET | `/maintenance/tickets` | auth (`status=open\|all\|resolved`, `locationId`, `limit`) |
-| POST | `/maintenance/tickets` | auth (report) |
+| POST | `/maintenance/tickets` | `tickets.report` — `issueOptionId` **или** `categoryId`+`title` |
 | POST | `/maintenance/tickets/:id/resolve` | `tickets.resolve` + `{ resolutionNotes? }` |
 
 ### People
@@ -429,6 +548,19 @@ Auth header: `Authorization: Bearer <token>`
 |---|---|---|
 | GET | `/people` | `people.view` (`q`, `role`, `includeInactive`) |
 | PATCH | `/people/:id/role` | `people.change_role` + `{ role }` |
+
+### Attendance (S13)
+
+| Method | Path | Право |
+|---|---|---|
+| GET | `/attendance/intervals` | `attendance.view` (`scope=month\|today\|week\|review`, `month`, `department`, `q`) |
+| GET | `/attendance/intervals/:id` | `attendance.view` |
+| GET | `/attendance/export.csv` | `attendance.view` (същите филтри) |
+| POST | `/attendance/events` | `attendance.ingest` — симулиран терминал; идемпотентно по `(source, externalEventId)` |
+| POST | `/attendance/adjustments` | `attendance.request_adjustment` |
+| POST | `/attendance/adjustments/:id/review` | `attendance.approve_adjustment` + `{ decision: approved\|rejected }` |
+
+Оригиналните `AttendanceEvent` записи не се мутират при одобрена корекция. Нощна смяна е един интервал; `hotelDate` = дата на началото в `operations.hotelTimezone`.
 
 ### Health
 
@@ -481,7 +613,7 @@ Auth header: `Authorization: Bearer <token>`
 2. Owner никога не е скрит от панел и не е блокиран на известен action.
 3. Manager не управлява owner/admin identities.
 4. Idempotency чрез `commandId` на критични команди.
-5. JWT ~12h; без token → 401.
+5. Access JWT ~15m в httpOnly cookie (+ refresh ~14d); без валидна сесия → 401.
 6. Readiness е derived — не се пази като колона в DB.
 7. Postgres на хост **5433**, не 5432.
 
@@ -499,29 +631,29 @@ maintenance/
 │   └── src/
 │       ├── permissions.ts
 │       ├── middleware/auth.ts
-│       ├── routes/ (auth, rooms, cleaning, maintenance, people)
+│       ├── routes/ (auth, rooms, cleaning, maintenance, people, settings, events)
+│       ├── events/bus.ts
 │       └── services/ (cleaning, readiness, maintenance)
 └── web/src/
     ├── App.tsx            # nav + landing от capabilities
     ├── api/client.ts
+    ├── hooks/useLiveRefresh.ts
     ├── theme.ts
-    └── pages/ (Login, Home, Rooms, Team, Control)
+    ├── offline/           # IndexedDB queue + My Work cache
+    ├── pages/ (Login, MyWork, Repairs, Audit, Home, Rooms, Team, Plan, Attendance, Cards, Results, Analytics, Control, Settings, Permissions)
 ```
 
 ---
 
 ## Roadmap
 
-След текущия P0 foundation (още не имплементирано):
+След текущия foundation (още не имплементирано):
 
-- **My Work** — персонални опашки за HK / technician
-- **Repairs** като отделен панел
-- **Sectors / zones / shifts**
-- **Attendance**
-- **Cards / badges**, **Analytics**
+- Физически encoder адаптер за карти (хардуер)
 - Нови роли (напр. `hk_lead`)
-- Permission tables в DB + одит лог
 - UI бутони изцяло от `actions[]` (без ad-hoc role if-ове)
+- QR scan → confirm start/complete (сега само идентификация)
+- Реални PMS/Clock импорт адаптери (скелетът `DailyPlanImportBatch` / JobRun е наличен)
 
 ---
 

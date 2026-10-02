@@ -17,6 +17,11 @@ enum Role {
   owner
 }
 
+enum LocationKind {
+  room
+  common_area
+}
+
 enum CatalogStatus {
   active
   archived
@@ -45,6 +50,7 @@ enum TaskStatus {
   assigned
   in_progress
   awaiting_inspection
+  rework
   completed
   cancelled
 }
@@ -67,17 +73,16 @@ enum InspectionResult {
   rejected
 }
 
-enum TicketCategory {
-  climate
-  electrical
-  furniture
-  plumbing
-  other
+enum IssueOptionKind {
+  maintenance
+  housekeeping
 }
 
 enum TicketStatus {
   new
+  assigned
   in_progress
+  waiting
   resolved
   closed
 }
@@ -86,6 +91,7 @@ model Property {
   id        String     @id @default(cuid())
   name      String
   buildings Building[]
+  sectors   Sector[]
   createdAt DateTime   @default(now())
 }
 
@@ -118,48 +124,153 @@ model Location {
   floorId            String
   floor              Floor               @relation(fields: [floorId], references: [id])
   number             String
+  kind               LocationKind        @default(room)
   catalogStatus      CatalogStatus       @default(active)
   occupancy          Occupancy           @default(unknown)
   cleaningStatus     CleaningStatus      @default(dirty)
   serviceStatus      ServiceStatus       @default(in_service)
+  /** Stable token for room QR identify payload (§4.2 / Phase B). */
+  qrToken            String              @unique @default(cuid())
   cleaningTasks      CleaningTask[]
   maintenanceTickets MaintenanceTicket[]
+  dailyPlanEntries   DailyPlanEntry[]
+  accessGrants       AccessGrant[]
+  sectorMembership   SectorLocation?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
   @@unique([floorId, number])
+  @@index([kind, catalogStatus])
 }
 
 model Employee {
-  id                 String              @id @default(cuid())
-  employeeNumber     String              @unique
-  fullName           String
-  department         String?
-  user               User?
-  assignedTasks      CleaningTask[]      @relation("TaskAssignee")
-  cleaningSessions   CleaningSession[]
-  inspections        Inspection[]        @relation("Inspector")
-  reportedTickets    MaintenanceTicket[] @relation("TicketReporter")
-  assignedTickets    MaintenanceTicket[] @relation("TicketAssignee")
-  resolvedTickets    MaintenanceTicket[] @relation("TicketResolver")
-  createdAt          DateTime            @default(now())
+  id                      String                   @id @default(cuid())
+  employeeNumber          String                   @unique
+  fullName                String
+  department              String?
+  user                    User?
+  devices                 Device[]
+  invitations             Invitation[]
+  assignedTasks           CleaningTask[]           @relation("TaskAssignee")
+  sectorSupervisedTasks   CleaningTask[]           @relation("TaskSectorSupervisor")
+  cleaningSessions        CleaningSession[]
+  inspections             Inspection[]             @relation("Inspector")
+  reportedTickets         MaintenanceTicket[]      @relation("TicketReporter")
+  assignedTickets         MaintenanceTicket[]      @relation("TicketAssignee")
+  resolvedTickets         MaintenanceTicket[]      @relation("TicketResolver")
+  closedTickets           MaintenanceTicket[]      @relation("TicketCloser")
+  ticketReopens           TicketReopenEvent[]
+  ticketEvents            TicketEvent[]
+  attendanceEvents        AttendanceEvent[]
+  attendanceIntervals     AttendanceInterval[]
+  attendanceAdjustmentsRequested AttendanceAdjustment[] @relation("AdjustmentRequester")
+  attendanceAdjustmentsReviewed  AttendanceAdjustment[] @relation("AdjustmentReviewer")
+  dailyPlanEntries        DailyPlanEntry[]
+  dailyPlanImportBatches  DailyPlanImportBatch[]
+  accessCards             AccessCard[]             @relation("CardHolder")
+  issuedAccessCards       AccessCard[]             @relation("CardIssuer")
+  issuedAccessGrants      AccessGrant[]            @relation("GrantIssuer")
+  supervisedSectors       Sector[]                 @relation("SectorSupervisor")
+  auditEvents             AuditEvent[]
+  createdAt               DateTime                 @default(now())
 }
 
 model User {
-  id           String   @id @default(cuid())
-  employeeId   String   @unique
-  employee     Employee @relation(fields: [employeeId], references: [id])
-  email        String   @unique
-  passwordHash String
-  role         Role
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
+  id                 String        @id @default(cuid())
+  employeeId         String        @unique
+  employee           Employee      @relation(fields: [employeeId], references: [id])
+  email              String        @unique
+  passwordHash       String
+  role               Role
+  isActive           Boolean       @default(true)
+  activatedAt        DateTime?
+  lastLoginAt        DateTime?
+  devices            Device[]
+  authSessions       AuthSession[]
+  invitationsCreated Invitation[]  @relation("InvitationCreator")
+  syncRuns           SyncRun[]
+  createdAt          DateTime      @default(now())
+}
+
+enum InvitationStatus {
+  issued
+  consumed
+  expired
+  revoked
+}
+
+model Invitation {
+  id               String           @id @default(cuid())
+  codeHash         String           @unique
+  codeHint         String
+  employeeId       String
+  employee         Employee         @relation(fields: [employeeId], references: [id])
+  role             Role
+  email            String
+  status           InvitationStatus @default(issued)
+  expiresAt        DateTime
+  createdByUserId  String
+  createdBy        User             @relation("InvitationCreator", fields: [createdByUserId], references: [id])
+  consumedAt       DateTime?
+  consumedDeviceId String?          @unique
+  consumedDevice   Device?          @relation(fields: [consumedDeviceId], references: [id])
+  revokedAt        DateTime?
+  createdAt        DateTime         @default(now())
+
+  @@index([status, expiresAt])
+  @@index([employeeId, status])
+}
+
+model Device {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  employeeId   String
+  employee     Employee      @relation(fields: [employeeId], references: [id])
+  label        String
+  fingerprint  String
+  activatedAt  DateTime      @default(now())
+  lastSeenAt   DateTime      @default(now())
+  lastSyncedAt DateTime?
+  revokedAt    DateTime?
+  invitation   Invitation?
+  authSessions AuthSession[]
+  syncRuns     SyncRun[]
+  createdAt    DateTime      @default(now())
+
+  @@index([userId, revokedAt])
+  @@index([employeeId, revokedAt])
+}
+
+model AuthSession {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId         String?
+  device           Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  replacedById     String?
+  userAgent        String?
+  ip               String?
+  lastUsedAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+
+  @@index([userId, revokedAt])
+  @@index([deviceId, revokedAt])
 }
 
 model CleaningTask {
   id                 String            @id @default(cuid())
   locationId         String
   location           Location          @relation(fields: [locationId], references: [id])
+  /** Sector at assign/create time — stable authority if room later moves (§4.2). */
+  sectorId           String?
+  sector             Sector?           @relation(fields: [sectorId], references: [id], onDelete: SetNull)
+  /** Primary supervisor of that sector at snapshot time (§4.2 отговорник). */
+  sectorSupervisorEmployeeId String?
+  sectorSupervisor   Employee?         @relation("TaskSectorSupervisor", fields: [sectorSupervisorEmployeeId], references: [id], onDelete: SetNull)
   hotelDate          DateTime          @db.Date
   dueAt              DateTime?
   priority           Priority          @default(normal)
@@ -170,11 +281,15 @@ model CleaningTask {
   version            Int               @default(1)
   sessions           CleaningSession[]
   inspections        Inspection[]
+  dailyPlanEntries   DailyPlanEntry[]
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
   @@index([hotelDate, status])
   @@index([locationId, hotelDate])
+  @@index([sectorId])
+  @@index([sectorSupervisorEmployeeId])
+  @@index([assignedEmployeeId, status])
 }
 
 model CleaningSession {
@@ -189,6 +304,8 @@ model CleaningSession {
   status            SessionStatus @default(running)
   startCommandId    String        @unique
   completeCommandId String?       @unique
+  cancelCommandId   String?       @unique
+  anomalyFlags      Json          @default("[]")
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -211,28 +328,426 @@ model Inspection {
   @@index([taskId])
 }
 
+model MaintenanceCategory {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  nameBg    String
+  nameEn    String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  options   IssueOption[]
+  tickets   MaintenanceTicket[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model IssueOption {
+  id                     String              @id @default(cuid())
+  maintenanceCategoryId  String
+  maintenanceCategory    MaintenanceCategory @relation(fields: [maintenanceCategoryId], references: [id])
+  kind                   IssueOptionKind
+  nameBg                 String
+  nameEn                 String
+  defaultPriority        Priority?
+  defaultBlocksRoom      Boolean?
+  sortOrder              Int                 @default(0)
+  isActive               Boolean             @default(true)
+  tickets                MaintenanceTicket[]
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  @@index([maintenanceCategoryId, isActive, sortOrder])
+}
+
+model SlaPolicy {
+  id        String              @id @default(cuid())
+  priority  Priority            @unique
+  hours     Int
+  isActive  Boolean             @default(true)
+  tickets   MaintenanceTicket[]
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+}
+
 model MaintenanceTicket {
-  id                   String         @id @default(cuid())
-  locationId           String
-  location             Location       @relation(fields: [locationId], references: [id])
-  title                String
-  category             TicketCategory
-  priority             Priority       @default(normal)
-  blocksRoom           Boolean        @default(false)
-  status               TicketStatus   @default(new)
-  reportedByEmployeeId String
-  reportedBy           Employee       @relation("TicketReporter", fields: [reportedByEmployeeId], references: [id])
-  assigneeId           String?
-  assignee             Employee?      @relation("TicketAssignee", fields: [assigneeId], references: [id])
-  openedAt             DateTime       @default(now())
-  resolvedAt           DateTime?
-  resolvedByEmployeeId String?
-  resolvedBy           Employee?      @relation("TicketResolver", fields: [resolvedByEmployeeId], references: [id])
-  resolutionNotes      String?
-  commandId            String?        @unique
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  id                     String               @id @default(cuid())
+  locationId             String
+  location               Location             @relation(fields: [locationId], references: [id])
+  title                  String
+  issueOptionId          String?
+  issueOption            IssueOption?         @relation(fields: [issueOptionId], references: [id])
+  maintenanceCategoryId  String?
+  maintenanceCategory    MaintenanceCategory? @relation(fields: [maintenanceCategoryId], references: [id])
+  categoryKey            String
+  categoryLabelBg        String
+  categoryLabelEn        String
+  priority               Priority             @default(normal)
+  blocksRoom             Boolean              @default(false)
+  status                 TicketStatus         @default(new)
+  reportedByEmployeeId   String
+  reportedBy             Employee             @relation("TicketReporter", fields: [reportedByEmployeeId], references: [id])
+  assigneeId             String?
+  assignee               Employee?            @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  openedAt               DateTime             @default(now())
+  dueAt                  DateTime?
+  slaPolicyId            String?
+  slaPolicy              SlaPolicy?           @relation(fields: [slaPolicyId], references: [id])
+  slaHoursSnapshot       Int?
+  slaPausedAt            DateTime?
+  slaPausedMsTotal       Int                  @default(0)
+  resolvedAt             DateTime?
+  resolvedByEmployeeId   String?
+  resolvedBy             Employee?            @relation("TicketResolver", fields: [resolvedByEmployeeId], references: [id])
+  resolutionNotes        String?
+  closedAt               DateTime?
+  closedByEmployeeId     String?
+  closedBy               Employee?            @relation("TicketCloser", fields: [closedByEmployeeId], references: [id])
+  commandId              String?              @unique
+  reopenEvents           TicketReopenEvent[]
+  events                 TicketEvent[]
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
 
   @@index([locationId, status])
   @@index([blocksRoom, status])
+  @@index([openedAt])
+  @@index([dueAt])
+  @@index([categoryKey])
+  @@index([assigneeId, status])
+}
+
+model TicketEvent {
+  id              String            @id @default(cuid())
+  ticketId        String
+  ticket          MaintenanceTicket @relation(fields: [ticketId], references: [id])
+  fromStatus      TicketStatus?
+  toStatus        TicketStatus
+  actorEmployeeId String
+  actor           Employee          @relation(fields: [actorEmployeeId], references: [id])
+  reason          String?
+  payload         Json?
+  occurredAt      DateTime          @default(now())
+
+  @@index([ticketId, occurredAt])
+  @@index([occurredAt])
+}
+
+model TicketReopenEvent {
+  id                    String            @id @default(cuid())
+  ticketId              String
+  ticket                MaintenanceTicket @relation(fields: [ticketId], references: [id])
+  reopenedAt            DateTime          @default(now())
+  reopenedByEmployeeId  String
+  reopenedBy            Employee          @relation(fields: [reopenedByEmployeeId], references: [id])
+  reason                String?
+  previousStatus        TicketStatus
+
+  @@index([ticketId, reopenedAt])
+  @@index([reopenedAt])
+}
+
+model AppSetting {
+  key                   String    @id
+  value                 Json
+  updatedAt             DateTime  @updatedAt
+  updatedByEmployeeId   String?
+}
+
+enum AttendanceEventKind {
+  clock_in
+  break_start
+  break_end
+  clock_out
+}
+
+enum AttendanceIntervalStatus {
+  open
+  closed
+  needs_review
+  adjusted
+}
+
+enum AttendanceAdjustmentStatus {
+  pending
+  approved
+  rejected
+}
+
+model AttendanceEvent {
+  id                String              @id @default(cuid())
+  externalEventId   String
+  source            String              @default("terminal_sim")
+  employeeId        String
+  employee          Employee            @relation(fields: [employeeId], references: [id])
+  kind              AttendanceEventKind
+  deviceTime        DateTime
+  receivedAt        DateTime            @default(now())
+  normalizedTime    DateTime
+  clockSkewSeconds  Int?
+  createdAt         DateTime            @default(now())
+
+  @@unique([source, externalEventId])
+  @@index([employeeId, normalizedTime])
+  @@index([kind, normalizedTime])
+}
+
+model AttendanceInterval {
+  id              String                    @id @default(cuid())
+  employeeId      String
+  employee        Employee                  @relation(fields: [employeeId], references: [id])
+  hotelDate       DateTime                  @db.Date
+  startedAt       DateTime
+  endedAt         DateTime?
+  breakMinutes    Int                       @default(0)
+  workedMinutes   Int?
+  status          AttendanceIntervalStatus  @default(open)
+  anomalyFlags    Json                      @default("[]")
+  startEventId    String?
+  endEventId      String?
+  adjustments     AttendanceAdjustment[]
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@index([employeeId, hotelDate])
+  @@index([status, hotelDate])
+  @@index([hotelDate])
+}
+
+model AttendanceAdjustment {
+  id              String                      @id @default(cuid())
+  intervalId      String
+  interval        AttendanceInterval          @relation(fields: [intervalId], references: [id])
+  requestedById   String
+  requestedBy     Employee                    @relation("AdjustmentRequester", fields: [requestedById], references: [id])
+  reviewedById    String?
+  reviewedBy      Employee?                   @relation("AdjustmentReviewer", fields: [reviewedById], references: [id])
+  status          AttendanceAdjustmentStatus  @default(pending)
+  reason          String
+  proposedStartedAt   DateTime?
+  proposedEndedAt     DateTime?
+  proposedBreakMinutes Int?
+  createdAt       DateTime                    @default(now())
+  reviewedAt      DateTime?
+
+  @@index([intervalId, status])
+  @@index([status, createdAt])
+}
+
+enum DailyPlanCategory {
+  departure
+  arrival
+  priority
+}
+
+enum DailyPlanSource {
+  manual
+  import
+}
+
+enum DailyPlanImportStatus {
+  completed
+  partial
+  failed
+}
+
+model DailyPlanImportBatch {
+  id                  String                 @id @default(cuid())
+  hotelDate           DateTime               @db.Date
+  sourceLabel         String
+  status              DailyPlanImportStatus
+  totalCount          Int                    @default(0)
+  createdCount        Int                    @default(0)
+  skippedCount        Int                    @default(0)
+  errorCount          Int                    @default(0)
+  errors              Json                   @default("[]")
+  createdByEmployeeId String
+  createdBy           Employee               @relation(fields: [createdByEmployeeId], references: [id])
+  entries             DailyPlanEntry[]
+  createdAt           DateTime               @default(now())
+
+  @@index([hotelDate, createdAt])
+}
+
+model DailyPlanEntry {
+  id                  String                 @id @default(cuid())
+  hotelDate           DateTime               @db.Date
+  locationId          String
+  location            Location               @relation(fields: [locationId], references: [id])
+  category            DailyPlanCategory
+  notes               String?
+  source              DailyPlanSource        @default(manual)
+  externalId          String?
+  importBatchId       String?
+  importBatch         DailyPlanImportBatch?  @relation(fields: [importBatchId], references: [id])
+  cleaningTaskId      String?
+  cleaningTask        CleaningTask?          @relation(fields: [cleaningTaskId], references: [id])
+  createdByEmployeeId String
+  createdBy           Employee               @relation(fields: [createdByEmployeeId], references: [id])
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  @@unique([hotelDate, locationId, category])
+  @@unique([source, externalId])
+  @@index([hotelDate, category])
+  @@index([importBatchId])
+}
+
+enum CardType {
+  guest
+  housekeeper
+  maintenance
+  manager
+  master
+}
+
+enum CardStatus {
+  active
+  revoked
+}
+
+model AccessCard {
+  id                  String       @id @default(cuid())
+  cardType            CardType
+  status              CardStatus   @default(active)
+  label               String?
+  employeeId          String?
+  employee            Employee?    @relation("CardHolder", fields: [employeeId], references: [id])
+  issuedByEmployeeId  String
+  issuedBy            Employee     @relation("CardIssuer", fields: [issuedByEmployeeId], references: [id])
+  commandId           String       @unique
+  grants              AccessGrant[]
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@index([status, cardType])
+  @@index([employeeId, status])
+}
+
+model AccessGrant {
+  id                  String     @id @default(cuid())
+  cardId              String
+  card                AccessCard @relation(fields: [cardId], references: [id])
+  locationId          String?
+  location            Location?  @relation(fields: [locationId], references: [id])
+  validFrom           DateTime
+  validUntil          DateTime
+  issuedByEmployeeId  String
+  issuedBy            Employee   @relation("GrantIssuer", fields: [issuedByEmployeeId], references: [id])
+  createdAt           DateTime   @default(now())
+
+  @@index([cardId])
+  @@index([locationId])
+  @@index([validFrom, validUntil])
+}
+
+enum GrantKind {
+  panel
+  action
+}
+
+model RoleGrant {
+  role      Role
+  kind      GrantKind
+  key       String
+  createdAt DateTime @default(now())
+
+  @@id([role, kind, key])
+  @@index([role, kind])
+}
+
+model Sector {
+  id                          String           @id @default(cuid())
+  propertyId                  String
+  property                    Property         @relation(fields: [propertyId], references: [id])
+  code                        String
+  nameBg                      String
+  nameEn                      String
+  primarySupervisorEmployeeId String?
+  primarySupervisor           Employee?        @relation("SectorSupervisor", fields: [primarySupervisorEmployeeId], references: [id])
+  isActive                    Boolean          @default(true)
+  locations                   SectorLocation[]
+  cleaningTasks               CleaningTask[]
+  createdAt                   DateTime         @default(now())
+  updatedAt                   DateTime         @updatedAt
+
+  @@unique([propertyId, code])
+  @@index([propertyId, isActive])
+}
+
+model SectorLocation {
+  sectorId   String
+  locationId String   @unique
+  sector     Sector   @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([sectorId, locationId])
+  @@index([sectorId])
+}
+
+model Shift {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  nameBg    String
+  nameEn    String
+  startTime String
+  endTime   String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model AuditEvent {
+  id              String    @id @default(cuid())
+  actorEmployeeId String?
+  actor           Employee? @relation(fields: [actorEmployeeId], references: [id])
+  action          String
+  entityType      String
+  entityId        String
+  occurredAt      DateTime  @default(now())
+  reason          String?
+  before          Json?
+  after           Json?
+  locationId      String?
+  summary         String?
+
+  @@index([occurredAt])
+  @@index([entityType, entityId, occurredAt])
+  @@index([actorEmployeeId, occurredAt])
+  @@index([locationId, occurredAt])
+  @@index([action, occurredAt])
+}
+
+model JobRun {
+  id         String    @id @default(cuid())
+  jobKey     String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  status     String
+  summary    Json?
+  error      String?
+
+  @@index([jobKey, startedAt])
+  @@index([startedAt])
+}
+
+model SyncRun {
+  id          String    @id @default(cuid())
+  deviceId    String?
+  device      Device?   @relation(fields: [deviceId], references: [id])
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  direction   String
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  status      String
+  accepted    Int       @default(0)
+  rejected    Int       @default(0)
+  conflicts   Json?
+
+  @@index([userId, startedAt])
+  @@index([deviceId, startedAt])
+  @@index([startedAt])
 }

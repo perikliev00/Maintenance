@@ -4,7 +4,7 @@ import { BrandMark } from "../components/BrandMark";
 import type { ThemeMode } from "../theme";
 
 type Props = {
-  onLogin: (token: string, user: AuthUser) => void;
+  onLogin: (user: AuthUser) => void;
   theme: ThemeMode;
   onToggleTheme: () => void;
 };
@@ -21,7 +21,7 @@ export function LoginPage({ onLogin, theme, onToggleTheme }: Props) {
     setError(null);
     try {
       const data = await login(email, password);
-      onLogin(data.token, data.user);
+      onLogin(data.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

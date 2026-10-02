@@ -1,0 +1,195 @@
+import { Router } from "express";
+import { AttendanceEventKind } from "@prisma/client";
+import { z } from "zod";
+import { requireAuth, requireAction } from "../middleware/auth";
+import {
+  getInterval,
+  ingestEvent,
+  intervalsToCsv,
+  listIntervals,
+  maxClockSkewSeconds,
+  requestAdjustment,
+  reviewAdjustment,
+} from "../services/attendance";
+
+export const attendanceRouter = Router();
+
+const scopeSchema = z.enum(["month", "today", "week", "review"]).optional();
+
+function parseListQuery(query: Record<string, unknown>) {
+  return {
+    scope:
+      typeof query.scope === "string" &&
+      ["month", "today", "week", "review"].includes(query.scope)
+        ? (query.scope as "month" | "today" | "week" | "review")
+        : undefined,
+    month: typeof query.month === "string" ? query.month.trim() : undefined,
+    department:
+      typeof query.department === "string" ? query.department.trim() : undefined,
+    q: typeof query.q === "string" ? query.q.trim() : undefined,
+    employeeId:
+      typeof query.employeeId === "string" ? query.employeeId.trim() : undefined,
+  };
+}
+
+attendanceRouter.get(
+  "/intervals",
+  requireAuth,
+  requireAction("attendance.view"),
+  async (req, res, next) => {
+    try {
+      const filter = parseListQuery(req.query as Record<string, unknown>);
+      scopeSchema.parse(filter.scope);
+      const [intervals, maxSkew] = await Promise.all([
+        listIntervals(filter),
+        maxClockSkewSeconds(filter),
+      ]);
+      return res.json({ intervals, maxClockSkewSeconds: maxSkew });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+attendanceRouter.get(
+  "/intervals/:id",
+  requireAuth,
+  requireAction("attendance.view"),
+  async (req, res, next) => {
+    try {
+      const interval = await getInterval(req.params.id);
+      return res.json(interval);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+attendanceRouter.get(
+  "/export.csv",
+  requireAuth,
+  requireAction("attendance.view"),
+  async (req, res, next) => {
+    try {
+      const filter = parseListQuery(req.query as Record<string, unknown>);
+      const intervals = await listIntervals(filter);
+      const csv = intervalsToCsv(intervals);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="attendance.csv"',
+      );
+      return res.send(csv);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+attendanceRouter.post(
+  "/events",
+  requireAuth,
+  requireAction("attendance.ingest"),
+  async (req, res, next) => {
+    try {
+      const schema = z.object({
+        externalEventId: z.string().min(1),
+        source: z.string().min(1).optional(),
+        employeeId: z.string().min(1),
+        kind: z.nativeEnum(AttendanceEventKind),
+        deviceTime: z.string().min(1),
+        receivedAt: z.string().optional(),
+        clockSkewSeconds: z.number().int().nullable().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "validation", details: parsed.error.flatten() });
+      }
+      const result = await ingestEvent(parsed.data);
+      return res.status(result.created ? 201 : 200).json({
+        created: result.created,
+        event: {
+          id: result.event.id,
+          externalEventId: result.event.externalEventId,
+          source: result.event.source,
+          employeeId: result.event.employeeId,
+          kind: result.event.kind,
+          deviceTime: result.event.deviceTime.toISOString(),
+          receivedAt: result.event.receivedAt.toISOString(),
+          normalizedTime: result.event.normalizedTime.toISOString(),
+          clockSkewSeconds: result.event.clockSkewSeconds,
+        },
+        intervalId: result.intervalId,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+attendanceRouter.post(
+  "/adjustments",
+  requireAuth,
+  requireAction("attendance.request_adjustment"),
+  async (req, res, next) => {
+    try {
+      const schema = z.object({
+        intervalId: z.string().min(1),
+        reason: z.string().min(1),
+        proposedStartedAt: z.string().optional(),
+        proposedEndedAt: z.string().optional(),
+        proposedBreakMinutes: z.number().int().min(0).optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "validation", details: parsed.error.flatten() });
+      }
+      const adj = await requestAdjustment({
+        ...parsed.data,
+        requestedById: req.user!.employeeId,
+        actorRole: req.user!.role,
+      });
+      return res.status(201).json({
+        id: adj.id,
+        intervalId: adj.intervalId,
+        status: adj.status,
+        reason: adj.reason,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+attendanceRouter.post(
+  "/adjustments/:id/review",
+  requireAuth,
+  requireAction("attendance.approve_adjustment"),
+  async (req, res, next) => {
+    try {
+      const schema = z.object({
+        decision: z.enum(["approved", "rejected"]),
+        reason: z.string().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "validation", details: parsed.error.flatten() });
+      }
+      const interval = await reviewAdjustment({
+        adjustmentId: req.params.id,
+        reviewedById: req.user!.employeeId,
+        decision: parsed.data.decision,
+        reason: parsed.data.reason,
+      });
+      return res.json(interval);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);

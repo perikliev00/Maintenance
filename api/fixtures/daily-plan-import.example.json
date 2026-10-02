@@ -1,0 +1,27 @@
+{
+  "hotelDate": "2026-10-02",
+  "sourceLabel": "clock",
+  "entries": [
+    {
+      "buildingCode": "MAIN",
+      "roomNumber": "110",
+      "category": "departure",
+      "notes": "Check-out 11:00",
+      "externalId": "clock:dep:MAIN:110:2026-10-02"
+    },
+    {
+      "buildingCode": "MAIN",
+      "roomNumber": "111",
+      "category": "arrival",
+      "notes": "ETA 15:00",
+      "externalId": "clock:arr:MAIN:111:2026-10-02"
+    },
+    {
+      "buildingCode": "ANNEX",
+      "roomNumber": "A101",
+      "category": "priority",
+      "notes": "VIP",
+      "externalId": "clock:pri:ANNEX:A101:2026-10-02"
+    }
+  ]
+}

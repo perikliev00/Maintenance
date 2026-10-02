@@ -2,12 +2,17 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ROLE_LABELS,
   assignableRolesFor,
+  assignIssue,
+  canAssignIssues,
+  canCloseIssues,
+  canResolveIssues,
+  closeIssue,
   createCleaningTask,
   fetchHousekeepers,
   fetchPeople,
   fetchRooms,
   fetchTickets,
-  resolveIssue,
+  reopenIssue,
   todayHotelDate,
   updatePersonRole,
   type AuthUser,
@@ -16,6 +21,8 @@ import {
   type Role,
   type Room,
 } from "../api/client";
+import { TicketLifecycleActions } from "../components/TicketLifecycleActions";
+import { useLiveRefresh } from "../hooks/useLiveRefresh";
 
 type Props = {
   user: AuthUser;
@@ -48,6 +55,19 @@ export function ControlPage({ user }: Props) {
   const [taskAssigneeId, setTaskAssigneeId] = useState("");
   const [taskPriority, setTaskPriority] = useState("normal");
   const [creatingTask, setCreatingTask] = useState(false);
+  const [assignDrafts, setAssignDrafts] = useState<Record<string, string>>({});
+
+  const canAssign = canAssignIssues(user.role);
+  const canClose = canCloseIssues(user.role);
+  const canResolve = canResolveIssues(user.role);
+
+  const technicians = useMemo(
+    () =>
+      people.filter(
+        (p) => p.role === "technician" || p.role === "supervisor",
+      ),
+    [people],
+  );
 
   const refresh = useCallback(async () => {
     const [peopleData, ticketData, resolvedData, roomData, hkData] =
@@ -60,10 +80,11 @@ export function ControlPage({ user }: Props) {
       ]);
     setPeople(peopleData);
     setRoleDrafts(
-      Object.fromEntries(peopleData.map((p) => [p.id, p.role])) as Record<
-        string,
-        Role
-      >,
+      Object.fromEntries(
+        peopleData
+          .filter((p) => p.userId && p.role)
+          .map((p) => [p.userId!, p.role!]),
+      ) as Record<string, Role>,
     );
     setTickets(ticketData);
     setResolvedTickets(resolvedData);
@@ -72,6 +93,21 @@ export function ControlPage({ user }: Props) {
     if (!taskRoomId && roomData[0]) setTaskRoomId(roomData[0].id);
     if (!taskAssigneeId && hkData[0]) setTaskAssigneeId(hkData[0].id);
   }, [q, taskRoomId, taskAssigneeId]);
+
+  const liveAt = useLiveRefresh(refresh, {
+    enabled: !loading,
+    busy:
+      savingId !== null ||
+      resolvingId !== null ||
+      creatingTask,
+    eventTypes: [
+      "people.changed",
+      "ticket.changed",
+      "cleaning.changed",
+      "location.changed",
+      "settings.changed",
+    ],
+  });
 
   useEffect(() => {
     (async () => {
@@ -89,13 +125,14 @@ export function ControlPage({ user }: Props) {
   }, [q]);
 
   async function saveRole(person: Person) {
-    const next = roleDrafts[person.id];
+    if (!person.userId || !person.role) return;
+    const next = roleDrafts[person.userId];
     if (!next || next === person.role) return;
-    setSavingId(person.id);
+    setSavingId(person.userId);
     setError(null);
     setMessage(null);
     try {
-      await updatePersonRole(person.id, next);
+      await updatePersonRole(person.userId, next);
       setMessage(`Updated role for ${person.fullName}`);
       await refresh();
     } catch (err) {
@@ -175,23 +212,30 @@ export function ControlPage({ user }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {people.map((person) => {
-                    const draft = roleDrafts[person.id] ?? person.role;
+                  {people
+                    .filter((p) => p.userId && p.role)
+                    .map((person) => {
+                    const draft =
+                      roleDrafts[person.userId!] ?? (person.role as Role);
                     const options =
                       user.role === "owner"
                         ? allowedRoles
                         : Array.from(
-                            new Set([...allowedRoles, person.role]),
+                            new Set([
+                              ...allowedRoles,
+                              person.role as Role,
+                            ]),
                           ).filter(
                             (r) =>
-                              allowedRoles.includes(r) || r === person.role,
+                              allowedRoles.includes(r) ||
+                              r === person.role,
                           );
                     const locked =
                       user.role === "manager" &&
                       (person.role === "owner" || person.role === "admin");
 
                     return (
-                      <tr key={person.id}>
+                      <tr key={person.userId}>
                         <td>{person.fullName}</td>
                         <td>{person.employeeNumber}</td>
                         <td>{person.email}</td>
@@ -202,7 +246,7 @@ export function ControlPage({ user }: Props) {
                             onChange={(e) =>
                               setRoleDrafts((prev) => ({
                                 ...prev,
-                                [person.id]: e.target.value as Role,
+                                [person.userId!]: e.target.value as Role,
                               }))
                             }
                           >
@@ -218,12 +262,12 @@ export function ControlPage({ user }: Props) {
                             type="button"
                             disabled={
                               locked ||
-                              savingId === person.id ||
+                              savingId === person.userId ||
                               draft === person.role
                             }
                             onClick={() => saveRole(person)}
                           >
-                            Save
+                            {savingId === person.userId ? "Saving…" : "Save"}
                           </button>
                         </td>
                       </tr>
@@ -289,6 +333,11 @@ export function ControlPage({ user }: Props) {
               <button type="button" className="ghost" onClick={() => refresh()}>
                 Refresh
               </button>
+              {liveAt && (
+                <span className="muted live-stamp" title={liveAt}>
+                  live
+                </span>
+              )}
             </div>
             {tickets.length === 0 ? (
               <p className="muted">Няма отворени проблеми.</p>
@@ -307,41 +356,93 @@ export function ControlPage({ user }: Props) {
                       <span className={`pill priority-${ticket.priority}`}>
                         {ticket.priority}
                       </span>
+                      <span className="pill">{ticket.status}</span>
                     </div>
                     <p className="issue-title">{ticket.title}</p>
                     <div className="issue-meta muted">
                       <span>{ticket.reportedBy.fullName}</span>
                       <span>{new Date(ticket.openedAt).toLocaleString()}</span>
+                      {ticket.assignee && (
+                        <span>→ {ticket.assignee.fullName}</span>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      className="subtle"
-                      disabled={resolvingId === ticket.id}
-                      onClick={async () => {
-                        const notes = window.prompt(
-                          "Описание на решението (опционално)",
-                        );
-                        if (notes === null) return;
-                        setResolvingId(ticket.id);
+                    {canAssign &&
+                      (ticket.status === "new" ||
+                        ticket.status === "assigned") && (
+                        <div
+                          className="actions"
+                          style={{ marginTop: "0.5rem", gap: "0.35rem" }}
+                        >
+                          <select
+                            value={
+                              assignDrafts[ticket.id] ??
+                              ticket.assignee?.id ??
+                              technicians[0]?.id ??
+                              ""
+                            }
+                            onChange={(e) =>
+                              setAssignDrafts((prev) => ({
+                                ...prev,
+                                [ticket.id]: e.target.value,
+                              }))
+                            }
+                          >
+                            {technicians.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.fullName}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className="subtle"
+                            disabled={
+                              resolvingId === ticket.id ||
+                              !(
+                                assignDrafts[ticket.id] ??
+                                ticket.assignee?.id ??
+                                technicians[0]?.id
+                              )
+                            }
+                            onClick={async () => {
+                              const assigneeId =
+                                assignDrafts[ticket.id] ??
+                                ticket.assignee?.id ??
+                                technicians[0]?.id;
+                              if (!assigneeId) return;
+                              setResolvingId(ticket.id);
+                              setError(null);
+                              try {
+                                await assignIssue(ticket.id, assigneeId);
+                                setMessage("Тикетът е възложен");
+                                await refresh();
+                              } catch (err) {
+                                setError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Assign failed",
+                                );
+                              } finally {
+                                setResolvingId(null);
+                              }
+                            }}
+                          >
+                            Assign
+                          </button>
+                        </div>
+                      )}
+                    <TicketLifecycleActions
+                      ticket={ticket}
+                      busy={resolvingId === ticket.id}
+                      canResolve={canResolve}
+                      onBusy={setResolvingId}
+                      onDone={(msg) => {
+                        setMessage(msg);
                         setError(null);
-                        setMessage(null);
-                        try {
-                          await resolveIssue(ticket.id, notes);
-                          setMessage("Issue resolved");
-                          await refresh();
-                        } catch (err) {
-                          setError(
-                            err instanceof Error
-                              ? err.message
-                              : "Resolve failed",
-                          );
-                        } finally {
-                          setResolvingId(null);
-                        }
+                        void refresh();
                       }}
-                    >
-                      Resolve
-                    </button>
+                      onError={(msg) => setError(msg)}
+                    />
                   </li>
                 ))}
               </ul>
@@ -366,7 +467,7 @@ export function ControlPage({ user }: Props) {
                         {ticket.location.floor.building.code}{" "}
                         {ticket.location.number}
                       </strong>
-                      <span className="pill ready-ready">resolved</span>
+                      <span className="pill ready-ready">{ticket.status}</span>
                     </div>
                     <p className="issue-title">{ticket.title}</p>
                     <div className="issue-meta muted">
@@ -384,6 +485,66 @@ export function ControlPage({ user }: Props) {
                     {ticket.resolutionNotes && (
                       <p className="muted">{ticket.resolutionNotes}</p>
                     )}
+                    <div
+                      className="actions"
+                      style={{ marginTop: "0.5rem", gap: "0.35rem" }}
+                    >
+                      {canClose && ticket.status === "resolved" && (
+                        <button
+                          type="button"
+                          className="subtle"
+                          disabled={resolvingId === ticket.id}
+                          onClick={async () => {
+                            setResolvingId(ticket.id);
+                            setError(null);
+                            try {
+                              await closeIssue(ticket.id);
+                              setMessage("Тикетът е затворен");
+                              await refresh();
+                            } catch (err) {
+                              setError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Close failed",
+                              );
+                            } finally {
+                              setResolvingId(null);
+                            }
+                          }}
+                        >
+                          Close
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="subtle"
+                        disabled={resolvingId === ticket.id}
+                        onClick={async () => {
+                          const reason = window.prompt(
+                            "Причина за повторно отваряне (опционално)",
+                          );
+                          if (reason === null) return;
+                          setResolvingId(ticket.id);
+                          setError(null);
+                          setMessage(null);
+                          try {
+                            await reopenIssue(ticket.id, reason);
+                            setMessage("Issue reopened");
+                            await refresh();
+                          } catch (err) {
+                            setError(
+                              err instanceof Error
+                                ? err.message
+                                : "Reopen failed",
+                            );
+                          } finally {
+                            setResolvingId(null);
+                          }
+                        }}
+                      >
+                        Reopen
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>

@@ -1,6 +1,7 @@
 import {
   CatalogStatus,
   CleaningStatus,
+  LocationKind,
   Occupancy,
   ServiceStatus,
 } from "@prisma/client";
@@ -8,6 +9,7 @@ import {
 export type ReadinessResult = "ready" | "not_ready" | "needs_check";
 
 export type RoomState = {
+  kind?: LocationKind;
   catalogStatus: CatalogStatus;
   occupancy: Occupancy;
   cleaningStatus: CleaningStatus;
@@ -20,13 +22,19 @@ export function computeReadiness(room: RoomState): {
   reasons: string[];
 } {
   const reasons: string[] = [];
+  const isCommonArea = room.kind === LocationKind.common_area;
 
   if (room.catalogStatus !== CatalogStatus.active) {
     reasons.push("archived");
     return { readiness: "not_ready", reasons };
   }
 
-  if (
+  if (isCommonArea) {
+    if (room.serviceStatus === ServiceStatus.unknown) {
+      reasons.push("service_unknown");
+      return { readiness: "needs_check", reasons };
+    }
+  } else if (
     room.occupancy === Occupancy.unknown ||
     room.serviceStatus === ServiceStatus.unknown
   ) {
@@ -36,7 +44,9 @@ export function computeReadiness(room: RoomState): {
   }
 
   if (room.hasBlockingTicket) reasons.push("blocking_issue");
-  if (room.occupancy !== Occupancy.vacant) reasons.push("not_vacant");
+  if (!isCommonArea && room.occupancy !== Occupancy.vacant) {
+    reasons.push("not_vacant");
+  }
   if (room.cleaningStatus !== CleaningStatus.verified_clean) {
     reasons.push(`cleaning_${room.cleaningStatus}`);
   }

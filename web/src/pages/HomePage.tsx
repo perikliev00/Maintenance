@@ -1,53 +1,81 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   canResolveIssues,
+  fetchIssueOptions,
+  fetchMaintenanceCategories,
   fetchRooms,
   fetchTickets,
   reportIssue,
-  resolveIssue,
   type AuthUser,
+  type IssueOptionRow,
+  type MaintenanceCategoryRow,
   type MaintenanceTicket,
   type Room,
 } from "../api/client";
-
+import { TicketLifecycleActions } from "../components/TicketLifecycleActions";
+import { useLiveRefresh } from "../hooks/useLiveRefresh";
 type Props = {
   user: AuthUser;
 };
-
 function formatWhen(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString();
 }
-
+function ticketCategoryLabel(ticket: MaintenanceTicket): string {
+  return ticket.categoryLabelBg ?? ticket.category ?? ticket.categoryKey ?? "—";
+}
 export function HomePage({ user }: Props) {
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [categories, setCategories] = useState<MaintenanceCategoryRow[]>([]);
+  const [issueOptions, setIssueOptions] = useState<IssueOptionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
-
   const [locationId, setLocationId] = useState("");
+  const [pickMode, setPickMode] = useState<"option" | "custom">("option");
+  const [issueOptionId, setIssueOptionId] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("plumbing");
   const [priority, setPriority] = useState("normal");
   const [blocksRoom, setBlocksRoom] = useState(true);
-
   const canResolve = canResolveIssues(user.role);
-
+  const applyOption = useCallback((opt: IssueOptionRow) => {
+    setIssueOptionId(opt.id);
+    setTitle(opt.nameBg);
+    if (opt.defaultPriority) setPriority(opt.defaultPriority);
+    if (opt.defaultBlocksRoom !== null && opt.defaultBlocksRoom !== undefined) {
+      setBlocksRoom(opt.defaultBlocksRoom);
+    }
+  }, []);
   const refresh = useCallback(async () => {
-    const [ticketData, roomData] = await Promise.all([
+    const [ticketData, roomData, catData, optData] = await Promise.all([
       fetchTickets({ limit: 20, status: "open" }),
       fetchRooms(),
+      fetchMaintenanceCategories(),
+      fetchIssueOptions(),
     ]);
     setTickets(ticketData);
     setRooms(roomData);
+    setCategories(catData);
+    setIssueOptions(optData);
     if (!locationId && roomData[0]) {
       setLocationId(roomData[0].id);
     }
-  }, [locationId]);
-
+    if (!categoryId && catData[0]) {
+      setCategoryId(catData[0].id);
+    }
+    if (!issueOptionId && optData[0]) {
+      applyOption(optData[0]);
+    }
+  }, [locationId, categoryId, issueOptionId, applyOption]);
+  const liveAt = useLiveRefresh(refresh, {
+    enabled: !loading,
+    busy: submitting || resolvingId !== null,
+    eventTypes: ["ticket.changed", "location.changed", "cleaning.changed"],
+  });
   useEffect(() => {
     (async () => {
       try {
@@ -60,24 +88,33 @@ export function HomePage({ user }: Props) {
         setLoading(false);
       }
     })();
-    // intentionally once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!locationId || !title.trim()) return;
+    if (!locationId) return;
+    if (pickMode === "custom" && !title.trim()) return;
     setSubmitting(true);
     setError(null);
     setMessage(null);
     try {
-      await reportIssue({
-        locationId,
-        title: title.trim(),
-        category,
-        priority,
-        blocksRoom,
-      });
+      if (pickMode === "option" && issueOptionId) {
+        await reportIssue({
+          locationId,
+          issueOptionId,
+          title: title.trim() || undefined,
+          priority,
+          blocksRoom,
+        });
+      } else {
+        await reportIssue({
+          locationId,
+          title: title.trim(),
+          categoryId,
+          priority,
+          blocksRoom,
+        });
+      }
       setTitle("");
       setMessage("Проблемът е добавен");
       await refresh();
@@ -87,7 +124,6 @@ export function HomePage({ user }: Props) {
       setSubmitting(false);
     }
   }
-
   return (
     <main className="content">
       <header className="page-header">
@@ -96,10 +132,8 @@ export function HomePage({ user }: Props) {
           <p>Отворени проблеми и бързо докладване</p>
         </div>
       </header>
-
       {error && <div className="error banner">{error}</div>}
       {message && <div className="ok banner">{message}</div>}
-
       {loading ? (
         <p className="muted">Loading…</p>
       ) : (
@@ -110,6 +144,11 @@ export function HomePage({ user }: Props) {
               <button type="button" className="ghost" onClick={() => refresh()}>
                 Refresh
               </button>
+              {liveAt && (
+                <span className="muted live-stamp" title={liveAt}>
+                  live
+                </span>
+              )}
             </div>
             {tickets.length === 0 ? (
               <p className="muted">Няма отворени проблеми.</p>
@@ -138,44 +177,29 @@ export function HomePage({ user }: Props) {
                       </span>
                       <span>{formatWhen(ticket.openedAt)}</span>
                       <span>
-                        {ticket.category} · {ticket.status}
+                        {ticketCategoryLabel(ticket)} · {ticket.status}
                       </span>
+                      {ticket.assignee && (
+                        <span>→ {ticket.assignee.fullName}</span>
+                      )}
                     </div>
-                    {canResolve && (
-                      <button
-                        type="button"
-                        className="subtle"
-                        disabled={resolvingId === ticket.id}
-                        onClick={async () => {
-                          const notes = window.prompt(
-                            "Описание на решението (опционално)",
-                          );
-                          if (notes === null) return;
-                          setResolvingId(ticket.id);
-                          setError(null);
-                          setMessage(null);
-                          try {
-                            await resolveIssue(ticket.id, notes);
-                            setMessage("Проблемът е решен");
-                            await refresh();
-                          } catch (err) {
-                            setError(
-                              err instanceof Error ? err.message : "Resolve failed",
-                            );
-                          } finally {
-                            setResolvingId(null);
-                          }
-                        }}
-                      >
-                        Resolve
-                      </button>
-                    )}
+                    <TicketLifecycleActions
+                      ticket={ticket}
+                      busy={resolvingId === ticket.id}
+                      canResolve={canResolve}
+                      onBusy={setResolvingId}
+                      onDone={(msg) => {
+                        setMessage(msg);
+                        setError(null);
+                        void refresh();
+                      }}
+                      onError={(msg) => setError(msg)}
+                    />
                   </li>
                 ))}
               </ul>
             )}
           </section>
-
           <section className="panel home-form">
             <h2>Добави проблем</h2>
             <form className="report-form" onSubmit={handleSubmit}>
@@ -194,28 +218,74 @@ export function HomePage({ user }: Props) {
                 </select>
               </label>
               <label>
-                Описание / проблем
-                <textarea
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  rows={4}
-                  required
-                  placeholder="Кратко описание на повредата…"
-                />
-              </label>
-              <label>
-                Категория
+                Тип сигнал
                 <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  value={pickMode}
+                  onChange={(e) =>
+                    setPickMode(e.target.value as "option" | "custom")
+                  }
                 >
-                  <option value="climate">climate</option>
-                  <option value="electrical">electrical</option>
-                  <option value="furniture">furniture</option>
-                  <option value="plumbing">plumbing</option>
-                  <option value="other">other</option>
+                  <option value="option">От каталог</option>
+                  <option value="custom">Друго (свободен текст)</option>
                 </select>
               </label>
+              {pickMode === "option" ? (
+                <label>
+                  Опция
+                  <select
+                    value={issueOptionId}
+                    onChange={(e) => {
+                      const opt = issueOptions.find((o) => o.id === e.target.value);
+                      if (opt) applyOption(opt);
+                    }}
+                    required
+                  >
+                    {issueOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.nameBg}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <>
+                  <label>
+                    Описание / проблем
+                    <textarea
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      rows={4}
+                      required
+                      placeholder="Кратко описание на повредата…"
+                    />
+                  </label>
+                  <label>
+                    Категория
+                    <select
+                      value={categoryId}
+                      onChange={(e) => setCategoryId(e.target.value)}
+                      required
+                    >
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nameBg}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
+              {pickMode === "option" && (
+                <label>
+                  Уточнение (опционално)
+                  <textarea
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    rows={2}
+                    placeholder="Допълнителни детайли…"
+                  />
+                </label>
+              )}
               <label>
                 Приоритет
                 <select
@@ -236,7 +306,14 @@ export function HomePage({ user }: Props) {
                 />
                 Блокира готовността на стаята
               </label>
-              <button type="submit" disabled={submitting || !locationId}>
+              <button
+                type="submit"
+                disabled={
+                  submitting ||
+                  !locationId ||
+                  (pickMode === "option" ? !issueOptionId : !title.trim())
+                }
+              >
                 {submitting ? "Запис…" : "Добави проблем"}
               </button>
             </form>

@@ -4,32 +4,71 @@ import { z } from "zod";
 import { prisma } from "../db";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { AppError } from "../services/cleaning";
+import { publish } from "../events/bus";
 
 export const peopleRouter = Router();
 
-function mapPerson(u: {
+function mapEmployee(e: {
+  id: string;
+  fullName: string;
+  employeeNumber: string;
+  department: string | null;
+  createdAt: Date;
+  user: {
+    id: string;
+    email: string;
+    role: Role;
+    isActive: boolean;
+    activatedAt: Date | null;
+    createdAt: Date;
+  } | null;
+  _count: { devices: number };
+}) {
+  const onboarded = Boolean(e.user?.activatedAt);
+  return {
+    id: e.id,
+    employeeId: e.id,
+    userId: e.user?.id ?? null,
+    fullName: e.fullName,
+    employeeNumber: e.employeeNumber,
+    email: e.user?.email ?? null,
+    role: e.user?.role ?? null,
+    department: e.department,
+    isActive: e.user ? e.user.isActive : true,
+    onboarded,
+    deviceCount: e._count.devices,
+    createdAt: (e.user?.createdAt ?? e.createdAt).toISOString(),
+  };
+}
+
+function mapPersonFromUser(u: {
   id: string;
   employeeId: string;
   email: string;
   role: Role;
   isActive: boolean;
+  activatedAt: Date | null;
   createdAt: Date;
   employee: {
     fullName: string;
     employeeNumber: string;
     department: string | null;
   };
+  _count?: { devices: number };
 }) {
   return {
-    id: u.id,
+    id: u.employeeId,
     employeeId: u.employeeId,
+    userId: u.id,
     fullName: u.employee.fullName,
     employeeNumber: u.employee.employeeNumber,
     email: u.email,
     role: u.role,
     department: u.employee.department,
     isActive: u.isActive,
-    createdAt: u.createdAt,
+    onboarded: Boolean(u.activatedAt),
+    deviceCount: u._count?.devices ?? 0,
+    createdAt: u.createdAt.toISOString(),
   };
 }
 
@@ -43,6 +82,7 @@ peopleRouter.get(
       const roleParam =
         typeof req.query.role === "string" ? req.query.role.trim() : "";
       const includeInactive = req.query.includeInactive === "true";
+      const notOnboarded = req.query.notOnboarded === "true";
 
       const validRoles = new Set(Object.values(Role));
       const roleFilter =
@@ -50,31 +90,53 @@ peopleRouter.get(
           ? (roleParam as Role)
           : undefined;
 
-      const where: Prisma.UserWhereInput = {
-        ...(includeInactive ? {} : { isActive: true }),
-        ...(roleFilter ? { role: roleFilter } : {}),
-        ...(q
-          ? {
-              OR: [
-                { email: { contains: q, mode: "insensitive" } },
-                { employee: { fullName: { contains: q, mode: "insensitive" } } },
-                {
-                  employee: {
-                    employeeNumber: { contains: q, mode: "insensitive" },
-                  },
-                },
-              ],
-            }
-          : {}),
-      };
+      const and: Prisma.EmployeeWhereInput[] = [];
 
-      const users = await prisma.user.findMany({
+      if (q) {
+        and.push({
+          OR: [
+            { fullName: { contains: q, mode: "insensitive" } },
+            { employeeNumber: { contains: q, mode: "insensitive" } },
+            {
+              user: {
+                email: { contains: q, mode: "insensitive" },
+              },
+            },
+          ],
+        });
+      }
+
+      if (roleFilter) {
+        and.push({ user: { is: { role: roleFilter } } });
+      }
+
+      if (!includeInactive) {
+        and.push({
+          OR: [{ user: null }, { user: { is: { isActive: true } } }],
+        });
+      }
+
+      if (notOnboarded) {
+        and.push({
+          OR: [{ user: null }, { user: { is: { activatedAt: null } } }],
+        });
+      }
+
+      const where: Prisma.EmployeeWhereInput =
+        and.length > 0 ? { AND: and } : {};
+
+      const employees = await prisma.employee.findMany({
         where,
-        include: { employee: true },
-        orderBy: [{ role: "asc" }, { employee: { fullName: "asc" } }],
+        include: {
+          user: true,
+          _count: {
+            select: { devices: { where: { revokedAt: null } } },
+          },
+        },
+        orderBy: [{ fullName: "asc" }],
       });
 
-      return res.json(users.map(mapPerson));
+      return res.json(employees.map(mapEmployee));
     } catch (err) {
       return next(err);
     }
@@ -103,7 +165,10 @@ peopleRouter.patch(
 
       const target = await prisma.user.findUnique({
         where: { id: req.params.id },
-        include: { employee: true },
+        include: {
+          employee: true,
+          _count: { select: { devices: { where: { revokedAt: null } } } },
+        },
       });
       if (!target) {
         throw new AppError(404, "not_found", "User not found");
@@ -140,10 +205,14 @@ peopleRouter.patch(
       const updated = await prisma.user.update({
         where: { id: target.id },
         data: { role: nextRole },
-        include: { employee: true },
+        include: {
+          employee: true,
+          _count: { select: { devices: { where: { revokedAt: null } } } },
+        },
       });
 
-      return res.json(mapPerson(updated));
+      publish("people.changed");
+      return res.json(mapPersonFromUser(updated));
     } catch (err) {
       return next(err);
     }

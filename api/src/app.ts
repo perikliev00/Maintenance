@@ -1,17 +1,78 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { authRouter } from "./routes/auth";
 import { roomsRouter } from "./routes/rooms";
+import { commonAreasRouter } from "./routes/commonAreas";
 import { cleaningRouter } from "./routes/cleaning";
 import { maintenanceRouter } from "./routes/maintenance";
 import { peopleRouter } from "./routes/people";
+import {
+  devicesRouter,
+  invitationsRouter,
+} from "./routes/invitations";
+import { settingsRouter } from "./routes/settings";
+import { permissionsRouter } from "./routes/permissions";
+import { eventsRouter } from "./routes/events";
+import { operationsRouter } from "./routes/operations";
+import { attendanceRouter } from "./routes/attendance";
+import { dailyPlanRouter } from "./routes/dailyPlan";
+import { analyticsRouter } from "./routes/analytics";
+import { cardsRouter } from "./routes/cards";
+import { sectorsRouter, shiftsRouter } from "./routes/sectors";
+import { locationsRouter } from "./routes/locations";
+import { auditRouter } from "./routes/audit";
+import { myWorkRouter } from "./routes/myWork";
+import { jobsRouter } from "./routes/jobs";
+import { syncRouter } from "./routes/sync";
 import { AppError } from "./services/cleaning";
+import { ensureDefaultSettings } from "./services/settings";
+import { ensureDefaultRoleGrants } from "./services/roleGrants";
+import { ensureDefaultSlaPolicies } from "./services/maintenance";
+import {
+  configureTrustProxy,
+  globalApiLimiter,
+  securityHeaders,
+} from "./middleware/security";
+import { requireCsrf } from "./middleware/session";
 
 export function createApp() {
   const app = express();
 
-  app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json());
+  configureTrustProxy(app);
+  app.use(securityHeaders);
+
+  const allowedOrigins = (process.env.WEB_ORIGIN ?? "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+
+  app.use(
+    cors({
+      origin(origin, cb) {
+        if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ""))) {
+          return cb(null, true);
+        }
+        return cb(null, false);
+      },
+      credentials: true,
+    }),
+  );
+  app.use(express.json({ limit: "100kb" }));
+  app.use(cookieParser());
+  app.use(requireCsrf);
+  app.use(globalApiLimiter);
+
+  // Best-effort defaults so first requests work before seed
+  void ensureDefaultSettings().catch((err) => {
+    console.warn("ensureDefaultSettings failed", err);
+  });
+  void ensureDefaultRoleGrants().catch((err) => {
+    console.warn("ensureDefaultRoleGrants failed", err);
+  });
+  void ensureDefaultSlaPolicies().catch((err) => {
+    console.warn("ensureDefaultSlaPolicies failed", err);
+  });
 
   app.get("/health", (_req, res) => {
     res.json({ ok: true });
@@ -19,9 +80,28 @@ export function createApp() {
 
   app.use("/auth", authRouter);
   app.use("/rooms", roomsRouter);
+  app.use("/common-areas", commonAreasRouter);
+  app.use("/locations", locationsRouter);
   app.use("/cleaning", cleaningRouter);
   app.use("/maintenance", maintenanceRouter);
   app.use("/people", peopleRouter);
+  app.use("/invitations", invitationsRouter);
+  app.use("/devices", devicesRouter);
+  app.use("/settings", settingsRouter);
+  app.use("/permissions", permissionsRouter);
+  app.use("/analytics", analyticsRouter);
+  app.use("/events", eventsRouter);
+  app.use("/operations", operationsRouter);
+  app.use("/attendance", attendanceRouter);
+  app.use("/daily-plan", dailyPlanRouter);
+  app.use("/cards", cardsRouter);
+  app.use("/sectors", sectorsRouter);
+  app.use("/shifts", shiftsRouter);
+  app.use("/my-work", myWorkRouter);
+  app.use("/audit", auditRouter);
+  app.use("/audit-events", auditRouter);
+  app.use("/jobs", jobsRouter);
+  app.use("/sync", syncRouter);
 
   app.use(
     (

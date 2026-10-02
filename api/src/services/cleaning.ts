@@ -6,22 +6,25 @@ import {
   TaskStatus,
 } from "@prisma/client";
 import { prisma } from "../db";
-import { ACTIVE_TASK_STATUSES, OVERDUE_SESSION_MINUTES } from "../constants";
+import { ACTIVE_TASK_STATUSES } from "../constants";
+import { AppError } from "../errors";
+import { getFlags, getOperations } from "./settings";
+import { publish } from "../events/bus";
+import {
+  sectorSnapshotForLocation,
+  sectorSupervisorForSector,
+} from "./dataScope";
+import { recordAudit } from "./audit";
 
-export class AppError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-    public details?: unknown,
-  ) {
-    super(message);
-  }
-}
+export { AppError };
 
 const taskInclude = {
   location: { include: { floor: { include: { building: true } } } },
   assignedEmployee: true,
+  sector: { select: { id: true, code: true, nameBg: true, nameEn: true } },
+  sectorSupervisor: {
+    select: { id: true, fullName: true, employeeNumber: true },
+  },
   sessions: true,
   inspections: true,
 } satisfies Prisma.CleaningTaskInclude;
@@ -32,6 +35,7 @@ export async function createCleaningTask(input: {
   priority?: "low" | "normal" | "high" | "urgent";
   assignedEmployeeId?: string;
   dueAt?: string;
+  actorEmployeeId?: string;
 }) {
   const location = await prisma.location.findUnique({
     where: { id: input.locationId },
@@ -56,7 +60,9 @@ export async function createCleaningTask(input: {
     throw new AppError(409, "conflict", "Active cleaning task already exists for this room/date");
   }
 
-  return prisma.$transaction(async (tx) => {
+  const sectorSnap = await sectorSnapshotForLocation(input.locationId);
+
+  const task = await prisma.$transaction(async (tx) => {
     if (
       location.cleaningStatus === CleaningStatus.verified_clean ||
       location.cleaningStatus === CleaningStatus.pending_inspection
@@ -67,9 +73,11 @@ export async function createCleaningTask(input: {
       });
     }
 
-    return tx.cleaningTask.create({
+    const created = await tx.cleaningTask.create({
       data: {
         locationId: input.locationId,
+        sectorId: sectorSnap.sectorId,
+        sectorSupervisorEmployeeId: sectorSnap.sectorSupervisorEmployeeId,
         hotelDate,
         priority: input.priority ?? "normal",
         assignedEmployeeId: input.assignedEmployeeId,
@@ -78,7 +86,30 @@ export async function createCleaningTask(input: {
       },
       include: taskInclude,
     });
+
+    await recordAudit(tx, {
+      actorEmployeeId: input.actorEmployeeId,
+      action: "cleaning.task.create",
+      entityType: "cleaning_task",
+      entityId: created.id,
+      locationId: created.locationId,
+      after: {
+        status: created.status,
+        priority: created.priority,
+        assignedEmployeeId: created.assignedEmployeeId,
+        hotelDate: input.hotelDate,
+      },
+      summary: `Created cleaning task for ${created.location.number}`,
+    });
+
+    return created;
   });
+
+  publish("cleaning.changed", {
+    locationId: task.locationId,
+    taskId: task.id,
+  });
+  return task;
 }
 
 export async function startCleaningTask(input: {
@@ -98,14 +129,18 @@ export async function startCleaningTask(input: {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const task = await tx.cleaningTask.findUnique({
         where: { id: input.taskId },
       });
       if (!task) {
         throw new AppError(404, "not_found", "Task not found");
       }
-      if (task.status !== TaskStatus.assigned && task.status !== TaskStatus.in_progress) {
+      if (
+        task.status !== TaskStatus.assigned &&
+        task.status !== TaskStatus.rework &&
+        task.status !== TaskStatus.in_progress
+      ) {
         throw new AppError(409, "invalid_state", `Cannot start task in status ${task.status}`);
       }
       if (
@@ -129,11 +164,14 @@ export async function startCleaningTask(input: {
         throw new AppError(409, "conflict", "Task already has a running session");
       }
 
-      const runningByEmployee = await tx.cleaningSession.findFirst({
-        where: { employeeId: input.employeeId, status: SessionStatus.running },
-      });
-      if (runningByEmployee) {
-        throw new AppError(409, "conflict", "Employee already has a running session");
+      const flags = await getFlags();
+      if (flags.one_active_session_per_employee) {
+        const runningByEmployee = await tx.cleaningSession.findFirst({
+          where: { employeeId: input.employeeId, status: SessionStatus.running },
+        });
+        if (runningByEmployee) {
+          throw new AppError(409, "conflict", "Employee already has a running session");
+        }
       }
 
       const session = await tx.cleaningSession.create({
@@ -161,8 +199,29 @@ export async function startCleaningTask(input: {
         data: { cleaningStatus: CleaningStatus.in_progress },
       });
 
+      await recordAudit(tx, {
+        actorEmployeeId: input.employeeId,
+        action: "cleaning.task.start",
+        entityType: "cleaning_task",
+        entityId: task.id,
+        locationId: task.locationId,
+        before: { status: task.status },
+        after: {
+          status: TaskStatus.in_progress,
+          sessionId: session.id,
+        },
+        summary: `Started cleaning ${updatedTask.location.number}`,
+      });
+
       return { session, task: updatedTask, idempotent: false };
     });
+    if (!result.idempotent) {
+      publish("cleaning.changed", {
+        locationId: result.task.locationId,
+        taskId: result.task.id,
+      });
+    }
+    return result;
   } catch (err) {
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -197,7 +256,7 @@ export async function completeCleaningSession(input: {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const session = await tx.cleaningSession.findUnique({
         where: { id: input.sessionId },
       });
@@ -232,10 +291,42 @@ export async function completeCleaningSession(input: {
         },
       });
 
+      const flags = await getFlags();
+      if (flags.require_inspection) {
+        const updatedTask = await tx.cleaningTask.update({
+          where: { id: session.taskId },
+          data: {
+            status: TaskStatus.awaiting_inspection,
+            version: { increment: 1 },
+          },
+          include: taskInclude,
+        });
+
+        await tx.location.update({
+          where: { id: updatedTask.locationId },
+          data: { cleaningStatus: CleaningStatus.pending_inspection },
+        });
+
+        await recordAudit(tx, {
+          actorEmployeeId: input.employeeId,
+          action: "cleaning.session.complete",
+          entityType: "cleaning_session",
+          entityId: updatedSession.id,
+          locationId: updatedTask.locationId,
+          after: {
+            taskStatus: TaskStatus.awaiting_inspection,
+            notes: input.notes?.trim() || null,
+          },
+          summary: `Completed cleaning ${updatedTask.location.number}`,
+        });
+
+        return { session: updatedSession, task: updatedTask, idempotent: false };
+      }
+
       const updatedTask = await tx.cleaningTask.update({
         where: { id: session.taskId },
         data: {
-          status: TaskStatus.awaiting_inspection,
+          status: TaskStatus.completed,
           version: { increment: 1 },
         },
         include: taskInclude,
@@ -243,11 +334,31 @@ export async function completeCleaningSession(input: {
 
       await tx.location.update({
         where: { id: updatedTask.locationId },
-        data: { cleaningStatus: CleaningStatus.pending_inspection },
+        data: { cleaningStatus: CleaningStatus.verified_clean },
+      });
+
+      await recordAudit(tx, {
+        actorEmployeeId: input.employeeId,
+        action: "cleaning.session.complete",
+        entityType: "cleaning_session",
+        entityId: updatedSession.id,
+        locationId: updatedTask.locationId,
+        after: {
+          taskStatus: TaskStatus.completed,
+          notes: input.notes?.trim() || null,
+        },
+        summary: `Completed cleaning ${updatedTask.location.number}`,
       });
 
       return { session: updatedSession, task: updatedTask, idempotent: false };
     });
+    if (!result.idempotent) {
+      publish("cleaning.changed", {
+        locationId: result.task.locationId,
+        taskId: result.task.id,
+      });
+    }
+    return result;
   } catch (err) {
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -255,6 +366,143 @@ export async function completeCleaningSession(input: {
     ) {
       const again = await prisma.cleaningSession.findUnique({
         where: { completeCommandId: input.commandId },
+        include: { task: { include: taskInclude } },
+      });
+      if (again) {
+        return { session: again, task: again.task, idempotent: true };
+      }
+    }
+    throw err;
+  }
+}
+
+export async function cancelCleaningSession(input: {
+  sessionId: string;
+  employeeId: string;
+  commandId: string;
+  notes?: string;
+  /** Reviewer / owner may cancel a session started by someone else. */
+  bypassSessionOwnerCheck?: boolean;
+}) {
+  const existingByCommand = await prisma.cleaningSession.findUnique({
+    where: { cancelCommandId: input.commandId },
+    include: { task: { include: taskInclude } },
+  });
+  if (existingByCommand) {
+    return { session: existingByCommand, task: existingByCommand.task, idempotent: true };
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const session = await tx.cleaningSession.findUnique({
+        where: { id: input.sessionId },
+      });
+      if (!session) {
+        throw new AppError(404, "not_found", "Session not found");
+      }
+      if (
+        !input.bypassSessionOwnerCheck &&
+        session.employeeId !== input.employeeId
+      ) {
+        throw new AppError(403, "forbidden", "Session belongs to another employee");
+      }
+      if (session.status === SessionStatus.cancelled) {
+        throw new AppError(409, "invalid_state", "Session already cancelled");
+      }
+      if (session.status !== SessionStatus.running) {
+        throw new AppError(
+          409,
+          "invalid_state",
+          `Cannot cancel session in status ${session.status}`,
+        );
+      }
+
+      const finishedAt = new Date();
+      if (finishedAt < session.startedAt) {
+        throw new AppError(400, "invalid_time", "Finish time before start time");
+      }
+
+      const updatedSession = await tx.cleaningSession.update({
+        where: { id: session.id },
+        data: {
+          status: SessionStatus.cancelled,
+          finishedAt,
+          notes: input.notes?.trim() || null,
+          cancelCommandId: input.commandId,
+        },
+      });
+
+      const task = await tx.cleaningTask.findUnique({
+        where: { id: session.taskId },
+      });
+      if (!task) {
+        throw new AppError(404, "not_found", "Task not found");
+      }
+
+      let updatedTask = await tx.cleaningTask.findUniqueOrThrow({
+        where: { id: task.id },
+        include: taskInclude,
+      });
+
+      if (task.status === TaskStatus.in_progress) {
+        const otherRunning = await tx.cleaningSession.findFirst({
+          where: {
+            taskId: task.id,
+            status: SessionStatus.running,
+            id: { not: session.id },
+          },
+        });
+        if (!otherRunning) {
+          updatedTask = await tx.cleaningTask.update({
+            where: { id: task.id },
+            data: {
+              status: TaskStatus.assigned,
+              version: { increment: 1 },
+            },
+            include: taskInclude,
+          });
+
+          const location = await tx.location.findUnique({
+            where: { id: task.locationId },
+          });
+          if (location?.cleaningStatus === CleaningStatus.in_progress) {
+            await tx.location.update({
+              where: { id: task.locationId },
+              data: { cleaningStatus: CleaningStatus.dirty },
+            });
+          }
+        }
+      }
+
+      await recordAudit(tx, {
+        actorEmployeeId: input.employeeId,
+        action: "cleaning.session.cancel",
+        entityType: "cleaning_session",
+        entityId: updatedSession.id,
+        locationId: updatedTask.locationId,
+        after: {
+          taskStatus: updatedTask.status,
+          notes: input.notes?.trim() || null,
+        },
+        summary: `Cancelled cleaning session for ${updatedTask.location.number}`,
+      });
+
+      return { session: updatedSession, task: updatedTask, idempotent: false };
+    });
+    if (!result.idempotent) {
+      publish("cleaning.changed", {
+        locationId: result.task.locationId,
+        taskId: result.task.id,
+      });
+    }
+    return result;
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const again = await prisma.cleaningSession.findUnique({
+        where: { cancelCommandId: input.commandId },
         include: { task: { include: taskInclude } },
       });
       if (again) {
@@ -285,7 +533,7 @@ export async function inspectCleaningTask(input: {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const task = await tx.cleaningTask.findUnique({
         where: { id: input.taskId },
       });
@@ -327,13 +575,23 @@ export async function inspectCleaningTask(input: {
           where: { id: task.locationId },
           data: { cleaningStatus: CleaningStatus.verified_clean },
         });
+        await recordAudit(tx, {
+          actorEmployeeId: input.inspectorEmployeeId,
+          action: "cleaning.inspect",
+          entityType: "inspection",
+          entityId: inspection.id,
+          locationId: task.locationId,
+          reason: input.findings,
+          after: { result: "approved", taskId: task.id },
+          summary: `Approved cleaning ${updatedTask.location.number}`,
+        });
         return { inspection, task: updatedTask, idempotent: false };
       }
 
       const updatedTask = await tx.cleaningTask.update({
         where: { id: task.id },
         data: {
-          status: TaskStatus.assigned,
+          status: TaskStatus.rework,
           version: { increment: 1 },
         },
         include: taskInclude,
@@ -342,8 +600,27 @@ export async function inspectCleaningTask(input: {
         where: { id: task.locationId },
         data: { cleaningStatus: CleaningStatus.dirty },
       });
+      await recordAudit(tx, {
+        actorEmployeeId: input.inspectorEmployeeId,
+        action: "cleaning.inspect",
+        entityType: "inspection",
+        entityId: inspection.id,
+        locationId: task.locationId,
+        reason: input.findings,
+        after: { result: "rejected", taskId: task.id },
+        summary: `Rejected cleaning ${updatedTask.location.number}${
+          input.findings?.trim() ? ` — ${input.findings.trim()}` : ""
+        }`,
+      });
       return { inspection, task: updatedTask, idempotent: false };
     });
+    if (!result.idempotent) {
+      publish("cleaning.changed", {
+        locationId: result.task.locationId,
+        taskId: result.task.id,
+      });
+    }
+    return result;
   } catch (err) {
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -366,6 +643,7 @@ export async function reassignCleaningTask(input: {
   assignedEmployeeId: string;
   reason: string;
   expectedVersion?: number;
+  actorEmployeeId?: string;
 }) {
   if (!input.reason.trim()) {
     throw new AppError(400, "validation", "Reassign reason is required");
@@ -379,7 +657,7 @@ export async function reassignCleaningTask(input: {
     throw new AppError(400, "validation", "Assignee must be an active housekeeper");
   }
 
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const task = await tx.cleaningTask.findUnique({
       where: { id: input.taskId },
     });
@@ -388,6 +666,7 @@ export async function reassignCleaningTask(input: {
     }
     if (
       task.status !== TaskStatus.assigned &&
+      task.status !== TaskStatus.rework &&
       task.status !== TaskStatus.awaiting_inspection
     ) {
       throw new AppError(
@@ -414,24 +693,67 @@ export async function reassignCleaningTask(input: {
       );
     }
 
-    return tx.cleaningTask.update({
+    const data: Prisma.CleaningTaskUpdateInput = {
+      assignedEmployee: { connect: { id: input.assignedEmployeeId } },
+      reassignReason: input.reason.trim(),
+      version: { increment: 1 },
+    };
+
+    // Backfill sector snapshot only when missing — do not overwrite history.
+    if (!task.sectorId) {
+      const snap = await sectorSnapshotForLocation(task.locationId, tx);
+      if (snap.sectorId) {
+        data.sector = { connect: { id: snap.sectorId } };
+        if (snap.sectorSupervisorEmployeeId) {
+          data.sectorSupervisor = {
+            connect: { id: snap.sectorSupervisorEmployeeId },
+          };
+        }
+      }
+    } else if (!task.sectorSupervisorEmployeeId) {
+      const supervisorId = await sectorSupervisorForSector(task.sectorId, tx);
+      if (supervisorId) {
+        data.sectorSupervisor = { connect: { id: supervisorId } };
+      }
+    }
+
+    const result = await tx.cleaningTask.update({
       where: { id: task.id },
-      data: {
-        assignedEmployeeId: input.assignedEmployeeId,
-        reassignReason: input.reason.trim(),
-        version: { increment: 1 },
-      },
+      data,
       include: taskInclude,
     });
+
+    await recordAudit(tx, {
+      actorEmployeeId: input.actorEmployeeId,
+      action: "cleaning.task.reassign",
+      entityType: "cleaning_task",
+      entityId: result.id,
+      locationId: result.locationId,
+      reason: input.reason,
+      before: { assignedEmployeeId: task.assignedEmployeeId },
+      after: { assignedEmployeeId: input.assignedEmployeeId },
+      summary: `Reassigned cleaning ${result.location.number}`,
+    });
+
+    return result;
   });
+
+  publish("cleaning.changed", {
+    locationId: updated.locationId,
+    taskId: updated.id,
+  });
+  return updated;
 }
 
-export async function listOverdueSessions() {
-  const cutoff = new Date(Date.now() - OVERDUE_SESSION_MINUTES * 60 * 1000);
+export async function listOverdueSessions(scopeWhere?: Prisma.CleaningSessionWhereInput) {
+  const operations = await getOperations();
+  const overdueMinutes = operations.overdueSessionMinutes;
+  const cutoff = new Date(Date.now() - overdueMinutes * 60 * 1000);
   const sessions = await prisma.cleaningSession.findMany({
     where: {
       status: SessionStatus.running,
       startedAt: { lte: cutoff },
+      ...(scopeWhere ?? {}),
     },
     include: {
       employee: true,
@@ -468,41 +790,59 @@ export async function listOverdueSessions() {
   });
 }
 
-export async function markRoomDirty(locationId: string) {
+export async function markRoomDirty(
+  locationId: string,
+  actorEmployeeId?: string,
+) {
   const location = await prisma.location.findUnique({ where: { id: locationId } });
   if (!location) {
     throw new AppError(404, "not_found", "Room not found");
   }
-  return prisma.location.update({
-    where: { id: locationId },
-    data: { cleaningStatus: CleaningStatus.dirty },
-    include: {
-      floor: { include: { building: true } },
-      cleaningTasks: {
-        where: { status: { in: [...ACTIVE_TASK_STATUSES] } },
-        include: {
-          assignedEmployee: true,
-          sessions: {
-            include: { employee: true },
-            orderBy: { startedAt: "desc" },
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.location.update({
+      where: { id: locationId },
+      data: { cleaningStatus: CleaningStatus.dirty },
+      include: {
+        floor: { include: { building: true } },
+        cleaningTasks: {
+          where: { status: { in: [...ACTIVE_TASK_STATUSES] } },
+          include: {
+            assignedEmployee: true,
+            sessions: {
+              include: { employee: true },
+              orderBy: { startedAt: "desc" },
+            },
+            inspections: {
+              include: { inspector: true },
+              orderBy: { inspectedAt: "desc" },
+              take: 1,
+            },
           },
-          inspections: {
-            include: { inspector: true },
-            orderBy: { inspectedAt: "desc" },
-            take: 1,
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+        maintenanceTickets: {
+          where: {
+            status: { in: ["new", "in_progress"] },
+            blocksRoom: true,
           },
+          take: 5,
+          orderBy: { openedAt: "desc" },
         },
-        orderBy: { createdAt: "desc" },
-        take: 1,
       },
-      maintenanceTickets: {
-        where: {
-          status: { in: ["new", "in_progress"] },
-          blocksRoom: true,
-        },
-        take: 5,
-        orderBy: { openedAt: "desc" },
-      },
-    },
+    });
+    await recordAudit(tx, {
+      actorEmployeeId,
+      action: "location.mark_dirty",
+      entityType: "location",
+      entityId: locationId,
+      locationId,
+      before: { cleaningStatus: location.cleaningStatus },
+      after: { cleaningStatus: CleaningStatus.dirty },
+      summary: `Marked ${row.number} dirty`,
+    });
+    return row;
   });
+  publish("location.changed", { locationId: updated.id });
+  return updated;
 }
