@@ -3,8 +3,29 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../db";
 import { requireAuth, signToken } from "../middleware/auth";
+import { capabilitiesFor } from "../permissions";
 
 export const authRouter = Router();
+
+function publicUser(user: {
+  id: string;
+  email: string;
+  role: import("@prisma/client").Role;
+  employeeId: string;
+  employee: { fullName: string };
+}) {
+  const caps = capabilitiesFor(user.role);
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    employeeId: user.employeeId,
+    fullName: user.employee.fullName,
+    panels: caps.panels,
+    actions: caps.actions,
+    landing: caps.landing,
+  };
+}
 
 authRouter.post("/login", async (req, res) => {
   const schema = z.object({
@@ -38,13 +59,7 @@ authRouter.post("/login", async (req, res) => {
 
   return res.json({
     token,
-    user: {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      employeeId: user.employeeId,
-      fullName: user.employee.fullName,
-    },
+    user: publicUser(user),
   });
 });
 
@@ -56,11 +71,5 @@ authRouter.get("/me", requireAuth, async (req, res) => {
   if (!user) {
     return res.status(401).json({ error: "unauthorized", message: "User not found" });
   }
-  return res.json({
-    id: user.id,
-    email: user.email,
-    role: user.role,
-    employeeId: user.employeeId,
-    fullName: user.employee.fullName,
-  });
+  return res.json(publicUser(user));
 });

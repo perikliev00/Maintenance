@@ -3,6 +3,8 @@ import cors from "cors";
 import { authRouter } from "./routes/auth";
 import { roomsRouter } from "./routes/rooms";
 import { cleaningRouter } from "./routes/cleaning";
+import { maintenanceRouter } from "./routes/maintenance";
+import { peopleRouter } from "./routes/people";
 import { AppError } from "./services/cleaning";
 
 export function createApp() {
@@ -18,6 +20,8 @@ export function createApp() {
   app.use("/auth", authRouter);
   app.use("/rooms", roomsRouter);
   app.use("/cleaning", cleaningRouter);
+  app.use("/maintenance", maintenanceRouter);
+  app.use("/people", peopleRouter);
 
   app.use(
     (

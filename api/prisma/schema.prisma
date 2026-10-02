@@ -11,6 +11,10 @@ enum Role {
   reception
   housekeeper
   supervisor
+  technician
+  manager
+  admin
+  owner
 }
 
 enum CatalogStatus {
@@ -40,6 +44,7 @@ enum ServiceStatus {
 enum TaskStatus {
   assigned
   in_progress
+  awaiting_inspection
   completed
   cancelled
 }
@@ -55,6 +60,26 @@ enum Priority {
   normal
   high
   urgent
+}
+
+enum InspectionResult {
+  approved
+  rejected
+}
+
+enum TicketCategory {
+  climate
+  electrical
+  furniture
+  plumbing
+  other
+}
+
+enum TicketStatus {
+  new
+  in_progress
+  resolved
+  closed
 }
 
 model Property {
@@ -89,30 +114,35 @@ model Floor {
 }
 
 model Location {
-  id             String         @id @default(cuid())
-  floorId        String
-  floor          Floor          @relation(fields: [floorId], references: [id])
-  number         String
-  catalogStatus  CatalogStatus  @default(active)
-  occupancy      Occupancy      @default(unknown)
-  cleaningStatus CleaningStatus @default(dirty)
-  serviceStatus  ServiceStatus  @default(in_service)
-  cleaningTasks  CleaningTask[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                 String              @id @default(cuid())
+  floorId            String
+  floor              Floor               @relation(fields: [floorId], references: [id])
+  number             String
+  catalogStatus      CatalogStatus       @default(active)
+  occupancy          Occupancy           @default(unknown)
+  cleaningStatus     CleaningStatus      @default(dirty)
+  serviceStatus      ServiceStatus       @default(in_service)
+  cleaningTasks      CleaningTask[]
+  maintenanceTickets MaintenanceTicket[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@unique([floorId, number])
 }
 
 model Employee {
-  id               String            @id @default(cuid())
-  employeeNumber   String            @unique
-  fullName         String
-  department       String?
-  user             User?
-  assignedTasks    CleaningTask[]    @relation("TaskAssignee")
-  cleaningSessions CleaningSession[]
-  createdAt        DateTime          @default(now())
+  id                 String              @id @default(cuid())
+  employeeNumber     String              @unique
+  fullName           String
+  department         String?
+  user               User?
+  assignedTasks      CleaningTask[]      @relation("TaskAssignee")
+  cleaningSessions   CleaningSession[]
+  inspections        Inspection[]        @relation("Inspector")
+  reportedTickets    MaintenanceTicket[] @relation("TicketReporter")
+  assignedTickets    MaintenanceTicket[] @relation("TicketAssignee")
+  resolvedTickets    MaintenanceTicket[] @relation("TicketResolver")
+  createdAt          DateTime            @default(now())
 }
 
 model User {
@@ -131,12 +161,15 @@ model CleaningTask {
   locationId         String
   location           Location          @relation(fields: [locationId], references: [id])
   hotelDate          DateTime          @db.Date
+  dueAt              DateTime?
   priority           Priority          @default(normal)
   assignedEmployeeId String?
   assignedEmployee   Employee?         @relation("TaskAssignee", fields: [assignedEmployeeId], references: [id])
+  reassignReason     String?
   status             TaskStatus        @default(assigned)
   version            Int               @default(1)
   sessions           CleaningSession[]
+  inspections        Inspection[]
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
@@ -145,19 +178,61 @@ model CleaningTask {
 }
 
 model CleaningSession {
-  id                 String        @id @default(cuid())
-  taskId             String
-  task               CleaningTask  @relation(fields: [taskId], references: [id])
-  employeeId         String
-  employee           Employee      @relation(fields: [employeeId], references: [id])
-  startedAt          DateTime
-  finishedAt         DateTime?
-  status             SessionStatus @default(running)
-  startCommandId     String        @unique
-  completeCommandId  String?       @unique
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  id                String        @id @default(cuid())
+  taskId            String
+  task              CleaningTask  @relation(fields: [taskId], references: [id])
+  employeeId        String
+  employee          Employee      @relation(fields: [employeeId], references: [id])
+  startedAt         DateTime
+  finishedAt        DateTime?
+  notes             String?
+  status            SessionStatus @default(running)
+  startCommandId    String        @unique
+  completeCommandId String?       @unique
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   @@index([taskId, status])
   @@index([employeeId, status])
+}
+
+model Inspection {
+  id                  String           @id @default(cuid())
+  taskId              String
+  task                CleaningTask     @relation(fields: [taskId], references: [id])
+  inspectorEmployeeId String
+  inspector           Employee         @relation("Inspector", fields: [inspectorEmployeeId], references: [id])
+  inspectedAt         DateTime
+  result              InspectionResult
+  findings            String?
+  commandId           String           @unique
+  createdAt           DateTime         @default(now())
+
+  @@index([taskId])
+}
+
+model MaintenanceTicket {
+  id                   String         @id @default(cuid())
+  locationId           String
+  location             Location       @relation(fields: [locationId], references: [id])
+  title                String
+  category             TicketCategory
+  priority             Priority       @default(normal)
+  blocksRoom           Boolean        @default(false)
+  status               TicketStatus   @default(new)
+  reportedByEmployeeId String
+  reportedBy           Employee       @relation("TicketReporter", fields: [reportedByEmployeeId], references: [id])
+  assigneeId           String?
+  assignee             Employee?      @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  openedAt             DateTime       @default(now())
+  resolvedAt           DateTime?
+  resolvedByEmployeeId String?
+  resolvedBy           Employee?      @relation("TicketResolver", fields: [resolvedByEmployeeId], references: [id])
+  resolutionNotes      String?
+  commandId            String?        @unique
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([locationId, status])
+  @@index([blocksRoom, status])
 }

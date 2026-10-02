@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { Role } from "@prisma/client";
+import { Action, canPerform, isOwner } from "../permissions";
 
 export type AuthUser = {
   userId: string;
@@ -45,17 +46,33 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** Owner always passes. Otherwise role must be in the list. */
 export function requireRoles(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: "unauthorized", message: "Missing user" });
     }
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        error: "forbidden",
-        message: "Insufficient permissions",
-      });
+    if (isOwner(req.user.role) || roles.includes(req.user.role)) {
+      return next();
     }
-    return next();
+    return res.status(403).json({
+      error: "forbidden",
+      message: "Insufficient permissions",
+    });
+  };
+}
+
+export function requireAction(action: Action) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "unauthorized", message: "Missing user" });
+    }
+    if (canPerform(req.user.role, action)) {
+      return next();
+    }
+    return res.status(403).json({
+      error: "forbidden",
+      message: "Insufficient permissions",
+    });
   };
 }

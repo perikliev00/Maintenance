@@ -1,12 +1,16 @@
 import { FormEvent, useState } from "react";
 import { login, type AuthUser } from "../api/client";
+import { BrandMark } from "../components/BrandMark";
+import type { ThemeMode } from "../theme";
 
 type Props = {
   onLogin: (token: string, user: AuthUser) => void;
+  theme: ThemeMode;
+  onToggleTheme: () => void;
 };
 
-export function LoginPage({ onLogin }: Props) {
-  const [email, setEmail] = useState("supervisor@imperial.local");
+export function LoginPage({ onLogin, theme, onToggleTheme }: Props) {
+  const [email, setEmail] = useState("owner@meridian.local");
   const [password, setPassword] = useState("demo1234");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -27,9 +31,21 @@ export function LoginPage({ onLogin }: Props) {
 
   return (
     <div className="login-page">
+      <button
+        type="button"
+        className="ghost login-theme-toggle"
+        onClick={onToggleTheme}
+      >
+        {theme === "dark" ? "Light" : "Dark"}
+      </button>
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Imperial Maintenance</h1>
-        <p className="muted">Housekeeping &amp; Maintenance — demo login</p>
+        <div className="login-brand">
+          <BrandMark size={44} />
+          <div className="login-brand-text">
+            <h1>Meridian</h1>
+            <p className="muted">Housekeeping &amp; Maintenance</p>
+          </div>
+        </div>
         <label>
           Email
           <input
@@ -55,9 +71,8 @@ export function LoginPage({ onLogin }: Props) {
           {loading ? "Signing in…" : "Sign in"}
         </button>
         <div className="demo-hint">
-          <div>reception@imperial.local</div>
-          <div>housekeeper@imperial.local</div>
-          <div>supervisor@imperial.local</div>
+          <div>Demo: owner / manager / supervisor / admin /</div>
+          <div>housekeeper / reception / technician @meridian.local</div>
           <div>password: demo1234</div>
         </div>
       </form>

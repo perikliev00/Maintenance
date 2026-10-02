@@ -12,6 +12,7 @@ export type RoomState = {
   occupancy: Occupancy;
   cleaningStatus: CleaningStatus;
   serviceStatus: ServiceStatus;
+  hasBlockingTicket?: boolean;
 };
 
 export function computeReadiness(room: RoomState): {
@@ -34,6 +35,7 @@ export function computeReadiness(room: RoomState): {
     return { readiness: "needs_check", reasons };
   }
 
+  if (room.hasBlockingTicket) reasons.push("blocking_issue");
   if (room.occupancy !== Occupancy.vacant) reasons.push("not_vacant");
   if (room.cleaningStatus !== CleaningStatus.verified_clean) {
     reasons.push(`cleaning_${room.cleaningStatus}`);

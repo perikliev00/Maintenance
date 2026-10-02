@@ -1,11 +1,15 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db";
-import { requireAuth, requireRoles } from "../middleware/auth";
+import { requireAuth, requireAction } from "../middleware/auth";
+import { isOwner } from "../permissions";
 import {
   AppError,
   completeCleaningSession,
   createCleaningTask,
+  inspectCleaningTask,
+  listOverdueSessions,
+  reassignCleaningTask,
   startCleaningTask,
 } from "../services/cleaning";
 
@@ -23,6 +27,7 @@ cleaningRouter.get("/tasks", requireAuth, async (req, res) => {
       location: { include: { floor: { include: { building: true } } } },
       assignedEmployee: true,
       sessions: true,
+      inspections: true,
     },
     orderBy: [{ hotelDate: "desc" }, { createdAt: "desc" }],
   });
@@ -33,7 +38,7 @@ cleaningRouter.get("/tasks", requireAuth, async (req, res) => {
 cleaningRouter.post(
   "/tasks",
   requireAuth,
-  requireRoles("reception", "supervisor"),
+  requireAction("cleaning.create"),
   async (req, res, next) => {
     try {
       const schema = z.object({
@@ -41,6 +46,7 @@ cleaningRouter.post(
         hotelDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
         assignedEmployeeId: z.string().optional(),
+        dueAt: z.string().datetime().optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
@@ -58,7 +64,7 @@ cleaningRouter.post(
 cleaningRouter.post(
   "/tasks/:id/start",
   requireAuth,
-  requireRoles("housekeeper", "supervisor"),
+  requireAction("cleaning.start"),
   async (req, res, next) => {
     try {
       const schema = z.object({
@@ -75,6 +81,7 @@ cleaningRouter.post(
         employeeId: req.user!.employeeId,
         commandId: parsed.data.commandId,
         expectedVersion: parsed.data.expectedVersion,
+        bypassAssigneeCheck: isOwner(req.user!.role),
       });
 
       return res.status(result.idempotent ? 200 : 201).json(result);
@@ -85,13 +92,75 @@ cleaningRouter.post(
 );
 
 cleaningRouter.post(
-  "/sessions/:id/complete",
+  "/tasks/:id/inspect",
   requireAuth,
-  requireRoles("housekeeper", "supervisor"),
+  requireAction("cleaning.inspect"),
   async (req, res, next) => {
     try {
       const schema = z.object({
         commandId: z.string().uuid(),
+        result: z.enum(["approved", "rejected"]),
+        findings: z.string().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "validation", details: parsed.error.flatten() });
+      }
+
+      const result = await inspectCleaningTask({
+        taskId: req.params.id,
+        inspectorEmployeeId: req.user!.employeeId,
+        commandId: parsed.data.commandId,
+        result: parsed.data.result,
+        findings: parsed.data.findings,
+      });
+
+      return res.status(result.idempotent ? 200 : 201).json(result);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+cleaningRouter.post(
+  "/tasks/:id/reassign",
+  requireAuth,
+  requireAction("cleaning.reassign"),
+  async (req, res, next) => {
+    try {
+      const schema = z.object({
+        assignedEmployeeId: z.string().min(1),
+        reason: z.string().min(1),
+        expectedVersion: z.number().int().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "validation", details: parsed.error.flatten() });
+      }
+
+      const task = await reassignCleaningTask({
+        taskId: req.params.id,
+        assignedEmployeeId: parsed.data.assignedEmployeeId,
+        reason: parsed.data.reason,
+        expectedVersion: parsed.data.expectedVersion,
+      });
+
+      return res.json(task);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+cleaningRouter.post(
+  "/sessions/:id/complete",
+  requireAuth,
+  requireAction("cleaning.complete"),
+  async (req, res, next) => {
+    try {
+      const schema = z.object({
+        commandId: z.string().uuid(),
+        notes: z.string().optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
@@ -102,9 +171,25 @@ cleaningRouter.post(
         sessionId: req.params.id,
         employeeId: req.user!.employeeId,
         commandId: parsed.data.commandId,
+        notes: parsed.data.notes,
+        bypassSessionOwnerCheck: isOwner(req.user!.role),
       });
 
-      return res.status(result.idempotent ? 200 : 200).json(result);
+      return res.json(result);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+cleaningRouter.get(
+  "/sessions/review",
+  requireAuth,
+  requireAction("cleaning.review_overdue"),
+  async (_req, res, next) => {
+    try {
+      const sessions = await listOverdueSessions();
+      return res.json(sessions);
     } catch (err) {
       return next(err);
     }
