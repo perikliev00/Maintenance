@@ -1,35 +1,58 @@
-import { SessionStatus, Prisma } from "@prisma/client";
+import {
+  CleaningServiceType,
+  InspectionResult,
+  Prisma,
+  SessionStatus,
+  TaskStatus,
+} from "@prisma/client";
 import { prisma } from "../db";
+import { getOperations } from "./settings";
 
 export type CleaningResultsQuery = {
   from: string;
   to: string;
   page: number;
   pageSize: number;
+  serviceTypes?: CleaningServiceType[];
   /** Optional session filter from data scope (supervisor sectors, etc.). */
   sessionWhere?: Prisma.CleaningSessionWhereInput;
+  /** Optional task filter from data scope. */
+  taskWhere?: Prisma.CleaningTaskWhereInput;
+};
+
+export type CleaningResultsCounters = {
+  completedSessions: number;
+  completedTasks: number;
+  acceptedTasks: number;
+  reworkEvents: number;
+  anomalousSessions: number;
+  distinctRooms: number;
+  onTimePct: number | null;
+  avgValidMinutes: number | null;
+  totalValidSessionMinutes: number;
 };
 
 export type CleaningResultsRow = {
   employeeId: string;
   fullName: string;
   employeeNumber: string;
-  tasksCompleted: number;
-  roomsCleaned: number;
-  onTimePct: number | null;
-  avgMinutes: number | null;
-  totalSessionMinutes: number;
-};
+} & CleaningResultsCounters;
 
 export type CleaningResultsResponse = {
   period: { from: string; to: string };
   summary: {
     housekeeperCount: number;
-    roomsCleaned: number;
+    completedSessions: number;
+    completedTasks: number;
+    acceptedTasks: number;
+    reworkEvents: number;
+    anomalousSessions: number;
+    distinctRooms: number;
     onTimePct: number | null;
     productivity: number | null;
+    byServiceType: Array<{ key: CleaningServiceType; count: number }>;
   };
-  series: Array<{ hour: number; rooms: number }>;
+  series: Array<{ hour: number; completedSessions: number }>;
   rows: CleaningResultsRow[];
   page: number;
   pageSize: number;
@@ -51,137 +74,383 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+function asFlags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === "string");
+}
+
+export function isAnomalousSession(input: {
+  startedAt: Date;
+  finishedAt: Date;
+  anomalyFlags: unknown;
+  anomalyThresholdMinutes: number;
+}): boolean {
+  const flags = asFlags(input.anomalyFlags);
+  if (flags.length > 0) return true;
+  const durationMin =
+    (input.finishedAt.getTime() - input.startedAt.getTime()) / 60000;
+  return durationMin >= input.anomalyThresholdMinutes;
+}
+
+function emptyCounters(): Omit<
+  CleaningResultsCounters,
+  "onTimePct" | "avgValidMinutes" | "totalValidSessionMinutes"
+> & {
+  onTimeKnown: number;
+  onTimeOk: number;
+  totalValidSessionMs: number;
+  tasksWithValidTime: number;
+} {
+  return {
+    completedSessions: 0,
+    completedTasks: 0,
+    acceptedTasks: 0,
+    reworkEvents: 0,
+    anomalousSessions: 0,
+    distinctRooms: 0,
+    onTimeKnown: 0,
+    onTimeOk: 0,
+    totalValidSessionMs: 0,
+    tasksWithValidTime: 0,
+  };
+}
+
+function finalizeCounters(
+  agg: ReturnType<typeof emptyCounters>,
+  roomSet: Set<string>,
+): CleaningResultsCounters {
+  const totalValidSessionMinutes = round1(agg.totalValidSessionMs / (1000 * 60));
+  return {
+    completedSessions: agg.completedSessions,
+    completedTasks: agg.completedTasks,
+    acceptedTasks: agg.acceptedTasks,
+    reworkEvents: agg.reworkEvents,
+    anomalousSessions: agg.anomalousSessions,
+    distinctRooms: roomSet.size,
+    onTimePct:
+      agg.onTimeKnown > 0
+        ? round1((agg.onTimeOk / agg.onTimeKnown) * 100)
+        : null,
+    avgValidMinutes:
+      agg.tasksWithValidTime > 0
+        ? round1(totalValidSessionMinutes / agg.tasksWithValidTime)
+        : null,
+    totalValidSessionMinutes,
+  };
+}
+
 export async function getCleaningResults(
   query: CleaningResultsQuery,
 ): Promise<CleaningResultsResponse> {
   const fromStart = dayStartUtc(query.from);
   const toEnd = dayEndExclusiveUtc(query.to);
+  const ops = await getOperations();
+  const anomalyThresholdMinutes = ops.overdueSessionMinutes * 2;
 
-  const sessions = await prisma.cleaningSession.findMany({
-    where: {
-      status: SessionStatus.completed,
-      finishedAt: {
-        gte: fromStart,
-        lt: toEnd,
-      },
-      ...(query.sessionWhere ?? {}),
-    },
-    include: {
-      employee: {
-        select: { id: true, fullName: true, employeeNumber: true },
-      },
-      task: {
-        select: { dueAt: true },
-      },
-    },
-  });
+  const serviceTypeFilter =
+    query.serviceTypes && query.serviceTypes.length > 0
+      ? { serviceType: { in: query.serviceTypes } }
+      : {};
 
-  type Agg = {
+  const taskScope = {
+    ...serviceTypeFilter,
+    ...(query.taskWhere ?? {}),
+  };
+
+  const [sessions, completedTasks, approvedInspections, rejectedInspections] =
+    await Promise.all([
+      prisma.cleaningSession.findMany({
+        where: {
+          status: SessionStatus.completed,
+          finishedAt: { gte: fromStart, lt: toEnd },
+          ...(query.sessionWhere ?? {}),
+          ...(Object.keys(taskScope).length
+            ? { task: taskScope }
+            : {}),
+        },
+        include: {
+          employee: {
+            select: { id: true, fullName: true, employeeNumber: true },
+          },
+          task: {
+            select: {
+              id: true,
+              dueAt: true,
+              locationId: true,
+              serviceType: true,
+              assignedEmployeeId: true,
+            },
+          },
+        },
+      }),
+      prisma.cleaningTask.findMany({
+        where: {
+          status: TaskStatus.completed,
+          completedAt: { gte: fromStart, lt: toEnd },
+          ...taskScope,
+        },
+        include: {
+          assignedEmployee: {
+            select: { id: true, fullName: true, employeeNumber: true },
+          },
+          sessions: {
+            where: { status: SessionStatus.completed },
+            select: {
+              startedAt: true,
+              finishedAt: true,
+              anomalyFlags: true,
+              employeeId: true,
+            },
+          },
+          inspections: {
+            where: { result: InspectionResult.approved },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      }),
+      prisma.inspection.count({
+        where: {
+          inspectedAt: { gte: fromStart, lt: toEnd },
+          result: InspectionResult.approved,
+          ...(Object.keys(taskScope).length ? { task: taskScope } : {}),
+        },
+      }),
+      prisma.inspection.count({
+        where: {
+          inspectedAt: { gte: fromStart, lt: toEnd },
+          result: InspectionResult.rejected,
+          ...(Object.keys(taskScope).length ? { task: taskScope } : {}),
+        },
+      }),
+    ]);
+
+  // Auto-completed tasks (no inspection) count as accepted when completedAt in period.
+  const autoAccepted = completedTasks.filter((t) => t.inspections.length === 0)
+    .length;
+  const acceptedTasks = approvedInspections + autoAccepted;
+
+  type EmpAgg = ReturnType<typeof emptyCounters> & {
     employeeId: string;
     fullName: string;
     employeeNumber: string;
-    tasksCompleted: number;
-    onTimeKnown: number;
-    onTimeOk: number;
-    totalSessionMs: number;
+    roomIds: Set<string>;
   };
 
-  const byEmployee = new Map<string, Agg>();
+  const byEmployee = new Map<string, EmpAgg>();
   const hourBuckets = Array.from({ length: 24 }, () => 0);
+  const summaryAgg = emptyCounters();
+  const summaryRooms = new Set<string>();
+  const byServiceType = new Map<CleaningServiceType, number>();
 
-  let roomsCleaned = 0;
-  let onTimeKnown = 0;
-  let onTimeOk = 0;
-  let totalSessionMs = 0;
+  function ensureEmp(
+    employeeId: string,
+    fullName: string,
+    employeeNumber: string,
+  ): EmpAgg {
+    let agg = byEmployee.get(employeeId);
+    if (!agg) {
+      agg = {
+        employeeId,
+        fullName,
+        employeeNumber,
+        roomIds: new Set(),
+        ...emptyCounters(),
+      };
+      byEmployee.set(employeeId, agg);
+    }
+    return agg;
+  }
 
   for (const session of sessions) {
     if (!session.finishedAt) continue;
 
+    const anomalous = isAnomalousSession({
+      startedAt: session.startedAt,
+      finishedAt: session.finishedAt,
+      anomalyFlags: session.anomalyFlags,
+      anomalyThresholdMinutes,
+    });
     const durationMs = Math.max(
       0,
       session.finishedAt.getTime() - session.startedAt.getTime(),
     );
-    roomsCleaned += 1;
-    totalSessionMs += durationMs;
+
+    summaryAgg.completedSessions += 1;
+    if (anomalous) summaryAgg.anomalousSessions += 1;
+    else summaryAgg.totalValidSessionMs += durationMs;
 
     const hour = session.finishedAt.getUTCHours();
     hourBuckets[hour] += 1;
 
-    const dueAt = session.task.dueAt;
-    let sessionOnTime: boolean | null = null;
-    if (dueAt) {
-      onTimeKnown += 1;
-      sessionOnTime = session.finishedAt.getTime() <= dueAt.getTime();
-      if (sessionOnTime) onTimeOk += 1;
+    const emp = ensureEmp(
+      session.employee.id,
+      session.employee.fullName,
+      session.employee.employeeNumber,
+    );
+    emp.completedSessions += 1;
+    if (anomalous) emp.anomalousSessions += 1;
+    else emp.totalValidSessionMs += durationMs;
+  }
+
+  for (const task of completedTasks) {
+    summaryAgg.completedTasks += 1;
+    summaryRooms.add(task.locationId);
+    byServiceType.set(
+      task.serviceType,
+      (byServiceType.get(task.serviceType) ?? 0) + 1,
+    );
+
+    if (task.dueAt && task.completedAt) {
+      summaryAgg.onTimeKnown += 1;
+      if (task.completedAt.getTime() <= task.dueAt.getTime()) {
+        summaryAgg.onTimeOk += 1;
+      }
     }
 
-    let agg = byEmployee.get(session.employeeId);
-    if (!agg) {
-      agg = {
-        employeeId: session.employee.id,
-        fullName: session.employee.fullName,
-        employeeNumber: session.employee.employeeNumber,
-        tasksCompleted: 0,
-        onTimeKnown: 0,
-        onTimeOk: 0,
-        totalSessionMs: 0,
-      };
-      byEmployee.set(session.employeeId, agg);
+    const validSessionMs = task.sessions.reduce((sum, s) => {
+      if (!s.finishedAt) return sum;
+      if (
+        isAnomalousSession({
+          startedAt: s.startedAt,
+          finishedAt: s.finishedAt,
+          anomalyFlags: s.anomalyFlags,
+          anomalyThresholdMinutes,
+        })
+      ) {
+        return sum;
+      }
+      return (
+        sum + Math.max(0, s.finishedAt.getTime() - s.startedAt.getTime())
+      );
+    }, 0);
+    if (validSessionMs > 0) {
+      summaryAgg.tasksWithValidTime += 1;
     }
-    agg.tasksCompleted += 1;
-    agg.totalSessionMs += durationMs;
-    if (sessionOnTime !== null) {
-      agg.onTimeKnown += 1;
-      if (sessionOnTime) agg.onTimeOk += 1;
+
+    const assignee = task.assignedEmployee;
+    if (assignee) {
+      const emp = ensureEmp(
+        assignee.id,
+        assignee.fullName,
+        assignee.employeeNumber,
+      );
+      emp.completedTasks += 1;
+      emp.roomIds.add(task.locationId);
+      if (task.dueAt && task.completedAt) {
+        emp.onTimeKnown += 1;
+        if (task.completedAt.getTime() <= task.dueAt.getTime()) {
+          emp.onTimeOk += 1;
+        }
+      }
+      if (validSessionMs > 0) {
+        emp.tasksWithValidTime += 1;
+        // Per-employee valid minutes already accumulated from sessions by session employee;
+        // for avgValidMinutes use task-assigned employee's tasksWithValidTime vs their session valid ms.
+      }
     }
   }
 
-  const totalHours = totalSessionMs / (1000 * 60 * 60);
-  const summaryOnTimePct =
-    onTimeKnown > 0 ? round1((onTimeOk / onTimeKnown) * 100) : null;
+  // Accepted / rework attributed to assignee when possible
+  const [approvedRows, rejectedRows] = await Promise.all([
+    prisma.inspection.findMany({
+      where: {
+        inspectedAt: { gte: fromStart, lt: toEnd },
+        result: InspectionResult.approved,
+        ...(Object.keys(taskScope).length ? { task: taskScope } : {}),
+      },
+      select: {
+        task: { select: { assignedEmployeeId: true } },
+      },
+    }),
+    prisma.inspection.findMany({
+      where: {
+        inspectedAt: { gte: fromStart, lt: toEnd },
+        result: InspectionResult.rejected,
+        ...(Object.keys(taskScope).length ? { task: taskScope } : {}),
+      },
+      select: {
+        task: { select: { assignedEmployeeId: true } },
+      },
+    }),
+  ]);
+
+  summaryAgg.acceptedTasks = acceptedTasks;
+  summaryAgg.reworkEvents = rejectedInspections;
+
+  for (const row of approvedRows) {
+    const id = row.task.assignedEmployeeId;
+    if (!id) continue;
+    const emp = byEmployee.get(id);
+    if (emp) emp.acceptedTasks += 1;
+  }
+  for (const task of completedTasks) {
+    if (task.inspections.length === 0 && task.assignedEmployee) {
+      const emp = byEmployee.get(task.assignedEmployee.id);
+      if (emp) emp.acceptedTasks += 1;
+    }
+  }
+  for (const row of rejectedRows) {
+    const id = row.task.assignedEmployeeId;
+    if (!id) continue;
+    const emp = byEmployee.get(id);
+    if (emp) emp.reworkEvents += 1;
+  }
+
+  const summaryCounters = finalizeCounters(summaryAgg, summaryRooms);
+  const totalValidHours = summaryAgg.totalValidSessionMs / (1000 * 60 * 60);
   const productivity =
-    totalHours > 0 ? round1(roomsCleaned / totalHours) : null;
+    totalValidHours > 0
+      ? round1(summaryCounters.completedTasks / totalValidHours)
+      : null;
 
   const allRows: CleaningResultsRow[] = [...byEmployee.values()]
     .map((agg) => {
-      const totalSessionMinutes = round1(agg.totalSessionMs / (1000 * 60));
+      const counters = finalizeCounters(agg, agg.roomIds);
       return {
         employeeId: agg.employeeId,
         fullName: agg.fullName,
         employeeNumber: agg.employeeNumber,
-        tasksCompleted: agg.tasksCompleted,
-        roomsCleaned: agg.tasksCompleted,
-        onTimePct:
-          agg.onTimeKnown > 0
-            ? round1((agg.onTimeOk / agg.onTimeKnown) * 100)
-            : null,
-        avgMinutes:
-          agg.tasksCompleted > 0
-            ? round1(totalSessionMinutes / agg.tasksCompleted)
-            : null,
-        totalSessionMinutes,
+        ...counters,
       };
     })
     .sort((a, b) => {
-      if (b.tasksCompleted !== a.tasksCompleted) {
-        return b.tasksCompleted - a.tasksCompleted;
+      if (b.completedTasks !== a.completedTasks) {
+        return b.completedTasks - a.completedTasks;
+      }
+      if (b.completedSessions !== a.completedSessions) {
+        return b.completedSessions - a.completedSessions;
       }
       return a.fullName.localeCompare(b.fullName, "bg");
     });
+
+  /** Employees with ≥1 completed session in the period. */
+  const housekeeperCount = allRows.filter((r) => r.completedSessions > 0).length;
 
   const total = allRows.length;
   const start = (query.page - 1) * query.pageSize;
   const rows = allRows.slice(start, start + query.pageSize);
 
-  const series = hourBuckets.map((rooms, hour) => ({ hour, rooms }));
+  const series = hourBuckets.map((completedSessions, hour) => ({
+    hour,
+    completedSessions,
+  }));
 
   return {
     period: { from: query.from, to: query.to },
     summary: {
-      housekeeperCount: total,
-      roomsCleaned,
-      onTimePct: summaryOnTimePct,
+      housekeeperCount,
+      completedSessions: summaryCounters.completedSessions,
+      completedTasks: summaryCounters.completedTasks,
+      acceptedTasks: summaryCounters.acceptedTasks,
+      reworkEvents: summaryCounters.reworkEvents,
+      anomalousSessions: summaryCounters.anomalousSessions,
+      distinctRooms: summaryCounters.distinctRooms,
+      onTimePct: summaryCounters.onTimePct,
       productivity,
+      byServiceType: [...byServiceType.entries()]
+        .map(([key, count]) => ({ key, count }))
+        .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)),
     },
     series,
     rows,

@@ -329,6 +329,20 @@ export function sectorWhere(scope: DataScope): Prisma.SectorWhereInput {
   }
 }
 
+/** Location IDs visible under this scope, or null when scope is unrestricted. */
+export async function scopedLocationIdsFor(
+  scope: DataScope,
+): Promise<string[] | null> {
+  if (scope.kind === "all") return null;
+  const where = locationWhere(scope);
+  if (Object.keys(where).length === 0) return null;
+  const rows = await prisma.location.findMany({
+    where,
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
 export async function assertCanAccessSector(
   scope: DataScope,
   sectorId: string,
@@ -347,6 +361,41 @@ export async function assertCanAccessSector(
     throw new AppError(404, "not_found", "Sector not found");
   }
   throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+}
+
+/**
+ * Sector-scoped actors may only assign locations already in the union of
+ * their current sectors (rebalancing among own sectors). Expanding with
+ * foreign or unassigned rooms is forbidden.
+ */
+export async function assertLocationsInSectorScope(
+  scope: DataScope,
+  locationIds: string[],
+): Promise<void> {
+  if (scope.kind === "all") return;
+  if (scope.kind !== "sectors") {
+    throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+  }
+
+  const unique = [...new Set(locationIds)];
+  if (unique.length === 0) return;
+
+  if (scope.sectorIds.length === 0) {
+    throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+  }
+
+  const allowed = await prisma.sectorLocation.findMany({
+    where: {
+      sectorId: { in: scope.sectorIds },
+      locationId: { in: unique },
+    },
+    select: { locationId: true },
+  });
+  const allowedSet = new Set(allowed.map((r) => r.locationId));
+  const outside = unique.filter((id) => !allowedSet.has(id));
+  if (outside.length) {
+    throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+  }
 }
 
 /** Supervisors may only create sectors where they are the primary supervisor. */

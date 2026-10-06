@@ -2,9 +2,11 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { AppError } from "../errors";
+import { canPerform } from "../services/roleGrants";
 import {
   assertCanAccessSector,
   assertCanCreateSector,
+  assertLocationsInSectorScope,
   resolveDataScope,
   sectorWhere,
 } from "../services/dataScope";
@@ -14,10 +16,12 @@ import {
   getSector,
   listMySectors,
   listSectors,
+  listShiftRoster,
   listShifts,
   setSectorLocations,
   updateSector,
   updateShift,
+  upsertShiftRoster,
 } from "../services/sectors";
 
 export const sectorsRouter = Router();
@@ -94,11 +98,18 @@ sectorsRouter.post(
       }
 
       const scope = await resolveDataScope(req.user!);
+      // Sector-scoped actors cannot create sectors (would expand their data scope).
+      if (scope.kind === "sectors") {
+        throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+      }
+
       const primarySupervisorEmployeeId =
-        scope.kind === "sectors"
-          ? scope.employeeId
-          : parsed.data.primarySupervisorEmployeeId;
+        parsed.data.primarySupervisorEmployeeId;
       assertCanCreateSector(scope, primarySupervisorEmployeeId);
+
+      if (parsed.data.locationIds?.length) {
+        await assertLocationsInSectorScope(scope, parsed.data.locationIds);
+      }
 
       const sector = await createSector({
         ...parsed.data,
@@ -174,6 +185,7 @@ sectorsRouter.put(
 
       const scope = await resolveDataScope(req.user!);
       await assertCanAccessSector(scope, req.params.id);
+      await assertLocationsInSectorScope(scope, parsed.data.locationIds);
 
       const sector = await setSectorLocations(
         req.params.id,
@@ -187,15 +199,83 @@ sectorsRouter.put(
   },
 );
 
-shiftsRouter.get("/", requireAuth, requireAction("shifts.manage"), async (req, res, next) => {
+shiftsRouter.get("/", requireAuth, async (req, res, next) => {
   try {
     const includeInactive = req.query.includeInactive === "true";
+    const role = req.user!.role;
+    const canCatalog = await canPerform(role, "shifts.manage");
+    if (includeInactive && !canCatalog) {
+      throw new AppError(403, "forbidden", "shifts.manage required");
+    }
+    if (
+      !canCatalog &&
+      !(await canPerform(role, "plan.manage")) &&
+      !(await canPerform(role, "cleaning.create")) &&
+      !(await canPerform(role, "cleaning.reassign"))
+    ) {
+      throw new AppError(403, "forbidden", "Not allowed to list shifts");
+    }
     const shifts = await listShifts(includeInactive);
     return res.json(shifts);
   } catch (err) {
     return next(err);
   }
 });
+
+const hotelDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+shiftsRouter.get(
+  "/roster",
+  requireAuth,
+  requireAction("shifts.manage"),
+  async (req, res, next) => {
+    try {
+      const hotelDate = hotelDateSchema.safeParse(req.query.hotelDate);
+      if (!hotelDate.success) {
+        return res.status(400).json({
+          error: "validation",
+          message: "hotelDate query (YYYY-MM-DD) is required",
+        });
+      }
+      const roster = await listShiftRoster(hotelDate.data);
+      return res.json(roster);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+shiftsRouter.put(
+  "/roster",
+  requireAuth,
+  requireAction("shifts.manage"),
+  async (req, res, next) => {
+    try {
+      const schema = z.object({
+        hotelDate: hotelDateSchema,
+        entries: z.array(
+          z.object({
+            employeeId: z.string().min(1),
+            shiftId: z.string().min(1),
+          }),
+        ),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "validation", details: parsed.error.flatten() });
+      }
+      const roster = await upsertShiftRoster({
+        ...parsed.data,
+        actorEmployeeId: req.user!.employeeId,
+      });
+      return res.json(roster);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
 
 shiftsRouter.post(
   "/",

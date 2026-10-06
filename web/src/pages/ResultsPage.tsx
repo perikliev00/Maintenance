@@ -2,7 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchCleaningResults,
   type CleaningResultsResponse,
+  type CleaningServiceType,
 } from "../api/client";
+
+const SERVICE_TYPE_OPTIONS: Array<{
+  value: CleaningServiceType;
+  label: string;
+}> = [
+  { value: "stayover", label: "Престой" },
+  { value: "departure", label: "Напускане" },
+  { value: "arrival", label: "Пристигане" },
+  { value: "common_area", label: "Обща част" },
+];
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -30,15 +41,22 @@ export function ResultsPage() {
   const [to, setTo] = useState(today);
   const [page, setPage] = useState(1);
   const pageSize = 25;
+  const [serviceTypes, setServiceTypes] = useState<CleaningServiceType[]>([]);
   const [data, setData] = useState<CleaningResultsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
-    const result = await fetchCleaningResults({ from, to, page, pageSize });
+    const result = await fetchCleaningResults({
+      from,
+      to,
+      page,
+      pageSize,
+      serviceType: serviceTypes.length ? serviceTypes : undefined,
+    });
     setData(result);
-  }, [from, to, page]);
+  }, [from, to, page, serviceTypes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,9 +89,16 @@ export function ResultsPage() {
     setPage(1);
   }
 
+  function toggleServiceType(value: CleaningServiceType) {
+    setServiceTypes((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value],
+    );
+    setPage(1);
+  }
+
   const maxBar = useMemo(() => {
     if (!data?.series.length) return 1;
-    return Math.max(1, ...data.series.map((s) => s.rooms));
+    return Math.max(1, ...data.series.map((s) => s.completedSessions));
   }, [data]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
@@ -83,7 +108,10 @@ export function ResultsPage() {
       <header className="page-header">
         <div>
           <h1>Резултати по камериер</h1>
-          <p>Производителност и навременност за избрания период</p>
+          <p>
+            Камериери с ≥1 завършена сесия; задачи, приети и сесии са отделни
+            броячи
+          </p>
         </div>
       </header>
 
@@ -118,6 +146,35 @@ export function ResultsPage() {
         </button>
       </div>
 
+      <div className="toolbar">
+        {SERVICE_TYPE_OPTIONS.map((opt) => {
+          const active = serviceTypes.includes(opt.value);
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              className={active ? "" : "ghost"}
+              aria-pressed={active}
+              onClick={() => toggleServiceType(opt.value)}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+        {serviceTypes.length > 0 && (
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              setServiceTypes([]);
+              setPage(1);
+            }}
+          >
+            Всички типове
+          </button>
+        )}
+      </div>
+
       {error && <p className="err-text">{error}</p>}
       {loading && !data && <p className="muted">Зареждане…</p>}
 
@@ -125,12 +182,32 @@ export function ResultsPage() {
         <>
           <div className="results-kpi-grid">
             <div className="stat-card">
-              <span className="muted">Брой камериери</span>
+              <span className="muted">Камериери с работа</span>
               <strong>{data.summary.housekeeperCount}</strong>
             </div>
             <div className="stat-card">
-              <span className="muted">Почистени стаи</span>
-              <strong>{data.summary.roomsCleaned}</strong>
+              <span className="muted">Приключени задачи</span>
+              <strong>{data.summary.completedTasks}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="muted">Приети</span>
+              <strong>{data.summary.acceptedTasks}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="muted">Сесии</span>
+              <strong>{data.summary.completedSessions}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="muted">Повторна работа</span>
+              <strong>{data.summary.reworkEvents}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="muted">Аномални сесии</span>
+              <strong>{data.summary.anomalousSessions}</strong>
+            </div>
+            <div className="stat-card">
+              <span className="muted">Различни стаи</span>
+              <strong>{data.summary.distinctRooms}</strong>
             </div>
             <div className="stat-card">
               <span className="muted">Навреме</span>
@@ -139,21 +216,40 @@ export function ResultsPage() {
             <div className="stat-card">
               <span className="muted">Производителност</span>
               <strong>
-                {formatNum(data.summary.productivity, " ст./ч")}
+                {formatNum(data.summary.productivity, " зад./ч")}
               </strong>
             </div>
           </div>
 
+          {data.summary.byServiceType.length > 0 && (
+            <div className="toolbar">
+              {data.summary.byServiceType.map((b) => {
+                const label =
+                  SERVICE_TYPE_OPTIONS.find((o) => o.value === b.key)?.label ??
+                  b.key;
+                return (
+                  <span key={b.key} className="muted">
+                    {label}: {b.count}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
           <section className="panel results-chart-panel">
             <div className="panel-header">
-              <h2>Стаи / Часове</h2>
+              <h2>Сесии / Часове</h2>
             </div>
-            {data.summary.roomsCleaned === 0 ? (
+            {data.summary.completedSessions === 0 ? (
               <p className="muted">Няма завършени сесии в периода.</p>
             ) : (
-              <div className="results-chart" role="img" aria-label="Rooms completed by hour">
+              <div
+                className="results-chart"
+                role="img"
+                aria-label="Completed sessions by hour"
+              >
                 {data.series.map((point) => {
-                  const heightPct = (point.rooms / maxBar) * 100;
+                  const heightPct = (point.completedSessions / maxBar) * 100;
                   const label = `${String(point.hour).padStart(2, "0")}:00`;
                   return (
                     <div key={point.hour} className="results-chart-col">
@@ -161,11 +257,13 @@ export function ResultsPage() {
                         <div
                           className="results-chart-bar"
                           style={{ height: `${heightPct}%` }}
-                          title={`${label}: ${point.rooms}`}
+                          title={`${label}: ${point.completedSessions}`}
                         />
                       </div>
                       <span className="results-chart-label">{label}</span>
-                      <span className="results-chart-value">{point.rooms || ""}</span>
+                      <span className="results-chart-value">
+                        {point.completedSessions || ""}
+                      </span>
                     </div>
                   );
                 })}
@@ -186,16 +284,20 @@ export function ResultsPage() {
                   <tr>
                     <th>Име</th>
                     <th>Номер</th>
-                    <th>Почистени</th>
+                    <th>Задачи</th>
+                    <th>Приети</th>
+                    <th>Сесии</th>
+                    <th>Rework</th>
+                    <th>Аномалии</th>
                     <th>Навреме</th>
-                    <th>Средно мин.</th>
-                    <th>Общо мин.</th>
+                    <th>Ср. валидни мин.</th>
+                    <th>Валидни мин.</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.rows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="muted">
+                      <td colSpan={10} className="muted">
                         Няма данни за периода.
                       </td>
                     </tr>
@@ -204,10 +306,14 @@ export function ResultsPage() {
                       <tr key={row.employeeId}>
                         <td>{row.fullName}</td>
                         <td>{row.employeeNumber}</td>
-                        <td>{row.roomsCleaned}</td>
+                        <td>{row.completedTasks}</td>
+                        <td>{row.acceptedTasks}</td>
+                        <td>{row.completedSessions}</td>
+                        <td>{row.reworkEvents}</td>
+                        <td>{row.anomalousSessions}</td>
                         <td>{formatPct(row.onTimePct)}</td>
-                        <td>{formatNum(row.avgMinutes)}</td>
-                        <td>{row.totalSessionMinutes}</td>
+                        <td>{formatNum(row.avgValidMinutes)}</td>
+                        <td>{row.totalValidSessionMinutes}</td>
                       </tr>
                     ))
                   )}

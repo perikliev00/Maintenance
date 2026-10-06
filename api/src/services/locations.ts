@@ -1,7 +1,21 @@
-import { LocationKind, Prisma, TaskStatus } from "@prisma/client";
+import {
+  CatalogStatus,
+  LocationKind,
+  Occupancy,
+  Prisma,
+  ServiceStatus,
+  TaskStatus,
+} from "@prisma/client";
 import { prisma } from "../db";
-import { computeReadiness } from "./readiness";
+import { AppError } from "../errors";
+import { publish } from "../events/bus";
 import { ACTIVE_TASK_STATUSES, OPEN_TICKET_STATUSES } from "../constants";
+import { recordAudit } from "./audit";
+import { computeReadiness } from "./readiness";
+import {
+  createNotifications,
+  recipientsForLocationOps,
+} from "./notifications";
 
 export const locationInclude = {
   floor: { include: { building: true } },
@@ -65,6 +79,7 @@ type InspectionRow = {
 
 export type LocationForMap = {
   id: string;
+  floorId: string;
   number: string;
   kind: LocationKind;
   catalogStatus: string;
@@ -141,6 +156,7 @@ export function mapLocation(location: LocationForMap) {
 
   return {
     id: location.id,
+    floorId: location.floorId,
     number: location.number,
     kind: location.kind,
     floor: location.floor.number,
@@ -267,3 +283,354 @@ export function locationQrPayload(location: {
     number: location.number,
   };
 }
+
+export async function getLocationHierarchy() {
+  const buildings = await prisma.building.findMany({
+    include: {
+      floors: {
+        orderBy: { number: "asc" },
+        select: { id: true, number: true, name: true },
+      },
+    },
+    orderBy: { code: "asc" },
+  });
+  return buildings.map((b) => ({
+    id: b.id,
+    name: b.name,
+    code: b.code,
+    floors: b.floors.map((f) => ({
+      id: f.id,
+      number: f.number,
+      name: f.name,
+    })),
+  }));
+}
+
+export async function listLocationsCatalog(input: {
+  kind?: LocationKind;
+  includeArchived?: boolean;
+  scopeFilter?: Prisma.LocationWhereInput;
+}) {
+  const where: Prisma.LocationWhereInput = {
+    ...(input.scopeFilter ?? {}),
+    ...(input.kind ? { kind: input.kind } : {}),
+    ...(input.includeArchived
+      ? {}
+      : { catalogStatus: CatalogStatus.active }),
+  };
+  return prisma.location.findMany({
+    where,
+    include: locationInclude,
+    orderBy: [
+      { catalogStatus: "asc" },
+      { floor: { building: { code: "asc" } } },
+      { floor: { number: "asc" } },
+      { number: "asc" },
+    ],
+  });
+}
+
+async function assertFloorExists(floorId: string) {
+  const floor = await prisma.floor.findUnique({
+    where: { id: floorId },
+    select: { id: true },
+  });
+  if (!floor) {
+    throw new AppError(404, "not_found", "Floor not found");
+  }
+}
+
+function conflictFromPrisma(err: unknown): never {
+  if (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    err.code === "P2002"
+  ) {
+    throw new AppError(
+      409,
+      "conflict",
+      "A location with this number already exists on that floor",
+    );
+  }
+  throw err;
+}
+
+export async function createLocation(input: {
+  floorId: string;
+  number: string;
+  kind?: LocationKind;
+  occupancy?: Occupancy;
+  serviceStatus?: ServiceStatus;
+  actorEmployeeId?: string;
+}) {
+  const number = input.number.trim();
+  if (!number) {
+    throw new AppError(400, "validation", "number is required");
+  }
+  await assertFloorExists(input.floorId);
+  const kind = input.kind ?? LocationKind.room;
+
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      const row = await tx.location.create({
+        data: {
+          floorId: input.floorId,
+          number,
+          kind,
+          occupancy:
+            input.occupancy ??
+            (kind === LocationKind.common_area
+              ? Occupancy.vacant
+              : Occupancy.unknown),
+          serviceStatus: input.serviceStatus ?? ServiceStatus.in_service,
+        },
+        include: locationInclude,
+      });
+      await recordAudit(tx, {
+        actorEmployeeId: input.actorEmployeeId,
+        action: "location.create",
+        entityType: "location",
+        entityId: row.id,
+        locationId: row.id,
+        after: {
+          floorId: row.floorId,
+          number: row.number,
+          kind: row.kind,
+          occupancy: row.occupancy,
+          serviceStatus: row.serviceStatus,
+        },
+        summary: `Created ${row.kind} ${row.number}`,
+      });
+      return row;
+    });
+    publish("location.changed", { locationId: created.id });
+    return created;
+  } catch (err) {
+    conflictFromPrisma(err);
+  }
+}
+
+export async function updateLocation(
+  id: string,
+  input: {
+    floorId?: string;
+    number?: string;
+    kind?: LocationKind;
+    actorEmployeeId?: string;
+  },
+) {
+  const existing = await prisma.location.findUnique({ where: { id } });
+  if (!existing) {
+    throw new AppError(404, "not_found", "Location not found");
+  }
+  if (input.floorId !== undefined) {
+    await assertFloorExists(input.floorId);
+  }
+  const number =
+    input.number !== undefined ? input.number.trim() : undefined;
+  if (number !== undefined && !number) {
+    throw new AppError(400, "validation", "number is required");
+  }
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.location.update({
+        where: { id },
+        data: {
+          ...(input.floorId !== undefined ? { floorId: input.floorId } : {}),
+          ...(number !== undefined ? { number } : {}),
+          ...(input.kind !== undefined ? { kind: input.kind } : {}),
+        },
+        include: locationInclude,
+      });
+      await recordAudit(tx, {
+        actorEmployeeId: input.actorEmployeeId,
+        action: "location.update",
+        entityType: "location",
+        entityId: id,
+        locationId: id,
+        before: {
+          floorId: existing.floorId,
+          number: existing.number,
+          kind: existing.kind,
+        },
+        after: {
+          floorId: row.floorId,
+          number: row.number,
+          kind: row.kind,
+        },
+        summary: `Updated location ${row.number}`,
+      });
+      return row;
+    });
+    publish("location.changed", { locationId: updated.id });
+    return updated;
+  } catch (err) {
+    conflictFromPrisma(err);
+  }
+}
+
+export async function archiveLocation(id: string, actorEmployeeId?: string) {
+  const existing = await prisma.location.findUnique({ where: { id } });
+  if (!existing) {
+    throw new AppError(404, "not_found", "Location not found");
+  }
+  if (existing.catalogStatus === CatalogStatus.archived) {
+    const full = await findLocationById(id);
+    return full!;
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.location.update({
+      where: { id },
+      data: { catalogStatus: CatalogStatus.archived },
+      include: locationInclude,
+    });
+    await recordAudit(tx, {
+      actorEmployeeId,
+      action: "location.archive",
+      entityType: "location",
+      entityId: id,
+      locationId: id,
+      before: { catalogStatus: existing.catalogStatus },
+      after: { catalogStatus: CatalogStatus.archived },
+      summary: `Archived location ${row.number}`,
+    });
+    return row;
+  });
+  publish("location.changed", { locationId: updated.id });
+  return updated;
+}
+
+export async function restoreLocation(id: string, actorEmployeeId?: string) {
+  const existing = await prisma.location.findUnique({ where: { id } });
+  if (!existing) {
+    throw new AppError(404, "not_found", "Location not found");
+  }
+  if (existing.catalogStatus === CatalogStatus.active) {
+    const full = await findLocationById(id);
+    return full!;
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.location.update({
+      where: { id },
+      data: { catalogStatus: CatalogStatus.active },
+      include: locationInclude,
+    });
+    await recordAudit(tx, {
+      actorEmployeeId,
+      action: "location.restore",
+      entityType: "location",
+      entityId: id,
+      locationId: id,
+      before: { catalogStatus: existing.catalogStatus },
+      after: { catalogStatus: CatalogStatus.active },
+      summary: `Restored location ${row.number}`,
+    });
+    return row;
+  });
+  publish("location.changed", { locationId: updated.id });
+  return updated;
+}
+
+export async function setLocationOccupancy(
+  id: string,
+  occupancy: Occupancy,
+  actorEmployeeId?: string,
+) {
+  const existing = await prisma.location.findUnique({ where: { id } });
+  if (!existing) {
+    throw new AppError(404, "not_found", "Location not found");
+  }
+  if (existing.kind === LocationKind.common_area) {
+    throw new AppError(
+      400,
+      "validation",
+      "Occupancy applies only to rooms, not common areas",
+    );
+  }
+  if (existing.occupancy === occupancy) {
+    const full = await findLocationById(id);
+    return full!;
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.location.update({
+      where: { id },
+      data: { occupancy },
+      include: locationInclude,
+    });
+    await recordAudit(tx, {
+      actorEmployeeId,
+      action: "location.set_occupancy",
+      entityType: "location",
+      entityId: id,
+      locationId: id,
+      before: { occupancy: existing.occupancy },
+      after: { occupancy },
+      summary: `Set occupancy of ${row.number} to ${occupancy}`,
+    });
+    return row;
+  });
+  publish("location.changed", { locationId: updated.id });
+  return updated;
+}
+
+export async function setLocationServiceStatus(
+  id: string,
+  serviceStatus: ServiceStatus,
+  actorEmployeeId?: string,
+) {
+  const existing = await prisma.location.findUnique({ where: { id } });
+  if (!existing) {
+    throw new AppError(404, "not_found", "Location not found");
+  }
+  if (existing.serviceStatus === serviceStatus) {
+    const full = await findLocationById(id);
+    return full!;
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.location.update({
+      where: { id },
+      data: { serviceStatus },
+      include: locationInclude,
+    });
+    await recordAudit(tx, {
+      actorEmployeeId,
+      action: "location.set_service_status",
+      entityType: "location",
+      entityId: id,
+      locationId: id,
+      before: { serviceStatus: existing.serviceStatus },
+      after: { serviceStatus },
+      summary: `Set service status of ${row.number} to ${serviceStatus}`,
+    });
+    return row;
+  });
+  publish("location.changed", { locationId: updated.id });
+  if (serviceStatus === ServiceStatus.out_of_service) {
+    const recipients = await recipientsForLocationOps(
+      id,
+      "operations.view_live",
+    );
+    await createNotifications({
+      type: "location.out_of_service",
+      title: "Location out of service",
+      body: `${updated.number} set out of service`,
+      entityType: "location",
+      entityId: id,
+      locationId: id,
+      actorEmployeeId: actorEmployeeId ?? null,
+      recipientEmployeeIds: recipients,
+      dedupeKey: `location.out_of_service:${id}:${updated.updatedAt.toISOString()}`,
+      payload: {
+        panel: "live",
+        locationId: id,
+        locationNumber: updated.number,
+      },
+    });
+  }
+  return updated;
+}
+

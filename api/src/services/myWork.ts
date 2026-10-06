@@ -9,9 +9,38 @@ function hotelDateStart(isoDate?: string): Date {
   return new Date(`${raw}T00:00:00.000Z`);
 }
 
-export async function getMyWork(user: AuthUser, hotelDate?: string) {
+export async function getMyWork(
+  user: AuthUser,
+  hotelDate?: string,
+  shiftId?: string,
+) {
   const scope = await resolveDataScope(user);
   const date = hotelDateStart(hotelDate);
+  const dateIso = date.toISOString().slice(0, 10);
+
+  let effectiveShiftId = shiftId ?? null;
+  let rosterShiftId: string | null = null;
+  if (user.employeeId) {
+    const roster = await prisma.employeeShiftRoster.findUnique({
+      where: {
+        employeeId_hotelDate: {
+          employeeId: user.employeeId,
+          hotelDate: date,
+        },
+      },
+      select: { shiftId: true },
+    });
+    rosterShiftId = roster?.shiftId ?? null;
+    if (!effectiveShiftId) {
+      effectiveShiftId = rosterShiftId;
+    }
+  }
+
+  const shiftFilter = effectiveShiftId
+    ? {
+        OR: [{ shiftId: effectiveShiftId }, { shiftId: null }],
+      }
+    : {};
 
   const tasks =
     scope.kind === "assigned_tickets"
@@ -22,11 +51,22 @@ export async function getMyWork(user: AuthUser, hotelDate?: string) {
               taskWhere(scope),
               { hotelDate: date },
               { status: { in: [...ACTIVE_TASK_STATUSES] } },
+              shiftFilter,
             ],
           },
           include: {
             location: { include: { floor: { include: { building: true } } } },
             assignedEmployee: true,
+            shift: {
+              select: {
+                id: true,
+                code: true,
+                nameBg: true,
+                nameEn: true,
+                startTime: true,
+                endTime: true,
+              },
+            },
             sessions: true,
             inspections: true,
           },
@@ -51,7 +91,9 @@ export async function getMyWork(user: AuthUser, hotelDate?: string) {
   const tickets = ticketRows.map(formatMaintenanceTicket);
 
   return {
-    hotelDate: date.toISOString().slice(0, 10),
+    hotelDate: dateIso,
+    rosterShiftId,
+    filterShiftId: effectiveShiftId,
     tasks,
     tickets,
     summary: {

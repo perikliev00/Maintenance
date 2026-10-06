@@ -48,6 +48,8 @@ Readiness **не е един статус**, а композиция от няк
 | Capabilities (`panels`, `actions`, `landing`) | ✅ | `/auth/me`, login |
 | Списък стаи + readiness reasons | ✅ | Rooms |
 | Общи части (каталог + cleaning/tickets) | ✅ | Общи части / `/common-areas` |
+| Каталог помещения (CRUD + архив) | ✅ | Почистване → Каталог / `/locations` |
+| Occupancy / service status | ✅ | Rooms detail / `/locations/:id/occupancy`, `…/service-status` |
 | Mark dirty | ✅ | Rooms, Общи части / API |
 | Създаване на cleaning task + assign HK | ✅ | Rooms, Control |
 | Start / Complete cleaning session | ✅ | Rooms |
@@ -69,7 +71,7 @@ Readiness **не е един статус**, а композиция от няк
 | Дневен план Clock (S12) | ✅ | План / `/daily-plan` (+ JSON импорт; без реален PMS) |
 | My Work / персонална опашка | ✅ | Моите задачи / `/my-work` + PWA |
 | Отделен Repairs панел | ✅ | Повреди / `/maintenance` lifecycle UI |
-| Сектори / смени (панел Почистване) | ✅ | Почистване / `/sectors`, `/shifts` |
+| Сектори / смени (панел Почистване) | ✅ | Почистване / `/sectors`, `/shifts`; ростер `GET/PUT /shifts/roster`; `CleaningTask.shiftId` |
 | Snapshot сектор + отговорник на задача | ✅ | `CleaningTask.sectorId` / `sectorSupervisorEmployeeId` |
 | Data scope „мои сектори“ (супервайзър) | ✅ | `dataScope` + Live/Plan/Rooms/Results/Analytics + ticket create, sync push, sectors (own), live audit/SSE |
 | QR за помещения | ✅ | таб QR + `#/room-qr/:token` (само identify) |
@@ -149,13 +151,15 @@ Property (Meridian Resort)
 
 | Entity | Смисъл |
 |---|---|
-| `CleaningTask` | Задача за почистване за `hotelDate`, приоритет, assignee, `status`, `version` |
-| `CleaningSession` | Конкретна работна сесия (start→complete|cancel), idempotency ключове; optional `notes`; няма pause / adjustment |
+| `CleaningTask` | Задача за почистване за `hotelDate`, `serviceType` (`stayover` \| `departure` \| `arrival` \| `common_area`), приоритет, assignee, `status`, `completedAt` (при completed), `version` |
+| `CleaningSession` | Конкретна работна сесия (start→complete|cancel), idempotency ключове; optional `notes`; `anomalyFlags`; няма pause / adjustment |
 | `Inspection` | Approve/reject от инспектор + `findings` (задължителни при reject) |
 
-**TaskStatus:** `assigned` → `in_progress` → `awaiting_inspection` → `completed` (или `cancelled`). При reject → `rework` (същата задача; нова сесия при следващ Start).
+**TaskStatus:** `assigned` → `in_progress` → `awaiting_inspection` → `completed` (или `cancelled`). При reject → `rework` (същата задача; нова сесия при следващ Start). `completedAt` се записва при approve или при auto-complete (когато `require_inspection=false`).
 
 **SessionStatus:** `running` \| `completed` \| `cancelled`.
+
+**Аналитични броячи (§9):** сесии ≠ задачи ≠ различни стаи. `rework` е брояч на rejected инспекции (не `serviceType`). Аномална сесия: непразни `anomalyFlags` или продължителност ≥ `2 × overdueSessionMinutes` — изключва се от валидното време.
 
 ### Maintenance
 
@@ -222,6 +226,9 @@ Property (Meridian Resort)
 | Стъпка | Action | Типични роли (+ owner винаги) |
 |---|---|---|
 | Mark dirty | `rooms.mark_dirty` | reception, supervisor, manager |
+| Catalog CRUD / archive | `rooms.manage` | supervisor, manager, admin |
+| Set occupancy | `rooms.set_occupancy` | reception, supervisor, manager |
+| Set service status | `rooms.set_service_status` | supervisor, manager, admin |
 | Create task | `cleaning.create` | reception, supervisor, manager |
 | Start | `cleaning.start` | housekeeper, supervisor |
 | Complete | `cleaning.complete` | housekeeper, supervisor |
@@ -330,6 +337,9 @@ Runtime grants: таблица **`RoleGrant`** (редакция през пан
 ```
 rooms.view
 rooms.mark_dirty
+rooms.manage
+rooms.set_occupancy
+rooms.set_service_status
 cleaning.create
 cleaning.start
 cleaning.complete
@@ -452,6 +462,23 @@ Auth: httpOnly cookies (`session` access JWT ~15m, `refresh` ~14d) + CSRF double
 | GET | `/common-areas/:id` | auth |
 | POST | `/common-areas/:id/mark-dirty` | `rooms.mark_dirty` |
 
+### Locations (каталог + оперативни състояния)
+
+| Method | Path | Право |
+|---|---|---|
+| GET | `/locations/hierarchy` | `rooms.manage` — buildings → floors за create/edit |
+| GET | `/locations?kind=&includeArchived=` | `rooms.manage` — каталожен списък |
+| POST | `/locations` | `rooms.manage` — `{ floorId, number, kind? }` |
+| PATCH | `/locations/:id` | `rooms.manage` — каталожни полета |
+| POST | `/locations/:id/archive` | `rooms.manage` |
+| POST | `/locations/:id/restore` | `rooms.manage` |
+| PATCH | `/locations/:id/occupancy` | `rooms.set_occupancy` — само стаи |
+| PATCH | `/locations/:id/service-status` | `rooms.set_service_status` |
+| GET | `/locations/:id/qr` | `sectors.manage` — payload + scan URL |
+| GET | `/locations/by-qr/:token` | auth — идентифицира помещение (без auto start/complete) |
+
+UI: каталог в Почистване → Каталог; occupancy/service в detail drawer на Стаи / Общи части.
+
 ### Settings
 
 | Method | Path | Право |
@@ -494,9 +521,11 @@ Auth: httpOnly cookies (`session` access JWT ~15m, `refresh` ~14d) + CSRF double
 | POST | `/cleaning/sessions/:id/cancel` | `cleaning.review_overdue` + `{ commandId, notes? }` (running → cancelled; без adjustment) |
 | GET | `/cleaning/sessions/review` | `cleaning.review_overdue` |
 | GET | `/cleaning/employees/housekeepers` | auth |
-| GET | `/cleaning/results?from=&to=&page=&pageSize=` | `cleaning.results_view` (scoped) |
+| GET | `/cleaning/results?from=&to=&page=&pageSize=&serviceType=` | `cleaning.results_view` (scoped); `serviceType` = comma list |
 
-Резултати по камериер (S07–S08): агрегира completed sessions в периода. KPI — брой камериери с работа, почистени сесии, навреме % (`finishedAt ≤ dueAt`), производителност (сесии / сесийни часове). Графика по час; таблица с пагинация. При create/reassign задачата записва `sectorId` + `sectorSupervisorEmployeeId` snapshot.
+Резултати по камериер (S07–S08, §9): отделни броячи — `completedSessions`, `completedTasks` (по `completedAt`), `acceptedTasks` (approved или auto-complete), `reworkEvents` (rejected), `anomalousSessions`, `distinctRooms`. Навреме % = `completedAt ≤ dueAt` за completed задачи със срок. Производителност = completed tasks / валидни сесийни часове (аномалните са изключени). Графика: сесии по час. Филтър `serviceType` за съпоставими единици. „Брой камериери“ = служители с ≥1 completed session в периода. При create/reassign задачата записва `sectorId` + `sectorSupervisorEmployeeId` snapshot; `serviceType` се извежда от вид помещение / дневен план (или се подава изрично).
+
+Housekeeping analytics (`GET /analytics/summary?domain=housekeeping`): същите дефиниции върху `completedAt`; breakdown `byServiceType` + `byPriority`; P50/P90 върху валидни сесии.
 
 ### Сектори / смени / QR
 
@@ -505,11 +534,12 @@ Auth: httpOnly cookies (`session` access JWT ~15m, `refresh` ~14d) + CSRF double
 | GET | `/sectors` | `sectors.manage` |
 | GET | `/sectors/mine` | auth — активни сектори с primary supervisor = текущия служител |
 | GET/POST/PATCH | `/sectors`, `…/:id`, `…/:id/locations` | `sectors.manage` |
-| GET/POST/PATCH | `/shifts`, `…/:id` | `shifts.manage` |
-| GET | `/locations/:id/qr` | `sectors.manage` — payload + scan URL |
-| GET | `/locations/by-qr/:token` | auth — идентифицира помещение (без auto start/complete) |
+| GET/POST/PATCH | `/shifts`, `…/:id` | `shifts.manage` (GET активни: също `plan.manage` / cleaning create|reassign) |
+| GET/PUT | `/shifts/roster?hotelDate=` | `shifts.manage` — дневен ростер employee↔shift |
 
-Scan UI: `#/room-qr/:token`. Печат: таб QR в Почистване.
+`CleaningTask.shiftId` — планирана смяна при create/reassign/дневен план. `EmployeeShiftRoster` — кой е на коя смяна за хотелска дата (капацитет). My Work филтрира по ростер смяна (задачи без смяна остават видими).
+
+Scan UI: `#/room-qr/:token`. Печат: таб QR в Почистване. Каталог/QR endpoints: виж **Locations** по-горе.
 
 ### Operations (Live board S09)
 
@@ -553,14 +583,18 @@ Scan UI: `#/room-qr/:token`. Печат: таб QR в Почистване.
 
 | Method | Path | Право |
 |---|---|---|
-| GET | `/attendance/intervals` | `attendance.view` (`scope=month\|today\|week\|review`, `month`, `department`, `q`) |
+| GET | `/attendance/intervals` | `attendance.view` (`scope=month\|today\|week\|review`, `month`, `department`, `q`, `limit`, `cursor`) — връща `{ intervals, total, nextCursor, limit, maxClockSkewSeconds }` |
 | GET | `/attendance/intervals/:id` | `attendance.view` |
-| GET | `/attendance/export.csv` | `attendance.view` (същите филтри) |
-| POST | `/attendance/events` | `attendance.ingest` — симулиран терминал; идемпотентно по `(source, externalEventId)` |
+| GET | `/attendance/export.csv` | `attendance.view` (същите филтри; batch експорт, таван 50 000 реда → 413; header `X-Attendance-Total`) |
+| POST | `/attendance/events` | `attendance.ingest` — симулиран терминал; идемпотентно по `(source, externalEventId)`; при retry преизгражда интервали, ако събитието е записано без интервал |
 | POST | `/attendance/adjustments` | `attendance.request_adjustment` |
 | POST | `/attendance/adjustments/:id/review` | `attendance.approve_adjustment` + `{ decision: approved\|rejected }` |
 
-Оригиналните `AttendanceEvent` записи не се мутират при одобрена корекция. Нощна смяна е един интервал; `hotelDate` = дата на началото в `operations.hotelTimezone`.
+Оригиналните `AttendanceEvent` записи не се мутират при одобрена корекция. Нощна смяна е един интервал; `hotelDate` = дата на началото в `operations.hotelTimezone`. Ingest е транзакционен и преиграва event stream-а за hotel day на служителя, за да се възстанови partial failure при retry.
+
+### Audit history migration note
+
+`20261002260000_unified_audit_events` премахна `PermissionChange` / `SettingChange` в полза на `AuditEvent`. Ако таблиците още съществуват, `20261006220000_backfill_legacy_audit_history` копира редовете в `AuditEvent` и после ги drop-ва. Изгубена история без backup не може да се изобрети — възстановете staging таблици от backup и изпълнете [`api/prisma/scripts/restore_permission_setting_history.sql`](api/prisma/scripts/restore_permission_setting_history.sql).
 
 ### Health
 

@@ -1,15 +1,18 @@
 import type { AuditEventRow } from "../api/client";
+import { auditHeadline } from "../audit/labels";
 
 type Props = {
   events: AuditEventRow[];
   emptyLabel?: string;
   loading?: boolean;
+  locale?: "bg" | "en";
 };
 
 export function AuditTimeline({
   events,
   emptyLabel = "Няма записи.",
   loading,
+  locale = "bg",
 }: Props) {
   if (loading) {
     return <p className="muted">Зареждане…</p>;
@@ -31,7 +34,7 @@ export function AuditTimeline({
             )}
           </div>
           <div className="audit-timeline-summary">
-            {ev.summary || `${ev.action} · ${ev.entityType}`}
+            {auditHeadline(ev, locale)}
           </div>
           {ev.reason && (
             <div className="muted audit-timeline-reason">

@@ -8,6 +8,16 @@ import {
   type JobRunRow,
 } from "../api/client";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
+import {
+  AUDIT_ACTION_FILTERS,
+  AUDIT_ENTITY_FILTERS,
+  auditHeadline,
+  entityTypeLabel,
+  formatAuditDetails,
+  formatJobSummary,
+  jobKeyLabel,
+  jobStatusLabel,
+} from "../audit/labels";
 
 type Props = {
   user: AuthUser;
@@ -83,8 +93,8 @@ export function AuditPage({ user, locale = "bg" }: Props) {
           <p className="muted">
             {t(
               locale,
-              "Крос-домейн история на действията",
-              "Cross-domain action history",
+              "История на важните действия в системата",
+              "History of important actions in the system",
             )}
           </p>
         </div>
@@ -95,19 +105,32 @@ export function AuditPage({ user, locale = "bg" }: Props) {
       <div className="toolbar filters-row">
         <label>
           {t(locale, "Действие", "Action")}
-          <input
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-            placeholder="ticket.assign"
-          />
+          <select value={action} onChange={(e) => setAction(e.target.value)}>
+            <option value="">
+              {t(locale, "Всички действия", "All actions")}
+            </option>
+            {AUDIT_ACTION_FILTERS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {t(locale, opt.bg, opt.en)}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
-          {t(locale, "Тип", "Entity type")}
-          <input
+          {t(locale, "Свързано с", "Related to")}
+          <select
             value={entityType}
             onChange={(e) => setEntityType(e.target.value)}
-            placeholder="maintenance_ticket"
-          />
+          >
+            <option value="">
+              {t(locale, "Всички типове", "All types")}
+            </option>
+            {AUDIT_ENTITY_FILTERS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {t(locale, opt.bg, opt.en)}
+              </option>
+            ))}
+          </select>
         </label>
         <button type="button" className="ghost" onClick={() => void refresh()}>
           {t(locale, "Обнови", "Refresh")}
@@ -129,53 +152,77 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                 <thead>
                   <tr>
                     <th>{t(locale, "Кога", "When")}</th>
-                    <th>{t(locale, "Актор", "Actor")}</th>
-                    <th>{t(locale, "Действие", "Action")}</th>
-                    <th>{t(locale, "Обект", "Entity")}</th>
+                    <th>{t(locale, "Кой", "Who")}</th>
+                    <th>{t(locale, "Какво се случи", "What happened")}</th>
+                    <th>{t(locale, "Свързано с", "Related to")}</th>
                     <th>{t(locale, "Причина", "Reason")}</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <Fragment key={row.id}>
-                      <tr>
-                        <td>{new Date(row.occurredAt).toLocaleString()}</td>
-                        <td>{row.actor?.fullName ?? "—"}</td>
-                        <td>
-                          <code>{row.action}</code>
-                        </td>
-                        <td>
-                          {row.entityType}/{row.entityId.slice(0, 8)}…
-                        </td>
-                        <td>{row.reason ?? "—"}</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="subtle"
-                            onClick={() =>
-                              setExpanded(expanded === row.id ? null : row.id)
-                            }
-                          >
-                            {expanded === row.id ? "Hide" : "JSON"}
-                          </button>
-                        </td>
-                      </tr>
-                      {expanded === row.id && (
-                        <tr>
-                          <td colSpan={6}>
-                            <pre className="audit-json">
-                              {JSON.stringify(
-                                { before: row.before, after: row.after },
-                                null,
-                                2,
+                  {rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="muted">
+                        {t(locale, "Няма събития.", "No events.")}
+                      </td>
+                    </tr>
+                  ) : (
+                    rows.map((row) => {
+                      const detailLines = formatAuditDetails(
+                        row.before,
+                        row.after,
+                        locale,
+                      );
+                      const hasDetails = detailLines.length > 0;
+
+                      return (
+                        <Fragment key={row.id}>
+                          <tr>
+                            <td>
+                              {new Date(row.occurredAt).toLocaleString()}
+                            </td>
+                            <td>
+                              {row.actor?.fullName ??
+                                t(locale, "Система", "System")}
+                            </td>
+                            <td>{auditHeadline(row, locale)}</td>
+                            <td>
+                              {entityTypeLabel(row.entityType, locale)}
+                            </td>
+                            <td>{row.reason ?? "—"}</td>
+                            <td>
+                              {hasDetails && (
+                                <button
+                                  type="button"
+                                  className="subtle"
+                                  onClick={() =>
+                                    setExpanded(
+                                      expanded === row.id ? null : row.id,
+                                    )
+                                  }
+                                >
+                                  {expanded === row.id
+                                    ? t(locale, "Скрий", "Hide")
+                                    : t(locale, "Подробности", "Details")}
+                                </button>
                               )}
-                            </pre>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  ))}
+                            </td>
+                          </tr>
+                          {expanded === row.id && hasDetails && (
+                            <tr>
+                              <td colSpan={6}>
+                                <ul className="audit-details-list">
+                                  {detailLines.map((line) => (
+                                    <li key={line}>{line}</li>
+                                  ))}
+                                </ul>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -184,13 +231,13 @@ export function AuditPage({ user, locale = "bg" }: Props) {
           {canJobs && (
             <section className="panel" style={{ marginTop: "1rem" }}>
               <div className="panel-header">
-                <h2>{t(locale, "Фонови jobs", "Background jobs")}</h2>
+                <h2>{t(locale, "Фонови задачи", "Background tasks")}</h2>
               </div>
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>{t(locale, "Job", "Job")}</th>
+                      <th>{t(locale, "Задача", "Task")}</th>
                       <th>{t(locale, "Статус", "Status")}</th>
                       <th>{t(locale, "Начало", "Started")}</th>
                       <th>{t(locale, "Край", "Finished")}</th>
@@ -198,28 +245,36 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {jobs.map((job) => (
-                      <tr key={job.id}>
-                        <td>
-                          <code>{job.jobKey}</code>
-                        </td>
-                        <td>{job.status}</td>
-                        <td>{new Date(job.startedAt).toLocaleString()}</td>
-                        <td>
-                          {job.finishedAt
-                            ? new Date(job.finishedAt).toLocaleString()
-                            : "—"}
-                        </td>
-                        <td>
-                          <code>
-                            {job.error ??
-                              (job.summary
-                                ? JSON.stringify(job.summary)
-                                : "—")}
-                          </code>
+                    {jobs.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="muted">
+                          {t(locale, "Няма записи.", "No runs.")}
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      jobs.map((job) => (
+                        <tr key={job.id}>
+                          <td>{jobKeyLabel(job.jobKey, locale)}</td>
+                          <td>{jobStatusLabel(job.status, locale)}</td>
+                          <td>
+                            {new Date(job.startedAt).toLocaleString()}
+                          </td>
+                          <td>
+                            {job.finishedAt
+                              ? new Date(job.finishedAt).toLocaleString()
+                              : "—"}
+                          </td>
+                          <td>
+                            {formatJobSummary(
+                              job.jobKey,
+                              job.summary,
+                              job.error,
+                              locale,
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

@@ -27,11 +27,17 @@ export function signToken(payload: AuthUser): string {
   return signAccessToken(payload);
 }
 
-/** Verify JWT + active AuthSession + active user. */
+/** Verify JWT + active AuthSession + active user; role/email from DB (not JWT). */
 export async function authenticateToken(token: string): Promise<AuthUser> {
   const decoded = verifyAccessToken(token);
-  await assertSessionActive(decoded.sid, decoded.userId);
-  return decoded;
+  const session = await assertSessionActive(decoded.sid, decoded.userId);
+  return {
+    userId: session.user.id,
+    employeeId: session.user.employeeId,
+    role: session.user.role,
+    email: session.user.email,
+    sid: session.id,
+  };
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {

@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { getMyWork } from "../services/myWork";
 
@@ -9,7 +8,9 @@ myWorkRouter.get("/", requireAuth, async (req, res, next) => {
   try {
     const hotelDate =
       typeof req.query.hotelDate === "string" ? req.query.hotelDate : undefined;
-    const data = await getMyWork(req.user!, hotelDate);
+    const shiftId =
+      typeof req.query.shiftId === "string" ? req.query.shiftId : undefined;
+    const data = await getMyWork(req.user!, hotelDate, shiftId);
     return res.json(data);
   } catch (err) {
     return next(err);

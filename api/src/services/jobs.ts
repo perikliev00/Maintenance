@@ -4,6 +4,10 @@ import { OPEN_TICKET_STATUSES } from "../constants";
 import { getAccess, getOperations } from "./settings";
 import { recordAudit } from "./audit";
 import { publish } from "../events/bus";
+import {
+  createNotifications,
+  recipientsForLocationOps,
+} from "./notifications";
 
 async function startJobRun(jobKey: string) {
   return prisma.jobRun.create({
@@ -104,6 +108,15 @@ export async function runOverdueSessions() {
         taskId: true,
         anomalyFlags: true,
         startedAt: true,
+        employeeId: true,
+        task: {
+          select: {
+            assignedEmployeeId: true,
+            sectorSupervisorEmployeeId: true,
+            locationId: true,
+            location: { select: { number: true } },
+          },
+        },
       },
     });
 
@@ -132,6 +145,31 @@ export async function runOverdueSessions() {
         },
       });
       publish("cleaning.changed", { taskId: session.taskId });
+
+      const recipients = [
+        session.task.assignedEmployeeId,
+        session.task.sectorSupervisorEmployeeId,
+        session.employeeId,
+      ].filter((id): id is string => Boolean(id));
+      await createNotifications({
+        type: "cleaning.session_overdue",
+        title: "Cleaning session overdue",
+        body: `Room ${session.task.location.number} session past due`,
+        entityType: "cleaning_session",
+        entityId: session.id,
+        locationId: session.task.locationId,
+        actorEmployeeId: null,
+        recipientEmployeeIds: recipients,
+        dedupeKey: `cleaning.session_overdue:${session.id}`,
+        payload: {
+          panel: "live",
+          taskId: session.taskId,
+          sessionId: session.id,
+          locationId: session.task.locationId,
+          locationNumber: session.task.location.number,
+        },
+      });
+
       flagged += 1;
     }
 
@@ -158,7 +196,15 @@ export async function runTicketSlaBreach() {
         dueAt: { lt: now },
         slaPausedAt: null,
       },
-      select: { id: true, dueAt: true, status: true, locationId: true },
+      select: {
+        id: true,
+        dueAt: true,
+        status: true,
+        locationId: true,
+        title: true,
+        assigneeId: true,
+        location: { select: { number: true } },
+      },
     });
 
     let notified = 0;
@@ -188,7 +234,33 @@ export async function runTicketSlaBreach() {
         ticketId: ticket.id,
         locationId: ticket.locationId,
       });
-      notified += 1;
+
+      const supervisors = await recipientsForLocationOps(
+        ticket.locationId,
+        "tickets.assign",
+      );
+      const recipients = [
+        ...(ticket.assigneeId ? [ticket.assigneeId] : []),
+        ...supervisors,
+      ];
+      const result = await createNotifications({
+        type: "ticket.sla_breach",
+        title: "Ticket SLA breached",
+        body: `${ticket.location.number}: ${ticket.title}`,
+        entityType: "ticket",
+        entityId: ticket.id,
+        locationId: ticket.locationId,
+        actorEmployeeId: null,
+        recipientEmployeeIds: recipients,
+        dedupeKey: `ticket.sla_breach:${ticket.id}:${now.toISOString().slice(0, 13)}`,
+        payload: {
+          panel: "repairs",
+          ticketId: ticket.id,
+          locationId: ticket.locationId,
+          locationNumber: ticket.location.number,
+        },
+      });
+      if (result.created > 0) notified += 1;
     }
 
     await finishJobRun(run.id, "ok", {

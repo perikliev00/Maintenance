@@ -6,6 +6,7 @@ import {
   fetchDailyPlan,
   fetchHousekeepers,
   fetchRooms,
+  fetchShifts,
   importDailyPlan,
   todayHotelDate,
   type AuthUser,
@@ -13,6 +14,7 @@ import {
   type DailyPlanCategory,
   type DailyPlanEntry,
   type Room,
+  type ShiftRow,
 } from "../api/client";
 import { ScopeHint } from "../components/ScopeHint";
 
@@ -87,6 +89,9 @@ function EntryRow({
               {entry.task.sector ? ` · ${entry.task.sector.code}` : ""}
               {entry.task.assignedEmployee
                 ? ` · ${entry.task.assignedEmployee.fullName}`
+                : ""}
+              {entry.task.shift
+                ? ` · ${entry.task.shift.code}`
                 : ""}
             </div>
           </>
@@ -188,17 +193,21 @@ export function PlanPage({ user }: Props) {
   const [locationId, setLocationId] = useState("");
   const [category, setCategory] = useState<DailyPlanCategory>("departure");
   const [assigneeId, setAssigneeId] = useState("");
+  const [shiftId, setShiftId] = useState("");
+  const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [notes, setNotes] = useState("");
 
   const refresh = useCallback(async () => {
-    const [planData, roomData, hkData] = await Promise.all([
+    const [planData, roomData, hkData, shiftData] = await Promise.all([
       fetchDailyPlan(hotelDate),
       fetchRooms(),
       fetchHousekeepers().catch(() => []),
+      fetchShifts(false).catch(() => [] as ShiftRow[]),
     ]);
     setPlan(planData);
     setRooms(roomData);
     setHousekeepers(hkData);
+    setShifts(shiftData.filter((s) => s.isActive));
     if (!locationId && roomData[0]) setLocationId(roomData[0].id);
   }, [hotelDate, locationId]);
 
@@ -235,6 +244,7 @@ export function PlanPage({ user }: Props) {
         category,
         notes: notes.trim() || undefined,
         assignedEmployeeId: assigneeId || undefined,
+        shiftId: shiftId || undefined,
       });
       const taskEffect = String(result.effects?.task ?? "");
       setMessage(
@@ -403,6 +413,20 @@ export function PlanPage({ user }: Props) {
                 {housekeepers.map((hk) => (
                   <option key={hk.id} value={hk.id}>
                     {hk.fullName} ({hk.employeeNumber})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Смяна (опц.)
+              <select
+                value={shiftId}
+                onChange={(e) => setShiftId(e.target.value)}
+              >
+                <option value="">—</option>
+                {shifts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nameBg} ({s.startTime}–{s.endTime})
                   </option>
                 ))}
               </select>

@@ -6,13 +6,23 @@ import {
   Role,
 } from "@prisma/client";
 import { prisma } from "../db";
-import { AppError } from "./cleaning";
+import { AppError } from "../errors";
 import { getOperations } from "./settings";
 import { recordAudit } from "./audit";
+import {
+  createNotifications,
+  recipientsWithAction,
+} from "./notifications";
 
 const OPEN_MISSING_END_HOURS = 14;
 const ABSURD_DURATION_HOURS = 16;
 const LARGE_SKEW_SECONDS = 1800;
+const LIST_DEFAULT_LIMIT = 200;
+const LIST_MAX_LIMIT = 500;
+const EXPORT_BATCH = 1000;
+const EXPORT_CEILING = 50_000;
+
+type Tx = Prisma.TransactionClient;
 
 type AnomalyFlag =
   | "missing_end"
@@ -79,7 +89,6 @@ function addDaysYmd(ymd: string, days: number): string {
 }
 
 function monthRange(month: string): { from: Date; to: Date } {
-  // month = YYYY-MM
   const [y, m] = month.split("-").map(Number);
   if (!y || !m || m < 1 || m > 12) {
     throw new AppError(400, "validation", "Invalid month (expected YYYY-MM)");
@@ -165,6 +174,43 @@ export type ListIntervalsFilter = {
   employeeId?: string;
 };
 
+export type ListIntervalsPage = {
+  limit?: number;
+  cursor?: string;
+};
+
+type IntervalCursor = {
+  hotelDate: string;
+  startedAt: string;
+  id: string;
+};
+
+export function encodeIntervalCursor(c: IntervalCursor): string {
+  return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+}
+
+export function decodeIntervalCursor(raw: string): IntervalCursor {
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(raw, "base64url").toString("utf8"),
+    ) as Partial<IntervalCursor>;
+    if (
+      typeof parsed.hotelDate !== "string" ||
+      typeof parsed.startedAt !== "string" ||
+      typeof parsed.id !== "string"
+    ) {
+      throw new Error("invalid");
+    }
+    return {
+      hotelDate: parsed.hotelDate,
+      startedAt: parsed.startedAt,
+      id: parsed.id,
+    };
+  } catch {
+    throw new AppError(400, "validation", "Invalid attendance cursor");
+  }
+}
+
 async function resolveDateWindow(
   filter: ListIntervalsFilter,
   timeZone: string,
@@ -182,8 +228,7 @@ async function resolveDateWindow(
     return { from, to };
   }
   if (scope === "week") {
-    // Mon–Sun of hotel week containing today
-    const dow = new Date(`${todayYmd}T12:00:00.000Z`).getUTCDay(); // 0=Sun
+    const dow = new Date(`${todayYmd}T12:00:00.000Z`).getUTCDay();
     const mondayOffset = dow === 0 ? -6 : 1 - dow;
     const monday = addDaysYmd(todayYmd, mondayOffset);
     const nextMonday = addDaysYmd(monday, 7);
@@ -192,14 +237,14 @@ async function resolveDateWindow(
       to: startOfHotelDayUtc(nextMonday),
     };
   }
-  // month
   const month =
-    filter.month ??
-    `${todayYmd.slice(0, 4)}-${todayYmd.slice(5, 7)}`;
+    filter.month ?? `${todayYmd.slice(0, 4)}-${todayYmd.slice(5, 7)}`;
   return monthRange(month);
 }
 
-export async function listIntervals(filter: ListIntervalsFilter) {
+async function buildIntervalWhere(
+  filter: ListIntervalsFilter,
+): Promise<Prisma.AttendanceIntervalWhereInput> {
   const ops = await getOperations();
   const window = await resolveDateWindow(filter, ops.hotelTimezone);
 
@@ -229,14 +274,111 @@ export async function listIntervals(filter: ListIntervalsFilter) {
     }
     where.employee = empWhere;
   }
+  return where;
+}
 
-  const rows = await prisma.attendanceInterval.findMany({
-    where,
-    include: intervalInclude,
-    orderBy: [{ hotelDate: "desc" }, { startedAt: "desc" }],
-    take: 500,
-  });
-  return rows.map(mapInterval);
+function cursorWhere(
+  cursor: IntervalCursor,
+): Prisma.AttendanceIntervalWhereInput {
+  const hotelDate = new Date(`${cursor.hotelDate}T00:00:00.000Z`);
+  const startedAt = new Date(cursor.startedAt);
+  return {
+    OR: [
+      { hotelDate: { lt: hotelDate } },
+      {
+        AND: [{ hotelDate }, { startedAt: { lt: startedAt } }],
+      },
+      {
+        AND: [{ hotelDate }, { startedAt }, { id: { lt: cursor.id } }],
+      },
+    ],
+  };
+}
+
+export async function listIntervals(
+  filter: ListIntervalsFilter,
+  page: ListIntervalsPage = {},
+) {
+  const where = await buildIntervalWhere(filter);
+  const limit = Math.min(
+    Math.max(1, page.limit ?? LIST_DEFAULT_LIMIT),
+    LIST_MAX_LIMIT,
+  );
+  const cursor = page.cursor ? decodeIntervalCursor(page.cursor) : null;
+
+  const [total, rows] = await Promise.all([
+    prisma.attendanceInterval.count({ where }),
+    prisma.attendanceInterval.findMany({
+      where: cursor ? { AND: [where, cursorWhere(cursor)] } : where,
+      include: intervalInclude,
+      orderBy: [{ hotelDate: "desc" }, { startedAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    }),
+  ]);
+
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const last = pageRows[pageRows.length - 1];
+  const nextCursor =
+    hasMore && last
+      ? encodeIntervalCursor({
+          hotelDate: last.hotelDate.toISOString().slice(0, 10),
+          startedAt: last.startedAt.toISOString(),
+          id: last.id,
+        })
+      : null;
+
+  return {
+    intervals: pageRows.map(mapInterval),
+    total,
+    nextCursor,
+    limit,
+  };
+}
+
+export async function listIntervalsForExport(filter: ListIntervalsFilter) {
+  const where = await buildIntervalWhere(filter);
+  const total = await prisma.attendanceInterval.count({ where });
+  if (total > EXPORT_CEILING) {
+    throw new AppError(
+      413,
+      "too_large",
+      `Attendance export exceeds ${EXPORT_CEILING} rows; narrow the filter`,
+      { total, ceiling: EXPORT_CEILING },
+    );
+  }
+
+  const intervals: ReturnType<typeof mapInterval>[] = [];
+  let cursor: IntervalCursor | null = null;
+  for (;;) {
+    const rows: Prisma.AttendanceIntervalGetPayload<{
+      include: typeof intervalInclude;
+    }>[] = await prisma.attendanceInterval.findMany({
+      where: cursor ? { AND: [where, cursorWhere(cursor)] } : where,
+      include: intervalInclude,
+      orderBy: [{ hotelDate: "desc" }, { startedAt: "desc" }, { id: "desc" }],
+      take: EXPORT_BATCH,
+    });
+    if (!rows.length) break;
+    for (const row of rows) {
+      intervals.push(mapInterval(row));
+    }
+    if (rows.length < EXPORT_BATCH) break;
+    const last: (typeof rows)[number] = rows[rows.length - 1]!;
+    cursor = {
+      hotelDate: last.hotelDate.toISOString().slice(0, 10),
+      startedAt: last.startedAt.toISOString(),
+      id: last.id,
+    };
+    if (intervals.length >= EXPORT_CEILING) {
+      return {
+        intervals: intervals.slice(0, EXPORT_CEILING),
+        truncated: true,
+        total,
+      };
+    }
+  }
+  return { intervals, truncated: false, total };
 }
 
 export async function getInterval(id: string) {
@@ -253,7 +395,11 @@ export async function getInterval(id: string) {
 export async function maxClockSkewSeconds(
   filter: ListIntervalsFilter,
 ): Promise<number | null> {
-  const intervals = await listIntervals(filter);
+  const where = await buildIntervalWhere(filter);
+  const intervals = await prisma.attendanceInterval.findMany({
+    where,
+    select: { startEventId: true, endEventId: true },
+  });
   const eventIds = intervals
     .flatMap((i) => [i.startEventId, i.endEventId])
     .filter((id): id is string => !!id);
@@ -271,52 +417,87 @@ export async function maxClockSkewSeconds(
   return max;
 }
 
-async function recomputeIntervalFromEvents(intervalId: string) {
-  const interval = await prisma.attendanceInterval.findUnique({
-    where: { id: intervalId },
-  });
-  if (!interval) return;
+export type RebuildEvent = {
+  id: string;
+  kind: AttendanceEventKind;
+  normalizedTime: Date;
+  clockSkewSeconds: number | null;
+};
 
-  const events = await prisma.attendanceEvent.findMany({
-    where: {
-      employeeId: interval.employeeId,
-      normalizedTime: {
-        gte: interval.startedAt,
-        ...(interval.endedAt
-          ? { lte: interval.endedAt }
-          : { lte: new Date(interval.startedAt.getTime() + 36 * 3600_000) }),
-      },
-    },
-    orderBy: { normalizedTime: "asc" },
-  });
+export type FrozenRange = { startMs: number; endMs: number };
 
-  const breakMinutes = computeBreakMinutes(events);
-  const workedMinutes = computeWorkedMinutes(
-    interval.startedAt,
-    interval.endedAt,
-    breakMinutes,
+export type IntervalDraft = {
+  startedAt: Date;
+  endedAt: Date | null;
+  startEventId: string | null;
+  endEventId: string | null;
+  anomalyFlags: AnomalyFlag[];
+  breakMinutes: number;
+  workedMinutes: number | null;
+  status: AttendanceIntervalStatus;
+  hotelDate: Date;
+};
+
+function eventInFrozenRange(t: number, frozen: FrozenRange[]): boolean {
+  return frozen.some((r) => t >= r.startMs && t <= r.endMs);
+}
+
+/** Pure event→interval pairing used by rebuild (and unit tests). */
+export function pairEventsToIntervalDrafts(input: {
+  events: RebuildEvent[];
+  frozen: FrozenRange[];
+  hotelDate: Date;
+  now?: Date;
+}): IntervalDraft[] {
+  const now = input.now ?? new Date();
+  const usable = input.events.filter(
+    (e) => !eventInFrozenRange(e.normalizedTime.getTime(), input.frozen),
   );
-  const flags = asFlags(interval.anomalyFlags);
 
-  if (
-    interval.endedAt &&
-    (interval.endedAt.getTime() - interval.startedAt.getTime()) /
-      3600_000 >
-      ABSURD_DURATION_HOURS
-  ) {
-    flags.push("absurd_duration");
-  }
-  if (!interval.endedAt) {
-    const ageH =
-      (Date.now() - interval.startedAt.getTime()) / 3600_000;
-    if (ageH >= OPEN_MISSING_END_HOURS) {
-      flags.push("missing_end");
+  type Open = {
+    startedAt: Date;
+    startEventId: string;
+    flags: AnomalyFlag[];
+  };
+
+  let open: Open | null = null;
+  const drafts: IntervalDraft[] = [];
+
+  function skewFlags(ev: RebuildEvent): AnomalyFlag[] {
+    if (
+      ev.clockSkewSeconds != null &&
+      Math.abs(ev.clockSkewSeconds) >= LARGE_SKEW_SECONDS
+    ) {
+      return ["large_clock_skew"];
     }
+    return [];
   }
 
-  let status = interval.status;
-  if (status !== AttendanceIntervalStatus.adjusted) {
-    const uniq = uniqueFlags(flags);
+  function finalize(
+    startedAt: Date,
+    endedAt: Date | null,
+    startEventId: string | null,
+    endEventId: string | null,
+    flags: AnomalyFlag[],
+    windowEvents: RebuildEvent[],
+  ) {
+    const breakMinutes = computeBreakMinutes(windowEvents);
+    const workedMinutes = computeWorkedMinutes(startedAt, endedAt, breakMinutes);
+    const nextFlags = uniqueFlags(flags);
+    if (
+      endedAt &&
+      (endedAt.getTime() - startedAt.getTime()) / 3600_000 > ABSURD_DURATION_HOURS
+    ) {
+      nextFlags.push("absurd_duration");
+    }
+    if (!endedAt) {
+      const ageH = (now.getTime() - startedAt.getTime()) / 3600_000;
+      if (ageH >= OPEN_MISSING_END_HOURS) {
+        nextFlags.push("missing_end");
+      }
+    }
+    const uniq = uniqueFlags(nextFlags);
+    let status: AttendanceIntervalStatus = AttendanceIntervalStatus.open;
     if (
       uniq.includes("missing_end") ||
       uniq.includes("overlap") ||
@@ -325,22 +506,257 @@ async function recomputeIntervalFromEvents(intervalId: string) {
       uniq.includes("large_clock_skew")
     ) {
       status = AttendanceIntervalStatus.needs_review;
-    } else if (interval.endedAt) {
+    } else if (endedAt) {
       status = AttendanceIntervalStatus.closed;
-    } else {
-      status = AttendanceIntervalStatus.open;
+    }
+    drafts.push({
+      startedAt,
+      endedAt,
+      startEventId,
+      endEventId,
+      anomalyFlags: uniq,
+      breakMinutes,
+      workedMinutes,
+      status,
+      hotelDate: input.hotelDate,
+    });
+  }
+
+  for (const ev of usable) {
+    if (ev.kind === AttendanceEventKind.clock_in) {
+      if (open) {
+        open.flags = uniqueFlags([
+          ...open.flags,
+          "duplicate_kind",
+          ...skewFlags(ev),
+        ]);
+      } else {
+        open = {
+          startedAt: ev.normalizedTime,
+          startEventId: ev.id,
+          flags: skewFlags(ev),
+        };
+      }
+    } else if (ev.kind === AttendanceEventKind.clock_out) {
+      if (!open) {
+        finalize(
+          ev.normalizedTime,
+          ev.normalizedTime,
+          null,
+          ev.id,
+          uniqueFlags(["missing_end", ...skewFlags(ev)]),
+          [],
+        );
+      } else {
+        const flags = uniqueFlags([...open.flags, ...skewFlags(ev)]);
+        if (ev.normalizedTime < open.startedAt) {
+          flags.push("absurd_duration");
+        }
+        const windowEvents = usable.filter(
+          (e) =>
+            e.normalizedTime >= open!.startedAt &&
+            e.normalizedTime <= ev.normalizedTime,
+        );
+        finalize(
+          open.startedAt,
+          ev.normalizedTime,
+          open.startEventId,
+          ev.id,
+          flags.filter((f) => f !== "missing_end"),
+          windowEvents,
+        );
+        open = null;
+      }
+    } else if (open) {
+      open.flags = uniqueFlags([...open.flags, ...skewFlags(ev)]);
     }
   }
 
-  await prisma.attendanceInterval.update({
-    where: { id: intervalId },
-    data: {
-      breakMinutes,
-      workedMinutes,
-      anomalyFlags: uniqueFlags(flags),
-      status,
+  if (open) {
+    const windowEvents = usable.filter(
+      (e) => e.normalizedTime >= open!.startedAt,
+    );
+    finalize(
+      open.startedAt,
+      null,
+      open.startEventId,
+      null,
+      open.flags,
+      windowEvents,
+    );
+  }
+
+  return drafts;
+}
+
+export function eventRequiresIntervalLink(kind: AttendanceEventKind): boolean {
+  return (
+    kind === AttendanceEventKind.clock_in ||
+    kind === AttendanceEventKind.clock_out
+  );
+}
+
+async function findIntervalForEvent(
+  event: {
+    id: string;
+    kind: AttendanceEventKind;
+    employeeId: string;
+    normalizedTime: Date;
+  },
+  db: Tx | typeof prisma = prisma,
+) {
+  const linked = await db.attendanceInterval.findFirst({
+    where: {
+      OR: [{ startEventId: event.id }, { endEventId: event.id }],
     },
+    select: { id: true },
   });
+  if (linked) return linked;
+  if (
+    event.kind === AttendanceEventKind.break_start ||
+    event.kind === AttendanceEventKind.break_end
+  ) {
+    return db.attendanceInterval.findFirst({
+      where: {
+        employeeId: event.employeeId,
+        startedAt: { lte: event.normalizedTime },
+        OR: [
+          { endedAt: null },
+          { endedAt: { gte: event.normalizedTime } },
+        ],
+        status: { not: AttendanceIntervalStatus.adjusted },
+      },
+      orderBy: { startedAt: "desc" },
+      select: { id: true },
+    });
+  }
+  return null;
+}
+
+export async function rebuildIntervalsForEmployee(
+  employeeId: string,
+  hotelDate: Date,
+  db: Tx | typeof prisma = prisma,
+) {
+  const from = hotelDate;
+  const to = new Date(hotelDate.getTime() + 48 * 3600_000);
+
+  const [events, frozen, replaceable] = await Promise.all([
+    db.attendanceEvent.findMany({
+      where: {
+        employeeId,
+        normalizedTime: { gte: from, lt: to },
+      },
+      orderBy: [
+        { normalizedTime: "asc" },
+        { createdAt: "asc" },
+        { id: "asc" },
+      ],
+      select: {
+        id: true,
+        kind: true,
+        normalizedTime: true,
+        clockSkewSeconds: true,
+      },
+    }),
+    db.attendanceInterval.findMany({
+      where: {
+        employeeId,
+        hotelDate: from,
+        status: AttendanceIntervalStatus.adjusted,
+      },
+      select: { id: true, startedAt: true, endedAt: true },
+    }),
+    db.attendanceInterval.findMany({
+      where: {
+        employeeId,
+        hotelDate: from,
+        status: { not: AttendanceIntervalStatus.adjusted },
+      },
+      include: {
+        adjustments: {
+          where: { status: AttendanceAdjustmentStatus.pending },
+        },
+      },
+    }),
+  ]);
+
+  const pendingToRematch = replaceable.flatMap((iv) =>
+    iv.adjustments
+      .filter((a) => iv.startEventId)
+      .map((a) => ({
+        startEventId: iv.startEventId!,
+        requestedById: a.requestedById,
+        reason: a.reason,
+        proposedStartedAt: a.proposedStartedAt,
+        proposedEndedAt: a.proposedEndedAt,
+        proposedBreakMinutes: a.proposedBreakMinutes,
+      })),
+  );
+
+  const replaceIds = replaceable.map((r) => r.id);
+  if (replaceIds.length) {
+    await db.attendanceAdjustment.deleteMany({
+      where: { intervalId: { in: replaceIds } },
+    });
+    await db.attendanceInterval.deleteMany({
+      where: { id: { in: replaceIds } },
+    });
+  }
+
+  const frozenRanges: FrozenRange[] = frozen.map((f) => ({
+    startMs: f.startedAt.getTime(),
+    endMs: (f.endedAt ?? new Date(f.startedAt.getTime() + 36 * 3600_000)).getTime(),
+  }));
+
+  const drafts = pairEventsToIntervalDrafts({
+    events,
+    frozen: frozenRanges,
+    hotelDate: from,
+  });
+
+  const createdByStart = new Map<string, string>();
+  for (const draft of drafts) {
+    const created = await db.attendanceInterval.create({
+      data: {
+        employeeId,
+        hotelDate: draft.hotelDate,
+        startedAt: draft.startedAt,
+        endedAt: draft.endedAt,
+        startEventId: draft.startEventId,
+        endEventId: draft.endEventId,
+        breakMinutes: draft.breakMinutes,
+        workedMinutes: draft.workedMinutes,
+        anomalyFlags: draft.anomalyFlags,
+        status: draft.status,
+      },
+    });
+    if (draft.startEventId) {
+      createdByStart.set(draft.startEventId, created.id);
+    }
+  }
+
+  for (const pending of pendingToRematch) {
+    const intervalId = createdByStart.get(pending.startEventId);
+    if (!intervalId) continue;
+    await db.attendanceAdjustment.create({
+      data: {
+        intervalId,
+        requestedById: pending.requestedById,
+        reason: pending.reason,
+        proposedStartedAt: pending.proposedStartedAt,
+        proposedEndedAt: pending.proposedEndedAt,
+        proposedBreakMinutes: pending.proposedBreakMinutes,
+        status: AttendanceAdjustmentStatus.pending,
+      },
+    });
+    await db.attendanceInterval.update({
+      where: { id: intervalId },
+      data: {
+        status: AttendanceIntervalStatus.needs_review,
+      },
+    });
+  }
 }
 
 export async function ingestEvent(input: {
@@ -361,8 +777,26 @@ export async function ingestEvent(input: {
       },
     },
   });
+
+  const ops = await getOperations();
+
   if (existing) {
-    return { event: existing, created: false, intervalId: null as string | null };
+    let linked = await findIntervalForEvent(existing);
+    if (!linked && eventRequiresIntervalLink(existing.kind)) {
+      const hotelDate = hotelDateAsUtcDate(
+        existing.normalizedTime,
+        ops.hotelTimezone,
+      );
+      await prisma.$transaction(async (tx) => {
+        await rebuildIntervalsForEmployee(existing.employeeId, hotelDate, tx);
+      });
+      linked = await findIntervalForEvent(existing);
+    }
+    return {
+      event: existing,
+      created: false,
+      intervalId: linked?.id ?? null,
+    };
   }
 
   const employee = await prisma.employee.findUnique({
@@ -383,200 +817,29 @@ export async function ingestEvent(input: {
   const skew =
     input.clockSkewSeconds ??
     Math.round((deviceTime.getTime() - receivedAt.getTime()) / 1000);
-
-  const ops = await getOperations();
   const hotelDate = hotelDateAsUtcDate(normalizedTime, ops.hotelTimezone);
 
-  const event = await prisma.attendanceEvent.create({
-    data: {
-      externalEventId: input.externalEventId,
-      source,
-      employeeId: input.employeeId,
-      kind: input.kind,
-      deviceTime,
-      receivedAt,
-      normalizedTime,
-      clockSkewSeconds: skew,
-    },
-  });
-
-  let intervalId: string | null = null;
-  const flags: AnomalyFlag[] = [];
-  if (Math.abs(skew) >= LARGE_SKEW_SECONDS) {
-    flags.push("large_clock_skew");
-  }
-
-  if (input.kind === AttendanceEventKind.clock_in) {
-    const open = await prisma.attendanceInterval.findFirst({
-      where: {
-        employeeId: input.employeeId,
-        endedAt: null,
-        status: {
-          in: [
-            AttendanceIntervalStatus.open,
-            AttendanceIntervalStatus.needs_review,
-          ],
-        },
-      },
-      orderBy: { startedAt: "desc" },
-    });
-    if (open) {
-      // Duplicate clock_in while open → flag and leave open interval
-      await prisma.attendanceInterval.update({
-        where: { id: open.id },
-        data: {
-          anomalyFlags: uniqueFlags([
-            ...asFlags(open.anomalyFlags),
-            "duplicate_kind",
-            ...flags,
-          ]),
-          status: AttendanceIntervalStatus.needs_review,
-        },
-      });
-      intervalId = open.id;
-    } else {
-      // Overlap check: closed interval covering this start
-      const overlapping = await prisma.attendanceInterval.findFirst({
-        where: {
-          employeeId: input.employeeId,
-          startedAt: { lte: normalizedTime },
-          endedAt: { gt: normalizedTime },
-        },
-      });
-      if (overlapping) {
-        flags.push("overlap");
-      }
-      const created = await prisma.attendanceInterval.create({
-        data: {
-          employeeId: input.employeeId,
-          hotelDate,
-          startedAt: normalizedTime,
-          status:
-            flags.length > 0
-              ? AttendanceIntervalStatus.needs_review
-              : AttendanceIntervalStatus.open,
-          anomalyFlags: uniqueFlags(flags),
-          startEventId: event.id,
-          breakMinutes: 0,
-        },
-      });
-      intervalId = created.id;
-    }
-  } else if (input.kind === AttendanceEventKind.clock_out) {
-    const open = await prisma.attendanceInterval.findFirst({
-      where: {
-        employeeId: input.employeeId,
-        endedAt: null,
-      },
-      orderBy: { startedAt: "desc" },
-    });
-    if (!open) {
-      // Orphan clock_out → create interval needing review
-      const created = await prisma.attendanceInterval.create({
-        data: {
-          employeeId: input.employeeId,
-          hotelDate,
-          startedAt: normalizedTime,
-          endedAt: normalizedTime,
-          status: AttendanceIntervalStatus.needs_review,
-          anomalyFlags: uniqueFlags(["missing_end", ...flags]),
-          endEventId: event.id,
-          breakMinutes: 0,
-          workedMinutes: 0,
-        },
-      });
-      intervalId = created.id;
-    } else {
-      const durationH =
-        (normalizedTime.getTime() - open.startedAt.getTime()) / 3600_000;
-      if (durationH > ABSURD_DURATION_HOURS) {
-        flags.push("absurd_duration");
-      }
-      if (normalizedTime < open.startedAt) {
-        flags.push("absurd_duration");
-      }
-      const breakMinutes = computeBreakMinutes(
-        await prisma.attendanceEvent.findMany({
-          where: {
-            employeeId: input.employeeId,
-            normalizedTime: {
-              gte: open.startedAt,
-              lte: normalizedTime,
-            },
-          },
-        }),
-      );
-      const workedMinutes = computeWorkedMinutes(
-        open.startedAt,
-        normalizedTime,
-        breakMinutes,
-      );
-      const nextFlags = uniqueFlags([
-        ...asFlags(open.anomalyFlags),
-        ...flags,
-      ]).filter((f) => f !== "missing_end");
-      const needsReview = nextFlags.length > 0;
-      await prisma.attendanceInterval.update({
-        where: { id: open.id },
-        data: {
-          endedAt: normalizedTime,
-          endEventId: event.id,
-          breakMinutes,
-          workedMinutes,
-          anomalyFlags: nextFlags,
-          status: needsReview
-            ? AttendanceIntervalStatus.needs_review
-            : AttendanceIntervalStatus.closed,
-        },
-      });
-      intervalId = open.id;
-    }
-  } else {
-    // break_start / break_end — attach to open interval
-    const open = await prisma.attendanceInterval.findFirst({
-      where: {
-        employeeId: input.employeeId,
-        endedAt: null,
-      },
-      orderBy: { startedAt: "desc" },
-    });
-    if (open) {
-      if (flags.length) {
-        await prisma.attendanceInterval.update({
-          where: { id: open.id },
-          data: {
-            anomalyFlags: uniqueFlags([...asFlags(open.anomalyFlags), ...flags]),
-            status: AttendanceIntervalStatus.needs_review,
-          },
-        });
-      }
-      await recomputeIntervalFromEvents(open.id);
-      intervalId = open.id;
-    }
-  }
-
-  // Promote long-open intervals to needs_review
-  const stale = await prisma.attendanceInterval.findMany({
-    where: {
-      employeeId: input.employeeId,
-      endedAt: null,
-      status: AttendanceIntervalStatus.open,
-      startedAt: {
-        lte: new Date(Date.now() - OPEN_MISSING_END_HOURS * 3600_000),
-      },
-    },
-  });
-  for (const s of stale) {
-    await prisma.attendanceInterval.update({
-      where: { id: s.id },
+  const result = await prisma.$transaction(async (tx) => {
+    const event = await tx.attendanceEvent.create({
       data: {
-        status: AttendanceIntervalStatus.needs_review,
-        anomalyFlags: uniqueFlags([...asFlags(s.anomalyFlags), "missing_end"]),
+        externalEventId: input.externalEventId,
+        source,
+        employeeId: input.employeeId,
+        kind: input.kind,
+        deviceTime,
+        receivedAt,
+        normalizedTime,
+        clockSkewSeconds: skew,
       },
     });
-  }
 
-  return { event, created: true, intervalId };
+    await rebuildIntervalsForEmployee(input.employeeId, hotelDate, tx);
+
+    const linked = await findIntervalForEvent(event, tx);
+    return { event, intervalId: linked?.id ?? null };
+  });
+
+  return { event: result.event, created: true, intervalId: result.intervalId };
 }
 
 export async function requestAdjustment(input: {
@@ -667,6 +930,26 @@ export async function requestAdjustment(input: {
     summary: `Requested attendance adjustment`,
   });
 
+  {
+    const recipients = await recipientsWithAction(
+      "attendance.approve_adjustment",
+    );
+    await createNotifications({
+      type: "attendance.adjustment_requested",
+      title: "Attendance adjustment requested",
+      body: "A team member requested an attendance adjustment",
+      entityType: "attendance_adjustment",
+      entityId: adj.id,
+      actorEmployeeId: input.requestedById,
+      recipientEmployeeIds: recipients,
+      dedupeKey: `attendance.adjustment_requested:${adj.id}`,
+      payload: {
+        panel: "attendance",
+        adjustmentId: adj.id,
+      },
+    });
+  }
+
   return adj;
 }
 
@@ -706,10 +989,23 @@ export async function reviewAdjustment(input: {
       after: { decision: "rejected", intervalId: adj.intervalId },
       summary: `Rejected attendance adjustment`,
     });
+    await createNotifications({
+      type: "attendance.adjustment_reviewed",
+      title: "Attendance adjustment rejected",
+      body: "Your attendance adjustment was rejected",
+      entityType: "attendance_adjustment",
+      entityId: adj.id,
+      actorEmployeeId: input.reviewedById,
+      recipientEmployeeIds: [adj.requestedById],
+      dedupeKey: `attendance.adjustment_reviewed:${adj.id}`,
+      payload: {
+        panel: "attendance",
+        adjustmentId: adj.id,
+      },
+    });
     return getInterval(adj.intervalId);
   }
 
-  // Approve: apply proposed times; never mutate events
   const startedAt = adj.proposedStartedAt ?? adj.interval.startedAt;
   const endedAt = adj.proposedEndedAt ?? adj.interval.endedAt;
   const breakMinutes =
@@ -753,6 +1049,21 @@ export async function reviewAdjustment(input: {
       breakMinutes,
     },
     summary: `Approved attendance adjustment`,
+  });
+
+  await createNotifications({
+    type: "attendance.adjustment_reviewed",
+    title: "Attendance adjustment approved",
+    body: "Your attendance adjustment was approved",
+    entityType: "attendance_adjustment",
+    entityId: adj.id,
+    actorEmployeeId: input.reviewedById,
+    recipientEmployeeIds: [adj.requestedById],
+    dedupeKey: `attendance.adjustment_reviewed:${adj.id}`,
+    payload: {
+      panel: "attendance",
+      adjustmentId: adj.id,
+    },
   });
 
   return getInterval(adj.intervalId);

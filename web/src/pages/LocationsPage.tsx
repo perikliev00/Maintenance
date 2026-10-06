@@ -18,9 +18,13 @@ import {
   fetchMaintenanceCategories,
   fetchAuditEvents,
   reportIssue,
+  setLocationOccupancy,
+  setLocationServiceStatus,
   type IssueOptionRow,
   type MaintenanceCategoryRow,
   type AuditEventRow,
+  type LocationOccupancy,
+  type LocationServiceStatus,
   startCleaningTask,
   todayHotelDate,
   type AuthUser,
@@ -92,6 +96,22 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
   const canReviewOverdue =
     owner || canPerformAction(user, "cleaning.review_overdue");
   const canResolve = owner || canResolveIssues(user.role);
+  const canSetOccupancy =
+    !isCommon &&
+    (owner || canPerformAction(user, "rooms.set_occupancy"));
+  const canSetServiceStatus =
+    owner || canPerformAction(user, "rooms.set_service_status");
+
+  const OCCUPANCY_OPTIONS: LocationOccupancy[] = [
+    "vacant",
+    "occupied",
+    "unknown",
+  ];
+  const SERVICE_OPTIONS: LocationServiceStatus[] = [
+    "in_service",
+    "out_of_service",
+    "unknown",
+  ];
 
   useEffect(() => {
     if (!detailLocationId) {
@@ -456,6 +476,7 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
                 <th>Floor</th>
                 <th>Sector</th>
                 {!isCommon && <th>Occupancy</th>}
+                <th>Service</th>
                 <th>Cleaning</th>
                 <th>Priority / Due</th>
                 <th>Readiness</th>
@@ -503,6 +524,13 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
                       )}
                     </td>
                     {!isCommon && <td>{loc.occupancy}</td>}
+                    <td>
+                      <span
+                        className={`pill service-${loc.serviceStatus}`}
+                      >
+                        {loc.serviceStatus}
+                      </span>
+                    </td>
                     <td>
                       <span className={`pill cleaning-${loc.cleaningStatus}`}>
                         {loc.cleaningStatus}
@@ -553,8 +581,8 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
                                 if (id) setBusyId(loc.id);
                                 else setBusyId(null);
                               }}
-                              onDone={(msg) => {
-                                setMessage(msg);
+                              onDone={(result) => {
+                                setMessage(result.message);
                                 void refresh();
                               }}
                               onError={(msg) => setError(msg)}
@@ -692,6 +720,7 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
                                 await completeCleaningSession(
                                   task!.runningSession!.id,
                                   notes,
+                                  task!.version,
                                 );
                                 setMessage(
                                   `Submitted ${unitLabel} ${loc.number} for inspection`,
@@ -718,6 +747,7 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
                                       task.id,
                                       "approved",
                                       findings.trim() || undefined,
+                                      task.version,
                                     );
                                     setMessage(
                                       `Approved ${unitLabel} ${loc.number}`,
@@ -743,6 +773,7 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
                                       task.id,
                                       "rejected",
                                       findings,
+                                      task.version,
                                     );
                                     setMessage(
                                       `Rejected ${unitLabel} ${loc.number}`,
@@ -843,10 +874,71 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
               <span className={`pill cleaning-${detailLocation.cleaningStatus}`}>
                 {detailLocation.cleaningStatus}
               </span>{" "}
+              <span className={`pill service-${detailLocation.serviceStatus}`}>
+                {detailLocation.serviceStatus}
+              </span>{" "}
               <span className={`pill ready-${detailLocation.readiness}`}>
                 {detailLocation.readiness}
               </span>
             </div>
+
+            {(canSetOccupancy || canSetServiceStatus) && (
+              <section className="location-ops-controls">
+                <h4>Оперативни състояния</h4>
+                {canSetOccupancy && (
+                  <label>
+                    Occupancy
+                    <select
+                      value={detailLocation.occupancy}
+                      disabled={busyId === detailLocation.id}
+                      onChange={(e) => {
+                        const next = e.target.value as LocationOccupancy;
+                        void runAction(detailLocation.id, async () => {
+                          await setLocationOccupancy(detailLocation.id, next);
+                          setMessage(
+                            `Occupancy → ${next} (${detailLocation.number})`,
+                          );
+                        });
+                      }}
+                    >
+                      {OCCUPANCY_OPTIONS.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {canSetServiceStatus && (
+                  <label>
+                    Service status
+                    <select
+                      value={detailLocation.serviceStatus}
+                      disabled={busyId === detailLocation.id}
+                      onChange={(e) => {
+                        const next = e.target.value as LocationServiceStatus;
+                        void runAction(detailLocation.id, async () => {
+                          await setLocationServiceStatus(
+                            detailLocation.id,
+                            next,
+                          );
+                          setMessage(
+                            `Service → ${next} (${detailLocation.number})`,
+                          );
+                        });
+                      }}
+                    >
+                      {SERVICE_OPTIONS.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </section>
+            )}
+
             <section>
               <h4>Хронология</h4>
               <AuditTimeline

@@ -87,6 +87,13 @@ export async function canDeliverLiveEvent(
       return false;
     }
 
+    case "notification.changed": {
+      return Boolean(
+        event.recipientEmployeeId &&
+          event.recipientEmployeeId === scope.employeeId,
+      );
+    }
+
     default:
       return false;
   }

@@ -18,8 +18,10 @@ import { LiveBoardPage } from "./pages/LiveBoardPage";
 import { AttendancePage } from "./pages/AttendancePage";
 import { CardsPage } from "./pages/CardsPage";
 import { HousekeepingPage } from "./pages/HousekeepingPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
 import { RoomQrPage } from "./pages/RoomQrPage";
 import { BrandMark } from "./components/BrandMark";
+import { NotificationInbox } from "./components/NotificationInbox";
 import {
   clearSession,
   fetchMe,
@@ -43,6 +45,7 @@ import {
   type ThemeMode,
 } from "./theme";
 import { useLiveRefresh } from "./hooks/useLiveRefresh";
+import { setOfflineUser } from "./offline";
 import "./App.css";
 
 const PANEL_LABELS_BG: Record<Panel, string> = {
@@ -63,6 +66,7 @@ const PANEL_LABELS_BG: Record<Panel, string> = {
   control: "Контрол",
   settings: "Настройки",
   permissions: "Права",
+  notifications: "Известия",
 };
 
 const PANEL_LABELS_EN: Record<Panel, string> = {
@@ -83,6 +87,7 @@ const PANEL_LABELS_EN: Record<Panel, string> = {
   control: "Control",
   settings: "Settings",
   permissions: "Permissions",
+  notifications: "Notifications",
 };
 
 function NavIcon({ panel }: { panel: Panel }) {
@@ -221,6 +226,13 @@ function NavIcon({ panel }: { panel: Panel }) {
           <circle cx="12" cy="16" r="1.2" />
         </svg>
       );
+    case "notifications":
+      return (
+        <svg {...common}>
+          <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5" />
+          <path d="M9.5 17a2.5 2.5 0 0 0 5 0" />
+        </svg>
+      );
   }
 }
 
@@ -239,6 +251,10 @@ export default function App() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    setOfflineUser(user?.id ?? null);
+  }, [user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -303,6 +319,11 @@ export default function App() {
     if (!user) return [] as Panel[];
     return filterPanelsByModules(panelsForUser(user), publicSettings?.modules);
   }, [user, publicSettings]);
+
+  const navPanels = useMemo(
+    () => panels.filter((p) => p !== "notifications"),
+    [panels],
+  );
 
   const locale = publicSettings?.interface.locale ?? "bg";
   const panelLabels = locale === "en" ? PANEL_LABELS_EN : PANEL_LABELS_BG;
@@ -416,7 +437,7 @@ export default function App() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Main">
-          {panels.map((panel) => (
+          {navPanels.map((panel) => (
             <button
               key={panel}
               type="button"
@@ -430,9 +451,16 @@ export default function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="sidebar-user">
-            <strong>{user.fullName}</strong>
-            <span>{ROLE_LABELS[user.role] ?? user.role}</span>
+          <div className="sidebar-user-row">
+            <div className="sidebar-user">
+              <strong>{user.fullName}</strong>
+              <span>{ROLE_LABELS[user.role] ?? user.role}</span>
+            </div>
+            <NotificationInbox
+              locale={locale}
+              active={view === "notifications"}
+              onOpen={() => setView("notifications")}
+            />
           </div>
           <div className="sidebar-actions">
             <button type="button" className="ghost" onClick={onToggleTheme}>
@@ -475,15 +503,25 @@ export default function App() {
             <BrandMark size={26} />
             Meridian
           </div>
-          <button
-            type="button"
-            className="ghost"
-            aria-expanded={navOpen}
-            aria-label="Open navigation"
-            onClick={() => setNavOpen((open) => !open)}
-          >
-            Menu
-          </button>
+          <div className="mobile-bar-actions">
+            <NotificationInbox
+              locale={locale}
+              active={view === "notifications"}
+              onOpen={() => {
+                setView("notifications");
+                setNavOpen(false);
+              }}
+            />
+            <button
+              type="button"
+              className="ghost"
+              aria-expanded={navOpen}
+              aria-label="Open navigation"
+              onClick={() => setNavOpen((open) => !open)}
+            >
+              Menu
+            </button>
+          </div>
         </div>
 
         <div key={view} className="page-enter">
@@ -525,6 +563,14 @@ export default function App() {
             <PermissionsPage
               user={user}
               onUserUpdated={(me) => setUser(me)}
+            />
+          )}
+          {view === "notifications" && (
+            <NotificationsPage
+              locale={locale}
+              onNavigate={(panel) => {
+                if (panels.includes(panel)) setView(panel);
+              }}
             />
           )}
         </div>

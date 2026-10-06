@@ -55,8 +55,11 @@ export function AttendancePage({ user }: Props) {
   const [department, setDepartment] = useState("");
   const [q, setQ] = useState("");
   const [intervals, setIntervals] = useState<AttendanceInterval[]>([]);
+  const [total, setTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [maxSkew, setMaxSkew] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -77,8 +80,35 @@ export function AttendancePage({ user }: Props) {
       q: q.trim() || undefined,
     });
     setIntervals(data.intervals);
+    setTotal(data.total);
+    setNextCursor(data.nextCursor);
     setMaxSkew(data.maxClockSkewSeconds);
   }, [scope, month, department, q]);
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const data = await fetchAttendanceIntervals({
+        scope,
+        month: scope === "month" ? month : undefined,
+        department: department.trim() || undefined,
+        q: q.trim() || undefined,
+        cursor: nextCursor,
+      });
+      setIntervals((prev) => [...prev, ...data.intervals]);
+      setTotal(data.total);
+      setNextCursor(data.nextCursor);
+      setMaxSkew(data.maxClockSkewSeconds);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load more attendance",
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextCursor, loadingMore, scope, month, department, q]);
 
   useEffect(() => {
     let cancelled = false;
@@ -242,6 +272,10 @@ export function AttendancePage({ user }: Props) {
       ) : intervals.length === 0 ? (
         <p className="muted">Няма записи за избрания филтър.</p>
       ) : (
+        <>
+        <p className="muted" style={{ marginBottom: "0.5rem" }}>
+          Показани {intervals.length} от {total}
+        </p>
         <div className="table-wrap">
           <table>
             <thead>
@@ -340,6 +374,19 @@ export function AttendancePage({ user }: Props) {
             </tbody>
           </table>
         </div>
+        {nextCursor && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <button
+              type="button"
+              className="ghost"
+              disabled={loadingMore}
+              onClick={() => void loadMore()}
+            >
+              {loadingMore ? "Зареждане…" : "Зареди още"}
+            </button>
+          </div>
+        )}
+        </>
       )}
 
       {adjustFor && (

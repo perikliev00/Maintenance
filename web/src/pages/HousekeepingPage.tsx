@@ -6,24 +6,30 @@ import {
   fetchPeople,
   fetchRooms,
   fetchSectors,
+  fetchShiftRoster,
   fetchShifts,
   roomQrImageUrl,
   roomQrScanUrl,
+  saveShiftRoster,
   setSectorLocations,
+  todayHotelDate,
   updateSector,
   updateShift,
   type AuthUser,
   type Person,
   type Room,
   type SectorRow,
+  type ShiftRosterEntry,
   type ShiftRow,
 } from "../api/client";
+import { LocationCatalogPanel } from "../components/LocationCatalogPanel";
 
 type Props = { user: AuthUser };
 
-type Tab = "sectors" | "shifts" | "qr";
+type Tab = "catalog" | "sectors" | "shifts" | "qr";
 
 const TABS: Array<{ id: Tab; bg: string; en: string }> = [
+  { id: "catalog", bg: "Каталог", en: "Catalog" },
   { id: "sectors", bg: "Сектори", en: "Sectors" },
   { id: "shifts", bg: "Смени", en: "Shifts" },
   { id: "qr", bg: "QR кодове", en: "QR codes" },
@@ -36,6 +42,7 @@ export function HousekeepingPage({ user }: Props) {
 
   const canManageSectors = canPerformAction(user, "sectors.manage");
   const canManageShifts = canPerformAction(user, "shifts.manage");
+  const canManageLocations = canPerformAction(user, "rooms.manage");
   const isSupervisorScope = user.role === "supervisor";
   const lockedSupervisorId = isSupervisorScope ? user.employeeId : null;
 
@@ -68,6 +75,13 @@ export function HousekeepingPage({ user }: Props) {
   const [shiftSort, setShiftSort] = useState(0);
   const [shiftActive, setShiftActive] = useState(true);
 
+  const [rosterDate, setRosterDate] = useState(todayHotelDate());
+  const [rosterEntries, setRosterEntries] = useState<ShiftRosterEntry[]>([]);
+  const [rosterDraft, setRosterDraft] = useState<
+    Record<string, string>
+  >({});
+  const [housekeepers, setHousekeepers] = useState<Person[]>([]);
+
   const refresh = useCallback(async () => {
     const [sec, sh, rm, people] = await Promise.all([
       fetchSectors(true),
@@ -87,7 +101,19 @@ export function HousekeepingPage({ user }: Props) {
           p.role === "owner",
       ),
     );
+    setHousekeepers(people.filter((p) => p.role === "housekeeper"));
   }, []);
+
+  const refreshRoster = useCallback(async (date: string) => {
+    if (!canManageShifts) return;
+    const roster = await fetchShiftRoster(date);
+    setRosterEntries(roster.entries);
+    const draft: Record<string, string> = {};
+    for (const e of roster.entries) {
+      draft[e.employee.id] = e.shift.id;
+    }
+    setRosterDraft(draft);
+  }, [canManageShifts]);
 
   useEffect(() => {
     if (lockedSupervisorId) {
@@ -108,6 +134,13 @@ export function HousekeepingPage({ user }: Props) {
       }
     })();
   }, [refresh]);
+
+  useEffect(() => {
+    if (tab !== "shifts" || !canManageShifts) return;
+    void refreshRoster(rosterDate).catch((err) => {
+      setError(err instanceof Error ? err.message : "Failed to load roster");
+    });
+  }, [tab, rosterDate, canManageShifts, refreshRoster]);
 
   const filteredRooms = useMemo(() => {
     const q = locationFilter.trim().toLowerCase();
@@ -278,15 +311,17 @@ export function HousekeepingPage({ user }: Props) {
           <h1>{label("Почистване", "Housekeeping")}</h1>
           <p>
             {label(
-              "Сектори, смени и QR за оперативното разпределение.",
-              "Sectors, shifts and QR for operational assignment.",
+              "Каталог помещения, сектори, смени и QR за оперативното разпределение.",
+              "Location catalog, sectors, shifts and QR for operational assignment.",
             )}
           </p>
         </div>
       </header>
 
       <div className="settings-tabs" role="tablist">
-        {TABS.map((t) => (
+        {TABS.filter(
+          (t) => t.id !== "catalog" || canManageLocations,
+        ).map((t) => (
           <button
             key={t.id}
             type="button"
@@ -306,6 +341,10 @@ export function HousekeepingPage({ user }: Props) {
 
       {error && <p className="error-banner">{error}</p>}
       {message && <p className="ok-banner">{message}</p>}
+
+      {tab === "catalog" && canManageLocations && (
+        <LocationCatalogPanel locale={locale} />
+      )}
 
       {tab === "sectors" && (
         <section className="panel">
@@ -622,6 +661,119 @@ export function HousekeepingPage({ user }: Props) {
                 )}
               </div>
             </form>
+          )}
+
+          {canManageShifts && (
+            <div className="roster-block" style={{ marginTop: "1.5rem" }}>
+              <h3>{label("Ростер за дата", "Roster for date")}</h3>
+              <label>
+                {label("Хотелска дата", "Hotel date")}
+                <input
+                  type="date"
+                  value={rosterDate}
+                  onChange={(e) => setRosterDate(e.target.value)}
+                />
+              </label>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{label("Служител", "Employee")}</th>
+                      <th>{label("Смяна", "Shift")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {housekeepers.map((hk) => (
+                      <tr key={hk.id}>
+                        <td>
+                          {hk.fullName}{" "}
+                          <span className="muted">({hk.employeeNumber})</span>
+                        </td>
+                        <td>
+                          <select
+                            value={rosterDraft[hk.id] ?? ""}
+                            onChange={(e) =>
+                              setRosterDraft((prev) => ({
+                                ...prev,
+                                [hk.id]: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">
+                              {label("— няма —", "— none —")}
+                            </option>
+                            {shifts
+                              .filter((s) => s.isActive)
+                              .map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {locale === "bg" ? s.nameBg : s.nameEn} (
+                                  {s.startTime}–{s.endTime})
+                                </option>
+                              ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                    {housekeepers.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className="muted">
+                          {label(
+                            "Няма камериери",
+                            "No housekeepers",
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  setMessage(null);
+                  try {
+                    const entries = Object.entries(rosterDraft)
+                      .filter(([, sid]) => sid)
+                      .map(([employeeId, sid]) => ({
+                        employeeId,
+                        shiftId: sid,
+                      }));
+                    const saved = await saveShiftRoster({
+                      hotelDate: rosterDate,
+                      entries,
+                    });
+                    setRosterEntries(saved.entries);
+                    setMessage(
+                      label(
+                        `Ростерът за ${rosterDate} е записан (${saved.entries.length})`,
+                        `Roster for ${rosterDate} saved (${saved.entries.length})`,
+                      ),
+                    );
+                  } catch (err) {
+                    setError(
+                      err instanceof Error ? err.message : "Failed to save roster",
+                    );
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy
+                  ? label("Запис…", "Saving…")
+                  : label("Запази ростер", "Save roster")}
+              </button>
+              {rosterEntries.length > 0 && (
+                <p className="muted small">
+                  {label(
+                    `Текущи записи: ${rosterEntries.length}`,
+                    `Current entries: ${rosterEntries.length}`,
+                  )}
+                </p>
+              )}
+            </div>
           )}
         </section>
       )}

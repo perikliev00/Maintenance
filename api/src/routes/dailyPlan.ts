@@ -104,6 +104,7 @@ dailyPlanRouter.post(
         category: z.nativeEnum(DailyPlanCategory),
         notes: z.string().max(500).optional(),
         assignedEmployeeId: z.string().min(1).optional(),
+        shiftId: z.string().min(1).nullable().optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {

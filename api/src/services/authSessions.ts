@@ -176,7 +176,17 @@ export async function revokeAllForDevice(deviceId: string): Promise<number> {
 export async function assertSessionActive(sessionId: string, userId: string) {
   const session = await prisma.authSession.findUnique({
     where: { id: sessionId },
-    include: { user: { select: { isActive: true, id: true } } },
+    include: {
+      user: {
+        select: {
+          id: true,
+          isActive: true,
+          role: true,
+          email: true,
+          employeeId: true,
+        },
+      },
+    },
   });
   if (!session || session.userId !== userId) {
     throw new AppError(401, "unauthorized", "Invalid session");

@@ -10,6 +10,7 @@ import {
   type MaintenanceTicket,
 } from "../api/client";
 import { TicketLifecycleActions } from "../components/TicketLifecycleActions";
+import { OutboxIssuesPanel } from "../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import {
   completeCleaningQueued,
@@ -58,10 +59,26 @@ function statusLabel(locale: "bg" | "en", status: string): string {
   return locale === "en" ? pair[1] : pair[0];
 }
 
-function connLabel(locale: "bg" | "en", conn: ConnMode, pending: number): string {
+function connClass(conn: ConnMode, pending: number, sending: number): string {
+  if (conn === "offline") return "offline";
+  if (conn === "unreachable") return "unreachable";
+  if (conn === "syncing" || pending + sending > 0) return "syncing";
+  return "online";
+}
+
+function connLabel(
+  locale: "bg" | "en",
+  conn: ConnMode,
+  pending: number,
+  sending: number,
+): string {
+  const inflight = pending + sending;
   if (conn === "offline") return t(locale, "Офлайн", "Offline");
-  if (conn === "syncing" || pending > 0) {
-    return t(locale, `Синхронизация (${pending})`, `Syncing (${pending})`);
+  if (conn === "unreachable") {
+    return t(locale, "Няма връзка със сървъра", "Server unreachable");
+  }
+  if (conn === "syncing" || inflight > 0) {
+    return t(locale, `Синхронизация (${inflight})`, `Syncing (${inflight})`);
   }
   return t(locale, "Онлайн", "Online");
 }
@@ -74,15 +91,19 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
+  const [pendingSyncTaskIds, setPendingSyncTaskIds] = useState<string[]>([]);
   const [conn, setConn] = useState<ConnMode>("online");
   const [queueStats, setQueueStats] = useState<QueueStats>({
     pending: 0,
+    sending: 0,
+    conflict: 0,
     failed: 0,
   });
 
   const canClean = canPerformAction(user, "cleaning.start");
   const canResolve = canResolveIssues(user.role);
-  const showCleaning = canClean || user.role === "housekeeper" || user.role === "supervisor";
+  const showCleaning =
+    canClean || user.role === "housekeeper" || user.role === "supervisor";
   const showTickets =
     canResolve || user.role === "technician" || user.role === "supervisor";
 
@@ -103,6 +124,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     setTasks(taskData);
     setTickets(ticketData);
     setFromCache(false);
+    setPendingSyncTaskIds([]);
     await saveMyWorkCache({
       tasks: taskData,
       tickets: ticketData,
@@ -111,12 +133,24 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     });
   }, [showCleaning, showTickets]);
 
+  const refreshInBackground = useCallback(() => {
+    if (!navigator.onLine) return;
+    void refresh().catch(() => undefined);
+  }, [refresh]);
+
   useEffect(() => {
     return subscribeOffline((next) => {
       setConn(next.conn);
       setQueueStats(next.stats);
+      if (
+        next.conn === "online" &&
+        next.stats.pending === 0 &&
+        next.stats.sending === 0
+      ) {
+        refreshInBackground();
+      }
     });
-  }, []);
+  }, [refreshInBackground]);
 
   useEffect(() => {
     void getQueueStats().then(setQueueStats);
@@ -158,7 +192,9 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
             ),
           );
         } else {
-          setError(err instanceof Error ? err.message : "Failed to load My Work");
+          setError(
+            err instanceof Error ? err.message : "Failed to load My Work",
+          );
         }
       } finally {
         setLoading(false);
@@ -169,9 +205,9 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
 
   const activeTasks = useMemo(() => {
     const order = ["in_progress", "rework", "assigned", "awaiting_inspection"];
-    return [...tasks].sort(
-      (a, b) => order.indexOf(a.status) - order.indexOf(b.status),
-    );
+    return [...tasks]
+      .filter((task) => task.status !== "completed" && task.status !== "cancelled")
+      .sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
   }, [tasks]);
 
   const currentTask = activeTasks.find((task) =>
@@ -185,11 +221,6 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     try {
       await fn();
       setQueueStats(await getQueueStats());
-      try {
-        await refresh();
-      } catch {
-        /* offline ok */
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
     } finally {
@@ -210,10 +241,10 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
           </p>
         </div>
         <div
-          className={`mywork-conn mywork-conn-${conn === "offline" ? "offline" : queueStats.pending ? "syncing" : "online"}`}
+          className={`mywork-conn mywork-conn-${connClass(conn, queueStats.pending, queueStats.sending)}`}
           role="status"
         >
-          {connLabel(locale, conn, queueStats.pending)}
+          {connLabel(locale, conn, queueStats.pending, queueStats.sending)}
         </div>
       </header>
 
@@ -224,15 +255,11 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
           {t(locale, "Данните може да са остарели", "Data may be stale")}
         </div>
       )}
-      {queueStats.failed > 0 && (
-        <div className="banner error">
-          {t(
-            locale,
-            `${queueStats.failed} действия в опашката са неуспешни`,
-            `${queueStats.failed} queued actions failed`,
-          )}
-        </div>
-      )}
+      <OutboxIssuesPanel
+        locale={locale}
+        conflictCount={queueStats.conflict}
+        failedCount={queueStats.failed}
+      />
 
       {loading ? (
         <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
@@ -245,6 +272,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                 task={currentTask}
                 locale={locale}
                 busy={busyId === currentTask.id}
+                pendingSync={pendingSyncTaskIds.includes(currentTask.id)}
                 onStart={() => undefined}
                 onComplete={(notes) =>
                   runBusy(currentTask.id, async () => {
@@ -255,12 +283,29 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                     const result = await completeCleaningQueued(
                       running.id,
                       notes,
+                      currentTask.version,
+                    );
+                    setTasks((prev) =>
+                      prev.map((task) =>
+                        task.id === currentTask.id
+                          ? {
+                              ...task,
+                              status: "completed",
+                              sessions: task.sessions.map((s) =>
+                                s.id === running.id
+                                  ? { ...s, status: "completed" as const }
+                                  : s,
+                              ),
+                            }
+                          : task,
+                      ),
                     );
                     setMessage(
                       result.queued
                         ? t(locale, "Приключване в опашката", "Complete queued")
                         : t(locale, "Сесията е приключена", "Session completed"),
                     );
+                    if (!result.queued) refreshInBackground();
                   })
                 }
               />
@@ -288,12 +333,27 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                           task={task}
                           locale={locale}
                           busy={busyId === task.id}
+                          pendingSync={pendingSyncTaskIds.includes(task.id)}
                           onStart={() =>
                             runBusy(task.id, async () => {
                               const result = await startCleaningQueued(
                                 task.id,
                                 task.version,
                               );
+                              if (result.queued) {
+                                setPendingSyncTaskIds((ids) =>
+                                  ids.includes(task.id)
+                                    ? ids
+                                    : [...ids, task.id],
+                                );
+                                setTasks((prev) =>
+                                  prev.map((row) =>
+                                    row.id === task.id
+                                      ? { ...row, status: "in_progress" }
+                                      : row,
+                                  ),
+                                );
+                              }
                               setMessage(
                                 result.queued
                                   ? t(
@@ -301,8 +361,13 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                                       "Старт в опашката",
                                       "Start queued",
                                     )
-                                  : t(locale, "Задачата е стартирана", "Started"),
+                                  : t(
+                                      locale,
+                                      "Задачата е стартирана",
+                                      "Started",
+                                    ),
                               );
+                              if (!result.queued) refreshInBackground();
                             })
                           }
                           onComplete={(notes) =>
@@ -311,6 +376,25 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                               const result = await completeCleaningQueued(
                                 running.id,
                                 notes,
+                                task.version,
+                              );
+                              setTasks((prev) =>
+                                prev.map((row) =>
+                                  row.id === task.id
+                                    ? {
+                                        ...row,
+                                        status: "completed",
+                                        sessions: row.sessions.map((s) =>
+                                          s.id === running.id
+                                            ? {
+                                                ...s,
+                                                status: "completed" as const,
+                                              }
+                                            : s,
+                                        ),
+                                      }
+                                    : row,
+                                ),
                               );
                               setMessage(
                                 result.queued
@@ -325,6 +409,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                                       "Session completed",
                                     ),
                               );
+                              if (!result.queued) refreshInBackground();
                             })
                           }
                         />
@@ -364,9 +449,19 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                         busy={busyId === ticket.id}
                         canResolve={canResolve}
                         onBusy={setBusyId}
-                        onDone={(msg) => {
-                          setMessage(msg);
-                          void refresh().catch(() => undefined);
+                        onDone={(result) => {
+                          setMessage(result.message);
+                          setTickets((prev) => {
+                            if (result.nextStatus === "resolved") {
+                              return prev.filter((row) => row.id !== ticket.id);
+                            }
+                            return prev.map((row) =>
+                              row.id === ticket.id
+                                ? { ...row, status: result.nextStatus }
+                                : row,
+                            );
+                          });
+                          if (!result.queued) refreshInBackground();
                         }}
                         onError={setError}
                       />
@@ -386,20 +481,24 @@ function TaskCard({
   task,
   locale,
   busy,
+  pendingSync,
   onStart,
   onComplete,
 }: {
   task: CleaningTaskRow;
   locale: "bg" | "en";
   busy: boolean;
+  pendingSync: boolean;
   onStart: () => void;
   onComplete: (notes?: string) => void;
 }) {
   const running = task.sessions.find((s) => s.status === "running");
   const lastReject = task.inspections.find((i) => i.result === "rejected");
   const canStart =
-    (task.status === "assigned" || task.status === "rework") && !running;
-  const canComplete = Boolean(running);
+    (task.status === "assigned" || task.status === "rework") &&
+    !running &&
+    !pendingSync;
+  const canComplete = Boolean(running) && !pendingSync;
 
   return (
     <article
@@ -407,12 +506,21 @@ function TaskCard({
     >
       <div className="mywork-card-top">
         <strong>{locationLabel(task)}</strong>
-        <span className={`pill status-${task.status}`}>
-          {statusLabel(locale, task.status)}
-        </span>
+        {pendingSync ? (
+          <span className="pill status-awaiting_inspection">
+            {t(locale, "Чака синхрон", "Pending sync")}
+          </span>
+        ) : (
+          <span className={`pill status-${task.status}`}>
+            {statusLabel(locale, task.status)}
+          </span>
+        )}
       </div>
       <p className="muted">
         {task.priority}
+        {task.shift
+          ? ` · ${locale === "bg" ? task.shift.nameBg : task.shift.nameEn} (${task.shift.startTime}–${task.shift.endTime})`
+          : ""}
         {task.location.kind === "common_area"
           ? ` · ${t(locale, "обща част", "common area")}`
           : ""}
@@ -449,7 +557,12 @@ function TaskCard({
             {t(locale, "Приключи", "Complete")}
           </button>
         )}
-        {task.status === "awaiting_inspection" && (
+        {pendingSync && (
+          <span className="muted">
+            {t(locale, "Чака синхронизация…", "Waiting for sync…")}
+          </span>
+        )}
+        {task.status === "awaiting_inspection" && !pendingSync && (
           <span className="muted">
             {t(locale, "Чака проверка", "Waiting for inspection")}
           </span>

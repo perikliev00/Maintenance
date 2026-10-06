@@ -61,88 +61,69 @@ async function getGrantMap(): Promise<Map<Role, RoleGrants>> {
   return value;
 }
 
+type CatalogGrantDelta = {
+  role: (typeof MATRIX_ROLES)[number];
+  kind: GrantKind;
+  key: string;
+};
+
+function allDefaultGrantRows(): CatalogGrantDelta[] {
+  const data: CatalogGrantDelta[] = [];
+  for (const role of MATRIX_ROLES) {
+    for (const panel of DEFAULT_PANEL_GRANTS[role]) {
+      data.push({ role, kind: GrantKind.panel, key: panel });
+    }
+    for (const action of DEFAULT_ACTION_GRANTS[role]) {
+      data.push({ role, kind: GrantKind.action, key: action });
+    }
+  }
+  return data;
+}
+
 /**
- * If the RoleGrant table is empty, seed all defaults.
- * If a matrix role has zero grants, seed that role's defaults only.
- * For roles that already have grants, insert any missing DEFAULT panel/action
- * keys (e.g. newly introduced actions like issue_options.manage) without
- * wiping existing customizations. Does not remove revoked-but-non-default keys.
+ * Bootstrap only: seed the full default matrix when RoleGrant is empty.
+ * Never re-inserts missing defaults for an already-populated table — revoked
+ * defaults must stay revoked (presence = allow; absence = not granted).
  */
 export async function ensureDefaultRoleGrants() {
   const total = await prisma.roleGrant.count();
-  if (total === 0) {
-    const data = [];
-    for (const role of MATRIX_ROLES) {
-      for (const panel of DEFAULT_PANEL_GRANTS[role]) {
-        data.push({ role, kind: GrantKind.panel, key: panel });
-      }
-      for (const action of DEFAULT_ACTION_GRANTS[role]) {
-        data.push({ role, kind: GrantKind.action, key: action });
-      }
-    }
-    if (data.length) {
-      await prisma.roleGrant.createMany({ data, skipDuplicates: true });
-    }
-    invalidateGrantCache();
+  if (total > 0) {
     return;
   }
 
-  const existing = await prisma.roleGrant.findMany({
-    where: { role: { in: [...MATRIX_ROLES] } },
-    select: { role: true, kind: true, key: true },
-  });
-  const have = new Set(
-    existing.map((r) => `${r.role}|${r.kind}|${r.key}`),
-  );
-  const counts = new Map<Role, number>();
-  for (const row of existing) {
-    counts.set(row.role, (counts.get(row.role) ?? 0) + 1);
+  const data = allDefaultGrantRows();
+  if (data.length) {
+    await prisma.roleGrant.createMany({ data, skipDuplicates: true });
   }
-
-  const missing: Array<{
-    role: (typeof MATRIX_ROLES)[number];
-    kind: GrantKind;
-    key: string;
-  }> = [];
-
-  for (const role of MATRIX_ROLES) {
-    const count = counts.get(role) ?? 0;
-    if (count === 0) {
-      for (const panel of DEFAULT_PANEL_GRANTS[role]) {
-        missing.push({ role, kind: GrantKind.panel, key: panel });
-      }
-      for (const action of DEFAULT_ACTION_GRANTS[role]) {
-        missing.push({ role, kind: GrantKind.action, key: action });
-      }
-      continue;
-    }
-    for (const panel of DEFAULT_PANEL_GRANTS[role]) {
-      if (!have.has(`${role}|${GrantKind.panel}|${panel}`)) {
-        missing.push({ role, kind: GrantKind.panel, key: panel });
-      }
-    }
-    for (const action of DEFAULT_ACTION_GRANTS[role]) {
-      if (!have.has(`${role}|${GrantKind.action}|${action}`)) {
-        missing.push({ role, kind: GrantKind.action, key: action });
-      }
-    }
-  }
-
-  if (missing.length) {
-    await prisma.roleGrant.createMany({
-      data: missing,
-      skipDuplicates: true,
-    });
-  }
-
   invalidateGrantCache();
+}
+
+/**
+ * Explicit catalog migration helper for newly introduced panel/action keys.
+ * Inserts only the given deltas; does not restore previously revoked defaults.
+ */
+export async function seedCatalogGrantDeltas(deltas: CatalogGrantDelta[]) {
+  if (!deltas.length) return { inserted: 0 };
+  const normalized = deltas.filter((d) => {
+    if (!MATRIX_ROLES.includes(d.role)) return false;
+    if (d.kind === GrantKind.panel) return isPanel(d.key);
+    if (d.kind === GrantKind.action) return isAction(d.key);
+    return false;
+  });
+  if (!normalized.length) return { inserted: 0 };
+
+  const result = await prisma.roleGrant.createMany({
+    data: normalized,
+    skipDuplicates: true,
+  });
+  invalidateGrantCache();
+  return { inserted: result.count };
 }
 
 export async function getGrantsForRole(role: Role): Promise<RoleGrants> {
   if (isOwner(role)) {
     return { panels: [...ALL_PANELS], actions: [...ALL_ACTIONS] };
   }
-  await ensureDefaultRoleGrants();
   const map = await getGrantMap();
   return map.get(role) ?? emptyGrants();
 }
@@ -193,7 +174,6 @@ export function editableRolesFor(actor: Role): Exclude<Role, "owner">[] {
 }
 
 export async function getFullMatrix(actorRole: Role) {
-  await ensureDefaultRoleGrants();
   const map = await getGrantMap();
   const byRole: Record<string, RoleGrants> = {};
   for (const role of MATRIX_ROLES) {

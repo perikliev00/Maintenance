@@ -309,10 +309,15 @@ export async function redeemInvitation(input: {
     throw new AppError(400, "expired", "Invitation code has expired");
   }
 
-  let user = inv.employee.user;
-  if (!user) {
-    // Existing employee without user shouldn't happen for issued invites of kind existing;
-    // for edge cases create user on redeem.
+  const existingUser = inv.employee.user;
+  if (existingUser && !existingUser.isActive) {
+    throw new AppError(403, "forbidden", "Account is blocked");
+  }
+
+  const needsUserCreate = !existingUser;
+  const needsActivation = Boolean(existingUser && !existingUser.activatedAt);
+  let passwordHash: string | undefined;
+  if (needsUserCreate || needsActivation) {
     if (!input.password || input.password.length < 8) {
       throw new AppError(
         400,
@@ -320,85 +325,92 @@ export async function redeemInvitation(input: {
         "Password of at least 8 characters is required",
       );
     }
-    user = await prisma.user.create({
-      data: {
-        employeeId: inv.employeeId,
-        email: inv.email,
-        passwordHash: await bcrypt.hash(input.password, 10),
-        role: inv.role,
-        activatedAt: new Date(),
-        isActive: true,
+    passwordHash = await bcrypt.hash(input.password, 10);
+  }
+
+  const fingerprint =
+    input.fingerprint.trim() || `anon-${randomBytes(8).toString("hex")}`;
+  const deviceLabel = input.deviceLabel.trim() || "Device";
+
+  const { device, userId } = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.invitation.updateMany({
+      where: {
+        id: inv.id,
+        status: InvitationStatus.issued,
+        expiresAt: { gt: new Date() },
       },
-      include: { employee: true },
+      data: {
+        status: InvitationStatus.consumed,
+        consumedAt: new Date(),
+      },
     });
-  } else {
-    if (!user.isActive) {
-      throw new AppError(403, "forbidden", "Account is blocked");
-    }
-    const needsActivation = !user.activatedAt;
-    if (needsActivation) {
-      if (!input.password || input.password.length < 8) {
-        throw new AppError(
-          400,
-          "validation",
-          "Password of at least 8 characters is required",
-        );
+    if (claimed.count === 0) {
+      const current = await tx.invitation.findUnique({ where: { id: inv.id } });
+      if (current && current.expiresAt.getTime() <= Date.now()) {
+        if (current.status === InvitationStatus.issued) {
+          await tx.invitation.update({
+            where: { id: inv.id },
+            data: { status: InvitationStatus.expired },
+          });
+        }
+        throw new AppError(400, "expired", "Invitation code has expired");
       }
-      user = await prisma.user.update({
-        where: { id: user.id },
+      throw new AppError(409, "conflict", "Invitation already consumed");
+    }
+
+    let userId: string;
+    if (needsUserCreate) {
+      const created = await tx.user.create({
         data: {
-          passwordHash: await bcrypt.hash(input.password, 10),
+          employeeId: inv.employeeId,
+          email: inv.email,
+          passwordHash: passwordHash!,
+          role: inv.role,
+          activatedAt: new Date(),
+          isActive: true,
+        },
+      });
+      userId = created.id;
+    } else if (needsActivation) {
+      const updated = await tx.user.update({
+        where: { id: existingUser!.id },
+        data: {
+          passwordHash: passwordHash!,
           activatedAt: new Date(),
           role: inv.role,
         },
-        include: { employee: true },
       });
+      userId = updated.id;
     } else {
-      user = await prisma.user.findUniqueOrThrow({
-        where: { id: user.id },
-        include: { employee: true },
-      });
-    }
-  }
-
-  const result = await prisma.$transaction(async (tx) => {
-    const stillIssued = await tx.invitation.findFirst({
-      where: { id: inv.id, status: InvitationStatus.issued },
-    });
-    if (!stillIssued) {
-      throw new AppError(409, "conflict", "Invitation already consumed");
+      userId = existingUser!.id;
     }
 
     const device = await tx.device.create({
       data: {
-        userId: user!.id,
+        userId,
         employeeId: inv.employeeId,
-        label: input.deviceLabel.trim() || "Device",
-        fingerprint: input.fingerprint.trim() || `anon-${randomBytes(8).toString("hex")}`,
+        label: deviceLabel,
+        fingerprint,
       },
     });
 
     await tx.invitation.update({
       where: { id: inv.id },
-      data: {
-        status: InvitationStatus.consumed,
-        consumedAt: new Date(),
-        consumedDeviceId: device.id,
-      },
+      data: { consumedDeviceId: device.id },
     });
 
-    return device;
+    return { device, userId };
   });
 
   const fullUser = await prisma.user.findUniqueOrThrow({
-    where: { id: user.id },
+    where: { id: userId },
     include: { employee: true },
   });
 
   const caps = await capabilitiesFor(fullUser.role);
   const tokens = await createSession({
     userId: fullUser.id,
-    deviceId: result.id,
+    deviceId: device.id,
   });
 
   publish("people.changed");
@@ -416,9 +428,9 @@ export async function redeemInvitation(input: {
       landing: caps.landing,
     },
     device: {
-      id: result.id,
-      label: result.label,
-      activatedAt: result.activatedAt.toISOString(),
+      id: device.id,
+      label: device.label,
+      activatedAt: device.activatedAt.toISOString(),
     },
   };
 }

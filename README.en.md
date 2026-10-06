@@ -48,6 +48,8 @@ Readiness is **not a single status** — it is composed from several independent
 | Capabilities (`panels`, `actions`, `landing`) | ✅ | `/auth/me`, login |
 | Room list + readiness reasons | ✅ | Rooms |
 | Common areas (catalog + cleaning/tickets) | ✅ | Common / `/common-areas` |
+| Location catalog (CRUD + archive) | ✅ | Housekeeping → Catalog / `/locations` |
+| Occupancy / service status | ✅ | Rooms detail / `/locations/:id/occupancy`, `…/service-status` |
 | Mark dirty | ✅ | Rooms, Common / API |
 | Create cleaning task + assign HK | ✅ | Rooms, Control |
 | Start / Complete cleaning session | ✅ | Rooms |
@@ -69,7 +71,7 @@ Readiness is **not a single status** — it is composed from several independent
 | Daily plan Clock (S12) | ✅ | Plan / `/daily-plan` (+ JSON import; no live PMS) |
 | My Work / personal queue | ✅ | My Work / `/my-work` + PWA |
 | Dedicated Repairs panel | ✅ | Repairs panel / maintenance lifecycle UI |
-| Sectors / shifts (Housekeeping panel) | ✅ | Housekeeping / `/sectors`, `/shifts` |
+| Sectors / shifts (Housekeeping panel) | ✅ | Housekeeping / `/sectors`, `/shifts`; roster `GET/PUT /shifts/roster`; `CleaningTask.shiftId` |
 | Task sector + supervisor snapshot | ✅ | `CleaningTask.sectorId` / `sectorSupervisorEmployeeId` |
 | Supervisor “my sectors” data scope | ✅ | `dataScope` + Live/Plan/Rooms/Results/Analytics + ticket create, sync push, sectors (own), live audit/SSE |
 | Room QR codes | ✅ | QR tab + `#/room-qr/:token` (identify only) |
@@ -149,13 +151,17 @@ These fields are **not collapsed** into one status. UI and readiness expose them
 
 | Entity | Meaning |
 |---|---|
-| `CleaningTask` | Cleaning job for a `hotelDate`, priority, assignee, `status`, `version` |
-| `CleaningSession` | Concrete work session (start→complete|cancel), idempotency keys; optional `notes`; no pause / adjustment |
+| `CleaningTask` | Cleaning job for a `hotelDate`, `serviceType` (`stayover` \| `departure` \| `arrival` \| `common_area`), priority, assignee, `status`, `completedAt` (when completed), `version` |
+| `CleaningSession` | Concrete work session (start→complete|cancel), idempotency keys; optional `notes`; `anomalyFlags`; no pause / adjustment |
 | `Inspection` | Approve/reject by inspector + `findings` (required on reject) |
 
-**TaskStatus:** `assigned` → `in_progress` → `awaiting_inspection` → `completed` (or `cancelled`). On reject → `rework` (same task; new session on next Start).
+**TaskStatus:** `assigned` → `in_progress` → `awaiting_inspection` → `completed` (or `cancelled`). On reject → `rework` (same task; new session on next Start). `completedAt` is set on approve or auto-complete (when `require_inspection=false`).
 
 **SessionStatus:** `running` \| `completed` \| `cancelled`.
+
+**Analytics counters (§9):** sessions ≠ tasks ≠ distinct rooms. Rework is rejected-inspection events (not a `serviceType`). Anomalous session: non-empty `anomalyFlags` or duration ≥ `2 × overdueSessionMinutes` — excluded from valid time.
+
+Results (`GET /cleaning/results`) and housekeeping analytics use `completedAt` for task KPIs, separate session/accepted/rework/anomaly counters, and optional `serviceType` filter/breakdown.
 
 ### Maintenance
 
@@ -222,6 +228,9 @@ Result: `ready` | `not_ready` | `needs_check` plus a `reasons` list.
 | Step | Action | Typical roles (+ owner always) |
 |---|---|---|
 | Mark dirty | `rooms.mark_dirty` | reception, supervisor, manager |
+| Catalog CRUD / archive | `rooms.manage` | supervisor, manager, admin |
+| Set occupancy | `rooms.set_occupancy` | reception, supervisor, manager |
+| Set service status | `rooms.set_service_status` | supervisor, manager, admin |
 | Create task | `cleaning.create` | reception, supervisor, manager |
 | Start | `cleaning.start` | housekeeper, supervisor |
 | Complete | `cleaning.complete` | housekeeper, supervisor |
@@ -329,6 +338,9 @@ Runtime grants: **`RoleGrant`** table (edited via Permissions panel).
 ```
 rooms.view
 rooms.mark_dirty
+rooms.manage
+rooms.set_occupancy
+rooms.set_service_status
 cleaning.create
 cleaning.start
 cleaning.complete
@@ -451,6 +463,32 @@ Auth: httpOnly cookies (`session` access JWT ~15m, `refresh` ~14d) + CSRF double
 | GET | `/common-areas/:id` | auth |
 | POST | `/common-areas/:id/mark-dirty` | `rooms.mark_dirty` |
 
+### Locations (catalog + operational states)
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/locations/hierarchy` | `rooms.manage` — buildings → floors for create/edit |
+| GET | `/locations?kind=&includeArchived=` | `rooms.manage` — catalog list |
+| POST | `/locations` | `rooms.manage` — `{ floorId, number, kind? }` |
+| PATCH | `/locations/:id` | `rooms.manage` — catalog fields |
+| POST | `/locations/:id/archive` | `rooms.manage` |
+| POST | `/locations/:id/restore` | `rooms.manage` |
+| PATCH | `/locations/:id/occupancy` | `rooms.set_occupancy` — rooms only |
+| PATCH | `/locations/:id/service-status` | `rooms.set_service_status` |
+| GET | `/locations/:id/qr` | `sectors.manage` — payload + scan URL |
+| GET | `/locations/by-qr/:token` | auth — identify location (no auto start/complete) |
+
+UI: catalog under Housekeeping → Catalog; occupancy/service in the Rooms / Common areas detail drawer.
+
+### Sectors / shifts / roster
+
+| Method | Path | Permission |
+|---|---|---|
+| GET/POST/PATCH | `/shifts`, `…/:id` | `shifts.manage` (GET active also: `plan.manage` / cleaning create\|reassign) |
+| GET/PUT | `/shifts/roster?hotelDate=` | `shifts.manage` — daily employee↔shift roster |
+
+`CleaningTask.shiftId` links a task to a planned shift (create / reassign / daily plan). `EmployeeShiftRoster` is who works which shift on a hotel date. My Work filters by the user’s roster shift (unshifted tasks stay visible).
+
 ### Settings
 
 | Method | Path | Permission |
@@ -544,14 +582,18 @@ Import resolves rooms by `buildingCode` + `roomNumber`, writes `source=import`, 
 
 | Method | Path | Permission |
 |---|---|---|
-| GET | `/attendance/intervals` | `attendance.view` (`scope=month\|today\|week\|review`, `month`, `department`, `q`) |
+| GET | `/attendance/intervals` | `attendance.view` (`scope=month\|today\|week\|review`, `month`, `department`, `q`, `limit`, `cursor`) — returns `{ intervals, total, nextCursor, limit, maxClockSkewSeconds }` |
 | GET | `/attendance/intervals/:id` | `attendance.view` |
-| GET | `/attendance/export.csv` | `attendance.view` (same filters) |
-| POST | `/attendance/events` | `attendance.ingest` — simulated terminal; idempotent on `(source, externalEventId)` |
+| GET | `/attendance/export.csv` | `attendance.view` (same filters; batched export, ceiling 50 000 rows → 413; `X-Attendance-Total` header) |
+| POST | `/attendance/events` | `attendance.ingest` — simulated terminal; idempotent on `(source, externalEventId)`; retries rebuild intervals if the event was stored without an interval |
 | POST | `/attendance/adjustments` | `attendance.request_adjustment` |
 | POST | `/attendance/adjustments/:id/review` | `attendance.approve_adjustment` + `{ decision: approved\|rejected }` |
 
-Original `AttendanceEvent` rows are never mutated on approved correction. Overnight shift is one interval; `hotelDate` = start date in `operations.hotelTimezone`.
+Original `AttendanceEvent` rows are never mutated on approved correction. Overnight shift is one interval; `hotelDate` = start date in `operations.hotelTimezone`. Ingest wraps event + interval rebuild in a transaction and replays the employee’s hotel-day event stream so partial failures self-heal on retry.
+
+### Audit history migration note
+
+`20261002260000_unified_audit_events` dropped `PermissionChange` / `SettingChange` in favor of `AuditEvent`. If those tables still exist, `20261006220000_backfill_legacy_audit_history` copies rows into `AuditEvent` then drops them. History already lost without a backup cannot be reconstructed — restore staging tables from backup and run [`api/prisma/scripts/restore_permission_setting_history.sql`](api/prisma/scripts/restore_permission_setting_history.sql).
 
 ### Health
 

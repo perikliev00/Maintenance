@@ -49,6 +49,7 @@ async function main() {
   await prisma.accessCard.deleteMany().catch(() => undefined);
   await prisma.sectorLocation.deleteMany().catch(() => undefined);
   await prisma.sector.deleteMany().catch(() => undefined);
+  await prisma.employeeShiftRoster.deleteMany().catch(() => undefined);
   await prisma.shift.deleteMany().catch(() => undefined);
   await prisma.auditEvent.deleteMany().catch(() => undefined);
   await prisma.jobRun.deleteMany().catch(() => undefined);
@@ -1244,6 +1245,8 @@ async function main() {
         priority: Priority.high,
         assignedEmployeeId: createdEmployees.H009,
         status: TaskStatus.completed,
+        completedAt: new Date(finishedAt.getTime() + 5 * 60 * 1000),
+        serviceType: "stayover",
         dueAt: finishedAt,
       },
     });
@@ -1388,6 +1391,7 @@ async function main() {
         finishedAt.getTime() + (late ? -20 : 40) * 60 * 1000,
       );
 
+      const serviceTypes = ["stayover", "departure", "arrival"] as const;
       const task = await prisma.cleaningTask.create({
         data: {
           locationId: loc.id,
@@ -1395,6 +1399,8 @@ async function main() {
           priority: Priority.normal,
           assignedEmployeeId: employeeId,
           status: TaskStatus.completed,
+          completedAt: finishedAt,
+          serviceType: serviceTypes[(dayOffset + i) % serviceTypes.length],
           dueAt,
         },
       });
@@ -1408,6 +1414,8 @@ async function main() {
           status: SessionStatus.completed,
           startCommandId: randomUUID(),
           completeCommandId: randomUUID(),
+          anomalyFlags:
+            (i + dayOffset) % 11 === 0 ? ["overdue"] : [],
         },
       });
       historySessions += 1;
@@ -1435,6 +1443,8 @@ async function main() {
         priority: Priority.normal,
         assignedEmployeeId: employeeId,
         status: TaskStatus.completed,
+        completedAt: finishedAt,
+        serviceType: i % 2 === 0 ? "departure" : "stayover",
         dueAt: new Date(finishedAt.getTime() + 30 * 60 * 1000),
       },
     });
@@ -1478,6 +1488,8 @@ async function main() {
           priority: Priority.high,
           assignedEmployeeId: employeeId,
           status: TaskStatus.completed,
+          completedAt: finishedAt,
+          serviceType: "departure",
         },
       });
       await prisma.cleaningSession.create({
@@ -1655,9 +1667,68 @@ async function main() {
       },
     ],
   });
+  const seededShifts = await prisma.shift.findMany({
+    orderBy: { sortOrder: "asc" },
+  });
+  const morningShift = seededShifts.find((s) => s.code === "MORNING")!;
+  const afternoonShift = seededShifts.find((s) => s.code === "AFTERNOON")!;
+
+  const rosterDay = new Date();
+  rosterDay.setUTCHours(0, 0, 0, 0);
+  const morningHk = ["H001", "H002", "H003", "H004", "H005", "H006"];
+  const afternoonHk = ["H007", "H008", "H009", "H010", "H011", "H012"];
+  await prisma.employeeShiftRoster.createMany({
+    data: [
+      ...morningHk
+        .filter((n) => createdEmployees[n])
+        .map((n) => ({
+          employeeId: createdEmployees[n],
+          hotelDate: rosterDay,
+          shiftId: morningShift.id,
+        })),
+      ...afternoonHk
+        .filter((n) => createdEmployees[n])
+        .map((n) => ({
+          employeeId: createdEmployees[n],
+          hotelDate: rosterDay,
+          shiftId: afternoonShift.id,
+        })),
+    ],
+  });
+
+  // Stamp a portion of today's active cleaning tasks with a shift
+  const activeToday = await prisma.cleaningTask.findMany({
+    where: {
+      hotelDate: rosterDay,
+      status: { in: ["assigned", "in_progress", "awaiting_inspection", "rework"] },
+    },
+    select: { id: true, assignedEmployeeId: true },
+    take: 40,
+  });
+  for (let i = 0; i < activeToday.length; i++) {
+    const task = activeToday[i]!;
+    let shiftId = i % 2 === 0 ? morningShift.id : afternoonShift.id;
+    if (task.assignedEmployeeId) {
+      const roster = await prisma.employeeShiftRoster.findUnique({
+        where: {
+          employeeId_hotelDate: {
+            employeeId: task.assignedEmployeeId,
+            hotelDate: rosterDay,
+          },
+        },
+      });
+      if (roster) shiftId = roster.shiftId;
+    }
+    await prisma.cleaningTask.update({
+      where: { id: task.id },
+      data: { shiftId },
+    });
+  }
+
   const sectorLocCount = await prisma.sectorLocation.count();
+  const rosterCount = await prisma.employeeShiftRoster.count();
   console.log(
-    `Sectors seeded: ${sectorA.code}/${sectorB.code}/${sectorC.code}/${sectorD.code}/${sectorE.code}/${sectorF.code}; ${sectorLocCount} locations; 3 shifts`,
+    `Sectors seeded: ${sectorA.code}/${sectorB.code}/${sectorC.code}/${sectorD.code}/${sectorE.code}/${sectorF.code}; ${sectorLocCount} locations; 3 shifts; ${rosterCount} roster rows; ${activeToday.length} tasks with shiftId`,
   );
 
   // --- Daily plan Clock (S12) ---

@@ -73,6 +73,15 @@ enum InspectionResult {
   rejected
 }
 
+/// Work type on a cleaning task — comparable units for analytics (§9).
+/// Rework is orthogonal (inspection reject), not a service type.
+enum CleaningServiceType {
+  stayover
+  departure
+  arrival
+  common_area
+}
+
 enum IssueOptionKind {
   maintenance
   housekeeping
@@ -171,7 +180,10 @@ model Employee {
   issuedAccessCards       AccessCard[]             @relation("CardIssuer")
   issuedAccessGrants      AccessGrant[]            @relation("GrantIssuer")
   supervisedSectors       Sector[]                 @relation("SectorSupervisor")
+  shiftRosters            EmployeeShiftRoster[]
   auditEvents             AuditEvent[]
+  notificationsReceived   Notification[]           @relation("NotificationRecipient")
+  notificationsActed      Notification[]           @relation("NotificationActor")
   createdAt               DateTime                 @default(now())
 }
 
@@ -261,6 +273,8 @@ model AuthSession {
   @@index([deviceId, revokedAt])
 }
 
+/// Partial unique (SQL migration): one active task per (locationId, hotelDate)
+/// among assigned|in_progress|awaiting_inspection|rework.
 model CleaningTask {
   id                 String            @id @default(cuid())
   locationId         String
@@ -272,12 +286,19 @@ model CleaningTask {
   sectorSupervisorEmployeeId String?
   sectorSupervisor   Employee?         @relation("TaskSectorSupervisor", fields: [sectorSupervisorEmployeeId], references: [id], onDelete: SetNull)
   hotelDate          DateTime          @db.Date
+  /** Work type for comparable analytics (§6.1 / §9). */
+  serviceType        CleaningServiceType @default(stayover)
   dueAt              DateTime?
   priority           Priority          @default(normal)
   assignedEmployeeId String?
   assignedEmployee   Employee?         @relation("TaskAssignee", fields: [assignedEmployeeId], references: [id])
+  /** Planned shift for this task (assignment by shift, §6.1). */
+  shiftId            String?
+  shift              Shift?            @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   reassignReason     String?
   status             TaskStatus        @default(assigned)
+  /** Set once when status becomes completed (approve or auto-complete). */
+  completedAt        DateTime?
   version            Int               @default(1)
   sessions           CleaningSession[]
   inspections        Inspection[]
@@ -287,11 +308,15 @@ model CleaningTask {
 
   @@index([hotelDate, status])
   @@index([locationId, hotelDate])
+  @@index([hotelDate, shiftId])
   @@index([sectorId])
   @@index([sectorSupervisorEmployeeId])
   @@index([assignedEmployeeId, status])
+  @@index([completedAt, status])
+  @@index([serviceType, completedAt])
 }
 
+/// Partial uniques (SQL migration): one running session per taskId and per employeeId.
 model CleaningSession {
   id                String        @id @default(cuid())
   taskId            String
@@ -685,18 +710,36 @@ model SectorLocation {
 }
 
 model Shift {
-  id        String   @id @default(cuid())
-  code      String   @unique
+  id        String                @id @default(cuid())
+  code      String                @unique
   nameBg    String
   nameEn    String
   startTime String
   endTime   String
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  sortOrder Int                   @default(0)
+  isActive  Boolean               @default(true)
+  rosters   EmployeeShiftRoster[]
+  tasks     CleaningTask[]
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
 
   @@index([isActive, sortOrder])
+}
+
+/** Who works which shift on a hotel date (capacity / employee → shift). */
+model EmployeeShiftRoster {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  hotelDate  DateTime @db.Date
+  shiftId    String
+  shift      Shift    @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([employeeId, hotelDate])
+  @@index([hotelDate, shiftId])
+  @@index([shiftId])
 }
 
 model AuditEvent {
@@ -718,6 +761,59 @@ model AuditEvent {
   @@index([actorEmployeeId, occurredAt])
   @@index([locationId, occurredAt])
   @@index([action, occurredAt])
+}
+
+enum NotificationChannel {
+  in_app
+  email
+  device_push
+}
+
+enum NotificationDeliveryStatus {
+  pending
+  delivered
+  failed
+  skipped
+  not_configured
+}
+
+model Notification {
+  id                  String                  @id @default(cuid())
+  recipientEmployeeId String
+  recipient           Employee                @relation("NotificationRecipient", fields: [recipientEmployeeId], references: [id])
+  actorEmployeeId     String?
+  actor               Employee?               @relation("NotificationActor", fields: [actorEmployeeId], references: [id])
+  type                String
+  title               String
+  body                String
+  entityType          String
+  entityId            String
+  locationId          String?
+  payload             Json?
+  dedupeKey           String
+  createdAt           DateTime                @default(now())
+  readAt              DateTime?
+  dismissedAt         DateTime?
+  deliveries          NotificationDelivery[]
+
+  @@unique([recipientEmployeeId, dedupeKey])
+  @@index([recipientEmployeeId, createdAt])
+  @@index([recipientEmployeeId, readAt])
+  @@index([entityType, entityId])
+}
+
+model NotificationDelivery {
+  id             String                      @id @default(cuid())
+  notificationId String
+  notification   Notification                @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  channel        NotificationChannel
+  status         NotificationDeliveryStatus
+  attemptedAt    DateTime                    @default(now())
+  deliveredAt    DateTime?
+  error          String?
+
+  @@unique([notificationId, channel])
+  @@index([channel, status])
 }
 
 model JobRun {

@@ -25,6 +25,7 @@ import { auditRouter } from "./routes/audit";
 import { myWorkRouter } from "./routes/myWork";
 import { jobsRouter } from "./routes/jobs";
 import { syncRouter } from "./routes/sync";
+import { notificationsRouter } from "./routes/notifications";
 import { AppError } from "./services/cleaning";
 import { ensureDefaultSettings } from "./services/settings";
 import { ensureDefaultRoleGrants } from "./services/roleGrants";
@@ -102,6 +103,7 @@ export function createApp() {
   app.use("/audit-events", auditRouter);
   app.use("/jobs", jobsRouter);
   app.use("/sync", syncRouter);
+  app.use("/notifications", notificationsRouter);
 
   app.use(
     (

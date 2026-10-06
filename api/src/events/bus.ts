@@ -5,13 +5,15 @@ export type LiveEventType =
   | "cleaning.changed"
   | "ticket.changed"
   | "settings.changed"
-  | "people.changed";
+  | "people.changed"
+  | "notification.changed";
 
 export type LiveEvent = {
   type: LiveEventType;
   locationId?: string;
   taskId?: string;
   ticketId?: string;
+  recipientEmployeeId?: string;
   at: string;
 };
 
@@ -26,6 +28,7 @@ export function publish(
     locationId?: string;
     taskId?: string;
     ticketId?: string;
+    recipientEmployeeId?: string;
   } = {},
 ): LiveEvent {
   const event: LiveEvent = {

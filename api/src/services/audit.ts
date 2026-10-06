@@ -90,6 +90,13 @@ export type ListAuditEventsFilter = {
   from?: Date;
   to?: Date;
   limit?: number;
+  /**
+   * When set, restrict results to these location IDs and (for sector scope)
+   * sector entity rows whose entityId is in sectorIds. Null locationId rows
+   * for other entity types are excluded.
+   */
+  scopeLocationIds?: string[] | null;
+  scopeSectorIds?: string[];
 };
 
 const actorSelect = {
@@ -147,6 +154,28 @@ export async function listAuditEvents(filter: ListAuditEventsFilter) {
     where.occurredAt = {};
     if (filter.from) where.occurredAt.gte = filter.from;
     if (filter.to) where.occurredAt.lte = filter.to;
+  }
+
+  if (filter.scopeLocationIds !== undefined && filter.scopeLocationIds !== null) {
+    const locationIds =
+      filter.scopeLocationIds.length > 0
+        ? filter.scopeLocationIds
+        : ["__none__"];
+    const sectorIds = filter.scopeSectorIds ?? [];
+    const scopeOr: Prisma.AuditEventWhereInput[] = [
+      { locationId: { in: locationIds } },
+    ];
+    if (sectorIds.length) {
+      scopeOr.push({
+        locationId: null,
+        entityType: "sector",
+        entityId: { in: sectorIds },
+      });
+    }
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      { OR: scopeOr },
+    ];
   }
 
   const rows = await prisma.auditEvent.findMany({

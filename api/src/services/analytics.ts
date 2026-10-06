@@ -11,6 +11,7 @@ import { prisma } from "../db";
 import { OPEN_TICKET_STATUSES } from "../constants";
 import { computeReadiness } from "./readiness";
 import { getOperations } from "./settings";
+import { isAnomalousSession } from "./cleaningResults";
 
 export type AnalyticsDomain = "maintenance" | "housekeeping";
 
@@ -346,109 +347,179 @@ async function getHousekeepingSummary(
   const sessionW = scope.sessionWhere ?? {};
   const locW = scope.locationWhere ?? {};
   const ticketW = scope.ticketWhere ?? {};
+  const ops = await getOperations();
+  const anomalyThresholdMinutes = ops.overdueSessionMinutes * 2;
 
-  const [completedTasks, inspections, completedSessions, prevCompleted, prevInspections] =
-    await Promise.all([
-      prisma.cleaningTask.findMany({
-        where: {
-          status: TaskStatus.completed,
-          updatedAt: { gte: period.from, lte: period.to },
-          ...taskW,
+  const [
+    completedTasks,
+    rejectedInspections,
+    approvedInspections,
+    completedSessions,
+    prevCompleted,
+    prevRejected,
+    prevApproved,
+  ] = await Promise.all([
+    prisma.cleaningTask.findMany({
+      where: {
+        status: TaskStatus.completed,
+        completedAt: { gte: period.from, lte: period.to },
+        ...taskW,
+      },
+      include: {
+        sessions: {
+          where: { status: SessionStatus.completed },
+          orderBy: { finishedAt: "desc" },
         },
-        include: {
-          sessions: {
-            where: { status: SessionStatus.completed },
-            orderBy: { finishedAt: "desc" },
-          },
-          location: {
-            include: { floor: { include: { building: true } } },
-          },
+        inspections: {
+          where: { result: InspectionResult.approved },
+          select: { id: true },
+          take: 1,
         },
-      }),
-      prisma.inspection.findMany({
-        where: {
-          inspectedAt: { gte: period.from, lte: period.to },
-          result: InspectionResult.rejected,
-          ...(Object.keys(taskW).length ? { task: taskW } : {}),
+        location: {
+          include: { floor: { include: { building: true } } },
         },
-        include: {
-          task: {
-            include: {
-              location: {
-                include: { floor: { include: { building: true } } },
-              },
+      },
+    }),
+    prisma.inspection.findMany({
+      where: {
+        inspectedAt: { gte: period.from, lte: period.to },
+        result: InspectionResult.rejected,
+        ...(Object.keys(taskW).length ? { task: taskW } : {}),
+      },
+      include: {
+        task: {
+          include: {
+            location: {
+              include: { floor: { include: { building: true } } },
             },
           },
         },
-      }),
-      prisma.cleaningSession.findMany({
-        where: {
-          status: SessionStatus.completed,
-          finishedAt: { gte: period.from, lte: period.to },
-          ...sessionW,
-        },
-      }),
-      prisma.cleaningTask.count({
-        where: {
-          status: TaskStatus.completed,
-          updatedAt: { gte: prev.from, lte: prev.to },
-          ...taskW,
-        },
-      }),
-      prisma.inspection.count({
-        where: {
-          inspectedAt: { gte: prev.from, lte: prev.to },
-          result: InspectionResult.rejected,
-          ...(Object.keys(taskW).length ? { task: taskW } : {}),
-        },
-      }),
-    ]);
+      },
+    }),
+    prisma.inspection.count({
+      where: {
+        inspectedAt: { gte: period.from, lte: period.to },
+        result: InspectionResult.approved,
+        ...(Object.keys(taskW).length ? { task: taskW } : {}),
+      },
+    }),
+    prisma.cleaningSession.findMany({
+      where: {
+        status: SessionStatus.completed,
+        finishedAt: { gte: period.from, lte: period.to },
+        ...sessionW,
+      },
+    }),
+    prisma.cleaningTask.count({
+      where: {
+        status: TaskStatus.completed,
+        completedAt: { gte: prev.from, lte: prev.to },
+        ...taskW,
+      },
+    }),
+    prisma.inspection.count({
+      where: {
+        inspectedAt: { gte: prev.from, lte: prev.to },
+        result: InspectionResult.rejected,
+        ...(Object.keys(taskW).length ? { task: taskW } : {}),
+      },
+    }),
+    prisma.inspection.count({
+      where: {
+        inspectedAt: { gte: prev.from, lte: prev.to },
+        result: InspectionResult.approved,
+        ...(Object.keys(taskW).length ? { task: taskW } : {}),
+      },
+    }),
+  ]);
 
-  // Previous period on-time %
+  const autoAccepted = completedTasks.filter((t) => t.inspections.length === 0)
+    .length;
+  const acceptedTasks = approvedInspections + autoAccepted;
+
+  const prevAutoAccepted = await prisma.cleaningTask.count({
+    where: {
+      status: TaskStatus.completed,
+      completedAt: { gte: prev.from, lte: prev.to },
+      inspections: { none: { result: InspectionResult.approved } },
+      ...taskW,
+    },
+  });
+  const prevAccepted = prevApproved + prevAutoAccepted;
+
   const prevTasksWithDue = await prisma.cleaningTask.findMany({
     where: {
       status: TaskStatus.completed,
-      updatedAt: { gte: prev.from, lte: prev.to },
+      completedAt: { gte: prev.from, lte: prev.to },
       dueAt: { not: null },
       ...taskW,
     },
-    include: {
-      sessions: {
-        where: { status: SessionStatus.completed },
-        orderBy: { finishedAt: "desc" },
-        take: 1,
-      },
-    },
+    select: { dueAt: true, completedAt: true },
   });
   let prevWithDue = 0;
   let prevOnTime = 0;
   for (const task of prevTasksWithDue) {
-    if (!task.dueAt) continue;
+    if (!task.dueAt || !task.completedAt) continue;
     prevWithDue += 1;
-    const finishedAt = task.sessions[0]?.finishedAt ?? task.updatedAt;
-    if (finishedAt <= task.dueAt) prevOnTime += 1;
+    if (task.completedAt <= task.dueAt) prevOnTime += 1;
   }
   const prevOnTimePct =
     prevWithDue === 0 ? null : round1((prevOnTime / prevWithDue) * 100);
 
-  const sessionMinutes: number[] = [];
+  let anomalousSessions = 0;
+  const validSessionMinutes: number[] = [];
   for (const s of completedSessions) {
     if (!s.finishedAt) continue;
+    const anomalous = isAnomalousSession({
+      startedAt: s.startedAt,
+      finishedAt: s.finishedAt,
+      anomalyFlags: s.anomalyFlags,
+      anomalyThresholdMinutes,
+    });
+    if (anomalous) {
+      anomalousSessions += 1;
+      continue;
+    }
     const mins = (s.finishedAt.getTime() - s.startedAt.getTime()) / 60000;
-    if (mins >= 0 && Number.isFinite(mins)) sessionMinutes.push(mins);
+    if (mins >= 0 && Number.isFinite(mins)) validSessionMinutes.push(mins);
   }
 
   let withDue = 0;
   let onTime = 0;
+  let tasksWithValidTime = 0;
+  let totalValidMsForTasks = 0;
   for (const task of completedTasks) {
-    if (!task.dueAt) continue;
-    withDue += 1;
-    const finishSession = task.sessions.find((s) => s.finishedAt);
-    const finishedAt = finishSession?.finishedAt ?? task.updatedAt;
-    if (finishedAt <= task.dueAt) onTime += 1;
+    if (task.dueAt && task.completedAt) {
+      withDue += 1;
+      if (task.completedAt <= task.dueAt) onTime += 1;
+    }
+    const validMs = task.sessions.reduce((sum, s) => {
+      if (!s.finishedAt) return sum;
+      if (
+        isAnomalousSession({
+          startedAt: s.startedAt,
+          finishedAt: s.finishedAt,
+          anomalyFlags: s.anomalyFlags,
+          anomalyThresholdMinutes,
+        })
+      ) {
+        return sum;
+      }
+      return (
+        sum + Math.max(0, s.finishedAt.getTime() - s.startedAt.getTime())
+      );
+    }, 0);
+    if (validMs > 0) {
+      tasksWithValidTime += 1;
+      totalValidMsForTasks += validMs;
+    }
   }
 
   const onTimePct = withDue === 0 ? null : round1((onTime / withDue) * 100);
+  const avgMinutesPerTask =
+    tasksWithValidTime > 0
+      ? round1(totalValidMsForTasks / (1000 * 60) / tasksWithValidTime)
+      : null;
 
   const locations = await prisma.location.findMany({
     where: {
@@ -481,7 +552,7 @@ async function getHousekeepingSummary(
   }
 
   const rejectByLocation = new Map<string, { count: number; label: string }>();
-  for (const insp of inspections) {
+  for (const insp of rejectedInspections) {
     const loc = insp.task.location;
     const label = `${loc.floor.building.code} ${loc.number}`;
     const cur = rejectByLocation.get(loc.id) ?? { count: 0, label };
@@ -548,16 +619,15 @@ async function getHousekeepingSummary(
     (a, b) => b.ticketCount - a.ticketCount || a.label.localeCompare(b.label),
   );
 
-  const sorted = [...sessionMinutes].sort((a, b) => a - b);
+  const sorted = [...validSessionMinutes].sort((a, b) => a - b);
   const p50 = round1(percentile(sorted, 0.5));
   const p90 = round1(percentile(sorted, 0.9));
-  const avgMinutes = round1(avg(sorted));
 
   const forecastFrom = startOfDay(new Date(period.now.getTime() - 28 * DAY_MS));
   const recentCompleted = await prisma.cleaningTask.count({
     where: {
       status: TaskStatus.completed,
-      updatedAt: { gte: forecastFrom, lte: period.now },
+      completedAt: { gte: forecastFrom, lte: period.now },
       ...taskW,
     },
   });
@@ -569,7 +639,9 @@ async function getHousekeepingSummary(
   const series = buildDailySeries(
     period.from,
     period.to,
-    completedTasks.map((t) => t.updatedAt),
+    completedTasks
+      .map((t) => t.completedAt)
+      .filter((d): d is Date => d != null),
   );
 
   return {
@@ -577,12 +649,16 @@ async function getHousekeepingSummary(
     period: { from: period.from.toISOString(), to: period.to.toISOString() },
     kpis: {
       cleanedTasks: completedTasks.length,
+      completedSessions: completedSessions.length,
+      acceptedTasks,
+      reworkEvents: rejectedInspections.length,
+      anomalousSessions,
       readyRooms,
       onTimePct,
       onTimeSampleCount: withDue,
-      auditFindings: inspections.length,
+      auditFindings: rejectedInspections.length,
       riskRooms: riskRooms.length,
-      avgMinutesPerTask: avgMinutes,
+      avgMinutesPerTask,
       p50SessionMinutes: p50,
       p90SessionMinutes: p90,
       insufficientDurationData: sorted.length < MIN_PERCENTILE_SAMPLES,
@@ -591,11 +667,14 @@ async function getHousekeepingSummary(
     comparison: {
       cleanedTasks: compareMetric(completedTasks.length, prevCompleted),
       onTimePct: compareMetric(onTimePct, prevOnTimePct),
-      auditFindings: compareMetric(inspections.length, prevInspections),
+      auditFindings: compareMetric(rejectedInspections.length, prevRejected),
+      acceptedTasks: compareMetric(acceptedTasks, prevAccepted),
+      reworkEvents: compareMetric(rejectedInspections.length, prevRejected),
     },
     series,
     breakdowns: {
       byPriority: bucketCounts(completedTasks.map((t) => t.priority)),
+      byServiceType: bucketCounts(completedTasks.map((t) => t.serviceType)),
     },
     riskRooms,
     forecast: {

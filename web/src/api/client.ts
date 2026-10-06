@@ -46,11 +46,15 @@ export type Panel =
   | "audit"
   | "control"
   | "settings"
-  | "permissions";
+  | "permissions"
+  | "notifications";
 
 export type Action =
   | "rooms.view"
   | "rooms.mark_dirty"
+  | "rooms.manage"
+  | "rooms.set_occupancy"
+  | "rooms.set_service_status"
   | "cleaning.create"
   | "cleaning.start"
   | "cleaning.complete"
@@ -103,6 +107,7 @@ const ALL_PANELS: Panel[] = [
   "control",
   "settings",
   "permissions",
+  "notifications",
 ];
 
 const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {
@@ -247,6 +252,15 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
   if (action === "sectors.manage" || action === "shifts.manage") {
     return ["supervisor", "manager", "admin"].includes(user.role);
   }
+  if (action === "rooms.manage") {
+    return ["supervisor", "manager", "admin"].includes(user.role);
+  }
+  if (action === "rooms.set_occupancy") {
+    return ["reception", "supervisor", "manager"].includes(user.role);
+  }
+  if (action === "rooms.set_service_status") {
+    return ["supervisor", "manager", "admin"].includes(user.role);
+  }
   if (action === "issue_options.manage") {
     return ["manager", "admin"].includes(user.role);
   }
@@ -257,8 +271,13 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
 }
 
 export function panelsForUser(user: AuthUser): Panel[] {
-  if (user.panels?.length) return user.panels;
-  return panelsForRole(user.role);
+  const base = user.panels?.length
+    ? [...user.panels]
+    : [...panelsForRole(user.role)];
+  if (!base.includes("notifications")) {
+    base.push("notifications");
+  }
+  return base;
 }
 
 /** Apply module toggles from public settings onto role panels. */
@@ -513,6 +532,7 @@ export type DeviceRow = {
 
 export type Room = {
   id: string;
+  floorId?: string;
   number: string;
   kind?: "room" | "common_area";
   floor: number;
@@ -567,6 +587,20 @@ export type Room = {
     } | null;
   } | null;
 };
+
+export type LocationHierarchyBuilding = {
+  id: string;
+  name: string;
+  code: string;
+  floors: Array<{ id: string; number: number; name: string }>;
+};
+
+export type LocationOccupancy = "vacant" | "occupied" | "unknown";
+export type LocationServiceStatus =
+  | "in_service"
+  | "out_of_service"
+  | "unknown";
+export type LocationKind = "room" | "common_area";
 
 export type OverdueSession = {
   sessionId: string;
@@ -826,6 +860,7 @@ export type LiveEventType =
   | "ticket.changed"
   | "settings.changed"
   | "people.changed"
+  | "notification.changed"
   | "connected";
 
 export type LiveEvent = {
@@ -833,6 +868,7 @@ export type LiveEvent = {
   locationId?: string;
   taskId?: string;
   ticketId?: string;
+  recipientEmployeeId?: string;
   at?: string;
   ok?: boolean;
   userId?: string;
@@ -845,6 +881,7 @@ const LIVE_EVENT_TYPES = new Set<string>([
   "ticket.changed",
   "settings.changed",
   "people.changed",
+  "notification.changed",
 ]);
 
 function parseSseChunk(
@@ -1079,6 +1116,100 @@ export async function markCommonAreaDirty(locationId: string): Promise<Room> {
   return parseJson(res);
 }
 
+export async function fetchLocationHierarchy(): Promise<
+  LocationHierarchyBuilding[]
+> {
+  const res = await apiFetch(`${API_BASE}/locations/hierarchy`, {
+    headers: authHeaders(),
+  });
+  return parseJson(res);
+}
+
+export async function fetchLocationsCatalog(params?: {
+  kind?: LocationKind;
+  includeArchived?: boolean;
+}): Promise<Room[]> {
+  const search = new URLSearchParams();
+  if (params?.kind) search.set("kind", params.kind);
+  if (params?.includeArchived) search.set("includeArchived", "true");
+  const qs = search.toString();
+  const res = await apiFetch(`${API_BASE}/locations${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(),
+  });
+  return parseJson(res);
+}
+
+export async function createLocation(input: {
+  floorId: string;
+  number: string;
+  kind?: LocationKind;
+  occupancy?: LocationOccupancy;
+  serviceStatus?: LocationServiceStatus;
+}): Promise<Room> {
+  const res = await apiFetch(`${API_BASE}/locations`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseJson(res);
+}
+
+export async function updateLocation(
+  id: string,
+  input: {
+    floorId?: string;
+    number?: string;
+    kind?: LocationKind;
+  },
+): Promise<Room> {
+  const res = await apiFetch(`${API_BASE}/locations/${id}`, {
+    method: "PATCH",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseJson(res);
+}
+
+export async function archiveLocation(id: string): Promise<Room> {
+  const res = await apiFetch(`${API_BASE}/locations/${id}/archive`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  return parseJson(res);
+}
+
+export async function restoreLocation(id: string): Promise<Room> {
+  const res = await apiFetch(`${API_BASE}/locations/${id}/restore`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  return parseJson(res);
+}
+
+export async function setLocationOccupancy(
+  id: string,
+  occupancy: LocationOccupancy,
+): Promise<Room> {
+  const res = await apiFetch(`${API_BASE}/locations/${id}/occupancy`, {
+    method: "PATCH",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ occupancy }),
+  });
+  return parseJson(res);
+}
+
+export async function setLocationServiceStatus(
+  id: string,
+  serviceStatus: LocationServiceStatus,
+): Promise<Room> {
+  const res = await apiFetch(`${API_BASE}/locations/${id}/service-status`, {
+    method: "PATCH",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ serviceStatus }),
+  });
+  return parseJson(res);
+}
+
 export async function fetchCleaningTasks(params?: {
   mine?: boolean;
   hotelDate?: string;
@@ -1103,6 +1234,7 @@ export type CleaningTaskRow = {
   status: string;
   version: number;
   assignedEmployeeId: string | null;
+  shiftId?: string | null;
   reassignReason: string | null;
   location: {
     id: string;
@@ -1114,6 +1246,14 @@ export type CleaningTaskRow = {
     id: string;
     fullName: string;
     employeeNumber: string;
+  } | null;
+  shift?: {
+    id: string;
+    code: string;
+    nameBg: string;
+    nameEn: string;
+    startTime: string;
+    endTime: string;
   } | null;
   sessions: Array<{
     id: string;
@@ -1137,7 +1277,9 @@ export async function createCleaningTask(input: {
   hotelDate: string;
   priority?: string;
   assignedEmployeeId?: string;
+  shiftId?: string | null;
   dueAt?: string;
+  serviceType?: CleaningServiceType;
 }) {
   const res = await apiFetch(`${API_BASE}/cleaning/tasks`, {
     method: "POST",
@@ -1159,25 +1301,35 @@ export async function startCleaningTask(taskId: string, expectedVersion?: number
   return parseJson(res);
 }
 
-export async function completeCleaningSession(sessionId: string, notes?: string) {
+export async function completeCleaningSession(
+  sessionId: string,
+  notes?: string,
+  expectedVersion?: number,
+) {
   const res = await apiFetch(`${API_BASE}/cleaning/sessions/${sessionId}/complete`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({
       commandId: crypto.randomUUID(),
       ...(notes?.trim() ? { notes: notes.trim() } : {}),
+      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
     }),
   });
   return parseJson(res);
 }
 
-export async function cancelCleaningSession(sessionId: string, notes?: string) {
+export async function cancelCleaningSession(
+  sessionId: string,
+  notes?: string,
+  expectedVersion?: number,
+) {
   const res = await apiFetch(`${API_BASE}/cleaning/sessions/${sessionId}/cancel`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({
       commandId: crypto.randomUUID(),
       ...(notes?.trim() ? { notes: notes.trim() } : {}),
+      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
     }),
   });
   return parseJson(res);
@@ -1187,6 +1339,7 @@ export async function inspectCleaningTask(
   taskId: string,
   result: "approved" | "rejected",
   findings?: string,
+  expectedVersion?: number,
 ) {
   const res = await apiFetch(`${API_BASE}/cleaning/tasks/${taskId}/inspect`, {
     method: "POST",
@@ -1195,6 +1348,7 @@ export async function inspectCleaningTask(
       commandId: crypto.randomUUID(),
       result,
       findings,
+      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
     }),
   });
   return parseJson(res);
@@ -1205,6 +1359,7 @@ export async function reassignCleaningTask(
   assignedEmployeeId: string,
   reason: string,
   expectedVersion?: number,
+  shiftId?: string | null,
 ) {
   const res = await apiFetch(`${API_BASE}/cleaning/tasks/${taskId}/reassign`, {
     method: "POST",
@@ -1213,6 +1368,7 @@ export async function reassignCleaningTask(
       assignedEmployeeId,
       reason,
       expectedVersion,
+      ...(shiftId !== undefined ? { shiftId } : {}),
     }),
   });
   return parseJson(res);
@@ -1235,26 +1391,42 @@ export async function fetchOperationsLive(): Promise<OperationsLive> {
   return parseJson(res);
 }
 
+export type CleaningServiceType =
+  | "stayover"
+  | "departure"
+  | "arrival"
+  | "common_area";
+
 export type CleaningResultsRow = {
   employeeId: string;
   fullName: string;
   employeeNumber: string;
-  tasksCompleted: number;
-  roomsCleaned: number;
+  completedSessions: number;
+  completedTasks: number;
+  acceptedTasks: number;
+  reworkEvents: number;
+  anomalousSessions: number;
+  distinctRooms: number;
   onTimePct: number | null;
-  avgMinutes: number | null;
-  totalSessionMinutes: number;
+  avgValidMinutes: number | null;
+  totalValidSessionMinutes: number;
 };
 
 export type CleaningResultsResponse = {
   period: { from: string; to: string };
   summary: {
     housekeeperCount: number;
-    roomsCleaned: number;
+    completedSessions: number;
+    completedTasks: number;
+    acceptedTasks: number;
+    reworkEvents: number;
+    anomalousSessions: number;
+    distinctRooms: number;
     onTimePct: number | null;
     productivity: number | null;
+    byServiceType: Array<{ key: CleaningServiceType; count: number }>;
   };
-  series: Array<{ hour: number; rooms: number }>;
+  series: Array<{ hour: number; completedSessions: number }>;
   rows: CleaningResultsRow[];
   page: number;
   pageSize: number;
@@ -1266,6 +1438,7 @@ export async function fetchCleaningResults(params: {
   to: string;
   page?: number;
   pageSize?: number;
+  serviceType?: CleaningServiceType | CleaningServiceType[];
 }): Promise<CleaningResultsResponse> {
   const q = new URLSearchParams({
     from: params.from,
@@ -1273,6 +1446,12 @@ export async function fetchCleaningResults(params: {
     page: String(params.page ?? 1),
     pageSize: String(params.pageSize ?? 25),
   });
+  if (params.serviceType) {
+    const types = Array.isArray(params.serviceType)
+      ? params.serviceType
+      : [params.serviceType];
+    if (types.length) q.set("serviceType", types.join(","));
+  }
   const res = await apiFetch(`${API_BASE}/cleaning/results?${q}`, {
     headers: authHeaders(),
   });
@@ -1582,6 +1761,10 @@ export type MaintenanceAnalyticsKpis = {
 
 export type HousekeepingAnalyticsKpis = {
   cleanedTasks: number;
+  completedSessions: number;
+  acceptedTasks: number;
+  reworkEvents: number;
+  anomalousSessions: number;
   readyRooms: number;
   onTimePct: number | null;
   onTimeSampleCount: number;
@@ -1631,11 +1814,14 @@ export type AnalyticsSummary =
         cleanedTasks: AnalyticsMetricCompare;
         onTimePct: AnalyticsMetricCompare;
         auditFindings: AnalyticsMetricCompare;
+        acceptedTasks: AnalyticsMetricCompare;
+        reworkEvents: AnalyticsMetricCompare;
       };
       series: AnalyticsSeriesPoint[];
       breakdowns: {
         byCategory?: Array<{ key: string; count: number }>;
         byPriority?: Array<{ key: string; count: number }>;
+        byServiceType?: Array<{ key: string; count: number }>;
       };
       riskRooms: Array<{
         locationId: string;
@@ -1848,6 +2034,14 @@ export type DailyPlanEntry = {
       fullName: string;
       employeeNumber: string;
     } | null;
+    shift?: {
+      id: string;
+      code: string;
+      nameBg: string;
+      nameEn: string;
+      startTime: string;
+      endTime: string;
+    } | null;
   } | null;
 };
 
@@ -1885,6 +2079,7 @@ export async function createDailyPlanEntry(input: {
   category: DailyPlanCategory;
   notes?: string;
   assignedEmployeeId?: string;
+  shiftId?: string | null;
 }): Promise<{ entry: DailyPlanEntry; effects: Record<string, unknown> }> {
   const res = await apiFetch(`${API_BASE}/daily-plan`, {
     method: "POST",
@@ -2085,8 +2280,13 @@ export async function fetchAttendanceIntervals(params?: {
   month?: string;
   department?: string;
   q?: string;
+  limit?: number;
+  cursor?: string;
 }): Promise<{
   intervals: AttendanceInterval[];
+  total: number;
+  nextCursor: string | null;
+  limit: number;
   maxClockSkewSeconds: number | null;
 }> {
   const search = new URLSearchParams();
@@ -2094,6 +2294,8 @@ export async function fetchAttendanceIntervals(params?: {
   if (params?.month) search.set("month", params.month);
   if (params?.department) search.set("department", params.department);
   if (params?.q) search.set("q", params.q);
+  if (params?.limit != null) search.set("limit", String(params.limit));
+  if (params?.cursor) search.set("cursor", params.cursor);
   const qs = search.toString();
   const res = await apiFetch(
     `${API_BASE}/attendance/intervals${qs ? `?${qs}` : ""}`,
@@ -2428,6 +2630,51 @@ export async function updateShift(
   return parseJson(res);
 }
 
+export type ShiftRosterEntry = {
+  id: string;
+  hotelDate: string;
+  employee: {
+    id: string;
+    fullName: string;
+    employeeNumber: string;
+  };
+  shift: {
+    id: string;
+    code: string;
+    nameBg: string;
+    nameEn: string;
+    startTime: string;
+    endTime: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ShiftRoster = {
+  hotelDate: string;
+  entries: ShiftRosterEntry[];
+};
+
+export async function fetchShiftRoster(hotelDate: string): Promise<ShiftRoster> {
+  const res = await apiFetch(
+    `${API_BASE}/shifts/roster?hotelDate=${encodeURIComponent(hotelDate)}`,
+    { headers: authHeaders() },
+  );
+  return parseJson(res);
+}
+
+export async function saveShiftRoster(input: {
+  hotelDate: string;
+  entries: Array<{ employeeId: string; shiftId: string }>;
+}): Promise<ShiftRoster> {
+  const res = await apiFetch(`${API_BASE}/shifts/roster`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(input),
+  });
+  return parseJson(res);
+}
+
 export type LocationQrPayload = {
   locationId: string;
   qrToken: string;
@@ -2485,13 +2732,18 @@ export async function fetchJobRuns(limit = 50): Promise<JobRunRow[]> {
   return parseJson(res);
 }
 
-export async function fetchMyWork(hotelDate?: string) {
-  const qs = hotelDate ? `?hotelDate=${encodeURIComponent(hotelDate)}` : "";
-  const res = await apiFetch(`${API_BASE}/my-work${qs}`, {
+export async function fetchMyWork(hotelDate?: string, shiftId?: string) {
+  const search = new URLSearchParams();
+  if (hotelDate) search.set("hotelDate", hotelDate);
+  if (shiftId) search.set("shiftId", shiftId);
+  const qs = search.toString();
+  const res = await apiFetch(`${API_BASE}/my-work${qs ? `?${qs}` : ""}`, {
     headers: authHeaders(),
   });
   return parseJson<{
     hotelDate: string;
+    rosterShiftId: string | null;
+    filterShiftId: string | null;
     tasks: CleaningTaskRow[];
     tickets: MaintenanceTicket[];
     summary: {
@@ -2527,6 +2779,93 @@ export async function syncPull(params?: {
   if (params?.deviceId) search.set("deviceId", params.deviceId);
   const qs = search.toString();
   const res = await apiFetch(`${API_BASE}/sync/pull${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(),
+  });
+  return parseJson(res);
+}
+
+export type AppNotification = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  entityType: string;
+  entityId: string;
+  locationId: string | null;
+  payload: {
+    panel?: Panel;
+    ticketId?: string;
+    taskId?: string;
+    locationId?: string;
+    locationNumber?: string;
+    adjustmentId?: string;
+    sessionId?: string;
+  } | null;
+  createdAt: string;
+  readAt: string | null;
+  dismissedAt: string | null;
+  actorEmployeeId: string | null;
+  unread: boolean;
+  deliveries: Array<{
+    channel: "in_app" | "email" | "device_push";
+    status: string;
+    attemptedAt: string;
+    deliveredAt: string | null;
+    error: string | null;
+  }>;
+};
+
+export async function listNotifications(params?: {
+  unread?: boolean;
+  cursor?: string;
+  limit?: number;
+}): Promise<{ items: AppNotification[]; nextCursor: string | null }> {
+  const search = new URLSearchParams();
+  if (params?.unread) search.set("unread", "1");
+  if (params?.cursor) search.set("cursor", params.cursor);
+  if (params?.limit != null) search.set("limit", String(params.limit));
+  const qs = search.toString();
+  const res = await apiFetch(
+    `${API_BASE}/notifications${qs ? `?${qs}` : ""}`,
+    { headers: authHeaders() },
+  );
+  return parseJson(res);
+}
+
+export async function fetchNotificationUnreadCount(): Promise<{
+  count: number;
+}> {
+  const res = await apiFetch(`${API_BASE}/notifications/unread-count`, {
+    headers: authHeaders(),
+  });
+  return parseJson(res);
+}
+
+export async function markNotificationRead(
+  id: string,
+): Promise<AppNotification> {
+  const res = await apiFetch(`${API_BASE}/notifications/${id}/read`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  return parseJson(res);
+}
+
+export async function markAllNotificationsRead(): Promise<{
+  updated: number;
+}> {
+  const res = await apiFetch(`${API_BASE}/notifications/read-all`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  return parseJson(res);
+}
+
+export async function dismissNotification(
+  id: string,
+): Promise<AppNotification> {
+  const res = await apiFetch(`${API_BASE}/notifications/${id}/dismiss`, {
+    method: "POST",
     headers: authHeaders(),
   });
   return parseJson(res);

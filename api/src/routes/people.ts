@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "../db";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { AppError } from "../services/cleaning";
+import { revokeAllForUser } from "../services/authSessions";
 import { publish } from "../events/bus";
 
 export const peopleRouter = Router();
@@ -210,6 +211,10 @@ peopleRouter.patch(
           _count: { select: { devices: { where: { revokedAt: null } } } },
         },
       });
+
+      if (target.role !== nextRole) {
+        await revokeAllForUser(target.id);
+      }
 
       publish("people.changed");
       return res.json(mapPersonFromUser(updated));

@@ -2,11 +2,13 @@ import { Router } from "express";
 import { AttendanceEventKind } from "@prisma/client";
 import { z } from "zod";
 import { requireAuth, requireAction } from "../middleware/auth";
+import { AppError } from "../errors";
 import {
   getInterval,
   ingestEvent,
   intervalsToCsv,
   listIntervals,
+  listIntervalsForExport,
   maxClockSkewSeconds,
   requestAdjustment,
   reviewAdjustment,
@@ -32,6 +34,16 @@ function parseListQuery(query: Record<string, unknown>) {
   };
 }
 
+function parsePageQuery(query: Record<string, unknown>) {
+  const limitRaw =
+    typeof query.limit === "string" ? Number(query.limit) : undefined;
+  return {
+    limit:
+      limitRaw != null && Number.isFinite(limitRaw) ? limitRaw : undefined,
+    cursor: typeof query.cursor === "string" ? query.cursor.trim() : undefined,
+  };
+}
+
 attendanceRouter.get(
   "/intervals",
   requireAuth,
@@ -39,12 +51,19 @@ attendanceRouter.get(
   async (req, res, next) => {
     try {
       const filter = parseListQuery(req.query as Record<string, unknown>);
+      const page = parsePageQuery(req.query as Record<string, unknown>);
       scopeSchema.parse(filter.scope);
-      const [intervals, maxSkew] = await Promise.all([
-        listIntervals(filter),
+      const [list, maxSkew] = await Promise.all([
+        listIntervals(filter, page),
         maxClockSkewSeconds(filter),
       ]);
-      return res.json({ intervals, maxClockSkewSeconds: maxSkew });
+      return res.json({
+        intervals: list.intervals,
+        total: list.total,
+        nextCursor: list.nextCursor,
+        limit: list.limit,
+        maxClockSkewSeconds: maxSkew,
+      });
     } catch (err) {
       return next(err);
     }
@@ -72,15 +91,27 @@ attendanceRouter.get(
   async (req, res, next) => {
     try {
       const filter = parseListQuery(req.query as Record<string, unknown>);
-      const intervals = await listIntervals(filter);
+      const { intervals, truncated, total } =
+        await listIntervalsForExport(filter);
       const csv = intervalsToCsv(intervals);
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader(
         "Content-Disposition",
         'attachment; filename="attendance.csv"',
       );
+      res.setHeader("X-Attendance-Total", String(total));
+      if (truncated) {
+        res.setHeader("X-Attendance-Truncated", "true");
+      }
       return res.send(csv);
     } catch (err) {
+      if (err instanceof AppError && err.status === 413) {
+        return res.status(413).json({
+          error: err.code,
+          message: err.message,
+          details: err.details,
+        });
+      }
       return next(err);
     }
   },

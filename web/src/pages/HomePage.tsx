@@ -188,8 +188,8 @@ export function HomePage({ user }: Props) {
                       busy={resolvingId === ticket.id}
                       canResolve={canResolve}
                       onBusy={setResolvingId}
-                      onDone={(msg) => {
-                        setMessage(msg);
+                      onDone={(result) => {
+                        setMessage(result.message);
                         setError(null);
                         void refresh();
                       }}

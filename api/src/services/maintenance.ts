@@ -10,6 +10,10 @@ import {
   snapshotFromCategory,
 } from "./issueCatalog";
 import { recordAudit } from "./audit";
+import {
+  createNotifications,
+  recipientsForLocationOps,
+} from "./notifications";
 
 const ticketInclude = {
   location: { include: { floor: { include: { building: true } } } },
@@ -19,6 +23,39 @@ const ticketInclude = {
   closedBy: true,
   issueOption: true,
 } as const;
+
+type TicketWithRelations = Prisma.MaintenanceTicketGetPayload<{
+  include: typeof ticketInclude;
+}>;
+
+async function notifyTicketEvent(input: {
+  type: string;
+  title: string;
+  body: string;
+  ticket: TicketWithRelations;
+  actorEmployeeId: string | null;
+  recipientEmployeeIds: string[];
+  dedupeKey: string;
+}) {
+  const locNum = input.ticket.location?.number;
+  await createNotifications({
+    type: input.type,
+    title: input.title,
+    body: input.body,
+    entityType: "ticket",
+    entityId: input.ticket.id,
+    locationId: input.ticket.locationId,
+    actorEmployeeId: input.actorEmployeeId,
+    recipientEmployeeIds: input.recipientEmployeeIds,
+    dedupeKey: input.dedupeKey,
+    payload: {
+      panel: "repairs",
+      ticketId: input.ticket.id,
+      locationId: input.ticket.locationId,
+      locationNumber: locNum,
+    },
+  });
+}
 
 export type CreateMaintenanceTicketInput = {
   locationId: string;
@@ -140,6 +177,29 @@ async function writeTicketEvent(
       }
     })();
 
+  const defaultSummary = (() => {
+    switch (action) {
+      case "ticket.create":
+        return "Created ticket";
+      case "ticket.assign":
+        return "Assigned ticket";
+      case "ticket.start":
+        return "Started ticket";
+      case "ticket.wait":
+        return "Ticket set to waiting";
+      case "ticket.resume":
+        return "Resumed ticket";
+      case "ticket.resolve":
+        return "Resolved ticket";
+      case "ticket.close":
+        return "Closed ticket";
+      case "ticket.reopen":
+        return "Reopened ticket";
+      default:
+        return `Ticket ${input.toStatus}`;
+    }
+  })();
+
   await recordAudit(
     {
       actorEmployeeId: input.actorEmployeeId,
@@ -155,7 +215,7 @@ async function writeTicketEvent(
           ? (input.payload as object)
           : {}),
       },
-      summary: input.summary,
+      summary: input.summary?.trim() || defaultSummary,
     },
     tx,
   );
@@ -259,6 +319,38 @@ export async function createMaintenanceTicket(input: CreateMaintenanceTicketInpu
   });
 
   publishTicketChanged(ticket);
+  {
+    const opsRecipients = await recipientsForLocationOps(
+      ticket.locationId,
+      "tickets.assign",
+    );
+    const liveRecipients =
+      priority === Priority.urgent || blocksRoom
+        ? await recipientsForLocationOps(
+            ticket.locationId,
+            "operations.view_live",
+          )
+        : [];
+    const recipients = [...new Set([...opsRecipients, ...liveRecipients])];
+    const locNum = ticket.location?.number ?? "?";
+    const urgency =
+      priority === Priority.urgent || blocksRoom
+        ? priority === Priority.urgent && blocksRoom
+          ? "Urgent blocking ticket"
+          : priority === Priority.urgent
+            ? "Urgent ticket"
+            : "Blocking ticket"
+        : "New ticket";
+    await notifyTicketEvent({
+      type: "ticket.created",
+      title: urgency,
+      body: `${locNum}: ${ticket.title}`,
+      ticket,
+      actorEmployeeId: input.reportedByEmployeeId,
+      recipientEmployeeIds: recipients,
+      dedupeKey: `ticket.created:${ticket.id}`,
+    });
+  }
   return { ticket: formatMaintenanceTicket(ticket), idempotent: false };
 }
 
@@ -315,6 +407,15 @@ export async function assignMaintenanceTicket(input: {
   });
 
   publishTicketChanged(updated);
+  await notifyTicketEvent({
+    type: "ticket.assigned",
+    title: "Ticket assigned to you",
+    body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+    ticket: updated,
+    actorEmployeeId: input.actorEmployeeId,
+    recipientEmployeeIds: [input.assigneeId],
+    dedupeKey: `ticket.assigned:${updated.id}:${input.assigneeId}`,
+  });
   return formatMaintenanceTicket(updated);
 }
 
@@ -366,6 +467,17 @@ export async function startMaintenanceTicket(input: {
   });
 
   publishTicketChanged(updated);
+  if (updated.assigneeId) {
+    await notifyTicketEvent({
+      type: "ticket.started",
+      title: "Ticket started",
+      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+      ticket: updated,
+      actorEmployeeId: input.actorEmployeeId,
+      recipientEmployeeIds: [updated.assigneeId],
+      dedupeKey: `ticket.started:${updated.id}:${updated.status}`,
+    });
+  }
   return formatMaintenanceTicket(updated);
 }
 
@@ -421,6 +533,17 @@ export async function waitMaintenanceTicket(input: {
   });
 
   publishTicketChanged(updated);
+  if (updated.assigneeId) {
+    await notifyTicketEvent({
+      type: "ticket.waiting",
+      title: "Ticket waiting",
+      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+      ticket: updated,
+      actorEmployeeId: input.actorEmployeeId,
+      recipientEmployeeIds: [updated.assigneeId],
+      dedupeKey: `ticket.waiting:${updated.id}:${updated.updatedAt.toISOString()}`,
+    });
+  }
   return formatMaintenanceTicket(updated);
 }
 
@@ -475,6 +598,17 @@ export async function resumeMaintenanceTicket(input: {
   });
 
   publishTicketChanged(updated);
+  if (updated.assigneeId) {
+    await notifyTicketEvent({
+      type: "ticket.resumed",
+      title: "Ticket resumed",
+      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+      ticket: updated,
+      actorEmployeeId: input.actorEmployeeId,
+      recipientEmployeeIds: [updated.assigneeId],
+      dedupeKey: `ticket.resumed:${updated.id}:${updated.updatedAt.toISOString()}`,
+    });
+  }
   return formatMaintenanceTicket(updated);
 }
 
@@ -545,6 +679,21 @@ export async function resolveMaintenanceTicket(input: {
   });
 
   publishTicketChanged(updated);
+  {
+    const recipients = [
+      updated.assigneeId,
+      updated.reportedByEmployeeId,
+    ].filter((id): id is string => Boolean(id));
+    await notifyTicketEvent({
+      type: "ticket.resolved",
+      title: "Ticket resolved",
+      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+      ticket: updated,
+      actorEmployeeId: input.resolvedByEmployeeId,
+      recipientEmployeeIds: recipients,
+      dedupeKey: `ticket.resolved:${updated.id}`,
+    });
+  }
   return formatMaintenanceTicket(updated);
 }
 
@@ -590,6 +739,21 @@ export async function closeMaintenanceTicket(input: {
   });
 
   publishTicketChanged(updated);
+  {
+    const recipients = [
+      updated.assigneeId,
+      updated.reportedByEmployeeId,
+    ].filter((id): id is string => Boolean(id));
+    await notifyTicketEvent({
+      type: "ticket.closed",
+      title: "Ticket closed",
+      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+      ticket: updated,
+      actorEmployeeId: input.closedByEmployeeId,
+      recipientEmployeeIds: recipients,
+      dedupeKey: `ticket.closed:${updated.id}`,
+    });
+  }
   return formatMaintenanceTicket(updated);
 }
 
@@ -656,6 +820,21 @@ export async function reopenMaintenanceTicket(input: {
   });
 
   publishTicketChanged(updated);
+  {
+    const recipients = [
+      updated.assigneeId,
+      updated.reportedByEmployeeId,
+    ].filter((id): id is string => Boolean(id));
+    await notifyTicketEvent({
+      type: "ticket.reopened",
+      title: "Ticket reopened",
+      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+      ticket: updated,
+      actorEmployeeId: input.reopenedByEmployeeId,
+      recipientEmployeeIds: recipients,
+      dedupeKey: `ticket.reopened:${updated.id}:${updated.updatedAt.toISOString()}`,
+    });
+  }
   return formatMaintenanceTicket(updated);
 }
 

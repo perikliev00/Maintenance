@@ -12,7 +12,6 @@ import {
   fetchRooms,
   fetchTicketEvents,
   fetchTickets,
-  reportIssue,
   type AuthUser,
   type IssueOptionRow,
   type MaintenanceCategoryRow,
@@ -21,9 +20,11 @@ import {
   type Room,
 } from "../api/client";
 import { TicketLifecycleActions } from "../components/TicketLifecycleActions";
+import { OutboxIssuesPanel } from "../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import {
   getQueueStats,
+  reportTicketQueued,
   subscribeOffline,
   type ConnMode,
   type QueueStats,
@@ -40,6 +41,30 @@ function t(locale: "bg" | "en", bg: string, en: string) {
 
 function locLabel(ticket: MaintenanceTicket): string {
   return `${ticket.location.floor.building.code} ${ticket.location.number}`;
+}
+
+function connClass(conn: ConnMode, pending: number, sending: number): string {
+  if (conn === "offline") return "offline";
+  if (conn === "unreachable") return "unreachable";
+  if (conn === "syncing" || pending + sending > 0) return "syncing";
+  return "online";
+}
+
+function connLabel(
+  locale: "bg" | "en",
+  conn: ConnMode,
+  pending: number,
+  sending: number,
+): string {
+  const inflight = pending + sending;
+  if (conn === "offline") return t(locale, "Офлайн", "Offline");
+  if (conn === "unreachable") {
+    return t(locale, "Няма връзка със сървъра", "Server unreachable");
+  }
+  if (conn === "syncing" || inflight > 0) {
+    return t(locale, `Синхронизация (${inflight})`, `Syncing (${inflight})`);
+  }
+  return t(locale, "Онлайн", "Online");
 }
 
 export function RepairsPage({ user, locale = "bg" }: Props) {
@@ -70,6 +95,8 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   const [conn, setConn] = useState<ConnMode>("online");
   const [queueStats, setQueueStats] = useState<QueueStats>({
     pending: 0,
+    sending: 0,
+    conflict: 0,
     failed: 0,
   });
 
@@ -124,12 +151,24 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     issueOptionId,
   ]);
 
+  const refreshInBackground = useCallback(() => {
+    if (!navigator.onLine) return;
+    void refresh().catch(() => undefined);
+  }, [refresh]);
+
   useEffect(() => {
     return subscribeOffline((next) => {
       setConn(next.conn);
       setQueueStats(next.stats);
+      if (
+        next.conn === "online" &&
+        next.stats.pending === 0 &&
+        next.stats.sending === 0
+      ) {
+        refreshInBackground();
+      }
     });
-  }, []);
+  }, [refreshInBackground]);
 
   useEffect(() => {
     void getQueueStats().then(setQueueStats);
@@ -214,15 +253,54 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     setError(null);
     setMessage(null);
     try {
-      await reportIssue({
+      const room = rooms.find((r) => r.id === locationId);
+      const result = await reportTicketQueued({
         locationId,
         issueOptionId,
         title: title.trim() || undefined,
         priority,
         blocksRoom,
       });
-      setMessage(t(locale, "Тикетът е докладван", "Ticket reported"));
-      await refresh();
+      if (result.queued) {
+        const optimistic: MaintenanceTicket = {
+          id: `local-${crypto.randomUUID()}`,
+          title: title.trim() || "Queued report",
+          category: "queued",
+          priority,
+          blocksRoom,
+          status: "new",
+          openedAt: new Date().toISOString(),
+          resolvedAt: null,
+          resolutionNotes: null,
+          location: {
+            id: locationId,
+            number: room?.number ?? "?",
+            floor: {
+              number: room?.floor ?? 0,
+              building: {
+                code: room?.buildingCode ?? "?",
+                name: room?.building ?? room?.buildingCode ?? "?",
+              },
+            },
+          },
+          reportedBy: {
+            id: user.employeeId,
+            fullName: user.fullName,
+            employeeNumber: "",
+          },
+          assignee: null,
+          resolvedBy: null,
+          slaBreached: false,
+        };
+        setTickets((prev) => [optimistic, ...prev]);
+        setMessage(
+          t(locale, "Докладът е в опашката", "Report queued for sync"),
+        );
+      } else {
+        setMessage(t(locale, "Тикетът е докладван", "Ticket reported"));
+        refreshInBackground();
+      }
+      setTitle("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Report failed");
     } finally {
@@ -247,19 +325,20 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
           </p>
         </div>
         <div
-          className={`mywork-conn mywork-conn-${conn === "offline" ? "offline" : queueStats.pending ? "syncing" : "online"}`}
+          className={`mywork-conn mywork-conn-${connClass(conn, queueStats.pending, queueStats.sending)}`}
           role="status"
         >
-          {conn === "offline"
-            ? t(locale, "Офлайн", "Offline")
-            : queueStats.pending
-              ? t(locale, `Синхронизация (${queueStats.pending})`, `Syncing (${queueStats.pending})`)
-              : t(locale, "Онлайн", "Online")}
+          {connLabel(locale, conn, queueStats.pending, queueStats.sending)}
         </div>
       </header>
 
       {error && <div className="banner error">{error}</div>}
       {message && <div className="banner ok">{message}</div>}
+      <OutboxIssuesPanel
+        locale={locale}
+        conflictCount={queueStats.conflict}
+        failedCount={queueStats.failed}
+      />
 
       <div className="toolbar filters-row">
         <label>
@@ -366,9 +445,16 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                           busy={busyId === ticket.id}
                           canResolve={canResolve}
                           onBusy={setBusyId}
-                          onDone={(msg) => {
-                            setMessage(msg);
-                            void refresh();
+                          onDone={(result) => {
+                            setMessage(result.message);
+                            setTickets((prev) =>
+                              prev.map((row) =>
+                                row.id === ticket.id
+                                  ? { ...row, status: result.nextStatus }
+                                  : row,
+                              ),
+                            );
+                            if (!result.queued) refreshInBackground();
                           }}
                           onError={setError}
                         />

@@ -53,6 +53,16 @@ cleaningRouter.get("/tasks", requireAuth, requireAction("rooms.view"), async (re
       include: {
         location: { include: { floor: { include: { building: true } } } },
         assignedEmployee: true,
+        shift: {
+          select: {
+            id: true,
+            code: true,
+            nameBg: true,
+            nameEn: true,
+            startTime: true,
+            endTime: true,
+          },
+        },
         sector: { select: { id: true, code: true, nameBg: true, nameEn: true } },
         sectorSupervisor: {
           select: { id: true, fullName: true, employeeNumber: true },
@@ -80,7 +90,11 @@ cleaningRouter.post(
         hotelDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
         assignedEmployeeId: z.string().optional(),
+        shiftId: z.string().min(1).nullable().optional(),
         dueAt: z.string().datetime().optional(),
+        serviceType: z
+          .enum(["stayover", "departure", "arrival", "common_area"])
+          .optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
@@ -144,6 +158,7 @@ cleaningRouter.post(
         commandId: z.string().uuid(),
         result: z.enum(["approved", "rejected"]),
         findings: z.string().optional(),
+        expectedVersion: z.number().int().optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
@@ -159,6 +174,7 @@ cleaningRouter.post(
         commandId: parsed.data.commandId,
         result: parsed.data.result,
         findings: parsed.data.findings,
+        expectedVersion: parsed.data.expectedVersion,
       });
 
       return res.status(result.idempotent ? 200 : 201).json(result);
@@ -187,6 +203,7 @@ cleaningRouter.post(
       const schema = z.object({
         assignedEmployeeId: z.string().min(1),
         reason: z.string().min(1),
+        shiftId: z.string().min(1).nullable().optional(),
         expectedVersion: z.number().int().optional(),
       });
       const parsed = schema.safeParse(req.body);
@@ -201,6 +218,7 @@ cleaningRouter.post(
         taskId: req.params.id,
         assignedEmployeeId: parsed.data.assignedEmployeeId,
         reason: parsed.data.reason,
+        shiftId: parsed.data.shiftId,
         expectedVersion: parsed.data.expectedVersion,
         actorEmployeeId: req.user!.employeeId,
       });
@@ -221,6 +239,7 @@ cleaningRouter.post(
       const schema = z.object({
         commandId: z.string().uuid(),
         notes: z.string().optional(),
+        expectedVersion: z.number().int().optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
@@ -235,6 +254,7 @@ cleaningRouter.post(
         employeeId: req.user!.employeeId,
         commandId: parsed.data.commandId,
         notes: parsed.data.notes,
+        expectedVersion: parsed.data.expectedVersion,
         bypassSessionOwnerCheck: isOwner(req.user!.role),
       });
 
@@ -254,6 +274,7 @@ cleaningRouter.post(
       const schema = z.object({
         commandId: z.string().uuid(),
         notes: z.string().optional(),
+        expectedVersion: z.number().int().optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
@@ -268,6 +289,7 @@ cleaningRouter.post(
         employeeId: req.user!.employeeId,
         commandId: parsed.data.commandId,
         notes: parsed.data.notes,
+        expectedVersion: parsed.data.expectedVersion,
         // Reviewers cancel abandoned sessions owned by others.
         bypassSessionOwnerCheck: true,
       });
@@ -315,6 +337,12 @@ cleaningRouter.get(
   async (req, res, next) => {
     try {
       const today = new Date().toISOString().slice(0, 10);
+      const serviceTypeEnum = z.enum([
+        "stayover",
+        "departure",
+        "arrival",
+        "common_area",
+      ]);
       const schema = z.object({
         from: z
           .string()
@@ -328,6 +356,12 @@ cleaningRouter.get(
           .default(today),
         page: z.coerce.number().int().min(1).optional().default(1),
         pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+        serviceType: z
+          .union([
+            serviceTypeEnum,
+            z.string().transform((s) => s.split(",").map((x) => x.trim())),
+          ])
+          .optional(),
       });
       const parsed = schema.safeParse(req.query);
       if (!parsed.success) {
@@ -343,10 +377,31 @@ cleaningRouter.get(
         });
       }
 
+      const rawTypes = parsed.data.serviceType;
+      let serviceTypes: Array<
+        "stayover" | "departure" | "arrival" | "common_area"
+      > | undefined;
+      if (rawTypes !== undefined) {
+        const list = Array.isArray(rawTypes) ? rawTypes : [rawTypes];
+        const checked = z.array(serviceTypeEnum).safeParse(list);
+        if (!checked.success) {
+          return res.status(400).json({
+            error: "validation",
+            details: checked.error.flatten(),
+          });
+        }
+        serviceTypes = checked.data;
+      }
+
       const scope = await resolveDataScope(req.user!);
       const result = await getCleaningResults({
-        ...parsed.data,
+        from: parsed.data.from,
+        to: parsed.data.to,
+        page: parsed.data.page,
+        pageSize: parsed.data.pageSize,
+        serviceTypes,
         sessionWhere: sessionTaskWhere(scope),
+        taskWhere: taskWhere(scope),
       });
       return res.json(result);
     } catch (err) {

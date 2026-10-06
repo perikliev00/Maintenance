@@ -455,6 +455,13 @@ button.subtle:hover:not(:disabled) {
   min-width: 0;
 }
 
+.sidebar-user-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .sidebar-user strong {
   font-size: 0.92rem;
   font-weight: 600;
@@ -466,6 +473,110 @@ button.subtle:hover:not(:disabled) {
 .sidebar-user span {
   font-size: 0.78rem;
   color: var(--muted);
+}
+
+.mobile-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.notif-inbox {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.notif-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.4rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.notif-bell.active {
+  background: var(--surface-hover);
+}
+
+.notif-bell-icon {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.notif-badge {
+  position: absolute;
+  top: 0.1rem;
+  right: 0.1rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--danger, #c45c4a);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1rem;
+  text-align: center;
+}
+
+.notif-page-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notif-page-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.notif-page-item:last-child {
+  border-bottom: none;
+}
+
+.notif-page-item.unread {
+  background: color-mix(in srgb, var(--accent, #6b8cae) 10%, transparent);
+}
+
+.notif-page-item-main {
+  display: grid;
+  gap: 0.25rem;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.notif-page-item-main strong {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.notif-page-item-main span {
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.notif-page-item-main time {
+  font-size: 0.78rem;
+  color: var(--muted);
+  opacity: 0.9;
+}
+
+.notif-dismiss {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.5rem;
+  align-self: start;
+  white-space: nowrap;
 }
 
 .sidebar-actions {
@@ -669,6 +780,21 @@ tbody tr:hover {
 .cleaning-in_progress,
 .ready-needs_check,
 .cleaning-pending_inspection {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.service-in_service {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.service-out_of_service {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.service-unknown {
   background: var(--warn-bg);
   color: var(--warn-text);
 }
@@ -1993,6 +2119,54 @@ tbody tr:hover {
   background: color-mix(in srgb, var(--danger-bg) 80%, transparent);
 }
 
+.mywork-conn-unreachable {
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--danger-bg) 55%, transparent);
+  border-color: color-mix(in srgb, var(--danger-text) 35%, var(--border));
+}
+
+.outbox-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: var(--space-3, 0.75rem);
+}
+
+.outbox-issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.outbox-issue-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
+}
+
+.outbox-issue-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.outbox-issue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .mywork-section {
   margin: 1.25rem 0 1.75rem;
 }
@@ -2135,8 +2309,26 @@ tbody tr:hover {
   overflow: auto;
   max-height: 240px;
   font-size: 0.8rem;
-  background: color-mix(in srgb, var(--panel-bg, #111) 92%, #888);
+  color: inherit;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.audit-details-list {
+  margin: 0.35rem 0 0.5rem;
+  padding: 0.75rem 0.95rem 0.75rem 1.45rem;
+  list-style: disc;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: inherit;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.audit-details-list li + li {
+  margin-top: 0.25rem;
 }
 
 tr.selected {
@@ -2214,6 +2406,21 @@ tr.selected {
 
 .location-detail-panel h3 {
   margin: 0;
+}
+
+.location-ops-controls {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.location-ops-controls label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.location-ops-controls select {
+  width: 100%;
 }
 
 .location-row-clickable {

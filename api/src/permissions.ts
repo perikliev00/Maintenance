@@ -24,6 +24,9 @@ export type Panel = (typeof ALL_PANELS)[number];
 export const ALL_ACTIONS = [
   "rooms.view",
   "rooms.mark_dirty",
+  "rooms.manage",
+  "rooms.set_occupancy",
+  "rooms.set_service_status",
   "cleaning.create",
   "cleaning.start",
   "cleaning.complete",
@@ -133,6 +136,7 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
   reception: [
     "rooms.view",
     "rooms.mark_dirty",
+    "rooms.set_occupancy",
     "cleaning.create",
     "cleaning.reassign",
     "tickets.report",
@@ -145,6 +149,9 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
   supervisor: [
     "rooms.view",
     "rooms.mark_dirty",
+    "rooms.manage",
+    "rooms.set_occupancy",
+    "rooms.set_service_status",
     "cleaning.create",
     "cleaning.start",
     "cleaning.complete",
@@ -171,6 +178,9 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
   manager: [
     "rooms.view",
     "rooms.mark_dirty",
+    "rooms.manage",
+    "rooms.set_occupancy",
+    "rooms.set_service_status",
     "cleaning.create",
     "cleaning.reassign",
     "cleaning.inspect",
@@ -204,6 +214,8 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
   ],
   admin: [
     "rooms.view",
+    "rooms.manage",
+    "rooms.set_service_status",
     "tickets.report",
     "tickets.resolve",
     "tickets.assign",

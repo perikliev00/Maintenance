@@ -62,13 +62,23 @@ const PRIORITY_LABELS: Record<string, string> = {
   urgent: "Спешен",
 };
 
+const SERVICE_TYPE_LABELS: Record<string, string> = {
+  stayover: "Престой",
+  departure: "Напускане",
+  arrival: "Пристигане",
+  common_area: "Обща част",
+};
+
 function labelKey(
   key: string,
-  kind: "category" | "priority",
+  kind: "category" | "priority" | "serviceType",
   categoryLabels: Record<string, string>,
 ): string {
   if (kind === "category") {
     return categoryLabels[key] ?? CATEGORY_LABELS[key] ?? key;
+  }
+  if (kind === "serviceType") {
+    return SERVICE_TYPE_LABELS[key] ?? key;
   }
   return PRIORITY_LABELS[key] ?? key;
 }
@@ -366,9 +376,29 @@ export function AnalyticsPage() {
         <>
           <div className="results-kpi-grid">
             <KpiCard
-              label="Почистени задачи"
+              label="Приключени задачи"
               value={formatMetric(data.kpis.cleanedTasks)}
               compare={data.comparison.cleanedTasks}
+            />
+            <KpiCard
+              label="Приети задачи"
+              value={formatMetric(data.kpis.acceptedTasks)}
+              compare={data.comparison.acceptedTasks}
+            />
+            <KpiCard
+              label="Завършени сесии"
+              value={formatMetric(data.kpis.completedSessions)}
+            />
+            <KpiCard
+              label="Повторна работа"
+              value={formatMetric(data.kpis.reworkEvents)}
+              compare={data.comparison.reworkEvents}
+              tone={data.kpis.reworkEvents > 0 ? "warn" : undefined}
+            />
+            <KpiCard
+              label="Аномални сесии"
+              value={formatMetric(data.kpis.anomalousSessions)}
+              tone={data.kpis.anomalousSessions > 0 ? "warn" : undefined}
             />
             <KpiCard
               label="Готови стаи"
@@ -395,7 +425,7 @@ export function AnalyticsPage() {
               tone={data.kpis.auditFindings > 0 ? "warn" : undefined}
             />
             <KpiCard
-              label="Средно мин/задача"
+              label="Средно валидни мин/задача"
               value={
                 data.kpis.insufficientDurationData
                   ? "няма достатъчно данни"
@@ -408,7 +438,7 @@ export function AnalyticsPage() {
               }
             />
             <KpiCard
-              label="P50 / P90 (мин)"
+              label="P50 / P90 (валидни мин)"
               value={
                 data.kpis.insufficientDurationData
                   ? "няма достатъчно данни"
@@ -425,6 +455,13 @@ export function AnalyticsPage() {
           <AnalyticsTrendChart series={data.series} />
 
           <div className="analytics-grid">
+            <AnalyticsBarChart
+              title="По тип работа"
+              items={(data.breakdowns.byServiceType ?? []).map((i) => ({
+                key: labelKey(i.key, "serviceType", categoryLabels),
+                count: i.count,
+              }))}
+            />
             <AnalyticsBarChart
               title="По приоритет"
               items={(data.breakdowns.byPriority ?? []).map((i) => ({

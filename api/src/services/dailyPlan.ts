@@ -11,8 +11,9 @@ import {
 } from "@prisma/client";
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES } from "../constants";
-import { AppError } from "./cleaning";
+import { AppError, deriveCleaningServiceType } from "./cleaning";
 import { sectorSnapshotForLocation } from "./dataScope";
+import { assertActiveShiftId } from "./sectors";
 
 const PRIORITY_RANK: Record<Priority, number> = {
   low: 0,
@@ -26,6 +27,16 @@ const entryInclude = {
   cleaningTask: {
     include: {
       assignedEmployee: true,
+      shift: {
+        select: {
+          id: true,
+          code: true,
+          nameBg: true,
+          nameEn: true,
+          startTime: true,
+          endTime: true,
+        },
+      },
       sector: { select: { id: true, code: true, nameBg: true, nameEn: true } },
       sectorSupervisor: {
         select: { id: true, fullName: true, employeeNumber: true },
@@ -60,20 +71,48 @@ async function createTaskWithSectorSnapshot(
     hotelDate: Date;
     priority: Priority;
     assignedEmployeeId?: string;
+    shiftId?: string | null;
+    locationKind: LocationKind;
+    planCategory: DailyPlanCategory;
   },
 ) {
   const snap = await sectorSnapshotForLocation(data.locationId, tx);
-  return tx.cleaningTask.create({
-    data: {
-      locationId: data.locationId,
-      hotelDate: data.hotelDate,
-      priority: data.priority,
-      assignedEmployeeId: data.assignedEmployeeId,
-      status: TaskStatus.assigned,
-      sectorId: snap.sectorId,
-      sectorSupervisorEmployeeId: snap.sectorSupervisorEmployeeId,
-    },
+  const serviceType = deriveCleaningServiceType({
+    locationKind: data.locationKind,
+    planCategory: data.planCategory,
   });
+  try {
+    return await tx.cleaningTask.create({
+      data: {
+        locationId: data.locationId,
+        hotelDate: data.hotelDate,
+        priority: data.priority,
+        assignedEmployeeId: data.assignedEmployeeId,
+        shiftId: data.shiftId ?? null,
+        status: TaskStatus.assigned,
+        serviceType,
+        sectorId: snap.sectorId,
+        sectorSupervisorEmployeeId: snap.sectorSupervisorEmployeeId,
+      },
+    });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const existing = await tx.cleaningTask.findFirst({
+        where: {
+          locationId: data.locationId,
+          hotelDate: data.hotelDate,
+          status: { in: [...ACTIVE_TASK_STATUSES] },
+        },
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+    throw err;
+  }
 }
 
 export type DailyPlanImportEntryInput = {
@@ -159,6 +198,16 @@ function mapEntry(entry: Prisma.DailyPlanEntryGetPayload<{ include: typeof entry
                 employeeNumber: task.assignedEmployee.employeeNumber,
               }
             : null,
+          shift: task.shift
+            ? {
+                id: task.shift.id,
+                code: task.shift.code,
+                nameBg: task.shift.nameBg,
+                nameEn: task.shift.nameEn,
+                startTime: task.shift.startTime,
+                endTime: task.shift.endTime,
+              }
+            : null,
         }
       : null,
   };
@@ -227,6 +276,7 @@ async function applyPlanEntryEffects(
   hotelDate: Date,
   category: DailyPlanCategory,
   assignedEmployeeId?: string,
+  shiftId?: string | null,
 ): Promise<PlanEffects> {
   let taskEffect: TaskEffect = "skipped";
   let cleaningTaskId: string | null = null;
@@ -240,6 +290,18 @@ async function applyPlanEntryEffects(
       status: { in: [...ACTIVE_TASK_STATUSES] },
     },
   });
+
+  const connectAssigneeAndShift = (
+    data: Prisma.CleaningTaskUpdateInput,
+    task: { assignedEmployeeId: string | null; shiftId: string | null },
+  ) => {
+    if (assignedEmployeeId && !task.assignedEmployeeId) {
+      data.assignedEmployee = { connect: { id: assignedEmployeeId } };
+    }
+    if (shiftId && !task.shiftId) {
+      data.shift = { connect: { id: shiftId } };
+    }
+  };
 
   if (category === DailyPlanCategory.departure) {
     await tx.location.update({
@@ -261,9 +323,7 @@ async function applyPlanEntryEffects(
       } else {
         taskEffect = "linked";
       }
-      if (assignedEmployeeId && !activeTask.assignedEmployeeId) {
-        data.assignedEmployee = { connect: { id: assignedEmployeeId } };
-      }
+      connectAssigneeAndShift(data, activeTask);
       if (Object.keys(data).length) {
         await tx.cleaningTask.update({
           where: { id: activeTask.id },
@@ -276,6 +336,9 @@ async function applyPlanEntryEffects(
         hotelDate,
         priority: Priority.high,
         assignedEmployeeId,
+        shiftId,
+        locationKind: location.kind,
+        planCategory: category,
       });
       cleaningTaskId = created.id;
       taskEffect = "created";
@@ -290,9 +353,7 @@ async function applyPlanEntryEffects(
       } else {
         taskEffect = "linked";
       }
-      if (assignedEmployeeId && !activeTask.assignedEmployeeId) {
-        data.assignedEmployee = { connect: { id: assignedEmployeeId } };
-      }
+      connectAssigneeAndShift(data, activeTask);
       if (Object.keys(data).length) {
         await tx.cleaningTask.update({
           where: { id: activeTask.id },
@@ -315,6 +376,9 @@ async function applyPlanEntryEffects(
         hotelDate,
         priority: Priority.urgent,
         assignedEmployeeId,
+        shiftId,
+        locationKind: location.kind,
+        planCategory: category,
       });
       cleaningTaskId = created.id;
       taskEffect = "created";
@@ -331,11 +395,7 @@ async function applyPlanEntryEffects(
         } else {
           taskEffect = "linked";
         }
-        if (assignedEmployeeId && !activeTask.assignedEmployeeId) {
-          data.assignedEmployee = {
-            connect: { id: assignedEmployeeId },
-          };
-        }
+        connectAssigneeAndShift(data, activeTask);
         if (Object.keys(data).length) {
           await tx.cleaningTask.update({
             where: { id: activeTask.id },
@@ -348,6 +408,9 @@ async function applyPlanEntryEffects(
           hotelDate,
           priority: Priority.high,
           assignedEmployeeId,
+          shiftId,
+          locationKind: location.kind,
+          planCategory: category,
         });
         cleaningTaskId = created.id;
         taskEffect = "created";
@@ -371,9 +434,11 @@ export async function createDailyPlanEntry(input: {
   category: DailyPlanCategory;
   notes?: string;
   assignedEmployeeId?: string;
+  shiftId?: string | null;
   createdByEmployeeId: string;
 }) {
   const hotelDate = parseHotelDate(input.hotelDate);
+  const shiftId = await assertActiveShiftId(input.shiftId);
 
   const location = await prisma.location.findUnique({
     where: { id: input.locationId },
@@ -421,6 +486,7 @@ export async function createDailyPlanEntry(input: {
       hotelDate,
       input.category,
       input.assignedEmployeeId,
+      shiftId ?? undefined,
     );
 
     const entry = await tx.dailyPlanEntry.create({

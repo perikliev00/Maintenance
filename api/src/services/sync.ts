@@ -35,6 +35,8 @@ export type SyncCommandResult = {
   commandId: string;
   status: "ok" | "conflict" | "forbidden" | "error";
   message?: string;
+  code?: string;
+  details?: unknown;
   data?: unknown;
 };
 
@@ -80,11 +82,16 @@ async function applyCommand(
         await assertCanAccessSession(scope, sessionId);
         const notes =
           typeof cmd.payload.notes === "string" ? cmd.payload.notes : undefined;
+        const expectedVersion =
+          typeof cmd.payload.expectedVersion === "number"
+            ? cmd.payload.expectedVersion
+            : undefined;
         const result = await completeCleaningSession({
           sessionId,
           employeeId: user.employeeId,
           commandId: cmd.commandId,
           notes,
+          expectedVersion,
         });
         return { commandId: cmd.commandId, status: "ok", data: result };
       }
@@ -214,6 +221,8 @@ async function applyCommand(
           commandId: cmd.commandId,
           status: "conflict",
           message: err.message,
+          code: err.code,
+          details: err.details,
         };
       }
       return {

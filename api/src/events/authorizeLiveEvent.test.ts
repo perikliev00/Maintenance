@@ -151,4 +151,34 @@ describe("canDeliverLiveEvent", () => {
       false,
     );
   });
+
+  it("delivers notification.changed only to matching recipient", async () => {
+    assert.equal(
+      await canDeliverLiveEvent(
+        hkScope,
+        at({
+          type: "notification.changed",
+          recipientEmployeeId: "emp-hk",
+        }),
+      ),
+      true,
+    );
+    assert.equal(
+      await canDeliverLiveEvent(
+        hkScope,
+        at({
+          type: "notification.changed",
+          recipientEmployeeId: "someone-else",
+        }),
+      ),
+      false,
+    );
+    assert.equal(
+      await canDeliverLiveEvent(
+        hkScope,
+        at({ type: "notification.changed" }),
+      ),
+      false,
+    );
+  });
 });

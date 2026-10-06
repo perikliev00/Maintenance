@@ -1,6 +1,9 @@
 import {
+  CleaningServiceType,
   CleaningStatus,
+  DailyPlanCategory,
   InspectionResult,
+  LocationKind,
   Prisma,
   SessionStatus,
   TaskStatus,
@@ -15,12 +18,63 @@ import {
   sectorSupervisorForSector,
 } from "./dataScope";
 import { recordAudit } from "./audit";
+import {
+  createNotifications,
+  recipientsForLocationOps,
+} from "./notifications";
 
 export { AppError };
+
+/** Resolve an active shift id, or null when clearing. */
+async function resolveActiveShiftId(
+  shiftId: string | null | undefined,
+): Promise<string | null | undefined> {
+  if (shiftId === undefined) return undefined;
+  if (shiftId === null || shiftId === "") return null;
+  const shift = await prisma.shift.findUnique({ where: { id: shiftId } });
+  if (!shift) {
+    throw new AppError(404, "not_found", "Shift not found");
+  }
+  if (!shift.isActive) {
+    throw new AppError(400, "invalid_state", "Shift is inactive");
+  }
+  return shift.id;
+}
+
+/** Derive work type for comparable analytics (референция §6.1 / §9). */
+export function deriveCleaningServiceType(input: {
+  locationKind: LocationKind;
+  serviceType?: CleaningServiceType;
+  planCategory?: DailyPlanCategory;
+}): CleaningServiceType {
+  if (input.serviceType) return input.serviceType;
+  if (input.locationKind !== LocationKind.room) {
+    return CleaningServiceType.common_area;
+  }
+  if (input.planCategory === DailyPlanCategory.departure) {
+    return CleaningServiceType.departure;
+  }
+  if (input.planCategory === DailyPlanCategory.arrival) {
+    return CleaningServiceType.arrival;
+  }
+  return CleaningServiceType.stayover;
+}
+
+type Tx = Prisma.TransactionClient;
 
 const taskInclude = {
   location: { include: { floor: { include: { building: true } } } },
   assignedEmployee: true,
+  shift: {
+    select: {
+      id: true,
+      code: true,
+      nameBg: true,
+      nameEn: true,
+      startTime: true,
+      endTime: true,
+    },
+  },
   sector: { select: { id: true, code: true, nameBg: true, nameEn: true } },
   sectorSupervisor: {
     select: { id: true, fullName: true, employeeNumber: true },
@@ -29,87 +83,284 @@ const taskInclude = {
   inspections: true,
 } satisfies Prisma.CleaningTaskInclude;
 
+function p2002Targets(err: Prisma.PrismaClientKnownRequestError): string[] {
+  const target = err.meta?.target;
+  if (Array.isArray(target)) return target.map(String);
+  if (typeof target === "string") return [target];
+  return [];
+}
+
+function isP2002(err: unknown): err is Prisma.PrismaClientKnownRequestError {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002"
+  );
+}
+
+function targetsMatch(err: Prisma.PrismaClientKnownRequestError, needles: string[]) {
+  const targets = p2002Targets(err).map((t) => t.toLowerCase());
+  return needles.some((n) => targets.some((t) => t.includes(n.toLowerCase())));
+}
+
+function mapStartUniqueConflict(err: Prisma.PrismaClientKnownRequestError): never {
+  // Prisma reports partial-unique targets as column names (and sometimes index names).
+  if (
+    targetsMatch(err, [
+      "CleaningSession_one_running_per_task",
+      "taskId",
+    ])
+  ) {
+    throw new AppError(409, "conflict", "Task already has a running session");
+  }
+  if (
+    targetsMatch(err, [
+      "CleaningSession_one_running_per_employee",
+      "employeeId",
+    ])
+  ) {
+    throw new AppError(409, "conflict", "Employee already has a running session");
+  }
+  throw err;
+}
+
+function mapCreateTaskUniqueConflict(
+  err: Prisma.PrismaClientKnownRequestError,
+): never {
+  const targets = p2002Targets(err);
+  const isActiveTaskUnique =
+    targetsMatch(err, ["CleaningTask_one_active_per_room_date"]) ||
+    (targets.includes("locationId") && targets.includes("hotelDate"));
+  if (isActiveTaskUnique) {
+    throw new AppError(
+      409,
+      "conflict",
+      "Active cleaning task already exists for this room/date",
+    );
+  }
+  throw err;
+}
+
+async function lockTask(tx: Tx, taskId: string) {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "CleaningTask" WHERE id = ${taskId} FOR UPDATE
+  `;
+  if (rows.length === 0) {
+    throw new AppError(404, "not_found", "Task not found");
+  }
+}
+
+async function lockSession(tx: Tx, sessionId: string) {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "CleaningSession" WHERE id = ${sessionId} FOR UPDATE
+  `;
+  if (rows.length === 0) {
+    throw new AppError(404, "not_found", "Session not found");
+  }
+}
+
+async function lockLocation(tx: Tx, locationId: string) {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Location" WHERE id = ${locationId} FOR UPDATE
+  `;
+  if (rows.length === 0) {
+    throw new AppError(404, "not_found", "Room not found");
+  }
+}
+
+function assertTaskVersion(
+  task: { version: number },
+  expectedVersion?: number,
+) {
+  if (
+    expectedVersion !== undefined &&
+    task.version !== expectedVersion
+  ) {
+    throw new AppError(409, "version_conflict", "Task was updated by another user");
+  }
+}
+
+async function claimRunningSession(
+  tx: Tx,
+  sessionId: string,
+  data: Prisma.CleaningSessionUpdateManyMutationInput,
+) {
+  const claimed = await tx.cleaningSession.updateMany({
+    where: { id: sessionId, status: SessionStatus.running },
+    data,
+  });
+  if (claimed.count === 0) {
+    throw new AppError(
+      409,
+      "invalid_state",
+      "Session is no longer running",
+    );
+  }
+}
+
+async function claimTaskStatus(
+  tx: Tx,
+  taskId: string,
+  fromStatuses: TaskStatus[],
+  data: Prisma.CleaningTaskUncheckedUpdateManyInput,
+  expectedVersion?: number,
+) {
+  const claimed = await tx.cleaningTask.updateMany({
+    where: {
+      id: taskId,
+      status: { in: fromStatuses },
+      ...(expectedVersion !== undefined ? { version: expectedVersion } : {}),
+    },
+    data: {
+      ...data,
+      version: { increment: 1 },
+    },
+  });
+  if (claimed.count === 0) {
+    const task = await tx.cleaningTask.findUnique({ where: { id: taskId } });
+    if (!task) {
+      throw new AppError(404, "not_found", "Task not found");
+    }
+    if (
+      expectedVersion !== undefined &&
+      task.version !== expectedVersion
+    ) {
+      throw new AppError(
+        409,
+        "version_conflict",
+        "Task was updated by another user",
+      );
+    }
+    throw new AppError(
+      409,
+      "invalid_state",
+      `Cannot transition task from status ${task.status}`,
+    );
+  }
+}
+
 export async function createCleaningTask(input: {
   locationId: string;
   hotelDate: string;
   priority?: "low" | "normal" | "high" | "urgent";
   assignedEmployeeId?: string;
+  shiftId?: string | null;
   dueAt?: string;
+  serviceType?: CleaningServiceType;
   actorEmployeeId?: string;
 }) {
-  const location = await prisma.location.findUnique({
-    where: { id: input.locationId },
-  });
-  if (!location) {
-    throw new AppError(404, "not_found", "Room not found");
-  }
-  if (location.catalogStatus !== "active") {
-    throw new AppError(400, "invalid_state", "Room is archived");
-  }
-
   const hotelDate = new Date(`${input.hotelDate}T00:00:00.000Z`);
-
-  const existing = await prisma.cleaningTask.findFirst({
-    where: {
-      locationId: input.locationId,
-      hotelDate,
-      status: { in: [...ACTIVE_TASK_STATUSES] },
-    },
-  });
-  if (existing) {
-    throw new AppError(409, "conflict", "Active cleaning task already exists for this room/date");
-  }
-
   const sectorSnap = await sectorSnapshotForLocation(input.locationId);
+  const shiftId = await resolveActiveShiftId(input.shiftId);
 
-  const task = await prisma.$transaction(async (tx) => {
-    if (
-      location.cleaningStatus === CleaningStatus.verified_clean ||
-      location.cleaningStatus === CleaningStatus.pending_inspection
-    ) {
-      await tx.location.update({
-        where: { id: location.id },
-        data: { cleaningStatus: CleaningStatus.dirty },
+  try {
+    const task = await prisma.$transaction(async (tx) => {
+      await lockLocation(tx, input.locationId);
+
+      const location = await tx.location.findUnique({
+        where: { id: input.locationId },
+      });
+      if (!location) {
+        throw new AppError(404, "not_found", "Room not found");
+      }
+      if (location.catalogStatus !== "active") {
+        throw new AppError(400, "invalid_state", "Room is archived");
+      }
+
+      const existing = await tx.cleaningTask.findFirst({
+        where: {
+          locationId: input.locationId,
+          hotelDate,
+          status: { in: [...ACTIVE_TASK_STATUSES] },
+        },
+      });
+      if (existing) {
+        throw new AppError(
+          409,
+          "conflict",
+          "Active cleaning task already exists for this room/date",
+        );
+      }
+
+      if (
+        location.cleaningStatus === CleaningStatus.verified_clean ||
+        location.cleaningStatus === CleaningStatus.pending_inspection
+      ) {
+        await tx.location.update({
+          where: { id: location.id },
+          data: { cleaningStatus: CleaningStatus.dirty },
+        });
+      }
+
+      const serviceType = deriveCleaningServiceType({
+        locationKind: location.kind,
+        serviceType: input.serviceType,
+      });
+
+      const created = await tx.cleaningTask.create({
+        data: {
+          locationId: input.locationId,
+          sectorId: sectorSnap.sectorId,
+          sectorSupervisorEmployeeId: sectorSnap.sectorSupervisorEmployeeId,
+          hotelDate,
+          serviceType,
+          priority: input.priority ?? "normal",
+          assignedEmployeeId: input.assignedEmployeeId,
+          shiftId: shiftId ?? null,
+          dueAt: input.dueAt ? new Date(input.dueAt) : null,
+          status: TaskStatus.assigned,
+        },
+        include: taskInclude,
+      });
+
+      await recordAudit(tx, {
+        actorEmployeeId: input.actorEmployeeId,
+        action: "cleaning.task.create",
+        entityType: "cleaning_task",
+        entityId: created.id,
+        locationId: created.locationId,
+        after: {
+          status: created.status,
+          serviceType: created.serviceType,
+          priority: created.priority,
+          assignedEmployeeId: created.assignedEmployeeId,
+          shiftId: created.shiftId,
+          hotelDate: input.hotelDate,
+        },
+        summary: `Created cleaning task for ${created.location.number}`,
+      });
+
+      return created;
+    });
+
+    publish("cleaning.changed", {
+      locationId: task.locationId,
+      taskId: task.id,
+    });
+    if (task.assignedEmployeeId) {
+      await createNotifications({
+        type: "cleaning.assigned",
+        title: "Cleaning task assigned",
+        body: `Room ${task.location.number} assigned to you`,
+        entityType: "cleaning_task",
+        entityId: task.id,
+        locationId: task.locationId,
+        actorEmployeeId: input.actorEmployeeId ?? null,
+        recipientEmployeeIds: [task.assignedEmployeeId],
+        dedupeKey: `cleaning.assigned:${task.id}:${task.assignedEmployeeId}`,
+        payload: {
+          panel: "mywork",
+          taskId: task.id,
+          locationId: task.locationId,
+          locationNumber: task.location.number,
+        },
       });
     }
-
-    const created = await tx.cleaningTask.create({
-      data: {
-        locationId: input.locationId,
-        sectorId: sectorSnap.sectorId,
-        sectorSupervisorEmployeeId: sectorSnap.sectorSupervisorEmployeeId,
-        hotelDate,
-        priority: input.priority ?? "normal",
-        assignedEmployeeId: input.assignedEmployeeId,
-        dueAt: input.dueAt ? new Date(input.dueAt) : null,
-        status: TaskStatus.assigned,
-      },
-      include: taskInclude,
-    });
-
-    await recordAudit(tx, {
-      actorEmployeeId: input.actorEmployeeId,
-      action: "cleaning.task.create",
-      entityType: "cleaning_task",
-      entityId: created.id,
-      locationId: created.locationId,
-      after: {
-        status: created.status,
-        priority: created.priority,
-        assignedEmployeeId: created.assignedEmployeeId,
-        hotelDate: input.hotelDate,
-      },
-      summary: `Created cleaning task for ${created.location.number}`,
-    });
-
-    return created;
-  });
-
-  publish("cleaning.changed", {
-    locationId: task.locationId,
-    taskId: task.id,
-  });
-  return task;
+    return task;
+  } catch (err) {
+    if (isP2002(err)) {
+      mapCreateTaskUniqueConflict(err);
+    }
+    throw err;
+  }
 }
 
 export async function startCleaningTask(input: {
@@ -130,6 +381,8 @@ export async function startCleaningTask(input: {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      await lockTask(tx, input.taskId);
+
       const task = await tx.cleaningTask.findUnique({
         where: { id: input.taskId },
       });
@@ -143,12 +396,7 @@ export async function startCleaningTask(input: {
       ) {
         throw new AppError(409, "invalid_state", `Cannot start task in status ${task.status}`);
       }
-      if (
-        input.expectedVersion !== undefined &&
-        task.version !== input.expectedVersion
-      ) {
-        throw new AppError(409, "version_conflict", "Task was updated by another user");
-      }
+      assertTaskVersion(task, input.expectedVersion);
       if (
         !input.bypassAssigneeCheck &&
         task.assignedEmployeeId &&
@@ -164,14 +412,12 @@ export async function startCleaningTask(input: {
         throw new AppError(409, "conflict", "Task already has a running session");
       }
 
-      const flags = await getFlags();
-      if (flags.one_active_session_per_employee) {
-        const runningByEmployee = await tx.cleaningSession.findFirst({
-          where: { employeeId: input.employeeId, status: SessionStatus.running },
-        });
-        if (runningByEmployee) {
-          throw new AppError(409, "conflict", "Employee already has a running session");
-        }
+      // DB always enforces one running session per employee (partial unique index).
+      const runningByEmployee = await tx.cleaningSession.findFirst({
+        where: { employeeId: input.employeeId, status: SessionStatus.running },
+      });
+      if (runningByEmployee) {
+        throw new AppError(409, "conflict", "Employee already has a running session");
       }
 
       const session = await tx.cleaningSession.create({
@@ -184,13 +430,19 @@ export async function startCleaningTask(input: {
         },
       });
 
-      const updatedTask = await tx.cleaningTask.update({
-        where: { id: task.id },
-        data: {
+      await claimTaskStatus(
+        tx,
+        task.id,
+        [TaskStatus.assigned, TaskStatus.rework, TaskStatus.in_progress],
+        {
           status: TaskStatus.in_progress,
           assignedEmployeeId: input.employeeId,
-          version: { increment: 1 },
         },
+        input.expectedVersion,
+      );
+
+      const updatedTask = await tx.cleaningTask.findUniqueOrThrow({
+        where: { id: task.id },
         include: taskInclude,
       });
 
@@ -223,10 +475,7 @@ export async function startCleaningTask(input: {
     }
     return result;
   } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isP2002(err)) {
       const again = await prisma.cleaningSession.findUnique({
         where: { startCommandId: input.commandId },
         include: { task: { include: taskInclude } },
@@ -234,6 +483,7 @@ export async function startCleaningTask(input: {
       if (again) {
         return { session: again, task: again.task, idempotent: true };
       }
+      mapStartUniqueConflict(err);
     }
     throw err;
   }
@@ -244,6 +494,7 @@ export async function completeCleaningSession(input: {
   employeeId: string;
   commandId: string;
   notes?: string;
+  expectedVersion?: number;
   /** Owner may complete a session started by someone else. */
   bypassSessionOwnerCheck?: boolean;
 }) {
@@ -257,12 +508,20 @@ export async function completeCleaningSession(input: {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const session = await tx.cleaningSession.findUnique({
+      const sessionPeek = await tx.cleaningSession.findUnique({
         where: { id: input.sessionId },
       });
-      if (!session) {
+      if (!sessionPeek) {
         throw new AppError(404, "not_found", "Session not found");
       }
+
+      // Lock order: task → session → location writes
+      await lockTask(tx, sessionPeek.taskId);
+      await lockSession(tx, sessionPeek.id);
+
+      const session = await tx.cleaningSession.findUniqueOrThrow({
+        where: { id: input.sessionId },
+      });
       if (
         !input.bypassSessionOwnerCheck &&
         session.employeeId !== input.employeeId
@@ -273,68 +532,63 @@ export async function completeCleaningSession(input: {
         throw new AppError(409, "invalid_state", "Session already completed");
       }
       if (session.status !== SessionStatus.running) {
-        throw new AppError(409, "invalid_state", `Cannot complete session in status ${session.status}`);
+        throw new AppError(
+          409,
+          "invalid_state",
+          `Cannot complete session in status ${session.status}`,
+        );
       }
+
+      const task = await tx.cleaningTask.findUniqueOrThrow({
+        where: { id: session.taskId },
+      });
+      assertTaskVersion(task, input.expectedVersion);
 
       const finishedAt = new Date();
       if (finishedAt < session.startedAt) {
         throw new AppError(400, "invalid_time", "Finish time before start time");
       }
 
-      const updatedSession = await tx.cleaningSession.update({
+      await claimRunningSession(tx, session.id, {
+        status: SessionStatus.completed,
+        finishedAt,
+        notes: input.notes?.trim() || null,
+        completeCommandId: input.commandId,
+      });
+
+      const updatedSession = await tx.cleaningSession.findUniqueOrThrow({
         where: { id: session.id },
-        data: {
-          status: SessionStatus.completed,
-          finishedAt,
-          notes: input.notes?.trim() || null,
-          completeCommandId: input.commandId,
-        },
       });
 
       const flags = await getFlags();
-      if (flags.require_inspection) {
-        const updatedTask = await tx.cleaningTask.update({
-          where: { id: session.taskId },
-          data: {
-            status: TaskStatus.awaiting_inspection,
-            version: { increment: 1 },
-          },
-          include: taskInclude,
-        });
+      const nextTaskStatus = flags.require_inspection
+        ? TaskStatus.awaiting_inspection
+        : TaskStatus.completed;
+      const nextCleaningStatus = flags.require_inspection
+        ? CleaningStatus.pending_inspection
+        : CleaningStatus.verified_clean;
 
-        await tx.location.update({
-          where: { id: updatedTask.locationId },
-          data: { cleaningStatus: CleaningStatus.pending_inspection },
-        });
-
-        await recordAudit(tx, {
-          actorEmployeeId: input.employeeId,
-          action: "cleaning.session.complete",
-          entityType: "cleaning_session",
-          entityId: updatedSession.id,
-          locationId: updatedTask.locationId,
-          after: {
-            taskStatus: TaskStatus.awaiting_inspection,
-            notes: input.notes?.trim() || null,
-          },
-          summary: `Completed cleaning ${updatedTask.location.number}`,
-        });
-
-        return { session: updatedSession, task: updatedTask, idempotent: false };
-      }
-
-      const updatedTask = await tx.cleaningTask.update({
-        where: { id: session.taskId },
-        data: {
-          status: TaskStatus.completed,
-          version: { increment: 1 },
+      await claimTaskStatus(
+        tx,
+        session.taskId,
+        [TaskStatus.in_progress],
+        {
+          status: nextTaskStatus,
+          ...(nextTaskStatus === TaskStatus.completed
+            ? { completedAt: finishedAt }
+            : {}),
         },
+        input.expectedVersion,
+      );
+
+      const updatedTask = await tx.cleaningTask.findUniqueOrThrow({
+        where: { id: session.taskId },
         include: taskInclude,
       });
 
       await tx.location.update({
         where: { id: updatedTask.locationId },
-        data: { cleaningStatus: CleaningStatus.verified_clean },
+        data: { cleaningStatus: nextCleaningStatus },
       });
 
       await recordAudit(tx, {
@@ -344,7 +598,11 @@ export async function completeCleaningSession(input: {
         entityId: updatedSession.id,
         locationId: updatedTask.locationId,
         after: {
-          taskStatus: TaskStatus.completed,
+          taskStatus: nextTaskStatus,
+          completedAt:
+            nextTaskStatus === TaskStatus.completed
+              ? finishedAt.toISOString()
+              : null,
           notes: input.notes?.trim() || null,
         },
         summary: `Completed cleaning ${updatedTask.location.number}`,
@@ -357,13 +615,36 @@ export async function completeCleaningSession(input: {
         locationId: result.task.locationId,
         taskId: result.task.id,
       });
+      if (result.task.status === TaskStatus.awaiting_inspection) {
+        const recipients = await recipientsForLocationOps(
+          result.task.locationId,
+          "cleaning.inspect",
+        );
+        if (result.task.sectorSupervisorEmployeeId) {
+          recipients.push(result.task.sectorSupervisorEmployeeId);
+        }
+        await createNotifications({
+          type: "cleaning.needs_inspection",
+          title: "Inspection needed",
+          body: `Room ${result.task.location.number} awaiting inspection`,
+          entityType: "cleaning_task",
+          entityId: result.task.id,
+          locationId: result.task.locationId,
+          actorEmployeeId: input.employeeId,
+          recipientEmployeeIds: recipients,
+          dedupeKey: `cleaning.needs_inspection:${result.task.id}`,
+          payload: {
+            panel: "cleaning",
+            taskId: result.task.id,
+            locationId: result.task.locationId,
+            locationNumber: result.task.location.number,
+          },
+        });
+      }
     }
     return result;
   } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isP2002(err)) {
       const again = await prisma.cleaningSession.findUnique({
         where: { completeCommandId: input.commandId },
         include: { task: { include: taskInclude } },
@@ -381,6 +662,7 @@ export async function cancelCleaningSession(input: {
   employeeId: string;
   commandId: string;
   notes?: string;
+  expectedVersion?: number;
   /** Reviewer / owner may cancel a session started by someone else. */
   bypassSessionOwnerCheck?: boolean;
 }) {
@@ -394,12 +676,19 @@ export async function cancelCleaningSession(input: {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const session = await tx.cleaningSession.findUnique({
+      const sessionPeek = await tx.cleaningSession.findUnique({
         where: { id: input.sessionId },
       });
-      if (!session) {
+      if (!sessionPeek) {
         throw new AppError(404, "not_found", "Session not found");
       }
+
+      await lockTask(tx, sessionPeek.taskId);
+      await lockSession(tx, sessionPeek.id);
+
+      const session = await tx.cleaningSession.findUniqueOrThrow({
+        where: { id: input.sessionId },
+      });
       if (
         !input.bypassSessionOwnerCheck &&
         session.employeeId !== input.employeeId
@@ -417,60 +706,54 @@ export async function cancelCleaningSession(input: {
         );
       }
 
+      const task = await tx.cleaningTask.findUniqueOrThrow({
+        where: { id: session.taskId },
+      });
+      assertTaskVersion(task, input.expectedVersion);
+
       const finishedAt = new Date();
       if (finishedAt < session.startedAt) {
         throw new AppError(400, "invalid_time", "Finish time before start time");
       }
 
-      const updatedSession = await tx.cleaningSession.update({
-        where: { id: session.id },
-        data: {
-          status: SessionStatus.cancelled,
-          finishedAt,
-          notes: input.notes?.trim() || null,
-          cancelCommandId: input.commandId,
-        },
+      await claimRunningSession(tx, session.id, {
+        status: SessionStatus.cancelled,
+        finishedAt,
+        notes: input.notes?.trim() || null,
+        cancelCommandId: input.commandId,
       });
 
-      const task = await tx.cleaningTask.findUnique({
-        where: { id: session.taskId },
+      const updatedSession = await tx.cleaningSession.findUniqueOrThrow({
+        where: { id: session.id },
       });
-      if (!task) {
-        throw new AppError(404, "not_found", "Task not found");
-      }
 
       let updatedTask = await tx.cleaningTask.findUniqueOrThrow({
         where: { id: task.id },
         include: taskInclude,
       });
 
+      // At most one running session per task (DB invariant) — cancel always reverts.
       if (task.status === TaskStatus.in_progress) {
-        const otherRunning = await tx.cleaningSession.findFirst({
-          where: {
-            taskId: task.id,
-            status: SessionStatus.running,
-            id: { not: session.id },
-          },
+        await claimTaskStatus(
+          tx,
+          task.id,
+          [TaskStatus.in_progress],
+          { status: TaskStatus.assigned },
+          input.expectedVersion,
+        );
+        updatedTask = await tx.cleaningTask.findUniqueOrThrow({
+          where: { id: task.id },
+          include: taskInclude,
         });
-        if (!otherRunning) {
-          updatedTask = await tx.cleaningTask.update({
-            where: { id: task.id },
-            data: {
-              status: TaskStatus.assigned,
-              version: { increment: 1 },
-            },
-            include: taskInclude,
-          });
 
-          const location = await tx.location.findUnique({
+        const location = await tx.location.findUnique({
+          where: { id: task.locationId },
+        });
+        if (location?.cleaningStatus === CleaningStatus.in_progress) {
+          await tx.location.update({
             where: { id: task.locationId },
+            data: { cleaningStatus: CleaningStatus.dirty },
           });
-          if (location?.cleaningStatus === CleaningStatus.in_progress) {
-            await tx.location.update({
-              where: { id: task.locationId },
-              data: { cleaningStatus: CleaningStatus.dirty },
-            });
-          }
         }
       }
 
@@ -497,10 +780,7 @@ export async function cancelCleaningSession(input: {
     }
     return result;
   } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isP2002(err)) {
       const again = await prisma.cleaningSession.findUnique({
         where: { cancelCommandId: input.commandId },
         include: { task: { include: taskInclude } },
@@ -519,6 +799,7 @@ export async function inspectCleaningTask(input: {
   commandId: string;
   result: "approved" | "rejected";
   findings?: string;
+  expectedVersion?: number;
 }) {
   const existing = await prisma.inspection.findUnique({
     where: { commandId: input.commandId },
@@ -534,6 +815,8 @@ export async function inspectCleaningTask(input: {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      await lockTask(tx, input.taskId);
+
       const task = await tx.cleaningTask.findUnique({
         where: { id: input.taskId },
       });
@@ -547,6 +830,7 @@ export async function inspectCleaningTask(input: {
           `Cannot inspect task in status ${task.status}`,
         );
       }
+      assertTaskVersion(task, input.expectedVersion);
 
       const inspection = await tx.inspection.create({
         data: {
@@ -563,12 +847,16 @@ export async function inspectCleaningTask(input: {
       });
 
       if (input.result === "approved") {
-        const updatedTask = await tx.cleaningTask.update({
+        const completedAt = inspection.inspectedAt;
+        await claimTaskStatus(
+          tx,
+          task.id,
+          [TaskStatus.awaiting_inspection],
+          { status: TaskStatus.completed, completedAt },
+          input.expectedVersion,
+        );
+        const updatedTask = await tx.cleaningTask.findUniqueOrThrow({
           where: { id: task.id },
-          data: {
-            status: TaskStatus.completed,
-            version: { increment: 1 },
-          },
           include: taskInclude,
         });
         await tx.location.update({
@@ -582,18 +870,25 @@ export async function inspectCleaningTask(input: {
           entityId: inspection.id,
           locationId: task.locationId,
           reason: input.findings,
-          after: { result: "approved", taskId: task.id },
+          after: {
+            result: "approved",
+            taskId: task.id,
+            completedAt: completedAt.toISOString(),
+          },
           summary: `Approved cleaning ${updatedTask.location.number}`,
         });
         return { inspection, task: updatedTask, idempotent: false };
       }
 
-      const updatedTask = await tx.cleaningTask.update({
+      await claimTaskStatus(
+        tx,
+        task.id,
+        [TaskStatus.awaiting_inspection],
+        { status: TaskStatus.rework },
+        input.expectedVersion,
+      );
+      const updatedTask = await tx.cleaningTask.findUniqueOrThrow({
         where: { id: task.id },
-        data: {
-          status: TaskStatus.rework,
-          version: { increment: 1 },
-        },
         include: taskInclude,
       });
       await tx.location.update({
@@ -619,13 +914,34 @@ export async function inspectCleaningTask(input: {
         locationId: result.task.locationId,
         taskId: result.task.id,
       });
+      const recipients: string[] = [];
+      if (result.task.assignedEmployeeId) {
+        recipients.push(result.task.assignedEmployeeId);
+      }
+      await createNotifications({
+        type: "cleaning.inspected",
+        title:
+          input.result === "approved"
+            ? "Cleaning approved"
+            : "Cleaning rejected — rework",
+        body: `Room ${result.task.location.number}: ${input.result}`,
+        entityType: "cleaning_task",
+        entityId: result.task.id,
+        locationId: result.task.locationId,
+        actorEmployeeId: input.inspectorEmployeeId,
+        recipientEmployeeIds: recipients,
+        dedupeKey: `cleaning.inspected:${result.inspection.id}`,
+        payload: {
+          panel: "mywork",
+          taskId: result.task.id,
+          locationId: result.task.locationId,
+          locationNumber: result.task.location.number,
+        },
+      });
     }
     return result;
   } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isP2002(err)) {
       const again = await prisma.inspection.findUnique({
         where: { commandId: input.commandId },
         include: { task: { include: taskInclude } },
@@ -642,6 +958,7 @@ export async function reassignCleaningTask(input: {
   taskId: string;
   assignedEmployeeId: string;
   reason: string;
+  shiftId?: string | null;
   expectedVersion?: number;
   actorEmployeeId?: string;
 }) {
@@ -657,7 +974,11 @@ export async function reassignCleaningTask(input: {
     throw new AppError(400, "validation", "Assignee must be an active housekeeper");
   }
 
+  const shiftId = await resolveActiveShiftId(input.shiftId);
+
   const updated = await prisma.$transaction(async (tx) => {
+    await lockTask(tx, input.taskId);
+
     const task = await tx.cleaningTask.findUnique({
       where: { id: input.taskId },
     });
@@ -675,12 +996,7 @@ export async function reassignCleaningTask(input: {
         `Cannot reassign task in status ${task.status}`,
       );
     }
-    if (
-      input.expectedVersion !== undefined &&
-      task.version !== input.expectedVersion
-    ) {
-      throw new AppError(409, "version_conflict", "Task was updated by another user");
-    }
+    assertTaskVersion(task, input.expectedVersion);
 
     const running = await tx.cleaningSession.findFirst({
       where: { taskId: task.id, status: SessionStatus.running },
@@ -693,33 +1009,44 @@ export async function reassignCleaningTask(input: {
       );
     }
 
-    const data: Prisma.CleaningTaskUpdateInput = {
-      assignedEmployee: { connect: { id: input.assignedEmployeeId } },
+    const data: Prisma.CleaningTaskUncheckedUpdateManyInput = {
+      assignedEmployeeId: input.assignedEmployeeId,
       reassignReason: input.reason.trim(),
-      version: { increment: 1 },
     };
+    if (shiftId !== undefined) {
+      data.shiftId = shiftId;
+    }
 
     // Backfill sector snapshot only when missing — do not overwrite history.
     if (!task.sectorId) {
       const snap = await sectorSnapshotForLocation(task.locationId, tx);
       if (snap.sectorId) {
-        data.sector = { connect: { id: snap.sectorId } };
+        data.sectorId = snap.sectorId;
         if (snap.sectorSupervisorEmployeeId) {
-          data.sectorSupervisor = {
-            connect: { id: snap.sectorSupervisorEmployeeId },
-          };
+          data.sectorSupervisorEmployeeId = snap.sectorSupervisorEmployeeId;
         }
       }
     } else if (!task.sectorSupervisorEmployeeId) {
       const supervisorId = await sectorSupervisorForSector(task.sectorId, tx);
       if (supervisorId) {
-        data.sectorSupervisor = { connect: { id: supervisorId } };
+        data.sectorSupervisorEmployeeId = supervisorId;
       }
     }
 
-    const result = await tx.cleaningTask.update({
-      where: { id: task.id },
+    await claimTaskStatus(
+      tx,
+      task.id,
+      [
+        TaskStatus.assigned,
+        TaskStatus.rework,
+        TaskStatus.awaiting_inspection,
+      ],
       data,
+      input.expectedVersion,
+    );
+
+    const result = await tx.cleaningTask.findUniqueOrThrow({
+      where: { id: task.id },
       include: taskInclude,
     });
 
@@ -730,8 +1057,14 @@ export async function reassignCleaningTask(input: {
       entityId: result.id,
       locationId: result.locationId,
       reason: input.reason,
-      before: { assignedEmployeeId: task.assignedEmployeeId },
-      after: { assignedEmployeeId: input.assignedEmployeeId },
+      before: {
+        assignedEmployeeId: task.assignedEmployeeId,
+        shiftId: task.shiftId,
+      },
+      after: {
+        assignedEmployeeId: input.assignedEmployeeId,
+        shiftId: result.shiftId,
+      },
       summary: `Reassigned cleaning ${result.location.number}`,
     });
 
@@ -741,6 +1074,23 @@ export async function reassignCleaningTask(input: {
   publish("cleaning.changed", {
     locationId: updated.locationId,
     taskId: updated.id,
+  });
+  await createNotifications({
+    type: "cleaning.assigned",
+    title: "Cleaning task reassigned",
+    body: `Room ${updated.location.number} assigned to you`,
+    entityType: "cleaning_task",
+    entityId: updated.id,
+    locationId: updated.locationId,
+    actorEmployeeId: input.actorEmployeeId ?? null,
+    recipientEmployeeIds: [input.assignedEmployeeId],
+    dedupeKey: `cleaning.reassigned:${updated.id}:${input.assignedEmployeeId}:${updated.updatedAt.toISOString()}`,
+    payload: {
+      panel: "mywork",
+      taskId: updated.id,
+      locationId: updated.locationId,
+      locationNumber: updated.location.number,
+    },
   });
   return updated;
 }
@@ -844,5 +1194,27 @@ export async function markRoomDirty(
     return row;
   });
   publish("location.changed", { locationId: updated.id });
+  {
+    const recipients = await recipientsForLocationOps(
+      locationId,
+      "cleaning.create",
+    );
+    await createNotifications({
+      type: "location.marked_dirty",
+      title: "Room marked dirty",
+      body: `Room ${updated.number} needs cleaning`,
+      entityType: "location",
+      entityId: locationId,
+      locationId,
+      actorEmployeeId: actorEmployeeId ?? null,
+      recipientEmployeeIds: recipients,
+      dedupeKey: `location.marked_dirty:${locationId}:${updated.updatedAt.toISOString()}`,
+      payload: {
+        panel: "rooms",
+        locationId,
+        locationNumber: updated.number,
+      },
+    });
+  }
   return updated;
 }
