@@ -647,6 +647,10 @@ async function main() {
     { number: "109", title: "Clogged sink", categoryKey: "plumbing", priority: Priority.urgent, blocksRoom: true, reporter: "H002", assignee: "T002", status: TicketStatus.in_progress, optionNameEn: "Clogged sink" },
     { number: "207", title: "Chair leg cracked", categoryKey: "furniture", priority: Priority.low, blocksRoom: false, reporter: "H007", optionNameEn: "Broken furniture" },
     { number: "410", title: "Window seal damaged", categoryKey: "other", priority: Priority.normal, blocksRoom: false, reporter: "M001" },
+    // Owner My Work demos (assignee O001)
+    { number: "106", title: "Owner walkthrough — dripping faucet", categoryKey: "plumbing", priority: Priority.high, blocksRoom: false, reporter: "R001", assignee: "O001", status: TicketStatus.assigned, optionNameEn: "Leaking tap" },
+    { number: "204", title: "Owner walkthrough — AC noise", categoryKey: "climate", priority: Priority.urgent, blocksRoom: true, reporter: "S001", assignee: "O001", status: TicketStatus.in_progress, optionNameEn: "AC leak" },
+    { number: "Corridor L2", title: "Owner walkthrough — corridor light out", categoryKey: "electrical", priority: Priority.normal, blocksRoom: false, reporter: "H001", assignee: "O001", status: TicketStatus.assigned, optionNameEn: "Flickering light" },
     { number: "R101", title: "Royal suite balcony door stuck", categoryKey: "furniture", priority: Priority.high, blocksRoom: true, reporter: "O001", assignee: "T001", status: TicketStatus.assigned, optionNameEn: "Stuck drawer" },
     { number: "R515", title: "Royal wing spa pump noise", categoryKey: "plumbing", priority: Priority.normal, blocksRoom: false, reporter: "M002", optionNameEn: "Weak shower pressure" },
     { number: "Pool", title: "Pool filter clogged", categoryKey: "plumbing", priority: Priority.urgent, blocksRoom: true, reporter: "T001", assignee: "T002", status: TicketStatus.in_progress, optionNameEn: "Clogged sink" },
@@ -1062,6 +1066,45 @@ async function main() {
         dueAt: new Date(Date.now() + 4 * 60 * 60 * 1000),
       },
     });
+  }
+
+  // Owner My Work demos — cleaning tasks assigned to O001 for today
+  {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const ownerDemoRooms = ["107", "202", "304"];
+    for (const [i, number] of ownerDemoRooms.entries()) {
+      const loc = locations.find((l) => l.number === number);
+      if (!loc) continue;
+      await prisma.cleaningTask.create({
+        data: {
+          locationId: loc.id,
+          hotelDate: today,
+          priority: i === 0 ? Priority.urgent : Priority.high,
+          assignedEmployeeId: createdEmployees.O001,
+          status: i === 1 ? TaskStatus.in_progress : TaskStatus.assigned,
+          dueAt: new Date(Date.now() + (2 + i) * 60 * 60 * 1000),
+        },
+      });
+    }
+    const ownerInProgress = await prisma.cleaningTask.findFirst({
+      where: {
+        assignedEmployeeId: createdEmployees.O001,
+        status: TaskStatus.in_progress,
+        hotelDate: today,
+      },
+    });
+    if (ownerInProgress) {
+      await prisma.cleaningSession.create({
+        data: {
+          taskId: ownerInProgress.id,
+          employeeId: createdEmployees.O001,
+          status: SessionStatus.running,
+          startedAt: new Date(Date.now() - 25 * 60 * 1000),
+          startCommandId: randomUUID(),
+        },
+      });
+    }
   }
 
   const pending = locations.find(
