@@ -166,15 +166,188 @@ async function lockLocation(tx: Tx, locationId: string) {
   }
 }
 
+/** Active work that should keep owning the cycle after an intentional dirty bump. */
+const REBINDABLE_TASK_STATUSES: TaskStatus[] = [
+  TaskStatus.assigned,
+  TaskStatus.in_progress,
+  TaskStatus.rework,
+];
+
+/**
+ * Allocate a new cleaning cycle for a location (new task ownership).
+ * Optionally force dirty, or dirty only when currently clean / pending inspection.
+ */
+export async function allocateCleaningCycle(
+  tx: Tx,
+  locationId: string,
+  opts?: {
+    forceDirty?: boolean;
+    setDirtyIfCleanOrPending?: boolean;
+    extra?: Prisma.LocationUpdateInput;
+  },
+): Promise<number> {
+  await lockLocation(tx, locationId);
+  const location = await tx.location.findUniqueOrThrow({
+    where: { id: locationId },
+  });
+  const next = location.cleaningCycle + 1;
+  const data: Prisma.LocationUpdateInput = {
+    cleaningCycle: next,
+    ...(opts?.extra ?? {}),
+  };
+  if (opts?.forceDirty) {
+    data.cleaningStatus = CleaningStatus.dirty;
+  } else if (
+    opts?.setDirtyIfCleanOrPending &&
+    (location.cleaningStatus === CleaningStatus.verified_clean ||
+      location.cleaningStatus === CleaningStatus.pending_inspection)
+  ) {
+    data.cleaningStatus = CleaningStatus.dirty;
+  }
+  await tx.location.update({ where: { id: locationId }, data });
+  return next;
+}
+
+/**
+ * Mark dirty with a new cycle. Re-binds assigned/in_progress/rework tasks so
+ * ongoing work can still update status; leaves awaiting_inspection on the old
+ * cycle so a stale approve cannot restore verified_clean.
+ */
+export async function bumpDirtyAndRebindWork(
+  tx: Tx,
+  locationId: string,
+  extra?: Prisma.LocationUpdateInput,
+): Promise<number> {
+  const next = await allocateCleaningCycle(tx, locationId, {
+    forceDirty: true,
+    extra,
+  });
+  await tx.cleaningTask.updateMany({
+    where: {
+      locationId,
+      status: { in: REBINDABLE_TASK_STATUSES },
+    },
+    data: { cleaningCycle: next },
+  });
+  return next;
+}
+
+/**
+ * Ensure the task owns the location's current cleaning cycle.
+ * Locks the location. Throws 409 stale_cleaning_cycle on mismatch.
+ */
+async function assertTaskOwnsCleaningCycle(
+  tx: Tx,
+  locationId: string,
+  taskCleaningCycle: number,
+): Promise<void> {
+  await lockLocation(tx, locationId);
+  const location = await tx.location.findUniqueOrThrow({
+    where: { id: locationId },
+  });
+  if (location.cleaningCycle !== taskCleaningCycle) {
+    throw new AppError(
+      409,
+      "stale_cleaning_cycle",
+      "Cleaning task belongs to a superseded cleaning cycle",
+    );
+  }
+}
+
+/**
+ * Apply location cleaningStatus only when the task owns the current cycle.
+ * When requireCurrent is true, mismatch throws 409 stale_cleaning_cycle.
+ */
+async function applyLocationCleaningStatusIfCurrent(
+  tx: Tx,
+  locationId: string,
+  taskCleaningCycle: number,
+  cleaningStatus: CleaningStatus,
+  opts?: {
+    requireCurrent?: boolean;
+    onlyIfStatus?: CleaningStatus;
+  },
+): Promise<boolean> {
+  if (opts?.requireCurrent) {
+    await assertTaskOwnsCleaningCycle(tx, locationId, taskCleaningCycle);
+  } else {
+    await lockLocation(tx, locationId);
+    const location = await tx.location.findUniqueOrThrow({
+      where: { id: locationId },
+    });
+    if (location.cleaningCycle !== taskCleaningCycle) {
+      return false;
+    }
+    if (
+      opts?.onlyIfStatus !== undefined &&
+      location.cleaningStatus !== opts.onlyIfStatus
+    ) {
+      return false;
+    }
+    await tx.location.update({
+      where: { id: locationId },
+      data: { cleaningStatus },
+    });
+    return true;
+  }
+
+  const location = await tx.location.findUniqueOrThrow({
+    where: { id: locationId },
+  });
+  if (
+    opts?.onlyIfStatus !== undefined &&
+    location.cleaningStatus !== opts.onlyIfStatus
+  ) {
+    return false;
+  }
+  await tx.location.update({
+    where: { id: locationId },
+    data: { cleaningStatus },
+  });
+  return true;
+}
+
+export type TaskConflictDetails = {
+  expectedVersion?: number;
+  currentVersion: number;
+  status: string;
+  assignedEmployeeId: string | null;
+};
+
+function taskConflictDetails(
+  task: {
+    version: number;
+    status: string;
+    assignedEmployeeId: string | null;
+  },
+  expectedVersion?: number,
+): TaskConflictDetails {
+  return {
+    ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+    currentVersion: task.version,
+    status: task.status,
+    assignedEmployeeId: task.assignedEmployeeId,
+  };
+}
+
 function assertTaskVersion(
-  task: { version: number },
+  task: {
+    version: number;
+    status: string;
+    assignedEmployeeId: string | null;
+  },
   expectedVersion?: number,
 ) {
   if (
     expectedVersion !== undefined &&
     task.version !== expectedVersion
   ) {
-    throw new AppError(409, "version_conflict", "Task was updated by another user");
+    throw new AppError(
+      409,
+      "version_conflict",
+      "Task was updated by another user",
+      taskConflictDetails(task, expectedVersion),
+    );
   }
 }
 
@@ -227,12 +400,14 @@ async function claimTaskStatus(
         409,
         "version_conflict",
         "Task was updated by another user",
+        taskConflictDetails(task, expectedVersion),
       );
     }
     throw new AppError(
       409,
       "invalid_state",
       `Cannot transition task from status ${task.status}`,
+      taskConflictDetails(task, expectedVersion),
     );
   }
 }
@@ -280,15 +455,9 @@ export async function createCleaningTask(input: {
         );
       }
 
-      if (
-        location.cleaningStatus === CleaningStatus.verified_clean ||
-        location.cleaningStatus === CleaningStatus.pending_inspection
-      ) {
-        await tx.location.update({
-          where: { id: location.id },
-          data: { cleaningStatus: CleaningStatus.dirty },
-        });
-      }
+      const cleaningCycle = await allocateCleaningCycle(tx, location.id, {
+        setDirtyIfCleanOrPending: true,
+      });
 
       const serviceType = deriveCleaningServiceType({
         locationKind: location.kind,
@@ -307,6 +476,7 @@ export async function createCleaningTask(input: {
           shiftId: shiftId ?? null,
           dueAt: input.dueAt ? new Date(input.dueAt) : null,
           status: TaskStatus.assigned,
+          cleaningCycle,
         },
         include: taskInclude,
       });
@@ -394,7 +564,12 @@ export async function startCleaningTask(input: {
         task.status !== TaskStatus.rework &&
         task.status !== TaskStatus.in_progress
       ) {
-        throw new AppError(409, "invalid_state", `Cannot start task in status ${task.status}`);
+        throw new AppError(
+          409,
+          "invalid_state",
+          `Cannot start task in status ${task.status}`,
+          taskConflictDetails(task, input.expectedVersion),
+        );
       }
       assertTaskVersion(task, input.expectedVersion);
       if (
@@ -402,8 +577,16 @@ export async function startCleaningTask(input: {
         task.assignedEmployeeId &&
         task.assignedEmployeeId !== input.employeeId
       ) {
-        throw new AppError(403, "forbidden", "Task is assigned to another employee");
+        throw new AppError(
+          409,
+          "assignee_conflict",
+          "Task was reassigned to another employee",
+          taskConflictDetails(task, input.expectedVersion),
+        );
       }
+
+      // Fail fast if this task no longer owns the location cleaning cycle.
+      await assertTaskOwnsCleaningCycle(tx, task.locationId, task.cleaningCycle);
 
       const runningOnTask = await tx.cleaningSession.findFirst({
         where: { taskId: task.id, status: SessionStatus.running },
@@ -446,10 +629,13 @@ export async function startCleaningTask(input: {
         include: taskInclude,
       });
 
-      await tx.location.update({
-        where: { id: task.locationId },
-        data: { cleaningStatus: CleaningStatus.in_progress },
-      });
+      await applyLocationCleaningStatusIfCurrent(
+        tx,
+        task.locationId,
+        task.cleaningCycle,
+        CleaningStatus.in_progress,
+        { requireCurrent: true },
+      );
 
       await recordAudit(tx, {
         actorEmployeeId: input.employeeId,
@@ -526,7 +712,17 @@ export async function completeCleaningSession(input: {
         !input.bypassSessionOwnerCheck &&
         session.employeeId !== input.employeeId
       ) {
-        throw new AppError(403, "forbidden", "Session belongs to another employee");
+        const taskPeek = await tx.cleaningTask.findUnique({
+          where: { id: session.taskId },
+        });
+        throw new AppError(
+          409,
+          "assignee_conflict",
+          "Session belongs to another employee",
+          taskPeek
+            ? taskConflictDetails(taskPeek, input.expectedVersion)
+            : undefined,
+        );
       }
       if (session.status === SessionStatus.completed) {
         throw new AppError(409, "invalid_state", "Session already completed");
@@ -543,17 +739,33 @@ export async function completeCleaningSession(input: {
         where: { id: session.taskId },
       });
       assertTaskVersion(task, input.expectedVersion);
+      await assertTaskOwnsCleaningCycle(tx, task.locationId, task.cleaningCycle);
 
       const finishedAt = new Date();
       if (finishedAt < session.startedAt) {
         throw new AppError(400, "invalid_time", "Finish time before start time");
       }
 
+      const operations = await getOperations();
+      const durationMinutes =
+        (finishedAt.getTime() - session.startedAt.getTime()) / 60000;
+      const existingFlags = Array.isArray(session.anomalyFlags)
+        ? (session.anomalyFlags as string[]).filter(
+            (f): f is string => typeof f === "string",
+          )
+        : [];
+      const anomalyFlags =
+        durationMinutes >= operations.overdueSessionMinutes &&
+        !existingFlags.includes("overdue")
+          ? [...existingFlags, "overdue"]
+          : existingFlags;
+
       await claimRunningSession(tx, session.id, {
         status: SessionStatus.completed,
         finishedAt,
         notes: input.notes?.trim() || null,
         completeCommandId: input.commandId,
+        anomalyFlags,
       });
 
       const updatedSession = await tx.cleaningSession.findUniqueOrThrow({
@@ -586,10 +798,13 @@ export async function completeCleaningSession(input: {
         include: taskInclude,
       });
 
-      await tx.location.update({
-        where: { id: updatedTask.locationId },
-        data: { cleaningStatus: nextCleaningStatus },
-      });
+      await applyLocationCleaningStatusIfCurrent(
+        tx,
+        updatedTask.locationId,
+        task.cleaningCycle,
+        nextCleaningStatus,
+        { requireCurrent: true },
+      );
 
       await recordAudit(tx, {
         actorEmployeeId: input.employeeId,
@@ -693,7 +908,17 @@ export async function cancelCleaningSession(input: {
         !input.bypassSessionOwnerCheck &&
         session.employeeId !== input.employeeId
       ) {
-        throw new AppError(403, "forbidden", "Session belongs to another employee");
+        const taskPeek = await tx.cleaningTask.findUnique({
+          where: { id: session.taskId },
+        });
+        throw new AppError(
+          409,
+          "assignee_conflict",
+          "Session belongs to another employee",
+          taskPeek
+            ? taskConflictDetails(taskPeek, input.expectedVersion)
+            : undefined,
+        );
       }
       if (session.status === SessionStatus.cancelled) {
         throw new AppError(409, "invalid_state", "Session already cancelled");
@@ -710,6 +935,7 @@ export async function cancelCleaningSession(input: {
         where: { id: session.taskId },
       });
       assertTaskVersion(task, input.expectedVersion);
+      await assertTaskOwnsCleaningCycle(tx, task.locationId, task.cleaningCycle);
 
       const finishedAt = new Date();
       if (finishedAt < session.startedAt) {
@@ -746,15 +972,13 @@ export async function cancelCleaningSession(input: {
           include: taskInclude,
         });
 
-        const location = await tx.location.findUnique({
-          where: { id: task.locationId },
-        });
-        if (location?.cleaningStatus === CleaningStatus.in_progress) {
-          await tx.location.update({
-            where: { id: task.locationId },
-            data: { cleaningStatus: CleaningStatus.dirty },
-          });
-        }
+        await applyLocationCleaningStatusIfCurrent(
+          tx,
+          task.locationId,
+          task.cleaningCycle,
+          CleaningStatus.dirty,
+          { requireCurrent: true, onlyIfStatus: CleaningStatus.in_progress },
+        );
       }
 
       await recordAudit(tx, {
@@ -859,10 +1083,12 @@ export async function inspectCleaningTask(input: {
           where: { id: task.id },
           include: taskInclude,
         });
-        await tx.location.update({
-          where: { id: task.locationId },
-          data: { cleaningStatus: CleaningStatus.verified_clean },
-        });
+        const locationUpdated = await applyLocationCleaningStatusIfCurrent(
+          tx,
+          task.locationId,
+          task.cleaningCycle,
+          CleaningStatus.verified_clean,
+        );
         await recordAudit(tx, {
           actorEmployeeId: input.inspectorEmployeeId,
           action: "cleaning.inspect",
@@ -874,8 +1100,12 @@ export async function inspectCleaningTask(input: {
             result: "approved",
             taskId: task.id,
             completedAt: completedAt.toISOString(),
+            locationUpdated,
+            cleaningCycle: task.cleaningCycle,
           },
-          summary: `Approved cleaning ${updatedTask.location.number}`,
+          summary: locationUpdated
+            ? `Approved cleaning ${updatedTask.location.number}`
+            : `Approved cleaning ${updatedTask.location.number} (stale cycle; location unchanged)`,
         });
         return { inspection, task: updatedTask, idempotent: false };
       }
@@ -891,10 +1121,12 @@ export async function inspectCleaningTask(input: {
         where: { id: task.id },
         include: taskInclude,
       });
-      await tx.location.update({
-        where: { id: task.locationId },
-        data: { cleaningStatus: CleaningStatus.dirty },
-      });
+      const locationUpdated = await applyLocationCleaningStatusIfCurrent(
+        tx,
+        task.locationId,
+        task.cleaningCycle,
+        CleaningStatus.dirty,
+      );
       await recordAudit(tx, {
         actorEmployeeId: input.inspectorEmployeeId,
         action: "cleaning.inspect",
@@ -902,10 +1134,19 @@ export async function inspectCleaningTask(input: {
         entityId: inspection.id,
         locationId: task.locationId,
         reason: input.findings,
-        after: { result: "rejected", taskId: task.id },
-        summary: `Rejected cleaning ${updatedTask.location.number}${
-          input.findings?.trim() ? ` — ${input.findings.trim()}` : ""
-        }`,
+        after: {
+          result: "rejected",
+          taskId: task.id,
+          locationUpdated,
+          cleaningCycle: task.cleaningCycle,
+        },
+        summary: locationUpdated
+          ? `Rejected cleaning ${updatedTask.location.number}${
+              input.findings?.trim() ? ` — ${input.findings.trim()}` : ""
+            }`
+          : `Rejected cleaning ${updatedTask.location.number} (stale cycle; location unchanged)${
+              input.findings?.trim() ? ` — ${input.findings.trim()}` : ""
+            }`,
       });
       return { inspection, task: updatedTask, idempotent: false };
     });
@@ -1149,9 +1390,9 @@ export async function markRoomDirty(
     throw new AppError(404, "not_found", "Room not found");
   }
   const updated = await prisma.$transaction(async (tx) => {
-    const row = await tx.location.update({
+    const nextCycle = await bumpDirtyAndRebindWork(tx, locationId);
+    const row = await tx.location.findUniqueOrThrow({
       where: { id: locationId },
-      data: { cleaningStatus: CleaningStatus.dirty },
       include: {
         floor: { include: { building: true } },
         cleaningTasks: {
@@ -1187,8 +1428,14 @@ export async function markRoomDirty(
       entityType: "location",
       entityId: locationId,
       locationId,
-      before: { cleaningStatus: location.cleaningStatus },
-      after: { cleaningStatus: CleaningStatus.dirty },
+      before: {
+        cleaningStatus: location.cleaningStatus,
+        cleaningCycle: location.cleaningCycle,
+      },
+      after: {
+        cleaningStatus: CleaningStatus.dirty,
+        cleaningCycle: nextCycle,
+      },
       summary: `Marked ${row.number} dirty`,
     });
     return row;

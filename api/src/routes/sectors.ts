@@ -107,7 +107,12 @@ sectorsRouter.post(
         parsed.data.primarySupervisorEmployeeId;
       assertCanCreateSector(scope, primarySupervisorEmployeeId);
 
-      if (parsed.data.locationIds?.length) {
+      const allowCrossSectorTransfer = await canPerform(
+        req.user!.role,
+        "sectors.transfer_cross",
+      );
+
+      if (parsed.data.locationIds?.length && !allowCrossSectorTransfer) {
         await assertLocationsInSectorScope(scope, parsed.data.locationIds);
       }
 
@@ -115,6 +120,8 @@ sectorsRouter.post(
         ...parsed.data,
         primarySupervisorEmployeeId,
         actorEmployeeId: req.user!.employeeId,
+        scope,
+        allowCrossSectorTransfer,
       });
       return res.status(201).json(sector);
     } catch (err) {
@@ -185,12 +192,23 @@ sectorsRouter.put(
 
       const scope = await resolveDataScope(req.user!);
       await assertCanAccessSector(scope, req.params.id);
-      await assertLocationsInSectorScope(scope, parsed.data.locationIds);
+
+      const allowCrossSectorTransfer = await canPerform(
+        req.user!.role,
+        "sectors.transfer_cross",
+      );
+      if (!allowCrossSectorTransfer) {
+        await assertLocationsInSectorScope(scope, parsed.data.locationIds);
+      }
 
       const sector = await setSectorLocations(
         req.params.id,
         parsed.data.locationIds,
-        req.user!.employeeId,
+        {
+          actorEmployeeId: req.user!.employeeId,
+          scope,
+          allowCrossSectorTransfer,
+        },
       );
       return res.json(sector);
     } catch (err) {

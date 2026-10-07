@@ -43,36 +43,11 @@ export default defineConfig({
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//],
         globPatterns: ["**/*.{js,css,html,svg,png,ico,woff2}"],
-        runtimeCaching: [
-          {
-            // Cache short JSON GETs only — never SSE/streams (hangs SW + saturates connections).
-            urlPattern: ({ url, request }) => {
-              if (request.headers.get("accept")?.includes("text/event-stream")) {
-                return false;
-              }
-              const path = url.pathname;
-              if (
-                path.includes("/events/") ||
-                path.includes("/operations/live") ||
-                path.includes("/sync")
-              ) {
-                return false;
-              }
-              return (
-                path.startsWith("/api/") || url.origin.includes("localhost:4000")
-              );
-            },
-            handler: "NetworkFirst",
-            method: "GET",
-            options: {
-              cacheName: "api-get",
-              networkTimeoutSeconds: 8,
-              expiration: { maxEntries: 80, maxAgeSeconds: 60 * 30 },
-            },
-          },
-        ],
+        // Do not runtime-cache authenticated /api GETs — Cache Storage is shared
+        // across users on a device. Offline private data lives in IndexedDB
+        // (partitioned + purged on account switch).
       },
-      // SW in Vite middleware hangs API/SSE in local dev (NetworkFirst on /api/*).
+      // Keep SW out of Vite middleware in local dev (avoids intercepting /api + SSE).
       devOptions: {
         enabled: false,
       },

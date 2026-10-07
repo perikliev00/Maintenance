@@ -401,6 +401,10 @@ export function AnalyticsPage() {
               tone={data.kpis.anomalousSessions > 0 ? "warn" : undefined}
             />
             <KpiCard
+              label="Различни стаи"
+              value={formatMetric(data.kpis.distinctRooms)}
+            />
+            <KpiCard
               label="Готови стаи"
               value={formatMetric(data.kpis.readyRooms)}
             />
@@ -423,6 +427,17 @@ export function AnalyticsPage() {
               value={formatMetric(data.kpis.auditFindings)}
               compare={data.comparison.auditFindings}
               tone={data.kpis.auditFindings > 0 ? "warn" : undefined}
+            />
+            <KpiCard
+              label="Валидни мин."
+              value={formatMetric(data.kpis.totalValidSessionMinutes)}
+            />
+            <KpiCard
+              label="Изключени мин."
+              value={formatMetric(data.kpis.totalExcludedSessionMinutes)}
+              tone={
+                data.kpis.totalExcludedSessionMinutes > 0 ? "warn" : undefined
+              }
             />
             <KpiCard
               label="Средно валидни мин/задача"

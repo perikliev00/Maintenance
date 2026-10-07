@@ -9,7 +9,10 @@ import { prisma } from "../db";
 import { AppError } from "./cleaning";
 import { getSetting } from "./settings";
 import { capabilitiesFor } from "./roleGrants";
-import { createSession, revokeAllForDevice } from "./authSessions";
+import {
+  createSessionWithClient,
+  revokeAllForDevice,
+} from "./authSessions";
 import { publish } from "../events/bus";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -266,16 +269,22 @@ export async function listActiveInvitations() {
 }
 
 export async function revokeInvitation(id: string) {
-  const inv = await prisma.invitation.findUnique({ where: { id } });
-  if (!inv) {
+  const existing = await prisma.invitation.findUnique({ where: { id } });
+  if (!existing) {
     throw new AppError(404, "not_found", "Invitation not found");
   }
-  if (inv.status !== InvitationStatus.issued) {
+
+  const revokedAt = new Date();
+  const claimed = await prisma.invitation.updateMany({
+    where: { id, status: InvitationStatus.issued },
+    data: { status: InvitationStatus.revoked, revokedAt },
+  });
+  if (claimed.count === 0) {
     throw new AppError(409, "conflict", "Only issued invitations can be revoked");
   }
-  const updated = await prisma.invitation.update({
+
+  const updated = await prisma.invitation.findUniqueOrThrow({
     where: { id },
-    data: { status: InvitationStatus.revoked, revokedAt: new Date() },
     include: {
       employee: true,
       createdBy: { include: { employee: true } },
@@ -332,86 +341,96 @@ export async function redeemInvitation(input: {
     input.fingerprint.trim() || `anon-${randomBytes(8).toString("hex")}`;
   const deviceLabel = input.deviceLabel.trim() || "Device";
 
-  const { device, userId } = await prisma.$transaction(async (tx) => {
-    const claimed = await tx.invitation.updateMany({
-      where: {
-        id: inv.id,
-        status: InvitationStatus.issued,
-        expiresAt: { gt: new Date() },
-      },
-      data: {
-        status: InvitationStatus.consumed,
-        consumedAt: new Date(),
-      },
-    });
-    if (claimed.count === 0) {
-      const current = await tx.invitation.findUnique({ where: { id: inv.id } });
-      if (current && current.expiresAt.getTime() <= Date.now()) {
-        if (current.status === InvitationStatus.issued) {
-          await tx.invitation.update({
-            where: { id: inv.id },
-            data: { status: InvitationStatus.expired },
-          });
-        }
-        throw new AppError(400, "expired", "Invitation code has expired");
+  const { device, fullUser, tokens } = await prisma.$transaction(
+    async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "Invitation" WHERE id = ${inv.id} FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new AppError(400, "invalid_code", "Invitation code is invalid or used");
       }
-      throw new AppError(409, "conflict", "Invitation already consumed");
-    }
 
-    let userId: string;
-    if (needsUserCreate) {
-      const created = await tx.user.create({
+      const claimed = await tx.invitation.updateMany({
+        where: {
+          id: inv.id,
+          status: InvitationStatus.issued,
+          expiresAt: { gt: new Date() },
+        },
         data: {
+          status: InvitationStatus.consumed,
+          consumedAt: new Date(),
+        },
+      });
+      if (claimed.count === 0) {
+        const current = await tx.invitation.findUnique({ where: { id: inv.id } });
+        if (current && current.expiresAt.getTime() <= Date.now()) {
+          if (current.status === InvitationStatus.issued) {
+            await tx.invitation.update({
+              where: { id: inv.id },
+              data: { status: InvitationStatus.expired },
+            });
+          }
+          throw new AppError(400, "expired", "Invitation code has expired");
+        }
+        throw new AppError(409, "conflict", "Invitation already consumed");
+      }
+
+      let userId: string;
+      if (needsUserCreate) {
+        const created = await tx.user.create({
+          data: {
+            employeeId: inv.employeeId,
+            email: inv.email,
+            passwordHash: passwordHash!,
+            role: inv.role,
+            activatedAt: new Date(),
+            isActive: true,
+          },
+        });
+        userId = created.id;
+      } else if (needsActivation) {
+        const updated = await tx.user.update({
+          where: { id: existingUser!.id },
+          data: {
+            passwordHash: passwordHash!,
+            activatedAt: new Date(),
+            role: inv.role,
+          },
+        });
+        userId = updated.id;
+      } else {
+        userId = existingUser!.id;
+      }
+
+      const device = await tx.device.create({
+        data: {
+          userId,
           employeeId: inv.employeeId,
-          email: inv.email,
-          passwordHash: passwordHash!,
-          role: inv.role,
-          activatedAt: new Date(),
-          isActive: true,
+          label: deviceLabel,
+          fingerprint,
         },
       });
-      userId = created.id;
-    } else if (needsActivation) {
-      const updated = await tx.user.update({
-        where: { id: existingUser!.id },
-        data: {
-          passwordHash: passwordHash!,
-          activatedAt: new Date(),
-          role: inv.role,
-        },
+
+      await tx.invitation.update({
+        where: { id: inv.id },
+        data: { consumedDeviceId: device.id },
       });
-      userId = updated.id;
-    } else {
-      userId = existingUser!.id;
-    }
 
-    const device = await tx.device.create({
-      data: {
-        userId,
-        employeeId: inv.employeeId,
-        label: deviceLabel,
-        fingerprint,
-      },
-    });
+      const fullUser = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        include: { employee: true },
+      });
 
-    await tx.invitation.update({
-      where: { id: inv.id },
-      data: { consumedDeviceId: device.id },
-    });
+      const tokens = await createSessionWithClient(tx, {
+        userId: fullUser.id,
+        deviceId: device.id,
+      });
 
-    return { device, userId };
-  });
-
-  const fullUser = await prisma.user.findUniqueOrThrow({
-    where: { id: userId },
-    include: { employee: true },
-  });
+      return { device, fullUser, tokens };
+    },
+  );
 
   const caps = await capabilitiesFor(fullUser.role);
-  const tokens = await createSession({
-    userId: fullUser.id,
-    deviceId: device.id,
-  });
 
   publish("people.changed");
 

@@ -3,6 +3,7 @@
  * Requires DB + seeded employees. Does not need the HTTP API.
  */
 import {
+  CleaningStatus,
   PrismaClient,
   SessionStatus,
   TaskStatus,
@@ -11,6 +12,9 @@ import { randomUUID } from "crypto";
 import {
   cancelCleaningSession,
   completeCleaningSession,
+  createCleaningTask,
+  inspectCleaningTask,
+  markRoomDirty,
   startCleaningTask,
 } from "../src/services/cleaning";
 import { AppError } from "../src/errors";
@@ -54,14 +58,25 @@ async function ensureAssignedTask(locationId: string, hotelDate: Date) {
     data: { status: TaskStatus.cancelled },
   });
 
+  const location = await prisma.location.findUniqueOrThrow({
+    where: { id: locationId },
+  });
+
   return prisma.cleaningTask.create({
     data: {
       locationId,
       hotelDate,
       status: TaskStatus.assigned,
       priority: "normal",
+      cleaningCycle: location.cleaningCycle,
     },
   });
+}
+
+function dayOffset(base: Date, days: number): Date {
+  const d = new Date(base);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
 }
 
 async function main() {
@@ -97,6 +112,9 @@ async function main() {
   });
   const owner = await prisma.user.findUniqueOrThrow({
     where: { email: "owner@meridian.local" },
+  });
+  const supervisor = await prisma.user.findUniqueOrThrow({
+    where: { email: "supervisor@meridian.local" },
   });
 
   await prisma.cleaningSession.updateMany({
@@ -272,6 +290,202 @@ async function main() {
   console.log("idempotent_start", first.idempotent, second.idempotent);
   assert(first.idempotent === false, "first start should not be idempotent");
   assert(second.idempotent === true, "retry should be idempotent");
+
+  // --- Stale inspection must not override current cleaning cycle ---
+  await prisma.cleaningSession.updateMany({
+    where: {
+      employeeId: { in: [hk1.employeeId, hk2.employeeId] },
+      status: SessionStatus.running,
+    },
+    data: { status: SessionStatus.cancelled, finishedAt: new Date() },
+  });
+  await prisma.cleaningTask.updateMany({
+    where: {
+      locationId: room.id,
+      status: {
+        in: [
+          TaskStatus.assigned,
+          TaskStatus.in_progress,
+          TaskStatus.awaiting_inspection,
+          TaskStatus.rework,
+        ],
+      },
+    },
+    data: { status: TaskStatus.cancelled },
+  });
+
+  const day1 = dayOffset(hotelDate, -1);
+  const day2 = hotelDate;
+
+  const day1Task = await createCleaningTask({
+    locationId: room.id,
+    hotelDate: day1.toISOString().slice(0, 10),
+    assignedEmployeeId: hk1.employeeId,
+    actorEmployeeId: owner.employeeId,
+  });
+  const day1Started = await startCleaningTask({
+    taskId: day1Task.id,
+    employeeId: hk1.employeeId,
+    commandId: randomUUID(),
+    expectedVersion: day1Task.version,
+  });
+  const day1Completed = await completeCleaningSession({
+    sessionId: day1Started.session.id,
+    employeeId: hk1.employeeId,
+    commandId: randomUUID(),
+    expectedVersion: day1Started.task.version,
+  });
+  assert(
+    day1Completed.task.status === TaskStatus.awaiting_inspection,
+    "day1 should await inspection",
+  );
+
+  const day2Task = await createCleaningTask({
+    locationId: room.id,
+    hotelDate: day2.toISOString().slice(0, 10),
+    assignedEmployeeId: hk2.employeeId,
+    actorEmployeeId: owner.employeeId,
+  });
+  const day2Started = await startCleaningTask({
+    taskId: day2Task.id,
+    employeeId: hk2.employeeId,
+    commandId: randomUUID(),
+    expectedVersion: day2Task.version,
+  });
+  assert(
+    day2Started.task.status === TaskStatus.in_progress,
+    "day2 should be in progress",
+  );
+
+  const locAfterStart = await prisma.location.findUniqueOrThrow({
+    where: { id: room.id },
+  });
+  assert(
+    locAfterStart.cleaningStatus === CleaningStatus.in_progress,
+    `expected in_progress before stale approve, got ${locAfterStart.cleaningStatus}`,
+  );
+
+  await inspectCleaningTask({
+    taskId: day1Task.id,
+    inspectorEmployeeId: supervisor.employeeId,
+    commandId: randomUUID(),
+    result: "approved",
+    expectedVersion: day1Completed.task.version,
+  });
+
+  const day1After = await prisma.cleaningTask.findUniqueOrThrow({
+    where: { id: day1Task.id },
+  });
+  const locAfterStaleApprove = await prisma.location.findUniqueOrThrow({
+    where: { id: room.id },
+  });
+  console.log(
+    "stale_approve",
+    day1After.status,
+    locAfterStaleApprove.cleaningStatus,
+  );
+  assert(day1After.status === TaskStatus.completed, "stale approve should complete task");
+  assert(
+    locAfterStaleApprove.cleaningStatus === CleaningStatus.in_progress,
+    `stale approve must not set verified_clean, got ${locAfterStaleApprove.cleaningStatus}`,
+  );
+
+  await prisma.cleaningSession.updateMany({
+    where: { employeeId: hk1.employeeId, status: SessionStatus.running },
+    data: { status: SessionStatus.cancelled, finishedAt: new Date() },
+  });
+  const day2Completed = await completeCleaningSession({
+    sessionId: day2Started.session.id,
+    employeeId: hk2.employeeId,
+    commandId: randomUUID(),
+    expectedVersion: day2Started.task.version,
+  });
+  await inspectCleaningTask({
+    taskId: day2Task.id,
+    inspectorEmployeeId: supervisor.employeeId,
+    commandId: randomUUID(),
+    result: "approved",
+    expectedVersion: day2Completed.task.version,
+  });
+  const locAfterCurrentApprove = await prisma.location.findUniqueOrThrow({
+    where: { id: room.id },
+  });
+  console.log("current_approve", locAfterCurrentApprove.cleaningStatus);
+  assert(
+    locAfterCurrentApprove.cleaningStatus === CleaningStatus.verified_clean,
+    "current cycle approve should set verified_clean",
+  );
+
+  // --- markRoomDirty while awaiting_inspection: approve must not restore clean ---
+  await prisma.cleaningTask.updateMany({
+    where: {
+      locationId: room.id,
+      status: {
+        in: [
+          TaskStatus.assigned,
+          TaskStatus.in_progress,
+          TaskStatus.awaiting_inspection,
+          TaskStatus.rework,
+        ],
+      },
+    },
+    data: { status: TaskStatus.cancelled },
+  });
+  const dirtyTask = await createCleaningTask({
+    locationId: room.id,
+    hotelDate: dayOffset(hotelDate, 1).toISOString().slice(0, 10),
+    assignedEmployeeId: hk1.employeeId,
+    actorEmployeeId: owner.employeeId,
+  });
+  const dirtyStarted = await startCleaningTask({
+    taskId: dirtyTask.id,
+    employeeId: hk1.employeeId,
+    commandId: randomUUID(),
+    expectedVersion: dirtyTask.version,
+  });
+  const dirtyCompleted = await completeCleaningSession({
+    sessionId: dirtyStarted.session.id,
+    employeeId: hk1.employeeId,
+    commandId: randomUUID(),
+    expectedVersion: dirtyStarted.task.version,
+  });
+  assert(
+    dirtyCompleted.task.status === TaskStatus.awaiting_inspection,
+    "expected awaiting_inspection before mark dirty",
+  );
+
+  await markRoomDirty(room.id, owner.employeeId);
+  const locAfterMarkDirty = await prisma.location.findUniqueOrThrow({
+    where: { id: room.id },
+  });
+  assert(
+    locAfterMarkDirty.cleaningStatus === CleaningStatus.dirty,
+    "mark dirty should leave room dirty",
+  );
+
+  await inspectCleaningTask({
+    taskId: dirtyTask.id,
+    inspectorEmployeeId: supervisor.employeeId,
+    commandId: randomUUID(),
+    result: "approved",
+    expectedVersion: dirtyCompleted.task.version,
+  });
+  const locAfterDirtyApprove = await prisma.location.findUniqueOrThrow({
+    where: { id: room.id },
+  });
+  const dirtyTaskAfter = await prisma.cleaningTask.findUniqueOrThrow({
+    where: { id: dirtyTask.id },
+  });
+  console.log(
+    "mark_dirty_then_approve",
+    dirtyTaskAfter.status,
+    locAfterDirtyApprove.cleaningStatus,
+  );
+  assert(dirtyTaskAfter.status === TaskStatus.completed, "approve should complete task");
+  assert(
+    locAfterDirtyApprove.cleaningStatus === CleaningStatus.dirty,
+    `approve after markDirty must keep dirty, got ${locAfterDirtyApprove.cleaningStatus}`,
+  );
 
   console.log("ok");
 }

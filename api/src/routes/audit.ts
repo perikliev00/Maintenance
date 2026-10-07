@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { canPerform } from "../services/roleGrants";
-import { listAuditEvents } from "../services/audit";
+import { auditScopeArgsFor, listAuditEvents } from "../services/audit";
 import {
   assertCanAccessLocation,
   resolveDataScope,
@@ -70,7 +70,8 @@ auditRouter.get("/", requireAuth, async (req, res, next) => {
       await assertCanAccessLocation(scope, locationId);
     }
 
-    const scopeLocationIds = await scopedLocationIdsFor(scope);
+    const scopedLocationIds = await scopedLocationIdsFor(scope);
+    const scopeArgs = auditScopeArgsFor(scope, scopedLocationIds);
     const rows = await listAuditEvents({
       from: parsed.data.from ? new Date(parsed.data.from) : undefined,
       to: parsed.data.to ? new Date(parsed.data.to) : undefined,
@@ -81,10 +82,7 @@ auditRouter.get("/", requireAuth, async (req, res, next) => {
       locationId,
       action: parsed.data.action,
       limit: parsed.data.limit,
-      scopeLocationIds:
-        scopeLocationIds === null ? undefined : scopeLocationIds,
-      scopeSectorIds:
-        scope.kind === "sectors" ? scope.sectorIds : undefined,
+      ...scopeArgs,
     });
     return res.json(rows);
   } catch (err) {

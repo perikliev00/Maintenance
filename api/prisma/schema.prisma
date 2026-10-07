@@ -137,6 +137,8 @@ model Location {
   catalogStatus      CatalogStatus       @default(active)
   occupancy          Occupancy           @default(unknown)
   cleaningStatus     CleaningStatus      @default(dirty)
+  /** Monotonic generation; only the current cycle may change cleaningStatus. */
+  cleaningCycle      Int                 @default(0)
   serviceStatus      ServiceStatus       @default(in_service)
   /** Stable token for room QR identify payload (§4.2 / Phase B). */
   qrToken            String              @unique @default(cuid())
@@ -299,6 +301,8 @@ model CleaningTask {
   status             TaskStatus        @default(assigned)
   /** Set once when status becomes completed (approve or auto-complete). */
   completedAt        DateTime?
+  /** Location cleaningCycle stamped at create; guards location status writes. */
+  cleaningCycle      Int               @default(0)
   version            Int               @default(1)
   sessions           CleaningSession[]
   inspections        Inspection[]
@@ -606,6 +610,7 @@ model DailyPlanEntry {
   importBatch         DailyPlanImportBatch?  @relation(fields: [importBatchId], references: [id])
   cleaningTaskId      String?
   cleaningTask        CleaningTask?          @relation(fields: [cleaningTaskId], references: [id])
+  roomEffectsAppliedAt DateTime?
   createdByEmployeeId String
   createdBy           Employee               @relation(fields: [createdByEmployeeId], references: [id])
   createdAt           DateTime               @default(now())

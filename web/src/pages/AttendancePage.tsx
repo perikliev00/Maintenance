@@ -141,12 +141,21 @@ export function AttendancePage({ user }: Props) {
 
   async function onExport() {
     try {
-      await downloadAttendanceCsv({
+      const result = await downloadAttendanceCsv({
         scope,
         month: scope === "month" ? month : undefined,
         department: department.trim() || undefined,
         q: q.trim() || undefined,
       });
+      if (result.truncated) {
+        const totalLabel =
+          result.total != null ? ` (общо ${result.total})` : "";
+        setError(
+          `CSV експортът е отрязан до тавана на сървъра${totalLabel}. Стеснете филтъра.`,
+        );
+      } else {
+        setError(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Export failed");
     }

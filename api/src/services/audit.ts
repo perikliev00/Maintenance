@@ -91,13 +91,77 @@ export type ListAuditEventsFilter = {
   to?: Date;
   limit?: number;
   /**
-   * When set, restrict results to these location IDs and (for sector scope)
-   * sector entity rows whose entityId is in sectorIds. Null locationId rows
-   * for other entity types are excluded.
+   * When set (including empty array), restrict results to these location IDs
+   * and (for sector scope) sector entity rows whose entityId is in sectorIds.
+   * Null locationId rows for other entity types are excluded.
+   * Omit / null = unrestricted (only for kind=all actors).
    */
   scopeLocationIds?: string[] | null;
   scopeSectorIds?: string[];
 };
+
+/**
+ * Build list-filter scope args from a DataScope. Non-`all` scopes never return
+ * unrestricted (empty location list → no location rows match).
+ */
+export function auditScopeArgsFor(
+  scope: { kind: string; sectorIds: string[] },
+  scopedLocationIds: string[] | null,
+): Pick<ListAuditEventsFilter, "scopeLocationIds" | "scopeSectorIds"> {
+  if (scope.kind === "all") {
+    return { scopeLocationIds: undefined, scopeSectorIds: undefined };
+  }
+  return {
+    scopeLocationIds: scopedLocationIds ?? [],
+    scopeSectorIds: scope.kind === "sectors" ? scope.sectorIds : [],
+  };
+}
+
+/** Pure predicate mirroring listAuditEvents scope clause (for unit tests). */
+export function auditEventMatchesScope(
+  event: {
+    locationId: string | null;
+    entityType: string;
+    entityId: string;
+  },
+  scopeLocationIds: string[] | null | undefined,
+  scopeSectorIds?: string[],
+): boolean {
+  if (scopeLocationIds === undefined || scopeLocationIds === null) {
+    return true;
+  }
+  if (event.locationId != null && scopeLocationIds.includes(event.locationId)) {
+    return true;
+  }
+  if (
+    event.locationId == null &&
+    event.entityType === "sector" &&
+    (scopeSectorIds?.length ?? 0) > 0 &&
+    scopeSectorIds!.includes(event.entityId)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function buildAuditScopeWhere(
+  scopeLocationIds: string[],
+  scopeSectorIds: string[] = [],
+): Prisma.AuditEventWhereInput {
+  const locationIds =
+    scopeLocationIds.length > 0 ? scopeLocationIds : ["__none__"];
+  const scopeOr: Prisma.AuditEventWhereInput[] = [
+    { locationId: { in: locationIds } },
+  ];
+  if (scopeSectorIds.length) {
+    scopeOr.push({
+      locationId: null,
+      entityType: "sector",
+      entityId: { in: scopeSectorIds },
+    });
+  }
+  return { OR: scopeOr };
+}
 
 const actorSelect = {
   id: true,
@@ -157,24 +221,12 @@ export async function listAuditEvents(filter: ListAuditEventsFilter) {
   }
 
   if (filter.scopeLocationIds !== undefined && filter.scopeLocationIds !== null) {
-    const locationIds =
-      filter.scopeLocationIds.length > 0
-        ? filter.scopeLocationIds
-        : ["__none__"];
-    const sectorIds = filter.scopeSectorIds ?? [];
-    const scopeOr: Prisma.AuditEventWhereInput[] = [
-      { locationId: { in: locationIds } },
-    ];
-    if (sectorIds.length) {
-      scopeOr.push({
-        locationId: null,
-        entityType: "sector",
-        entityId: { in: sectorIds },
-      });
-    }
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
-      { OR: scopeOr },
+      buildAuditScopeWhere(
+        filter.scopeLocationIds,
+        filter.scopeSectorIds ?? [],
+      ),
     ];
   }
 

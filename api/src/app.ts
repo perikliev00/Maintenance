@@ -28,8 +28,12 @@ import { syncRouter } from "./routes/sync";
 import { notificationsRouter } from "./routes/notifications";
 import { AppError } from "./services/cleaning";
 import { ensureDefaultSettings } from "./services/settings";
-import { ensureDefaultRoleGrants } from "./services/roleGrants";
+import {
+  ensureDefaultRoleGrants,
+  seedCatalogGrantDeltas,
+} from "./services/roleGrants";
 import { ensureDefaultSlaPolicies } from "./services/maintenance";
+import { GrantKind } from "@prisma/client";
 import {
   configureTrustProxy,
   globalApiLimiter,
@@ -70,6 +74,21 @@ export function createApp() {
   });
   void ensureDefaultRoleGrants().catch((err) => {
     console.warn("ensureDefaultRoleGrants failed", err);
+  });
+  // Catalog deltas for newly introduced actions (skipDuplicates; never restores revokes).
+  void seedCatalogGrantDeltas([
+    {
+      role: "manager",
+      kind: GrantKind.action,
+      key: "sectors.transfer_cross",
+    },
+    {
+      role: "admin",
+      kind: GrantKind.action,
+      key: "sectors.transfer_cross",
+    },
+  ]).catch((err) => {
+    console.warn("seedCatalogGrantDeltas failed", err);
   });
   void ensureDefaultSlaPolicies().catch((err) => {
     console.warn("ensureDefaultSlaPolicies failed", err);

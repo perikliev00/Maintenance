@@ -1,9 +1,16 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
-import { AppError } from "./cleaning";
+import { AppError } from "../errors";
 import { recordAudit } from "./audit";
+import type { DataScope } from "./dataScope";
 
 const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const OUT_OF_SCOPE = "Outside your permitted data scope";
+
+export type SectorMembershipAuth = {
+  scope: DataScope;
+  allowCrossSectorTransfer: boolean;
+};
 
 export function assertHhMm(value: string, field: string) {
   if (!HH_MM.test(value)) {
@@ -134,11 +141,54 @@ async function assertSupervisor(employeeId: string | null | undefined) {
   }
 }
 
+async function assertDestinationInScope(
+  scope: DataScope,
+  sectorId: string,
+): Promise<void> {
+  if (scope.kind === "all") return;
+  if (scope.kind === "sectors" && scope.sectorIds.includes(sectorId)) return;
+  throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+}
+
+/**
+ * Pure decision: whether moving location from sourceSectorId → destinationSectorId
+ * is allowed for this actor. Exported for unit tests.
+ */
+export function assertLocationTransferAllowed(
+  auth: SectorMembershipAuth,
+  destinationSectorId: string,
+  sourceSectorId: string | null,
+): void {
+  if (sourceSectorId === destinationSectorId) return;
+
+  const sourceInOwnSectors =
+    auth.scope.kind === "sectors" &&
+    sourceSectorId != null &&
+    auth.scope.sectorIds.includes(sourceSectorId);
+
+  if (sourceInOwnSectors) return;
+
+  if (!auth.allowCrossSectorTransfer) {
+    throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+  }
+}
+
+/**
+ * Authoritative membership replace: destination + per-location source checks
+ * run inside the same transaction as the writes (TOCTOU-safe).
+ *
+ * - Rebalance among own sectors (kind=sectors, source in sectorIds): allowed.
+ * - Unassigned / foreign / any inter-sector move for kind=all: requires
+ *   allowCrossSectorTransfer.
+ */
 async function replaceMembership(
   tx: Prisma.TransactionClient,
   sectorId: string,
   locationIds: string[],
+  auth: SectorMembershipAuth,
 ) {
+  await assertDestinationInScope(auth.scope, sectorId);
+
   const unique = [...new Set(locationIds)];
   if (unique.length) {
     const found = await tx.location.findMany({
@@ -148,6 +198,20 @@ async function replaceMembership(
     if (found.length !== unique.length) {
       throw new AppError(400, "validation", "One or more locations not found");
     }
+
+    const memberships = await tx.sectorLocation.findMany({
+      where: { locationId: { in: unique } },
+      select: { locationId: true, sectorId: true },
+    });
+    const sourceByLocation = new Map(
+      memberships.map((m) => [m.locationId, m.sectorId]),
+    );
+
+    for (const locationId of unique) {
+      const sourceSectorId = sourceByLocation.get(locationId) ?? null;
+      assertLocationTransferAllowed(auth, sectorId, sourceSectorId);
+    }
+
     await tx.sectorLocation.deleteMany({
       where: {
         locationId: { in: unique },
@@ -172,6 +236,8 @@ export async function createSector(input: {
   locationIds?: string[];
   isActive?: boolean;
   actorEmployeeId?: string;
+  scope: DataScope;
+  allowCrossSectorTransfer: boolean;
 }) {
   const propertyId = await resolvePropertyId(input.propertyId);
   await assertSupervisor(input.primarySupervisorEmployeeId);
@@ -179,6 +245,11 @@ export async function createSector(input: {
   if (!code) {
     throw new AppError(400, "validation", "code is required");
   }
+
+  const auth: SectorMembershipAuth = {
+    scope: input.scope,
+    allowCrossSectorTransfer: input.allowCrossSectorTransfer,
+  };
 
   try {
     const sector = await prisma.$transaction(async (tx) => {
@@ -194,7 +265,7 @@ export async function createSector(input: {
         },
       });
       if (input.locationIds?.length) {
-        await replaceMembership(tx, created.id, input.locationIds);
+        await replaceMembership(tx, created.id, input.locationIds, auth);
       }
       const full = await tx.sector.findUniqueOrThrow({
         where: { id: created.id },
@@ -310,7 +381,11 @@ export async function updateSector(
 export async function setSectorLocations(
   id: string,
   locationIds: string[],
-  actorEmployeeId?: string,
+  options: {
+    actorEmployeeId?: string;
+    scope: DataScope;
+    allowCrossSectorTransfer: boolean;
+  },
 ) {
   const existing = await prisma.sector.findUnique({ where: { id } });
   if (!existing) {
@@ -320,11 +395,15 @@ export async function setSectorLocations(
     where: { sectorId: id },
     select: { locationId: true },
   });
+  const auth: SectorMembershipAuth = {
+    scope: options.scope,
+    allowCrossSectorTransfer: options.allowCrossSectorTransfer,
+  };
   await prisma.$transaction(async (tx) => {
-    await replaceMembership(tx, id, locationIds);
+    await replaceMembership(tx, id, locationIds, auth);
     await recordAudit(
       {
-        actorEmployeeId,
+        actorEmployeeId: options.actorEmployeeId,
         action: "sector.locations.set",
         entityType: "sector",
         entityId: id,

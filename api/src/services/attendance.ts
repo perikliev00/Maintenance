@@ -17,10 +17,14 @@ import {
 const OPEN_MISSING_END_HOURS = 14;
 const ABSURD_DURATION_HOURS = 16;
 const LARGE_SKEW_SECONDS = 1800;
-const LIST_DEFAULT_LIMIT = 200;
-const LIST_MAX_LIMIT = 500;
-const EXPORT_BATCH = 1000;
-const EXPORT_CEILING = 50_000;
+/** Default page size for GET /attendance/intervals */
+export const LIST_DEFAULT_LIMIT = 200;
+/** Max page size for a single list request (not a hard total cap) */
+export const LIST_MAX_LIMIT = 500;
+/** Batch size when draining all rows for CSV export */
+export const EXPORT_BATCH = 1000;
+/** Hard ceiling for a single CSV export response */
+export const EXPORT_CEILING = 50_000;
 
 type Tx = Prisma.TransactionClient;
 
@@ -179,7 +183,7 @@ export type ListIntervalsPage = {
   cursor?: string;
 };
 
-type IntervalCursor = {
+export type IntervalCursor = {
   hotelDate: string;
   startedAt: string;
   id: string;
@@ -209,6 +213,59 @@ export function decodeIntervalCursor(raw: string): IntervalCursor {
   } catch {
     throw new AppError(400, "validation", "Invalid attendance cursor");
   }
+}
+
+/** Clamp a requested list page size into [1, LIST_MAX_LIMIT]. */
+export function resolveListLimit(requested?: number): number {
+  return Math.min(
+    Math.max(1, requested ?? LIST_DEFAULT_LIMIT),
+    LIST_MAX_LIMIT,
+  );
+}
+
+/**
+ * Slice a findMany result fetched with `take: limit + 1` into a page plus
+ * opaque nextCursor. Used by listIntervals so pagination is unit-testable.
+ */
+export function listPageFromRows<T>(
+  rows: T[],
+  limit: number,
+  toCursor: (row: T) => IntervalCursor,
+): { pageRows: T[]; nextCursor: string | null; limit: number } {
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const last = pageRows[pageRows.length - 1];
+  const nextCursor =
+    hasMore && last ? encodeIntervalCursor(toCursor(last)) : null;
+  return { pageRows, nextCursor, limit };
+}
+
+/**
+ * Drain all pages via cursor batches until exhausted or ceiling is hit.
+ * Used by listIntervalsForExport so full CSV export is unit-testable.
+ */
+export async function drainExportPages<T>(opts: {
+  batchSize: number;
+  ceiling: number;
+  fetchPage: (cursor: IntervalCursor | null) => Promise<T[]>;
+  toCursor: (row: T) => IntervalCursor;
+}): Promise<{ rows: T[]; truncated: boolean }> {
+  const rows: T[] = [];
+  let cursor: IntervalCursor | null = null;
+  for (;;) {
+    const batch = await opts.fetchPage(cursor);
+    if (!batch.length) break;
+    for (const row of batch) {
+      rows.push(row);
+    }
+    if (batch.length < opts.batchSize) break;
+    const last = batch[batch.length - 1]!;
+    cursor = opts.toCursor(last);
+    if (rows.length >= opts.ceiling) {
+      return { rows: rows.slice(0, opts.ceiling), truncated: true };
+    }
+  }
+  return { rows, truncated: false };
 }
 
 async function resolveDateWindow(
@@ -295,15 +352,24 @@ function cursorWhere(
   };
 }
 
+function rowToIntervalCursor(row: {
+  hotelDate: Date;
+  startedAt: Date;
+  id: string;
+}): IntervalCursor {
+  return {
+    hotelDate: row.hotelDate.toISOString().slice(0, 10),
+    startedAt: row.startedAt.toISOString(),
+    id: row.id,
+  };
+}
+
 export async function listIntervals(
   filter: ListIntervalsFilter,
   page: ListIntervalsPage = {},
 ) {
   const where = await buildIntervalWhere(filter);
-  const limit = Math.min(
-    Math.max(1, page.limit ?? LIST_DEFAULT_LIMIT),
-    LIST_MAX_LIMIT,
-  );
+  const limit = resolveListLimit(page.limit);
   const cursor = page.cursor ? decodeIntervalCursor(page.cursor) : null;
 
   const [total, rows] = await Promise.all([
@@ -316,17 +382,11 @@ export async function listIntervals(
     }),
   ]);
 
-  const hasMore = rows.length > limit;
-  const pageRows = hasMore ? rows.slice(0, limit) : rows;
-  const last = pageRows[pageRows.length - 1];
-  const nextCursor =
-    hasMore && last
-      ? encodeIntervalCursor({
-          hotelDate: last.hotelDate.toISOString().slice(0, 10),
-          startedAt: last.startedAt.toISOString(),
-          id: last.id,
-        })
-      : null;
+  const { pageRows, nextCursor } = listPageFromRows(
+    rows,
+    limit,
+    rowToIntervalCursor,
+  );
 
   return {
     intervals: pageRows.map(mapInterval),
@@ -348,37 +408,28 @@ export async function listIntervalsForExport(filter: ListIntervalsFilter) {
     );
   }
 
-  const intervals: ReturnType<typeof mapInterval>[] = [];
-  let cursor: IntervalCursor | null = null;
-  for (;;) {
-    const rows: Prisma.AttendanceIntervalGetPayload<{
-      include: typeof intervalInclude;
-    }>[] = await prisma.attendanceInterval.findMany({
-      where: cursor ? { AND: [where, cursorWhere(cursor)] } : where,
-      include: intervalInclude,
-      orderBy: [{ hotelDate: "desc" }, { startedAt: "desc" }, { id: "desc" }],
-      take: EXPORT_BATCH,
-    });
-    if (!rows.length) break;
-    for (const row of rows) {
-      intervals.push(mapInterval(row));
-    }
-    if (rows.length < EXPORT_BATCH) break;
-    const last: (typeof rows)[number] = rows[rows.length - 1]!;
-    cursor = {
-      hotelDate: last.hotelDate.toISOString().slice(0, 10),
-      startedAt: last.startedAt.toISOString(),
-      id: last.id,
-    };
-    if (intervals.length >= EXPORT_CEILING) {
-      return {
-        intervals: intervals.slice(0, EXPORT_CEILING),
-        truncated: true,
-        total,
-      };
-    }
-  }
-  return { intervals, truncated: false, total };
+  const { rows, truncated } = await drainExportPages({
+    batchSize: EXPORT_BATCH,
+    ceiling: EXPORT_CEILING,
+    toCursor: rowToIntervalCursor,
+    fetchPage: async (cursor) =>
+      prisma.attendanceInterval.findMany({
+        where: cursor ? { AND: [where, cursorWhere(cursor)] } : where,
+        include: intervalInclude,
+        orderBy: [
+          { hotelDate: "desc" },
+          { startedAt: "desc" },
+          { id: "desc" },
+        ],
+        take: EXPORT_BATCH,
+      }),
+  });
+
+  return {
+    intervals: rows.map(mapInterval),
+    truncated,
+    total,
+  };
 }
 
 export async function getInterval(id: string) {
@@ -589,10 +640,36 @@ export function pairEventsToIntervalDrafts(input: {
   return drafts;
 }
 
+/** Kinds that pair as interval start/end (breaks attach by time window). */
 export function eventRequiresIntervalLink(kind: AttendanceEventKind): boolean {
   return (
     kind === AttendanceEventKind.clock_in ||
     kind === AttendanceEventKind.clock_out
+  );
+}
+
+function isP2002(err: unknown): err is Prisma.PrismaClientKnownRequestError {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002"
+  );
+}
+
+function p2002Targets(err: Prisma.PrismaClientKnownRequestError): string[] {
+  const target = err.meta?.target;
+  if (Array.isArray(target)) return target.map(String);
+  if (typeof target === "string") return [target];
+  return [];
+}
+
+function isAttendanceEventUniqueConflict(
+  err: Prisma.PrismaClientKnownRequestError,
+) {
+  const targets = p2002Targets(err).map((t) => t.toLowerCase());
+  return targets.some(
+    (t) =>
+      t.includes("source") ||
+      t.includes("externaleventid") ||
+      t.includes("source_externaleventid"),
   );
 }
 
@@ -631,6 +708,33 @@ async function findIntervalForEvent(
     });
   }
   return null;
+}
+
+async function reconcileExistingEvent<
+  T extends {
+    id: string;
+    kind: AttendanceEventKind;
+    employeeId: string;
+    normalizedTime: Date;
+  },
+>(existing: T) {
+  let linked = await findIntervalForEvent(existing);
+  if (!linked) {
+    const ops = await getOperations();
+    const hotelDate = hotelDateAsUtcDate(
+      existing.normalizedTime,
+      ops.hotelTimezone,
+    );
+    await prisma.$transaction(async (tx) => {
+      await rebuildIntervalsForEmployee(existing.employeeId, hotelDate, tx);
+    });
+    linked = await findIntervalForEvent(existing);
+  }
+  return {
+    event: existing,
+    created: false as const,
+    intervalId: linked?.id ?? null,
+  };
 }
 
 export async function rebuildIntervalsForEmployee(
@@ -778,25 +882,8 @@ export async function ingestEvent(input: {
     },
   });
 
-  const ops = await getOperations();
-
   if (existing) {
-    let linked = await findIntervalForEvent(existing);
-    if (!linked && eventRequiresIntervalLink(existing.kind)) {
-      const hotelDate = hotelDateAsUtcDate(
-        existing.normalizedTime,
-        ops.hotelTimezone,
-      );
-      await prisma.$transaction(async (tx) => {
-        await rebuildIntervalsForEmployee(existing.employeeId, hotelDate, tx);
-      });
-      linked = await findIntervalForEvent(existing);
-    }
-    return {
-      event: existing,
-      created: false,
-      intervalId: linked?.id ?? null,
-    };
+    return reconcileExistingEvent(existing);
   }
 
   const employee = await prisma.employee.findUnique({
@@ -817,29 +904,47 @@ export async function ingestEvent(input: {
   const skew =
     input.clockSkewSeconds ??
     Math.round((deviceTime.getTime() - receivedAt.getTime()) / 1000);
+  const ops = await getOperations();
   const hotelDate = hotelDateAsUtcDate(normalizedTime, ops.hotelTimezone);
 
-  const result = await prisma.$transaction(async (tx) => {
-    const event = await tx.attendanceEvent.create({
-      data: {
-        externalEventId: input.externalEventId,
-        source,
-        employeeId: input.employeeId,
-        kind: input.kind,
-        deviceTime,
-        receivedAt,
-        normalizedTime,
-        clockSkewSeconds: skew,
-      },
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const event = await tx.attendanceEvent.create({
+        data: {
+          externalEventId: input.externalEventId,
+          source,
+          employeeId: input.employeeId,
+          kind: input.kind,
+          deviceTime,
+          receivedAt,
+          normalizedTime,
+          clockSkewSeconds: skew,
+        },
+      });
+
+      await rebuildIntervalsForEmployee(input.employeeId, hotelDate, tx);
+
+      const linked = await findIntervalForEvent(event, tx);
+      return { event, intervalId: linked?.id ?? null };
     });
 
-    await rebuildIntervalsForEmployee(input.employeeId, hotelDate, tx);
-
-    const linked = await findIntervalForEvent(event, tx);
-    return { event, intervalId: linked?.id ?? null };
-  });
-
-  return { event: result.event, created: true, intervalId: result.intervalId };
+    return { event: result.event, created: true, intervalId: result.intervalId };
+  } catch (err) {
+    if (isP2002(err) && isAttendanceEventUniqueConflict(err)) {
+      const again = await prisma.attendanceEvent.findUnique({
+        where: {
+          source_externalEventId: {
+            source,
+            externalEventId: input.externalEventId,
+          },
+        },
+      });
+      if (again) {
+        return reconcileExistingEvent(again);
+      }
+    }
+    throw err;
+  }
 }
 
 export async function requestAdjustment(input: {

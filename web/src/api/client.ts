@@ -84,6 +84,7 @@ export type Action =
   | "cards.revoke"
   | "analytics.view"
   | "sectors.manage"
+  | "sectors.transfer_cross"
   | "shifts.manage"
   | "issue_options.manage"
   | "audit.view"
@@ -251,6 +252,9 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
   }
   if (action === "sectors.manage" || action === "shifts.manage") {
     return ["supervisor", "manager", "admin"].includes(user.role);
+  }
+  if (action === "sectors.transfer_cross") {
+    return ["manager", "admin"].includes(user.role);
   }
   if (action === "rooms.manage") {
     return ["supervisor", "manager", "admin"].includes(user.role);
@@ -754,6 +758,11 @@ export function clearSession() {
   localStorage.removeItem("token");
   localStorage.removeItem("refreshToken");
   localStorage.removeItem("user");
+  // Best-effort: drop private IndexedDB + leftover authenticated HTTP caches
+  // so a shared device cannot surface the previous user's offline data.
+  void import("../offline").then((m) => {
+    m.clearPrivateOfflineState();
+  });
 }
 
 /** @deprecated Use clearSession */
@@ -1410,6 +1419,7 @@ export type CleaningResultsRow = {
   onTimePct: number | null;
   avgValidMinutes: number | null;
   totalValidSessionMinutes: number;
+  totalExcludedSessionMinutes: number;
 };
 
 export type CleaningResultsResponse = {
@@ -1424,6 +1434,8 @@ export type CleaningResultsResponse = {
     distinctRooms: number;
     onTimePct: number | null;
     productivity: number | null;
+    totalValidSessionMinutes: number;
+    totalExcludedSessionMinutes: number;
     byServiceType: Array<{ key: CleaningServiceType; count: number }>;
   };
   series: Array<{ hour: number; completedSessions: number }>;
@@ -1765,12 +1777,15 @@ export type HousekeepingAnalyticsKpis = {
   acceptedTasks: number;
   reworkEvents: number;
   anomalousSessions: number;
+  distinctRooms: number;
   readyRooms: number;
   onTimePct: number | null;
   onTimeSampleCount: number;
   auditFindings: number;
   riskRooms: number;
   avgMinutesPerTask: number | null;
+  totalValidSessionMinutes: number;
+  totalExcludedSessionMinutes: number;
   p50SessionMinutes: number | null;
   p90SessionMinutes: number | null;
   insufficientDurationData: boolean;
@@ -2309,7 +2324,7 @@ export async function downloadAttendanceCsv(params?: {
   month?: string;
   department?: string;
   q?: string;
-}) {
+}): Promise<{ truncated: boolean; total: number | null }> {
   const search = new URLSearchParams();
   if (params?.scope) search.set("scope", params.scope);
   if (params?.month) search.set("month", params.month);
@@ -2326,6 +2341,11 @@ export async function downloadAttendanceCsv(params?: {
       (body as { message?: string }).message ?? `Export failed (${res.status})`,
     );
   }
+  const truncated =
+    res.headers.get("X-Attendance-Truncated")?.toLowerCase() === "true";
+  const totalRaw = res.headers.get("X-Attendance-Total");
+  const totalParsed = totalRaw != null ? Number(totalRaw) : NaN;
+  const total = Number.isFinite(totalParsed) ? totalParsed : null;
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -2333,6 +2353,7 @@ export async function downloadAttendanceCsv(params?: {
   a.download = "attendance.csv";
   a.click();
   URL.revokeObjectURL(url);
+  return { truncated, total };
 }
 
 export async function requestAttendanceAdjustment(body: {

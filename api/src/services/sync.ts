@@ -6,6 +6,7 @@ import { canPerform } from "./roleGrants";
 import {
   completeCleaningSession,
   startCleaningTask,
+  type TaskConflictDetails,
 } from "./cleaning";
 import {
   assertCanAccessLocation,
@@ -40,6 +41,81 @@ export type SyncCommandResult = {
   data?: unknown;
 };
 
+async function taskSnapshotDetails(
+  taskId: string,
+  expectedVersion?: number,
+): Promise<TaskConflictDetails | undefined> {
+  const task = await prisma.cleaningTask.findUnique({
+    where: { id: taskId },
+    select: {
+      version: true,
+      status: true,
+      assignedEmployeeId: true,
+    },
+  });
+  if (!task) return undefined;
+  return {
+    ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+    currentVersion: task.version,
+    status: task.status,
+    assignedEmployeeId: task.assignedEmployeeId,
+  };
+}
+
+async function sessionTaskSnapshotDetails(
+  sessionId: string,
+  expectedVersion?: number,
+): Promise<TaskConflictDetails | undefined> {
+  const session = await prisma.cleaningSession.findUnique({
+    where: { id: sessionId },
+    select: { taskId: true },
+  });
+  if (!session) return undefined;
+  return taskSnapshotDetails(session.taskId, expectedVersion);
+}
+
+/**
+ * Access loss after reassignment is a conflict for offline sync, not a bare
+ * permission denial. True "missing action" denials stay forbidden.
+ */
+async function conflictFromAccessLoss(
+  cmd: SyncCommand,
+  err: AppError,
+  expectedVersion?: number,
+): Promise<SyncCommandResult | null> {
+  if (err.status !== 403) return null;
+  if (cmd.type === "cleaning.start") {
+    const taskId = String(cmd.payload.taskId ?? "");
+    const details = await taskSnapshotDetails(taskId, expectedVersion);
+    return {
+      commandId: cmd.commandId,
+      status: "conflict",
+      code: details ? "assignee_conflict" : "out_of_scope",
+      message: details
+        ? "Task was reassigned to another employee"
+        : err.message,
+      details,
+    };
+  }
+  if (cmd.type === "cleaning.complete") {
+    const sessionId = String(cmd.payload.sessionId ?? "");
+    const details = await sessionTaskSnapshotDetails(
+      sessionId,
+      expectedVersion,
+    );
+    return {
+      commandId: cmd.commandId,
+      status: "conflict",
+      code: details ? "assignee_conflict" : "out_of_scope",
+      message: details
+        ? "Task was reassigned to another employee"
+        : err.message,
+      details,
+    };
+  }
+  return null;
+}
+
 async function applyCommand(
   user: AuthUser,
   cmd: SyncCommand,
@@ -57,11 +133,23 @@ async function applyCommand(
           };
         }
         const taskId = String(cmd.payload.taskId ?? "");
-        await assertCanAccessTask(scope, taskId);
         const expectedVersion =
           typeof cmd.payload.expectedVersion === "number"
             ? cmd.payload.expectedVersion
             : undefined;
+        try {
+          await assertCanAccessTask(scope, taskId);
+        } catch (err) {
+          if (err instanceof AppError) {
+            const mapped = await conflictFromAccessLoss(
+              cmd,
+              err,
+              expectedVersion,
+            );
+            if (mapped) return mapped;
+          }
+          throw err;
+        }
         const result = await startCleaningTask({
           taskId,
           employeeId: user.employeeId,
@@ -79,13 +167,25 @@ async function applyCommand(
           };
         }
         const sessionId = String(cmd.payload.sessionId ?? "");
-        await assertCanAccessSession(scope, sessionId);
         const notes =
           typeof cmd.payload.notes === "string" ? cmd.payload.notes : undefined;
         const expectedVersion =
           typeof cmd.payload.expectedVersion === "number"
             ? cmd.payload.expectedVersion
             : undefined;
+        try {
+          await assertCanAccessSession(scope, sessionId);
+        } catch (err) {
+          if (err instanceof AppError) {
+            const mapped = await conflictFromAccessLoss(
+              cmd,
+              err,
+              expectedVersion,
+            );
+            if (mapped) return mapped;
+          }
+          throw err;
+        }
         const result = await completeCleaningSession({
           sessionId,
           employeeId: user.employeeId,

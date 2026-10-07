@@ -9,12 +9,14 @@ import {
 import { getJwtSecret } from "../auth/tokens";
 import { subscribe, type LiveEvent } from "../events/bus";
 import { canDeliverLiveEvent } from "../events/authorizeLiveEvent";
-import { resolveDataScope } from "../services/dataScope";
+import { resolveDataScope, type DataScope } from "../services/dataScope";
+import { assertSessionActive } from "../services/authSessions";
 
 export const eventsRouter = Router();
 
 const SSE_TICKET_PURPOSE = "sse" as const;
 const SSE_TICKET_EXPIRES_SEC = 5 * 60;
+const SSE_HEARTBEAT_MS = 25_000;
 
 type SseTicketPayload = {
   purpose: typeof SSE_TICKET_PURPOSE;
@@ -36,6 +38,27 @@ function isSseTicketPayload(value: unknown): value is SseTicketPayload {
     typeof v.email === "string" &&
     typeof v.sid === "string"
   );
+}
+
+type AssertSessionActive = typeof assertSessionActive;
+
+/**
+ * Resolve an SSE ticket JWT to AuthUser using the active AuthSession / DB role.
+ * JWT role/email/employeeId claims are ignored for authorization.
+ * Exported for unit tests.
+ */
+export async function resolveSseTicketUser(
+  ticket: string,
+  assertActive: AssertSessionActive = assertSessionActive,
+): Promise<AuthUser | null> {
+  try {
+    const decoded = jwt.verify(ticket, getJwtSecret());
+    if (!isSseTicketPayload(decoded)) return null;
+    const session = await assertActive(decoded.sid, decoded.userId);
+    return authUserFromSession(session);
+  } catch {
+    return null;
+  }
 }
 
 /** Session access token via Authorization: Bearer (preferred). */
@@ -60,23 +83,11 @@ async function authenticateBearer(req: Request): Promise<AuthUser | null> {
 }
 
 /** Short-lived stream ticket via ?ticket= (EventSource-compatible). */
-function authenticateTicket(req: Request): AuthUser | null {
+async function authenticateTicket(req: Request): Promise<AuthUser | null> {
   const ticket =
     typeof req.query.ticket === "string" ? req.query.ticket : null;
   if (!ticket) return null;
-  try {
-    const decoded = jwt.verify(ticket, getJwtSecret());
-    if (!isSseTicketPayload(decoded)) return null;
-    return {
-      userId: decoded.userId,
-      employeeId: decoded.employeeId,
-      role: decoded.role,
-      email: decoded.email,
-      sid: decoded.sid,
-    };
-  } catch {
-    return null;
-  }
+  return resolveSseTicketUser(ticket);
 }
 
 async function authenticateStream(req: Request): Promise<AuthUser | null> {
@@ -110,6 +121,18 @@ function writeSse(res: Response, event: string, data: unknown) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+function authUserFromSession(
+  session: Awaited<ReturnType<AssertSessionActive>>,
+): AuthUser {
+  return {
+    userId: session.user.id,
+    employeeId: session.user.employeeId,
+    role: session.user.role,
+    email: session.user.email,
+    sid: session.id,
+  };
+}
+
 eventsRouter.post("/ticket", requireAuth, (req, res) => {
   const user = req.user!;
   const payload: SseTicketPayload = {
@@ -135,9 +158,10 @@ eventsRouter.get("/stream", async (req, res) => {
     });
   }
 
-  let scope;
+  let currentUser = user;
+  let scope: DataScope;
   try {
-    scope = await resolveDataScope(user);
+    scope = await resolveDataScope(currentUser);
   } catch (err) {
     console.error("resolveDataScope failed for SSE", err);
     return res.status(500).json({
@@ -156,7 +180,7 @@ eventsRouter.get("/stream", async (req, res) => {
 
   writeSse(res, "connected", {
     ok: true,
-    userId: user.userId,
+    userId: currentUser.userId,
     at: new Date().toISOString(),
   });
 
@@ -175,17 +199,52 @@ eventsRouter.get("/stream", async (req, res) => {
   };
   const unsubscribe = subscribe(onLive);
 
-  const heartbeat = setInterval(() => {
-    if (closed) return;
-    res.write(`: ping ${Date.now()}\n\n`);
-  }, 25_000);
-
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
   const cleanup = () => {
     if (closed) return;
     closed = true;
-    clearInterval(heartbeat);
+    if (heartbeat !== undefined) clearInterval(heartbeat);
     unsubscribe();
   };
+
+  heartbeat = setInterval(() => {
+    if (closed) return;
+    void (async () => {
+      try {
+        const session = await assertSessionActive(
+          currentUser.sid,
+          currentUser.userId,
+        );
+        const next = authUserFromSession(session);
+        if (
+          next.role !== currentUser.role ||
+          next.employeeId !== currentUser.employeeId ||
+          next.email !== currentUser.email
+        ) {
+          currentUser = next;
+          try {
+            scope = await resolveDataScope(currentUser);
+          } catch (err) {
+            console.error("resolveDataScope failed on SSE heartbeat", err);
+            writeSse(res, "revoked", {
+              ok: false,
+              reason: "scope_refresh_failed",
+            });
+            cleanup();
+            res.end();
+            return;
+          }
+        }
+        if (closed) return;
+        res.write(`: ping ${Date.now()}\n\n`);
+      } catch {
+        if (closed) return;
+        writeSse(res, "revoked", { ok: false, reason: "session_revoked" });
+        cleanup();
+        res.end();
+      }
+    })();
+  }, SSE_HEARTBEAT_MS);
 
   req.on("close", cleanup);
   req.on("error", cleanup);

@@ -210,6 +210,18 @@ export function ResultsPage() {
               <strong>{data.summary.distinctRooms}</strong>
             </div>
             <div className="stat-card">
+              <span className="muted">Валидни мин.</span>
+              <strong>
+                {formatNum(data.summary.totalValidSessionMinutes)}
+              </strong>
+            </div>
+            <div className="stat-card">
+              <span className="muted">Изключени мин.</span>
+              <strong>
+                {formatNum(data.summary.totalExcludedSessionMinutes)}
+              </strong>
+            </div>
+            <div className="stat-card">
               <span className="muted">Навреме</span>
               <strong>{formatPct(data.summary.onTimePct)}</strong>
             </div>
@@ -292,12 +304,13 @@ export function ResultsPage() {
                     <th>Навреме</th>
                     <th>Ср. валидни мин.</th>
                     <th>Валидни мин.</th>
+                    <th>Изключени мин.</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.rows.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="muted">
+                      <td colSpan={11} className="muted">
                         Няма данни за периода.
                       </td>
                     </tr>
@@ -314,6 +327,7 @@ export function ResultsPage() {
                         <td>{formatPct(row.onTimePct)}</td>
                         <td>{formatNum(row.avgValidMinutes)}</td>
                         <td>{row.totalValidSessionMinutes}</td>
+                        <td>{row.totalExcludedSessionMinutes}</td>
                       </tr>
                     ))
                   )}

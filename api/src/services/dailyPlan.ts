@@ -11,9 +11,11 @@ import {
 } from "@prisma/client";
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES } from "../constants";
-import { AppError, deriveCleaningServiceType } from "./cleaning";
+import { hotelDateString } from "./attendance";
+import { AppError, allocateCleaningCycle, bumpDirtyAndRebindWork, deriveCleaningServiceType } from "./cleaning";
 import { sectorSnapshotForLocation } from "./dataScope";
 import { assertActiveShiftId } from "./sectors";
+import { getOperations } from "./settings";
 
 const PRIORITY_RANK: Record<Priority, number> = {
   low: 0,
@@ -62,7 +64,13 @@ type PlanEffects = {
   dirty: boolean;
   task: TaskEffect;
   cleaningTaskId: string | null;
+  roomEffectsApplied: boolean;
 };
+
+async function todayHotelDateYmd(): Promise<string> {
+  const ops = await getOperations();
+  return hotelDateString(new Date(), ops.hotelTimezone);
+}
 
 async function createTaskWithSectorSnapshot(
   tx: Tx,
@@ -81,6 +89,9 @@ async function createTaskWithSectorSnapshot(
     locationKind: data.locationKind,
     planCategory: data.planCategory,
   });
+  const cleaningCycle = await allocateCleaningCycle(tx, data.locationId, {
+    setDirtyIfCleanOrPending: true,
+  });
   try {
     return await tx.cleaningTask.create({
       data: {
@@ -93,6 +104,7 @@ async function createTaskWithSectorSnapshot(
         serviceType,
         sectorId: snap.sectorId,
         sectorSupervisorEmployeeId: snap.sectorSupervisorEmployeeId,
+        cleaningCycle,
       },
     });
   } catch (err) {
@@ -246,6 +258,8 @@ export async function getDailyPlan(
   locationFilter?: Prisma.LocationWhereInput,
 ) {
   const date = parseHotelDate(hotelDate);
+  await ensureDepartureRoomEffects(date);
+
   const entries = await prisma.dailyPlanEntry.findMany({
     where: {
       hotelDate: date,
@@ -270,6 +284,43 @@ export async function getDailyPlan(
   };
 }
 
+/**
+ * Apply deferred vacant+dirty for departure plan entries once their hotelDate
+ * has arrived (or is in the past). No-op for future hotel dates.
+ */
+export async function ensureDepartureRoomEffects(hotelDate: Date) {
+  const todayYmd = await todayHotelDateYmd();
+  const planYmd = formatHotelDate(hotelDate);
+  if (planYmd > todayYmd) {
+    return;
+  }
+
+  const pending = await prisma.dailyPlanEntry.findMany({
+    where: {
+      hotelDate,
+      category: DailyPlanCategory.departure,
+      roomEffectsAppliedAt: null,
+    },
+    select: { id: true, locationId: true },
+  });
+  if (pending.length === 0) {
+    return;
+  }
+
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    for (const entry of pending) {
+      await bumpDirtyAndRebindWork(tx, entry.locationId, {
+        occupancy: Occupancy.vacant,
+      });
+      await tx.dailyPlanEntry.update({
+        where: { id: entry.id },
+        data: { roomEffectsAppliedAt: now },
+      });
+    }
+  });
+}
+
 async function applyPlanEntryEffects(
   tx: Tx,
   location: LocationRow,
@@ -277,11 +328,13 @@ async function applyPlanEntryEffects(
   category: DailyPlanCategory,
   assignedEmployeeId?: string,
   shiftId?: string | null,
+  todayYmd?: string,
 ): Promise<PlanEffects> {
   let taskEffect: TaskEffect = "skipped";
   let cleaningTaskId: string | null = null;
   let occupancyEffect: "vacant" | null = null;
   let dirtyEffect = false;
+  let roomEffectsApplied = false;
 
   const activeTask = await tx.cleaningTask.findFirst({
     where: {
@@ -304,15 +357,17 @@ async function applyPlanEntryEffects(
   };
 
   if (category === DailyPlanCategory.departure) {
-    await tx.location.update({
-      where: { id: location.id },
-      data: {
+    const today = todayYmd ?? (await todayHotelDateYmd());
+    const planYmd = formatHotelDate(hotelDate);
+    // Room state only on/after checkout day; future departures stay planned.
+    if (planYmd <= today) {
+      await bumpDirtyAndRebindWork(tx, location.id, {
         occupancy: Occupancy.vacant,
-        cleaningStatus: CleaningStatus.dirty,
-      },
-    });
-    occupancyEffect = "vacant";
-    dirtyEffect = true;
+      });
+      occupancyEffect = "vacant";
+      dirtyEffect = true;
+      roomEffectsApplied = true;
+    }
 
     if (activeTask) {
       cleaningTaskId = activeTask.id;
@@ -361,16 +416,9 @@ async function applyPlanEntryEffects(
         });
       }
     } else {
-      if (
+      dirtyEffect =
         location.cleaningStatus === CleaningStatus.verified_clean ||
-        location.cleaningStatus === CleaningStatus.pending_inspection
-      ) {
-        await tx.location.update({
-          where: { id: location.id },
-          data: { cleaningStatus: CleaningStatus.dirty },
-        });
-        dirtyEffect = true;
-      }
+        location.cleaningStatus === CleaningStatus.pending_inspection;
       const created = await createTaskWithSectorSnapshot(tx, {
         locationId: location.id,
         hotelDate,
@@ -425,6 +473,7 @@ async function applyPlanEntryEffects(
     dirty: dirtyEffect,
     task: taskEffect,
     cleaningTaskId,
+    roomEffectsApplied,
   };
 }
 
@@ -480,6 +529,7 @@ export async function createDailyPlanEntry(input: {
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    const todayYmd = await todayHotelDateYmd();
     const effects = await applyPlanEntryEffects(
       tx,
       location,
@@ -487,6 +537,7 @@ export async function createDailyPlanEntry(input: {
       input.category,
       input.assignedEmployeeId,
       shiftId ?? undefined,
+      todayYmd,
     );
 
     const entry = await tx.dailyPlanEntry.create({
@@ -497,6 +548,7 @@ export async function createDailyPlanEntry(input: {
         notes: input.notes ?? null,
         source: DailyPlanSource.manual,
         cleaningTaskId: effects.cleaningTaskId,
+        roomEffectsAppliedAt: effects.roomEffectsApplied ? new Date() : null,
         createdByEmployeeId: input.createdByEmployeeId,
       },
       include: entryInclude,
@@ -570,6 +622,7 @@ export async function importDailyPlan(
   let skippedCount = 0;
   let errorCount = 0;
   const errors: ImportError[] = [];
+  const todayYmd = await todayHotelDateYmd();
 
   for (let index = 0; index < entries.length; index++) {
     const item = entries[index];
@@ -640,6 +693,9 @@ export async function importDailyPlan(
           location,
           hotelDate,
           item.category,
+          undefined,
+          undefined,
+          todayYmd,
         );
 
         await tx.dailyPlanEntry.create({
@@ -652,6 +708,7 @@ export async function importDailyPlan(
             externalId: item.externalId ?? null,
             importBatchId: batch.id,
             cleaningTaskId: effects.cleaningTaskId,
+            roomEffectsAppliedAt: effects.roomEffectsApplied ? new Date() : null,
             createdByEmployeeId,
           },
         });

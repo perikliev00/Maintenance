@@ -80,7 +80,7 @@ Readiness **не е един статус**, а композиция от няк
 | Умна аналитика (S14, §9) | ✅ | Аналитика / `/analytics/summary` |
 | Карти (S11) — UI + БД, без хардуер | ✅ | Карти / `/cards` |
 | Одит лог | ✅ | Одит / `/audit` (+ JobRun в панела) |
-| Offline sync | ✅ | IndexedDB outbox + `/sync/push|pull` |
+| Offline sync | ✅ | IndexedDB outbox + My Work cache (per `userId`; purge/lock on account switch); `/sync/push` + `/sync/pull`; SW precache only (no authenticated `/api` GET cache) |
 | Фонови jobs | ✅ | in-process scheduler (lock / overdue / SLA) |
 
 ---
@@ -136,6 +136,7 @@ Property (Meridian Resort)
 | `catalogStatus` | `active` \| `archived` — дали локацията е в каталога |
 | `occupancy` | `vacant` \| `occupied` \| `unknown` — заетост (**само за стаи** в readiness) |
 | `cleaningStatus` | `dirty` → `in_progress` → `pending_inspection` → `verified_clean` |
+| `cleaningCycle` | Монотонен generation; само текущият cycle може да пише `cleaningStatus` |
 | `serviceStatus` | `in_service` \| `out_of_service` \| `unknown` — технически в експлоатация |
 
 Тези полета **не се сриват** в един „статус“. UI и readiness ги показват отделно.
@@ -159,7 +160,7 @@ Property (Meridian Resort)
 
 **SessionStatus:** `running` \| `completed` \| `cancelled`.
 
-**Аналитични броячи (§9):** сесии ≠ задачи ≠ различни стаи. `rework` е брояч на rejected инспекции (не `serviceType`). Аномална сесия: непразни `anomalyFlags` или продължителност ≥ `2 × overdueSessionMinutes` — изключва се от валидното време.
+**Аналитични броячи (§9):** сесии ≠ задачи ≠ различни стаи. `rework` е брояч на rejected инспекции (не `serviceType`). Аномална сесия: непразни `anomalyFlags` или продължителност ≥ `2 × overdueSessionMinutes` — минутите отиват в `totalExcludedSessionMinutes` и не влизат във валидно време / P50 / P90 / производителност. При complete на сесия, ако продължителността ≥ `overdueSessionMinutes`, се записва флаг `overdue` (същата семантика като overdue job-а), за да не зависят метриките от това дали job-ът е минал докато сесията е била running.
 
 ### Maintenance
 
@@ -220,6 +221,14 @@ Property (Meridian Resort)
  clean      (стаята → dirty; предишните сесии се пазят;
              нова сесия при следващ Start)
 ```
+
+### Cleaning cycle (generation)
+
+`Location.cleaningCycle` е монотонен брояч. Всяка нова cleaning task получава текущия cycle при create (`CleaningTask.cleaningCycle`). Само задачата с **текущия** cycle може да променя `cleaningStatus` (и оттам readiness).
+
+- Нова задача / mark dirty / departure dirty → bump на cycle
+- Stale approve (напр. вчерашна inspection докато днес вече се чисти) → task става `completed`, но location **не** става `verified_clean`
+- Start/complete/cancel върху superseded cycle → `409 stale_cleaning_cycle`
 
 ### Кой какво прави (API actions)
 
@@ -309,6 +318,8 @@ Runtime grants: таблица **`RoleGrant`** (редакция през пан
    - `technician` → тикети с `assigneeId = me` (+ техните помещения)
    - List API филтрира; директен достъп извън обхвата → **403** (не 404 / „няма данни“)
    - Покрити пътища: rooms/tasks/tickets (вкл. create), sync push, sectors CRUD (само свои), live audit + SSE
+   - **Sector location set** (`PUT /sectors/:id/locations`): source + destination се валидират **вътре в транзакцията**. Supervisor може само да пребалансира стаи вече в своите сектори. Чужди/неприсвоени стаи изискват `sectors.transfer_cross` (default: manager/admin).
+   - **Audit list** винаги минава през data scope: sector-scoped актьори не виждат чужди `locationId` / чужди `entityType=sector` редове.
 6. **Исторически назначения** пазят `CleaningTask.sectorId` и `sectorSupervisorEmployeeId` към момента на създаване (не се презаписват при местене на стая в друг сектор).
 
 ### Панели
@@ -353,6 +364,8 @@ people.change_role
 control.access
 settings.manage
 permissions.manage
+sectors.manage
+sectors.transfer_cross
 ```
 
 Login и `GET /auth/me` връщат `panels[]`, `actions[]`, `landing`.  
@@ -496,7 +509,9 @@ UI: каталог в Почистване → Каталог; occupancy/service
 | POST | `/events/ticket` | auth (Bearer) — краткоживущ ticket (~5 мин, `purpose=sse`) за EventSource |
 | GET | `/events/stream` | auth: cookie session, Bearer access JWT, или `?ticket=` (краткоживущ SSE ticket). |
 
-Събития: `connected`, `location.changed`, `cleaning.changed`, `ticket.changed`, `settings.changed`, `people.changed`. Клиентите ги ползват като invalidate и презареждат.
+Stream tickets и отворени SSE връзки са вързани към активна `AuthSession` (роля от DB, не от JWT); при смяна на роля сесиите се revoke-ват и elevated SSE спира най-късно в рамките на един heartbeat (~25s).
+
+Събития: `connected`, `location.changed`, `cleaning.changed`, `ticket.changed`, `settings.changed`, `people.changed`, `revoked`. Клиентите ги ползват като invalidate и презареждат.
 
 Доставка: `settings.changed` / `people.changed` — към всеки логнат; `location` / `cleaning` / `ticket` — само ако ID-тата са в `resolveDataScope` на абоната (без over-sharing между сектори/назначения).
 
@@ -523,9 +538,9 @@ UI: каталог в Почистване → Каталог; occupancy/service
 | GET | `/cleaning/employees/housekeepers` | auth |
 | GET | `/cleaning/results?from=&to=&page=&pageSize=&serviceType=` | `cleaning.results_view` (scoped); `serviceType` = comma list |
 
-Резултати по камериер (S07–S08, §9): отделни броячи — `completedSessions`, `completedTasks` (по `completedAt`), `acceptedTasks` (approved или auto-complete), `reworkEvents` (rejected), `anomalousSessions`, `distinctRooms`. Навреме % = `completedAt ≤ dueAt` за completed задачи със срок. Производителност = completed tasks / валидни сесийни часове (аномалните са изключени). Графика: сесии по час. Филтър `serviceType` за съпоставими единици. „Брой камериери“ = служители с ≥1 completed session в периода. При create/reassign задачата записва `sectorId` + `sectorSupervisorEmployeeId` snapshot; `serviceType` се извежда от вид помещение / дневен план (или се подава изрично).
+Резултати по камериер (S07–S08, §9): отделни броячи — `completedSessions`, `completedTasks` (по `completedAt`), `acceptedTasks` (approved или auto-complete), `reworkEvents` (rejected), `anomalousSessions`, `distinctRooms`, `totalValidSessionMinutes`, `totalExcludedSessionMinutes`. Навреме % = `completedAt ≤ dueAt` за completed задачи със срок. Производителност = completed tasks / валидни сесийни часове (аномалните са изключени). Графика: сесии по час. Филтър `serviceType` за съпоставими единици. „Брой камериери“ = служители с ≥1 completed session в периода. При create/reassign задачата записва `sectorId` + `sectorSupervisorEmployeeId` snapshot; `serviceType` се извежда от вид помещение / дневен план (или се подава изрично).
 
-Housekeeping analytics (`GET /analytics/summary?domain=housekeeping`): същите дефиниции върху `completedAt`; breakdown `byServiceType` + `byPriority`; P50/P90 върху валидни сесии.
+Housekeeping analytics (`GET /analytics/summary?domain=housekeeping`): същите дефиниции върху `completedAt`; плюс `distinctRooms` и валидни/изключени минути; breakdown `byServiceType` + `byPriority`; P50/P90 върху валидни сесии.
 
 ### Сектори / смени / QR
 
@@ -533,7 +548,8 @@ Housekeeping analytics (`GET /analytics/summary?domain=housekeeping`): същи�
 |---|---|---|
 | GET | `/sectors` | `sectors.manage` |
 | GET | `/sectors/mine` | auth — активни сектори с primary supervisor = текущия служител |
-| GET/POST/PATCH | `/sectors`, `…/:id`, `…/:id/locations` | `sectors.manage` |
+| GET/POST/PATCH | `/sectors`, `…/:id` | `sectors.manage` (supervisor не може `POST` — не разширява scope) |
+| PUT | `/sectors/:id/locations` | `sectors.manage` + in-TX source/destination scope; чужди/unassigned → `sectors.transfer_cross` |
 | GET/POST/PATCH | `/shifts`, `…/:id` | `shifts.manage` (GET активни: също `plan.manage` / cleaning create|reassign) |
 | GET/PUT | `/shifts/roster?hotelDate=` | `shifts.manage` — дневен ростер employee↔shift |
 
@@ -586,11 +602,11 @@ Scan UI: `#/room-qr/:token`. Печат: таб QR в Почистване. Ка
 | GET | `/attendance/intervals` | `attendance.view` (`scope=month\|today\|week\|review`, `month`, `department`, `q`, `limit`, `cursor`) — връща `{ intervals, total, nextCursor, limit, maxClockSkewSeconds }` |
 | GET | `/attendance/intervals/:id` | `attendance.view` |
 | GET | `/attendance/export.csv` | `attendance.view` (същите филтри; batch експорт, таван 50 000 реда → 413; header `X-Attendance-Total`) |
-| POST | `/attendance/events` | `attendance.ingest` — симулиран терминал; идемпотентно по `(source, externalEventId)`; при retry преизгражда интервали, ако събитието е записано без интервал |
+| POST | `/attendance/events` | `attendance.ingest` — симулиран терминал; идемпотентно по `(source, externalEventId)`; при retry преизгражда интервали, ако събитието е записано без интервал (вкл. break events и concurrent `P2002` race) |
 | POST | `/attendance/adjustments` | `attendance.request_adjustment` |
 | POST | `/attendance/adjustments/:id/review` | `attendance.approve_adjustment` + `{ decision: approved\|rejected }` |
 
-Оригиналните `AttendanceEvent` записи не се мутират при одобрена корекция. Нощна смяна е един интервал; `hotelDate` = дата на началото в `operations.hotelTimezone`. Ingest е транзакционен и преиграва event stream-а за hotel day на служителя, за да се възстанови partial failure при retry.
+Оригиналните `AttendanceEvent` записи не се мутират при одобрена корекция. Нощна смяна е един интервал; `hotelDate` = дата на началото в `operations.hotelTimezone`. Ingest е транзакционен и преиграва event stream-а за hotel day на служителя, за да се възстанови partial failure при retry; concurrent duplicate create се хваща като `P2002` и минава през същия reconcile път.
 
 ### Audit history migration note
 
@@ -673,7 +689,7 @@ maintenance/
     ├── api/client.ts
     ├── hooks/useLiveRefresh.ts
     ├── theme.ts
-    ├── offline/           # IndexedDB queue + My Work cache
+    ├── offline/           # IndexedDB queue + My Work cache (user-partitioned; cleared on logout/switch)
     ├── pages/ (Login, MyWork, Repairs, Audit, Home, Rooms, Team, Plan, Attendance, Cards, Results, Analytics, Control, Settings, Permissions)
 ```
 

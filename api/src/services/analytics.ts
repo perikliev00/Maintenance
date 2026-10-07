@@ -11,7 +11,10 @@ import { prisma } from "../db";
 import { OPEN_TICKET_STATUSES } from "../constants";
 import { computeReadiness } from "./readiness";
 import { getOperations } from "./settings";
-import { isAnomalousSession } from "./cleaningResults";
+import {
+  isAnomalousSession,
+  sessionDurationBuckets,
+} from "./cleaningResults";
 
 export type AnalyticsDomain = "maintenance" | "housekeeping";
 
@@ -467,10 +470,12 @@ async function getHousekeepingSummary(
     prevWithDue === 0 ? null : round1((prevOnTime / prevWithDue) * 100);
 
   let anomalousSessions = 0;
+  let totalValidSessionMs = 0;
+  let totalExcludedSessionMs = 0;
   const validSessionMinutes: number[] = [];
   for (const s of completedSessions) {
     if (!s.finishedAt) continue;
-    const anomalous = isAnomalousSession({
+    const { anomalous, durationMs } = sessionDurationBuckets({
       startedAt: s.startedAt,
       finishedAt: s.finishedAt,
       anomalyFlags: s.anomalyFlags,
@@ -478,9 +483,11 @@ async function getHousekeepingSummary(
     });
     if (anomalous) {
       anomalousSessions += 1;
+      totalExcludedSessionMs += durationMs;
       continue;
     }
-    const mins = (s.finishedAt.getTime() - s.startedAt.getTime()) / 60000;
+    totalValidSessionMs += durationMs;
+    const mins = durationMs / 60000;
     if (mins >= 0 && Number.isFinite(mins)) validSessionMinutes.push(mins);
   }
 
@@ -488,7 +495,9 @@ async function getHousekeepingSummary(
   let onTime = 0;
   let tasksWithValidTime = 0;
   let totalValidMsForTasks = 0;
+  const distinctRooms = new Set<string>();
   for (const task of completedTasks) {
+    distinctRooms.add(task.locationId);
     if (task.dueAt && task.completedAt) {
       withDue += 1;
       if (task.completedAt <= task.dueAt) onTime += 1;
@@ -520,6 +529,10 @@ async function getHousekeepingSummary(
     tasksWithValidTime > 0
       ? round1(totalValidMsForTasks / (1000 * 60) / tasksWithValidTime)
       : null;
+  const totalValidSessionMinutes = round1(totalValidSessionMs / (1000 * 60));
+  const totalExcludedSessionMinutes = round1(
+    totalExcludedSessionMs / (1000 * 60),
+  );
 
   const locations = await prisma.location.findMany({
     where: {
@@ -653,12 +666,15 @@ async function getHousekeepingSummary(
       acceptedTasks,
       reworkEvents: rejectedInspections.length,
       anomalousSessions,
+      distinctRooms: distinctRooms.size,
       readyRooms,
       onTimePct,
       onTimeSampleCount: withDue,
       auditFindings: rejectedInspections.length,
       riskRooms: riskRooms.length,
       avgMinutesPerTask,
+      totalValidSessionMinutes,
+      totalExcludedSessionMinutes,
       p50SessionMinutes: p50,
       p90SessionMinutes: p90,
       insufficientDurationData: sorted.length < MIN_PERCENTILE_SAMPLES,

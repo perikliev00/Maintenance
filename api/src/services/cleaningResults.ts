@@ -30,6 +30,7 @@ export type CleaningResultsCounters = {
   onTimePct: number | null;
   avgValidMinutes: number | null;
   totalValidSessionMinutes: number;
+  totalExcludedSessionMinutes: number;
 };
 
 export type CleaningResultsRow = {
@@ -50,6 +51,8 @@ export type CleaningResultsResponse = {
     distinctRooms: number;
     onTimePct: number | null;
     productivity: number | null;
+    totalValidSessionMinutes: number;
+    totalExcludedSessionMinutes: number;
     byServiceType: Array<{ key: CleaningServiceType; count: number }>;
   };
   series: Array<{ hour: number; completedSessions: number }>;
@@ -92,13 +95,34 @@ export function isAnomalousSession(input: {
   return durationMin >= input.anomalyThresholdMinutes;
 }
 
+/** Split session duration into valid vs excluded (anomalous) minutes. */
+export function sessionDurationBuckets(input: {
+  startedAt: Date;
+  finishedAt: Date;
+  anomalyFlags: unknown;
+  anomalyThresholdMinutes: number;
+}): { anomalous: boolean; durationMs: number } {
+  const durationMs = Math.max(
+    0,
+    input.finishedAt.getTime() - input.startedAt.getTime(),
+  );
+  return {
+    anomalous: isAnomalousSession(input),
+    durationMs,
+  };
+}
+
 function emptyCounters(): Omit<
   CleaningResultsCounters,
-  "onTimePct" | "avgValidMinutes" | "totalValidSessionMinutes"
+  | "onTimePct"
+  | "avgValidMinutes"
+  | "totalValidSessionMinutes"
+  | "totalExcludedSessionMinutes"
 > & {
   onTimeKnown: number;
   onTimeOk: number;
   totalValidSessionMs: number;
+  totalExcludedSessionMs: number;
   tasksWithValidTime: number;
 } {
   return {
@@ -111,6 +135,7 @@ function emptyCounters(): Omit<
     onTimeKnown: 0,
     onTimeOk: 0,
     totalValidSessionMs: 0,
+    totalExcludedSessionMs: 0,
     tasksWithValidTime: 0,
   };
 }
@@ -120,6 +145,9 @@ function finalizeCounters(
   roomSet: Set<string>,
 ): CleaningResultsCounters {
   const totalValidSessionMinutes = round1(agg.totalValidSessionMs / (1000 * 60));
+  const totalExcludedSessionMinutes = round1(
+    agg.totalExcludedSessionMs / (1000 * 60),
+  );
   return {
     completedSessions: agg.completedSessions,
     completedTasks: agg.completedTasks,
@@ -136,6 +164,7 @@ function finalizeCounters(
         ? round1(totalValidSessionMinutes / agg.tasksWithValidTime)
         : null,
     totalValidSessionMinutes,
+    totalExcludedSessionMinutes,
   };
 }
 
@@ -265,20 +294,20 @@ export async function getCleaningResults(
   for (const session of sessions) {
     if (!session.finishedAt) continue;
 
-    const anomalous = isAnomalousSession({
+    const { anomalous, durationMs } = sessionDurationBuckets({
       startedAt: session.startedAt,
       finishedAt: session.finishedAt,
       anomalyFlags: session.anomalyFlags,
       anomalyThresholdMinutes,
     });
-    const durationMs = Math.max(
-      0,
-      session.finishedAt.getTime() - session.startedAt.getTime(),
-    );
 
     summaryAgg.completedSessions += 1;
-    if (anomalous) summaryAgg.anomalousSessions += 1;
-    else summaryAgg.totalValidSessionMs += durationMs;
+    if (anomalous) {
+      summaryAgg.anomalousSessions += 1;
+      summaryAgg.totalExcludedSessionMs += durationMs;
+    } else {
+      summaryAgg.totalValidSessionMs += durationMs;
+    }
 
     const hour = session.finishedAt.getUTCHours();
     hourBuckets[hour] += 1;
@@ -289,8 +318,12 @@ export async function getCleaningResults(
       session.employee.employeeNumber,
     );
     emp.completedSessions += 1;
-    if (anomalous) emp.anomalousSessions += 1;
-    else emp.totalValidSessionMs += durationMs;
+    if (anomalous) {
+      emp.anomalousSessions += 1;
+      emp.totalExcludedSessionMs += durationMs;
+    } else {
+      emp.totalValidSessionMs += durationMs;
+    }
   }
 
   for (const task of completedTasks) {
@@ -448,6 +481,8 @@ export async function getCleaningResults(
       distinctRooms: summaryCounters.distinctRooms,
       onTimePct: summaryCounters.onTimePct,
       productivity,
+      totalValidSessionMinutes: summaryCounters.totalValidSessionMinutes,
+      totalExcludedSessionMinutes: summaryCounters.totalExcludedSessionMinutes,
       byServiceType: [...byServiceType.entries()]
         .map(([key, count]) => ({ key, count }))
         .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)),

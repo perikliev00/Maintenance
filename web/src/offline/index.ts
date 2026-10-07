@@ -1,3 +1,10 @@
+import {
+  canRebaseConflict,
+  decideSyncResult,
+  rebaseBodyWithCurrentVersion,
+  shouldTreatForbiddenAsConflict,
+} from "./conflict";
+
 export type ConnMode = "online" | "offline" | "syncing" | "unreachable";
 
 export type QueueActionStatus =
@@ -5,6 +12,13 @@ export type QueueActionStatus =
   | "sending"
   | "conflict"
   | "failed";
+
+export {
+  canRebaseConflict,
+  parseConflictDetails,
+  entityIdFromQueued,
+  rebaseBodyWithCurrentVersion,
+} from "./conflict";
 
 export type QueueStats = {
   pending: number;
@@ -63,6 +77,10 @@ let apiUnreachable = false;
 let backoffAttempt = 0;
 let backoffTimer: ReturnType<typeof setTimeout> | null = null;
 let activeUserId: string | null = null;
+/** True while account-switch purge/lock is in progress — blocks reads/writes. */
+let switching = false;
+/** Serialize setOfflineUser so concurrent logout/login cannot interleave. */
+let switchChain: Promise<void> = Promise.resolve();
 
 function apiBase(): string {
   return import.meta.env.VITE_API_URL ?? "/api";
@@ -248,18 +266,96 @@ function statsFromRows(rows: QueuedAction[]): QueueStats {
   };
 }
 
-export function setOfflineUser(userId: string | null): void {
-  const changed = activeUserId !== userId;
-  activeUserId = userId;
-  if (!changed) return;
-  if (userId && navigator.onLine) {
+/** Clear shared Cache Storage entries that may hold authenticated GET bodies. */
+export async function clearAuthenticatedHttpCaches(): Promise<void> {
+  if (typeof caches === "undefined") return;
+  try {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((k) => k === "api-get" || k.startsWith("api-get-"))
+        .map((k) => caches.delete(k)),
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Wipe all private IndexedDB outbox + My Work cache rows (shared-device safe). */
+export async function purgePrivateOfflineData(): Promise<void> {
+  try {
+    await withStore(QUEUE_STORE, "readwrite", (store) => store.clear());
+    await withStore(CACHE_STORE, "readwrite", (store) => store.clear());
+  } catch {
+    /* best-effort */
+  }
+}
+
+async function applyOfflineUser(userId: string | null): Promise<void> {
+  if (activeUserId === userId && !switching) return;
+
+  const previous = activeUserId;
+  switching = true;
+  try {
+    await clearAuthenticatedHttpCaches();
+    // Purge when leaving a user (logout or A→B). Skip on initial bind null→id
+    // so a reload does not wipe the signed-in user's own offline data.
+    if (previous !== null && previous !== userId) {
+      await purgePrivateOfflineData();
+    }
+    activeUserId = userId;
+  } finally {
+    switching = false;
+  }
+
+  if (userId && typeof navigator !== "undefined" && navigator.onLine) {
     void drainQueue();
   }
   notify();
 }
 
+/**
+ * Bind offline stores to a stable userId. On change: lock, clear shared HTTP
+ * caches, purge private IndexedDB when leaving a previous user, then unlock.
+ */
+export function setOfflineUser(userId: string | null): void {
+  switchChain = switchChain
+    .then(() => applyOfflineUser(userId))
+    .catch(() => {
+      switching = false;
+    });
+  void switchChain;
+}
+
+/**
+ * Logout / session clear: always purge private IndexedDB + HTTP caches and
+ * clear active user (even if already null — covers killed-tab residue).
+ */
+export function clearPrivateOfflineState(): void {
+  switchChain = switchChain
+    .then(async () => {
+      switching = true;
+      try {
+        await clearAuthenticatedHttpCaches();
+        await purgePrivateOfflineData();
+        activeUserId = null;
+      } finally {
+        switching = false;
+      }
+      notify();
+    })
+    .catch(() => {
+      switching = false;
+    });
+  void switchChain;
+}
+
 export function getOfflineUser(): string | null {
   return activeUserId;
+}
+
+export function isOfflineSwitching(): boolean {
+  return switching;
 }
 
 export function subscribeOffline(listener: Listener): () => void {
@@ -292,7 +388,7 @@ export function subscribeOffline(listener: Listener): () => void {
 }
 
 export async function getQueueStats(): Promise<QueueStats> {
-  if (!activeUserId) return emptyStats();
+  if (switching || !activeUserId) return emptyStats();
   const rows = await listQueueForUser(activeUserId);
   return statsFromRows(rows);
 }
@@ -300,7 +396,7 @@ export async function getQueueStats(): Promise<QueueStats> {
 export async function listQueuedActions(
   statuses?: QueueActionStatus[],
 ): Promise<QueuedAction[]> {
-  if (!activeUserId) return [];
+  if (switching || !activeUserId) return [];
   const rows = await listQueueForUser(activeUserId);
   const filtered = statuses
     ? rows.filter((r) => statuses.includes(r.status))
@@ -323,7 +419,7 @@ async function enqueue(
     | "retries"
   > & { id?: string },
 ): Promise<QueuedAction> {
-  if (!activeUserId) {
+  if (switching || !activeUserId) {
     throw new Error("Cannot enqueue offline action without an active user");
   }
   const now = Date.now();
@@ -355,20 +451,27 @@ async function enqueue(
 export async function saveMyWorkCache(
   payload: MyWorkCachePayload,
 ): Promise<void> {
-  if (!activeUserId) return;
+  if (switching || !activeUserId) return;
   await withStore(CACHE_STORE, "readwrite", (store) =>
     store.put({ key: cacheKeyFor(activeUserId!), ...payload }),
   );
 }
 
 export async function loadMyWorkCache(): Promise<MyWorkCachePayload | null> {
-  if (!activeUserId) return null;
+  if (switching || !activeUserId) return null;
+  const userId = activeUserId;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CACHE_STORE, "readonly");
     const store = tx.objectStore(CACHE_STORE);
-    const req = store.get(cacheKeyFor(activeUserId!));
+    const req = store.get(cacheKeyFor(userId));
     req.onsuccess = () => {
+      // Drop result if account switched mid-read.
+      if (switching || activeUserId !== userId) {
+        resolve(null);
+        db.close();
+        return;
+      }
       const row = req.result as (MyWorkCachePayload & { key: string }) | undefined;
       if (!row) {
         resolve(null);
@@ -386,17 +489,15 @@ export async function loadMyWorkCache(): Promise<MyWorkCachePayload | null> {
 }
 
 export async function dismissQueuedAction(id: string): Promise<void> {
-  if (!activeUserId) return;
-  const rows = await listQueueForUser(activeUserId);
-  const item = rows.find((r) => r.id === id);
-  if (!item) return;
-  if (item.status !== "conflict" && item.status !== "failed") return;
-  await deleteQueuedAction(id);
-  notify();
+  await resolveQueuedAction(id, { mode: "dismiss" });
 }
 
+/**
+ * Blind retry (same payload). Prefer `resolveQueuedAction({ mode: "rebase" })`
+ * for version_conflict so expectedVersion is advanced.
+ */
 export async function retryQueuedAction(id: string): Promise<void> {
-  if (!activeUserId) return;
+  if (switching || !activeUserId) return;
   const rows = await listQueueForUser(activeUserId);
   const item = rows.find((r) => r.id === id);
   if (!item) return;
@@ -413,6 +514,50 @@ export async function retryQueuedAction(id: string): Promise<void> {
   });
   notify("syncing");
   if (navigator.onLine) void drainQueue();
+}
+
+export async function resolveQueuedAction(
+  id: string,
+  opts: { mode: "rebase" | "dismiss" },
+): Promise<boolean> {
+  if (switching || !activeUserId) return false;
+  const rows = await listQueueForUser(activeUserId);
+  const item = rows.find((r) => r.id === id);
+  if (!item) return false;
+  if (item.status !== "conflict" && item.status !== "failed") return false;
+
+  if (opts.mode === "dismiss") {
+    await deleteQueuedAction(id);
+    notify();
+    return true;
+  }
+
+  if (
+    item.status !== "conflict" ||
+    !canRebaseConflict(item.conflictCode, item.conflictDetails)
+  ) {
+    return false;
+  }
+  const nextBody = rebaseBodyWithCurrentVersion(
+    item.body,
+    item.conflictDetails,
+  );
+  if (!nextBody) return false;
+
+  await putQueuedAction({
+    ...item,
+    body: nextBody,
+    status: "pending",
+    lastError: null,
+    conflictCode: null,
+    conflictMessage: null,
+    conflictDetails: null,
+    retries: 0,
+    updatedAt: Date.now(),
+  });
+  notify("syncing");
+  if (navigator.onLine) void drainQueue();
+  return true;
 }
 
 async function fetchWithTimeout(
@@ -509,50 +654,34 @@ async function applySyncResult(
   item: QueuedAction,
   result: SyncPushResult,
 ): Promise<void> {
-  if (result.status === "ok") {
+  const patch = decideSyncResult(result, item.retries, MAX_RETRIES);
+  // Success is the only path that removes the outbox row.
+  if (patch.status === "deleted") {
     await deleteQueuedAction(item.id);
     return;
   }
-  if (result.status === "conflict") {
-    await putQueuedAction({
-      ...item,
-      status: "conflict",
-      lastError: result.message ?? "conflict",
-      conflictCode: result.code ?? null,
-      conflictMessage: result.message ?? null,
-      conflictDetails: result.details ?? null,
-      updatedAt: Date.now(),
-    });
-    return;
-  }
-  if (result.status === "forbidden") {
-    await putQueuedAction({
-      ...item,
-      status: "failed",
-      lastError: result.message ?? "forbidden",
-      conflictCode: null,
-      conflictMessage: null,
-      conflictDetails: null,
-      retries: item.retries + 1,
-      updatedAt: Date.now(),
-    });
-    return;
-  }
-  const retries = item.retries + 1;
   await putQueuedAction({
     ...item,
-    status: retries >= MAX_RETRIES ? "failed" : "pending",
-    lastError: result.message ?? "error",
-    conflictCode: null,
-    conflictMessage: null,
-    conflictDetails: null,
-    retries,
+    status: patch.status,
+    lastError: patch.lastError ?? item.lastError,
+    conflictCode:
+      patch.conflictCode !== undefined ? patch.conflictCode : item.conflictCode,
+    conflictMessage:
+      patch.conflictMessage !== undefined
+        ? patch.conflictMessage
+        : item.conflictMessage,
+    conflictDetails:
+      patch.conflictDetails !== undefined
+        ? patch.conflictDetails
+        : item.conflictDetails,
+    retries: patch.retries ?? item.retries,
+    ...(patch.body ? { body: patch.body } : {}),
     updatedAt: Date.now(),
   });
 }
 
 export async function drainQueue(): Promise<void> {
-  if (draining || !navigator.onLine || !activeUserId) return;
+  if (draining || switching || !navigator.onLine || !activeUserId) return;
   draining = true;
   notify("syncing");
   let networkFailure = false;
@@ -662,12 +791,17 @@ export async function drainQueue(): Promise<void> {
           });
           break;
         }
-        if (status === 409) {
+        // 409 and domain reassignment 403s stay in the outbox as conflicts.
+        if (
+          status === 409 ||
+          (status === 403 &&
+            shouldTreatForbiddenAsConflict(code ?? null, message))
+        ) {
           await putQueuedAction({
             ...item,
             status: "conflict",
             lastError: message,
-            conflictCode: code ?? null,
+            conflictCode: code ?? (status === 409 ? null : "assignee_conflict"),
             conflictMessage: message,
             conflictDetails: details ?? null,
             updatedAt: Date.now(),

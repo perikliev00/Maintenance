@@ -445,7 +445,8 @@ export function PlanPage({ user }: Props) {
             </button>
           </form>
           <p className="muted small">
-            Заминаване задава свободна + мръсна и създава задача. Приоритет /
+            Заминаване създава задача. На деня на checkout (или ръчно) стаята
+            става свободна + мръсна; бъдещ план не променя occupancy. Приоритет /
             пристигане създават или свързват cleaning task.
           </p>
         </section>

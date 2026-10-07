@@ -80,7 +80,7 @@ Readiness is **not a single status** — it is composed from several independent
 | Smart analytics (S14, §9) | ✅ | Analytics / `/analytics/summary` |
 | Cards (S11) — UI + DB, no hardware encoder | ✅ | Cards / `/cards` |
 | Audit log | ✅ | Audit / `/audit`; Settings chronology; Live Board |
-| Offline sync | ✅ | IndexedDB outbox + `/sync/push|pull` |
+| Offline sync | ✅ | IndexedDB outbox + My Work cache (per `userId`; purge/lock on account switch); `/sync/push` + `/sync/pull`; SW precache only (no authenticated `/api` GET cache) |
 | Background jobs | ✅ | in-process scheduler (lock / overdue / SLA) |
 
 ---
@@ -136,6 +136,7 @@ Property (Meridian Resort)
 | `catalogStatus` | `active` \| `archived` — in catalog or not |
 | `occupancy` | `vacant` \| `occupied` \| `unknown` (**rooms only** in readiness) |
 | `cleaningStatus` | `dirty` → `in_progress` → `pending_inspection` → `verified_clean` |
+| `cleaningCycle` | Monotonic generation; only the current cycle may write `cleaningStatus` |
 | `serviceStatus` | `in_service` \| `out_of_service` \| `unknown` |
 
 These fields are **not collapsed** into one status. UI and readiness expose them separately.
@@ -159,9 +160,9 @@ These fields are **not collapsed** into one status. UI and readiness expose them
 
 **SessionStatus:** `running` \| `completed` \| `cancelled`.
 
-**Analytics counters (§9):** sessions ≠ tasks ≠ distinct rooms. Rework is rejected-inspection events (not a `serviceType`). Anomalous session: non-empty `anomalyFlags` or duration ≥ `2 × overdueSessionMinutes` — excluded from valid time.
+**Analytics counters (§9):** sessions ≠ tasks ≠ distinct rooms. Rework is rejected-inspection events (not a `serviceType`). Anomalous session: non-empty `anomalyFlags` or duration ≥ `2 × overdueSessionMinutes` — minutes go to `totalExcludedSessionMinutes` and are excluded from valid time / P50 / P90 / productivity. On session complete, if duration ≥ `overdueSessionMinutes`, an `overdue` flag is stamped (same semantics as the overdue job) so metrics do not depend on the job having run while the session was still running.
 
-Results (`GET /cleaning/results`) and housekeeping analytics use `completedAt` for task KPIs, separate session/accepted/rework/anomaly counters, and optional `serviceType` filter/breakdown.
+Results (`GET /cleaning/results`) and housekeeping analytics use `completedAt` for task KPIs, separate session/accepted/rework/anomaly/room counters plus `totalValidSessionMinutes` / `totalExcludedSessionMinutes`, and optional `serviceType` filter/breakdown.
 
 ### Maintenance
 
@@ -222,6 +223,14 @@ Result: `ready` | `not_ready` | `needs_check` plus a `reasons` list.
  clean      (room → dirty; prior sessions kept;
              new session on next Start)
 ```
+
+### Cleaning cycle (generation)
+
+`Location.cleaningCycle` is a monotonic counter. Each new cleaning task is stamped with the current cycle at create (`CleaningTask.cleaningCycle`). Only the task that owns the **current** cycle may change `cleaningStatus` (and thus readiness).
+
+- New task / mark dirty / departure dirty → bumps the cycle
+- Stale approve (e.g. yesterday’s inspection while today is already cleaning) → task becomes `completed`, but the location does **not** become `verified_clean`
+- Start/complete/cancel on a superseded cycle → `409 stale_cleaning_cycle`
 
 ### Who does what (API actions)
 
@@ -311,6 +320,8 @@ Runtime grants: **`RoleGrant`** table (edited via Permissions panel).
    - `technician` → tickets with `assigneeId = me` (+ those locations)
    - List APIs filter; direct out-of-scope access → **403** (not 404 / “no data”)
    - Covered paths: rooms/tasks/tickets (incl. create), sync push, sectors CRUD (own only), live audit + SSE
+   - **Sector location set** (`PUT /sectors/:id/locations`): source + destination are validated **inside the transaction**. Supervisors may only rebalance rooms already in their sectors. Foreign/unassigned rooms require `sectors.transfer_cross` (default: manager/admin).
+   - **Audit list** always applies data scope: sector-scoped actors do not see foreign `locationId` / other sectors’ `entityType=sector` rows.
 
 ### Panels
 
@@ -354,6 +365,8 @@ people.change_role
 control.access
 settings.manage
 permissions.manage
+sectors.manage
+sectors.transfer_cross
 ```
 
 Login and `GET /auth/me` return `panels[]`, `actions[]`, `landing`.  
@@ -484,6 +497,10 @@ UI: catalog under Housekeeping → Catalog; occupancy/service in the Rooms / Com
 
 | Method | Path | Permission |
 |---|---|---|
+| GET | `/sectors` | `sectors.manage` |
+| GET | `/sectors/mine` | auth — active sectors where primary supervisor = current employee |
+| GET/POST/PATCH | `/sectors`, `…/:id` | `sectors.manage` (supervisors cannot `POST` — would expand scope) |
+| PUT | `/sectors/:id/locations` | `sectors.manage` + in-TX source/destination scope; foreign/unassigned → `sectors.transfer_cross` |
 | GET/POST/PATCH | `/shifts`, `…/:id` | `shifts.manage` (GET active also: `plan.manage` / cleaning create\|reassign) |
 | GET/PUT | `/shifts/roster?hotelDate=` | `shifts.manage` — daily employee↔shift roster |
 
@@ -514,7 +531,9 @@ Query: `entityType`, `entityId`, `locationId`, `actorEmployeeId`, `action`, `fro
 | POST | `/events/ticket` | auth (Bearer) — short-lived ticket (~5 min, `purpose=sse`) for EventSource |
 | GET | `/events/stream` | auth: cookie session, Bearer access JWT, or `?ticket=` (short-lived SSE ticket). |
 
-Events: `connected`, `location.changed`, `cleaning.changed`, `ticket.changed`, `settings.changed`, `people.changed`. Clients treat them as invalidate signals and refetch.
+Stream tickets and open SSE connections are bound to an active `AuthSession` (role from DB, not JWT); role changes revoke sessions and drop elevated SSE within one heartbeat (~25s).
+
+Events: `connected`, `location.changed`, `cleaning.changed`, `ticket.changed`, `settings.changed`, `people.changed`, `revoked`. Clients treat them as invalidate signals and refetch.
 
 Delivery: `settings.changed` / `people.changed` — every authenticated subscriber; `location` / `cleaning` / `ticket` — only when IDs fall inside the subscriber’s `resolveDataScope` (no cross-sector / assignment over-sharing).
 
@@ -585,11 +604,11 @@ Import resolves rooms by `buildingCode` + `roomNumber`, writes `source=import`, 
 | GET | `/attendance/intervals` | `attendance.view` (`scope=month\|today\|week\|review`, `month`, `department`, `q`, `limit`, `cursor`) — returns `{ intervals, total, nextCursor, limit, maxClockSkewSeconds }` |
 | GET | `/attendance/intervals/:id` | `attendance.view` |
 | GET | `/attendance/export.csv` | `attendance.view` (same filters; batched export, ceiling 50 000 rows → 413; `X-Attendance-Total` header) |
-| POST | `/attendance/events` | `attendance.ingest` — simulated terminal; idempotent on `(source, externalEventId)`; retries rebuild intervals if the event was stored without an interval |
+| POST | `/attendance/events` | `attendance.ingest` — simulated terminal; idempotent on `(source, externalEventId)`; retries rebuild intervals if the event was stored without an interval (including break events and concurrent `P2002` races) |
 | POST | `/attendance/adjustments` | `attendance.request_adjustment` |
 | POST | `/attendance/adjustments/:id/review` | `attendance.approve_adjustment` + `{ decision: approved\|rejected }` |
 
-Original `AttendanceEvent` rows are never mutated on approved correction. Overnight shift is one interval; `hotelDate` = start date in `operations.hotelTimezone`. Ingest wraps event + interval rebuild in a transaction and replays the employee’s hotel-day event stream so partial failures self-heal on retry.
+Original `AttendanceEvent` rows are never mutated on approved correction. Overnight shift is one interval; `hotelDate` = start date in `operations.hotelTimezone`. Ingest wraps event + interval rebuild in a transaction and replays the employee’s hotel-day event stream so partial failures self-heal on retry; concurrent duplicate creates are caught as `P2002` and run through the same reconcile path.
 
 ### Audit history migration note
 
@@ -672,7 +691,7 @@ maintenance/
     ├── api/client.ts
     ├── hooks/useLiveRefresh.ts
     ├── theme.ts
-    ├── offline/           # IndexedDB queue + My Work cache
+    ├── offline/           # IndexedDB queue + My Work cache (user-partitioned; cleared on logout/switch)
     ├── pages/ (Login, MyWork, Repairs, Audit, Home, Rooms, Team, Plan, Attendance, Cards, Results, Analytics, Control, Settings, Permissions)
 ```
 

@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from "crypto";
-import type { Role } from "@prisma/client";
+import type { Prisma, Role } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "../errors";
 import { signAccessToken, type AuthUser } from "../auth/tokens";
+
+type DbClient = Prisma.TransactionClient | typeof prisma;
 
 export const ACCESS_TOKEN_TTL_SEC = 15 * 60; // 15 minutes
 export const REFRESH_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
@@ -55,19 +57,25 @@ async function issueTokensForSession(
   };
 }
 
-export async function createSession(input: {
+export type CreateSessionInput = {
   userId: string;
   deviceId?: string | null;
   userAgent?: string | null;
   ip?: string | null;
-}): Promise<SessionTokens> {
-  const user = await prisma.user.findUnique({ where: { id: input.userId } });
+};
+
+/** Create an AuthSession using either a transaction client or the global prisma. */
+export async function createSessionWithClient(
+  client: DbClient,
+  input: CreateSessionInput,
+): Promise<SessionTokens> {
+  const user = await client.user.findUnique({ where: { id: input.userId } });
   if (!user || !user.isActive) {
     throw new AppError(401, "unauthorized", "User not found or inactive");
   }
 
   const refreshToken = generateRefreshToken();
-  const session = await prisma.authSession.create({
+  const session = await client.authSession.create({
     data: {
       userId: user.id,
       deviceId: input.deviceId ?? null,
@@ -80,6 +88,12 @@ export async function createSession(input: {
   });
 
   return issueTokensForSession(session.id, user, refreshToken);
+}
+
+export async function createSession(
+  input: CreateSessionInput,
+): Promise<SessionTokens> {
+  return createSessionWithClient(prisma, input);
 }
 
 export async function rotateRefresh(

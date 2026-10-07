@@ -1788,6 +1788,7 @@ async function main() {
           category: "departure",
           notes: "Check-out 11:00",
           cleaningTaskId,
+          roomEffectsAppliedAt: new Date(),
           createdByEmployeeId: receptionId,
         },
       });
@@ -1938,6 +1939,7 @@ async function main() {
             externalId: `clock:dep:MAIN:203:${hotelDateStr}`,
             importBatchId: batch.id,
             cleaningTaskId: task.id,
+            roomEffectsAppliedAt: new Date(),
             createdByEmployeeId: receptionId,
           },
         });
@@ -1990,6 +1992,7 @@ async function main() {
           const category = categories[(i + p + Math.abs(offset)) % 3];
           try {
             let cleaningTaskId: string | null = null;
+            const applyRoomEffects = offset <= 0 && category === "departure";
             if (offset === 0 && category === "departure") {
               const task = await prisma.cleaningTask.create({
                 data: {
@@ -2003,6 +2006,15 @@ async function main() {
               });
               cleaningTaskId = task.id;
             }
+            if (applyRoomEffects) {
+              await prisma.location.update({
+                where: { id: loc.id },
+                data: {
+                  occupancy: Occupancy.vacant,
+                  cleaningStatus: CleaningStatus.dirty,
+                },
+              });
+            }
             await prisma.dailyPlanEntry.create({
               data: {
                 hotelDate: day,
@@ -2011,6 +2023,7 @@ async function main() {
                 notes: `${category} seed ${dayStr}`,
                 source: "manual",
                 cleaningTaskId,
+                roomEffectsAppliedAt: applyRoomEffects ? new Date() : null,
                 createdByEmployeeId: receptionId,
               },
             });
