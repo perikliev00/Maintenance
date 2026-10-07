@@ -28,6 +28,7 @@ import {
   fetchPublicSettings,
   filterPanelsByModules,
   getStoredUser,
+  hasCachedSession,
   landingForUser,
   logout,
   logoutAll,
@@ -37,6 +38,10 @@ import {
   type Panel,
   type PublicSettings,
 } from "./api/client";
+import {
+  classifyBootstrapError,
+  shouldWipeOfflineOnBootstrap,
+} from "./api/sessionPolicy";
 import {
   applyTheme,
   getStoredTheme,
@@ -281,12 +286,25 @@ export default function App() {
           const landing = landingForUser(me);
           return panels.includes(landing) ? landing : panels[0] ?? "home";
         });
-      } catch {
+      } catch (err) {
         if (cancelled) return;
-        clearSession();
-        setSignedIn(false);
-        setUser(null);
-        setPublicSettings(null);
+        const failure = classifyBootstrapError(err);
+        const wipe = shouldWipeOfflineOnBootstrap({
+          hasCachedUser: hasCachedSession(),
+          failure,
+        });
+        if (wipe) {
+          clearSession();
+          setSignedIn(false);
+          setUser(null);
+          setPublicSettings(null);
+        } else {
+          // Transient / unverified: keep cached identity + offline outbox.
+          const cached = getStoredUser();
+          setUser(cached);
+          setSignedIn(Boolean(cached));
+          setPublicSettings(null);
+        }
       } finally {
         if (!cancelled) setAuthReady(true);
       }

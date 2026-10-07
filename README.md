@@ -610,7 +610,9 @@ Scan UI: `#/room-qr/:token`. Печат: таб QR в Почистване. Ка
 
 ### Audit history migration note
 
-`20261002260000_unified_audit_events` премахна `PermissionChange` / `SettingChange` в полза на `AuditEvent`. Ако таблиците още съществуват, `20261006220000_backfill_legacy_audit_history` копира редовете в `AuditEvent` и после ги drop-ва. Изгубена история без backup не може да се изобрети — възстановете staging таблици от backup и изпълнете [`api/prisma/scripts/restore_permission_setting_history.sql`](api/prisma/scripts/restore_permission_setting_history.sql).
+`20261002260000_unified_audit_events` копира `PermissionChange` / `SettingChange` в `AuditEvent` и после ги drop-ва. `20261006220000_backfill_legacy_audit_history` е safety net за partial/pre-drop състояния (обикновено no-op).
+
+Ако миграцията вече е била приложена със старата DROP-only версия, Prisma може да докладва checksum mismatch — обновете checksum-а в `_prisma_migrations` за този migration name след умишлената промяна; не редактирайте други приложени миграции. Изтритите редове **не** се връщат от нова миграция: възстановете staging таблици от backup и изпълнете [`api/prisma/scripts/restore_permission_setting_history.sql`](api/prisma/scripts/restore_permission_setting_history.sql). Без backup историята не може да се изобрети.
 
 ### Health
 

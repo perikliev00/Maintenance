@@ -77,19 +77,64 @@ export function hotelDateString(instant: Date, timeZone: string): string {
   }).format(instant);
 }
 
-function hotelDateAsUtcDate(instant: Date, timeZone: string): Date {
+/** Prisma `@db.Date` key: calendar YMD stored as UTC midnight. */
+export function hotelDateAsUtcDate(instant: Date, timeZone: string): Date {
   const ymd = hotelDateString(instant, timeZone);
   return new Date(`${ymd}T00:00:00.000Z`);
 }
 
-function startOfHotelDayUtc(ymd: string): Date {
-  return new Date(`${ymd}T00:00:00.000Z`);
+/** Offset (ms) such that `utc + offset ≈ wall clock in timeZone`. */
+function timeZoneOffsetMs(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  const hour = Number(map.hour === "24" ? "0" : map.hour);
+  const asUtc = Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    hour,
+    Number(map.minute),
+    Number(map.second),
+  );
+  return asUtc - instant.getTime();
+}
+
+/**
+ * UTC instant of local midnight for a hotel calendar day in `timeZone`.
+ * DST-safe (two-pass offset refine).
+ */
+export function zonedDayStartUtc(ymd: string, timeZone: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) {
+    throw new AppError(400, "validation", "Invalid hotel date (expected YYYY-MM-DD)");
+  }
+  const asUtcWall = Date.UTC(y, m - 1, d, 0, 0, 0, 0);
+  let utc = asUtcWall - timeZoneOffsetMs(new Date(asUtcWall), timeZone);
+  utc = asUtcWall - timeZoneOffsetMs(new Date(utc), timeZone);
+  return new Date(utc);
 }
 
 function addDaysYmd(ymd: string, days: number): string {
   const d = new Date(`${ymd}T00:00:00.000Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+/** Date-only key for a hotel YMD (not a zoned instant). */
+function hotelDateKey(ymd: string): Date {
+  return new Date(`${ymd}T00:00:00.000Z`);
 }
 
 function monthRange(month: string): { from: Date; to: Date } {
@@ -280,8 +325,9 @@ async function resolveDateWindow(
     return { reviewOnly: true };
   }
   if (scope === "today") {
-    const from = startOfHotelDayUtc(todayYmd);
-    const to = startOfHotelDayUtc(addDaysYmd(todayYmd, 1));
+    // Filter by hotelDate column keys (UTC midnight YMD), not zoned instants.
+    const from = hotelDateKey(todayYmd);
+    const to = hotelDateKey(addDaysYmd(todayYmd, 1));
     return { from, to };
   }
   if (scope === "week") {
@@ -290,8 +336,8 @@ async function resolveDateWindow(
     const monday = addDaysYmd(todayYmd, mondayOffset);
     const nextMonday = addDaysYmd(monday, 7);
     return {
-      from: startOfHotelDayUtc(monday),
-      to: startOfHotelDayUtc(nextMonday),
+      from: hotelDateKey(monday),
+      to: hotelDateKey(nextMonday),
     };
   }
   const month =
@@ -497,7 +543,7 @@ function eventInFrozenRange(t: number, frozen: FrozenRange[]): boolean {
 export function pairEventsToIntervalDrafts(input: {
   events: RebuildEvent[];
   frozen: FrozenRange[];
-  hotelDate: Date;
+  timeZone: string;
   now?: Date;
 }): IntervalDraft[] {
   const now = input.now ?? new Date();
@@ -569,7 +615,7 @@ export function pairEventsToIntervalDrafts(input: {
       breakMinutes,
       workedMinutes,
       status,
-      hotelDate: input.hotelDate,
+      hotelDate: hotelDateAsUtcDate(startedAt, input.timeZone),
     });
   }
 
@@ -726,7 +772,12 @@ async function reconcileExistingEvent<
       ops.hotelTimezone,
     );
     await prisma.$transaction(async (tx) => {
-      await rebuildIntervalsForEmployee(existing.employeeId, hotelDate, tx);
+      await rebuildIntervalsForEmployee(
+        existing.employeeId,
+        hotelDate,
+        ops.hotelTimezone,
+        tx,
+      );
     });
     linked = await findIntervalForEvent(existing);
   }
@@ -737,13 +788,24 @@ async function reconcileExistingEvent<
   };
 }
 
+/**
+ * Rebuild intervals for the event's hotel day and the previous hotel day so
+ * overnight clock-outs close the shift that started the day before.
+ * Event fetch uses zoned local midnights; hotelDate column keys stay UTC YMD.
+ */
 export async function rebuildIntervalsForEmployee(
   employeeId: string,
   hotelDate: Date,
+  timeZone: string,
   db: Tx | typeof prisma = prisma,
 ) {
-  const from = hotelDate;
-  const to = new Date(hotelDate.getTime() + 48 * 3600_000);
+  const centerYmd = hotelDate.toISOString().slice(0, 10);
+  const prevYmd = addDaysYmd(centerYmd, -1);
+  const replaceYmds = [prevYmd, centerYmd];
+  const replaceKeys = replaceYmds.map(hotelDateKey);
+
+  const from = zonedDayStartUtc(prevYmd, timeZone);
+  const to = zonedDayStartUtc(addDaysYmd(centerYmd, 2), timeZone);
 
   const [events, frozen, replaceable] = await Promise.all([
     db.attendanceEvent.findMany({
@@ -766,7 +828,7 @@ export async function rebuildIntervalsForEmployee(
     db.attendanceInterval.findMany({
       where: {
         employeeId,
-        hotelDate: from,
+        hotelDate: { in: replaceKeys },
         status: AttendanceIntervalStatus.adjusted,
       },
       select: { id: true, startedAt: true, endedAt: true },
@@ -774,7 +836,7 @@ export async function rebuildIntervalsForEmployee(
     db.attendanceInterval.findMany({
       where: {
         employeeId,
-        hotelDate: from,
+        hotelDate: { in: replaceKeys },
         status: { not: AttendanceIntervalStatus.adjusted },
       },
       include: {
@@ -816,7 +878,10 @@ export async function rebuildIntervalsForEmployee(
   const drafts = pairEventsToIntervalDrafts({
     events,
     frozen: frozenRanges,
-    hotelDate: from,
+    timeZone,
+  }).filter((d) => {
+    const ymd = d.hotelDate.toISOString().slice(0, 10);
+    return replaceYmds.includes(ymd);
   });
 
   const createdByStart = new Map<string, string>();
@@ -922,7 +987,12 @@ export async function ingestEvent(input: {
         },
       });
 
-      await rebuildIntervalsForEmployee(input.employeeId, hotelDate, tx);
+      await rebuildIntervalsForEmployee(
+        input.employeeId,
+        hotelDate,
+        ops.hotelTimezone,
+        tx,
+      );
 
       const linked = await findIntervalForEvent(event, tx);
       return { event, intervalId: linked?.id ?? null };
@@ -1075,16 +1145,54 @@ export async function reviewAdjustment(input: {
     throw new AppError(409, "conflict", "Adjustment already reviewed");
   }
 
-  if (input.decision === "rejected") {
-    await prisma.attendanceAdjustment.update({
-      where: { id: adj.id },
+  const reviewedAt = new Date();
+  const startedAt = adj.proposedStartedAt ?? adj.interval.startedAt;
+  const endedAt = adj.proposedEndedAt ?? adj.interval.endedAt;
+  const breakMinutes =
+    adj.proposedBreakMinutes ?? adj.interval.breakMinutes;
+  const workedMinutes = computeWorkedMinutes(startedAt, endedAt, breakMinutes);
+  const ops =
+    input.decision === "approved" ? await getOperations() : null;
+
+  await prisma.$transaction(async (tx) => {
+    const claimed = await tx.attendanceAdjustment.updateMany({
+      where: {
+        id: adj.id,
+        status: AttendanceAdjustmentStatus.pending,
+      },
       data: {
-        status: AttendanceAdjustmentStatus.rejected,
+        status:
+          input.decision === "rejected"
+            ? AttendanceAdjustmentStatus.rejected
+            : AttendanceAdjustmentStatus.approved,
         reviewedById: input.reviewedById,
-        reviewedAt: new Date(),
-        reason: input.reason?.trim() || adj.reason,
+        reviewedAt,
+        ...(input.decision === "rejected"
+          ? { reason: input.reason?.trim() || adj.reason }
+          : {}),
       },
     });
+    if (claimed.count === 0) {
+      throw new AppError(409, "conflict", "Adjustment already reviewed");
+    }
+
+    if (input.decision === "approved" && ops) {
+      await tx.attendanceInterval.update({
+        where: { id: adj.intervalId },
+        data: {
+          startedAt,
+          endedAt,
+          breakMinutes,
+          workedMinutes,
+          hotelDate: hotelDateAsUtcDate(startedAt, ops.hotelTimezone),
+          status: AttendanceIntervalStatus.adjusted,
+          anomalyFlags: [],
+        },
+      });
+    }
+  });
+
+  if (input.decision === "rejected") {
     await recordAudit({
       actorEmployeeId: input.reviewedById,
       action: "adjustment.review",
@@ -1110,36 +1218,6 @@ export async function reviewAdjustment(input: {
     });
     return getInterval(adj.intervalId);
   }
-
-  const startedAt = adj.proposedStartedAt ?? adj.interval.startedAt;
-  const endedAt = adj.proposedEndedAt ?? adj.interval.endedAt;
-  const breakMinutes =
-    adj.proposedBreakMinutes ?? adj.interval.breakMinutes;
-  const workedMinutes = computeWorkedMinutes(startedAt, endedAt, breakMinutes);
-  const ops = await getOperations();
-
-  await prisma.$transaction([
-    prisma.attendanceAdjustment.update({
-      where: { id: adj.id },
-      data: {
-        status: AttendanceAdjustmentStatus.approved,
-        reviewedById: input.reviewedById,
-        reviewedAt: new Date(),
-      },
-    }),
-    prisma.attendanceInterval.update({
-      where: { id: adj.intervalId },
-      data: {
-        startedAt,
-        endedAt,
-        breakMinutes,
-        workedMinutes,
-        hotelDate: hotelDateAsUtcDate(startedAt, ops.hotelTimezone),
-        status: AttendanceIntervalStatus.adjusted,
-        anomalyFlags: [],
-      },
-    }),
-  ]);
 
   await recordAudit({
     actorEmployeeId: input.reviewedById,

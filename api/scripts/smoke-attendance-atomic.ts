@@ -1,16 +1,21 @@
 /**
- * Smoke checks for atomic attendance ingest (service-layer).
+ * Smoke checks for atomic attendance ingest + adjustment review (service-layer).
  * Requires DB + seeded employees. Does not need the HTTP API.
  */
 import {
+  AttendanceAdjustmentStatus,
   AttendanceEventKind,
   AttendanceIntervalStatus,
   PrismaClient,
+  Role,
 } from "@prisma/client";
 import { randomUUID } from "crypto";
+import { AppError } from "../src/errors";
 import {
   hotelDateString,
   ingestEvent,
+  requestAdjustment,
+  reviewAdjustment,
 } from "../src/services/attendance";
 import { getOperations } from "../src/services/settings";
 
@@ -18,6 +23,11 @@ const prisma = new PrismaClient();
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
+}
+
+function errCode(err: unknown): string | null {
+  if (err instanceof AppError) return err.code;
+  return null;
 }
 
 async function main() {
@@ -226,7 +236,154 @@ async function main() {
   });
   assert(intervalCount >= 1, `expected interval after race, got ${intervalCount}`);
 
-  console.log("ok");
+  // --- Concurrent approve/reject of the same adjustment ---
+  await wipeEmployeeDay();
+
+  const owner = await prisma.user.findUniqueOrThrow({
+    where: { email: "owner@meridian.local" },
+  });
+  const supervisor = await prisma.user.findUniqueOrThrow({
+    where: { email: "supervisor@meridian.local" },
+  });
+  assert(owner.employeeId, "owner has no employeeId");
+  assert(supervisor.employeeId, "supervisor has no employeeId");
+
+  const adjInId = `smoke-adj-in-${randomUUID()}`;
+  const adjOutId = `smoke-adj-out-${randomUUID()}`;
+  const clockInAt = `${ymd}T08:00:00.000Z`;
+  const clockOutAt = `${ymd}T16:00:00.000Z`;
+  const proposedStart = `${ymd}T08:30:00.000Z`;
+  const proposedEnd = `${ymd}T16:30:00.000Z`;
+
+  await ingestEvent({
+    externalEventId: adjInId,
+    source,
+    employeeId,
+    kind: AttendanceEventKind.clock_in,
+    deviceTime: clockInAt,
+    receivedAt: clockInAt,
+    clockSkewSeconds: 0,
+  });
+  const closedIngest = await ingestEvent({
+    externalEventId: adjOutId,
+    source,
+    employeeId,
+    kind: AttendanceEventKind.clock_out,
+    deviceTime: clockOutAt,
+    receivedAt: clockOutAt,
+    clockSkewSeconds: 0,
+  });
+  assert(closedIngest.intervalId, "clock_out should link an interval");
+
+  const closedInterval = await prisma.attendanceInterval.findUniqueOrThrow({
+    where: { id: closedIngest.intervalId },
+  });
+  assert(
+    closedInterval.status === AttendanceIntervalStatus.closed ||
+      closedInterval.status === AttendanceIntervalStatus.needs_review,
+    `expected closed interval before adjustment, got ${closedInterval.status}`,
+  );
+  const originalStartedAt = closedInterval.startedAt.toISOString();
+  const originalEndedAt = closedInterval.endedAt?.toISOString() ?? null;
+
+  const adj = await requestAdjustment({
+    intervalId: closedInterval.id,
+    requestedById: employeeId,
+    actorRole: Role.housekeeper,
+    reason: "smoke concurrent review",
+    proposedStartedAt: proposedStart,
+    proposedEndedAt: proposedEnd,
+  });
+
+  const reviewSettled = await Promise.allSettled([
+    reviewAdjustment({
+      adjustmentId: adj.id,
+      reviewedById: owner.employeeId,
+      decision: "approved",
+    }),
+    reviewAdjustment({
+      adjustmentId: adj.id,
+      reviewedById: supervisor.employeeId,
+      decision: "rejected",
+      reason: "smoke concurrent reject",
+    }),
+  ]);
+
+  const approveResult = reviewSettled[0]!;
+  const rejectResult = reviewSettled[1]!;
+  const approveWon = approveResult.status === "fulfilled";
+  const rejectWon = rejectResult.status === "fulfilled";
+  console.log("concurrent_review", {
+    approve: approveResult.status,
+    approveCode:
+      approveResult.status === "rejected"
+        ? errCode(approveResult.reason)
+        : "ok",
+    reject: rejectResult.status,
+    rejectCode:
+      rejectResult.status === "rejected"
+        ? errCode(rejectResult.reason)
+        : "ok",
+  });
+
+  assert(
+    approveWon !== rejectWon,
+    "exactly one of approve/reject must succeed",
+  );
+
+  const loser = approveWon ? rejectResult : approveResult;
+  assert(loser.status === "rejected", "loser must reject");
+  assert(
+    errCode(loser.reason) === "conflict",
+    `loser should be conflict, got ${errCode(loser.reason)}`,
+  );
+
+  const finalAdj = await prisma.attendanceAdjustment.findUniqueOrThrow({
+    where: { id: adj.id },
+  });
+  const finalInterval = await prisma.attendanceInterval.findUniqueOrThrow({
+    where: { id: closedInterval.id },
+  });
+
+  if (approveWon) {
+    assert(
+      finalAdj.status === AttendanceAdjustmentStatus.approved,
+      `approve win must leave approved, got ${finalAdj.status}`,
+    );
+    assert(
+      finalInterval.status === AttendanceIntervalStatus.adjusted,
+      `approve win must adjust interval, got ${finalInterval.status}`,
+    );
+    assert(
+      finalInterval.startedAt.toISOString() ===
+        new Date(proposedStart).toISOString(),
+      "approve win must apply proposed start",
+    );
+    assert(
+      finalInterval.endedAt?.toISOString() ===
+        new Date(proposedEnd).toISOString(),
+      "approve win must apply proposed end",
+    );
+  } else {
+    assert(
+      finalAdj.status === AttendanceAdjustmentStatus.rejected,
+      `reject win must leave rejected, got ${finalAdj.status}`,
+    );
+    assert(
+      finalInterval.status !== AttendanceIntervalStatus.adjusted,
+      "reject win must not leave interval adjusted from proposal",
+    );
+    assert(
+      finalInterval.startedAt.toISOString() === originalStartedAt,
+      "reject win must keep original start",
+    );
+    assert(
+      (finalInterval.endedAt?.toISOString() ?? null) === originalEndedAt,
+      "reject win must keep original end",
+    );
+  }
+
+  console.log("smoke-attendance-atomic: ok");
 }
 
 main()

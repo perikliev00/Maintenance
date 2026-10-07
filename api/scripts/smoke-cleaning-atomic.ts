@@ -253,6 +253,7 @@ async function main() {
     bypassAssigneeCheck: true,
   });
   let staleCode: string | null = null;
+  let staleDetails: unknown = null;
   try {
     await completeCleaningSession({
       sessionId: startedC.session.id,
@@ -262,9 +263,20 @@ async function main() {
     });
   } catch (err) {
     staleCode = errCode(err);
+    staleDetails =
+      err && typeof err === "object" && "details" in err
+        ? (err as { details: unknown }).details
+        : null;
   }
-  console.log("stale_version", staleCode);
+  console.log("stale_version", staleCode, staleDetails);
   assert(staleCode === "version_conflict", "expected version_conflict");
+  assert(
+    staleDetails &&
+      typeof staleDetails === "object" &&
+      typeof (staleDetails as { currentVersion?: unknown }).currentVersion ===
+        "number",
+    "version_conflict should include details.currentVersion",
+  );
 
   // --- Idempotent start retry ---
   await prisma.cleaningSession.updateMany({
@@ -431,9 +443,11 @@ async function main() {
     },
     data: { status: TaskStatus.cancelled },
   });
+  // Same hotel date as earlier demos — active tasks were cancelled above.
+  // Do not use a future hotelDate: startCleaningTask rejects those.
   const dirtyTask = await createCleaningTask({
     locationId: room.id,
-    hotelDate: dayOffset(hotelDate, 1).toISOString().slice(0, 10),
+    hotelDate: hotelDate.toISOString().slice(0, 10),
     assignedEmployeeId: hk1.employeeId,
     actorEmployeeId: owner.employeeId,
   });

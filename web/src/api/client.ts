@@ -1,4 +1,11 @@
+import {
+  classifyRefreshFailure,
+  type RefreshOutcome,
+} from "./sessionPolicy";
+
 const API_BASE = import.meta.env.VITE_API_URL ?? "/api";
+
+export type { RefreshOutcome };
 
 export type Role =
   | "reception"
@@ -325,13 +332,11 @@ export function landingForUser(user: AuthUser): Panel {
   return landingForRole(user.role);
 }
 
-/** Roles a manager is allowed to assign via Control. */
+/** Roles the actor may assign via Control (mirrors API policy). */
 export function assignableRolesFor(actor: Role): Role[] {
   if (actor === "owner") return [...ALL_ROLES];
-  if (actor === "manager") {
-    return ALL_ROLES.filter((r) => r !== "owner" && r !== "admin");
-  }
-  return [];
+  // Non-owners never assign owner/admin, even with people.change_role.
+  return ALL_ROLES.filter((r) => r !== "owner" && r !== "admin");
 }
 
 export type AuthUser = {
@@ -706,6 +711,35 @@ type ApiError = {
   message?: string;
 };
 
+export class ApiRequestError extends Error {
+  readonly kind: "http" | "network";
+  readonly status?: number;
+  /** Set when a 401 triggered /auth/refresh during this request. */
+  refreshOutcome?: RefreshOutcome;
+  authRejected?: boolean;
+
+  constructor(
+    message: string,
+    opts: {
+      kind: "http" | "network";
+      status?: number;
+      refreshOutcome?: RefreshOutcome;
+      authRejected?: boolean;
+      cause?: unknown;
+    },
+  ) {
+    super(message, opts.cause !== undefined ? { cause: opts.cause } : undefined);
+    this.name = "ApiRequestError";
+    this.kind = opts.kind;
+    this.status = opts.status;
+    this.refreshOutcome = opts.refreshOutcome;
+    this.authRejected = opts.authRejected;
+  }
+}
+
+/** Last /auth/refresh outcome (for attaching to subsequent 401 parse errors). */
+let lastRefreshOutcome: RefreshOutcome | null = null;
+
 function getCsrfToken(): string | null {
   if (typeof document === "undefined") return null;
   const match = document.cookie.match(/(?:^|; )csrf=([^;]*)/);
@@ -733,8 +767,21 @@ function authHeaders(method = "GET"): HeadersInit {
 async function parseJson<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = data as ApiError;
-    throw new Error(err.message ?? err.error ?? `HTTP ${res.status}`);
+    const body = data as ApiError;
+    const message = body.message ?? body.error ?? `HTTP ${res.status}`;
+    const err = new ApiRequestError(message, {
+      kind: "http",
+      status: res.status,
+    });
+    if (res.status === 401 || res.status === 403) {
+      if (lastRefreshOutcome) {
+        err.refreshOutcome = lastRefreshOutcome;
+        err.authRejected = lastRefreshOutcome === "rejected";
+      } else {
+        err.authRejected = true;
+      }
+    }
+    throw err;
   }
   return data as T;
 }
@@ -775,9 +822,9 @@ export function getToken(): string | null {
   return null;
 }
 
-let refreshInFlight: Promise<boolean> | null = null;
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
 
-export async function refreshAccessToken(): Promise<boolean> {
+export async function refreshAccessToken(): Promise<RefreshOutcome> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
@@ -786,14 +833,20 @@ export async function refreshAccessToken(): Promise<boolean> {
         credentials: "include",
         headers: buildAuthHeaders("POST"),
       });
-      if (!res.ok) {
-        clearSession();
-        return false;
+      if (res.ok) {
+        lastRefreshOutcome = "refreshed";
+        return "refreshed";
       }
-      return true;
+      const classified = classifyRefreshFailure(res.status);
+      lastRefreshOutcome = classified;
+      if (classified === "rejected") {
+        clearSession();
+      }
+      return classified;
     } catch {
-      clearSession();
-      return false;
+      lastRefreshOutcome = "transient";
+      // Network/timeout — keep offline outbox; identity pending verification.
+      return "transient";
     } finally {
       refreshInFlight = null;
     }
@@ -817,18 +870,23 @@ async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> 
     ...(init.headers as Record<string, string> | undefined),
   };
 
-  const res = await fetch(url, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers,
+      credentials: "include",
+    });
+  } catch (cause) {
+    throw new ApiRequestError("Network error", { kind: "network", cause });
+  }
 
   if (res.status !== 401 || shouldSkipRefresh(url)) {
     return res;
   }
 
-  const refreshed = await refreshAccessToken();
-  if (!refreshed) {
+  const outcome = await refreshAccessToken();
+  if (outcome !== "refreshed") {
     return res;
   }
 
@@ -836,11 +894,15 @@ async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> 
     ...buildAuthHeaders(method),
     ...(init.headers as Record<string, string> | undefined),
   };
-  return fetch(url, {
-    ...init,
-    headers: retryHeaders,
-    credentials: "include",
-  });
+  try {
+    return await fetch(url, {
+      ...init,
+      headers: retryHeaders,
+      credentials: "include",
+    });
+  } catch (cause) {
+    throw new ApiRequestError("Network error", { kind: "network", cause });
+  }
 }
 
 export async function logout(): Promise<void> {

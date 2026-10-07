@@ -6,6 +6,7 @@ import {
   requireAuth,
   type AuthUser,
 } from "../middleware/auth";
+import { asyncHandler } from "../middleware/asyncHandler";
 import { getJwtSecret } from "../auth/tokens";
 import { subscribe, type LiveEvent } from "../events/bus";
 import { canDeliverLiveEvent } from "../events/authorizeLiveEvent";
@@ -149,104 +150,107 @@ eventsRouter.post("/ticket", requireAuth, (req, res) => {
   res.json({ token, expiresIn: SSE_TICKET_EXPIRES_SEC });
 });
 
-eventsRouter.get("/stream", async (req, res) => {
-  const user = await authenticateStream(req);
-  if (!user) {
-    return res.status(401).json({
-      error: "unauthorized",
-      message: "Missing or invalid token",
+eventsRouter.get(
+  "/stream",
+  asyncHandler(async (req, res) => {
+    const user = await authenticateStream(req);
+    if (!user) {
+      return res.status(401).json({
+        error: "unauthorized",
+        message: "Missing or invalid token",
+      });
+    }
+
+    let currentUser = user;
+    let scope: DataScope;
+    try {
+      scope = await resolveDataScope(currentUser);
+    } catch (err) {
+      console.error("resolveDataScope failed for SSE", err);
+      return res.status(500).json({
+        error: "internal",
+        message: "Failed to resolve data scope",
+      });
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
+    }
+
+    writeSse(res, "connected", {
+      ok: true,
+      userId: currentUser.userId,
+      at: new Date().toISOString(),
     });
-  }
 
-  let currentUser = user;
-  let scope: DataScope;
-  try {
-    scope = await resolveDataScope(currentUser);
-  } catch (err) {
-    console.error("resolveDataScope failed for SSE", err);
-    return res.status(500).json({
-      error: "internal",
-      message: "Failed to resolve data scope",
-    });
-  }
-
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-  if (typeof res.flushHeaders === "function") {
-    res.flushHeaders();
-  }
-
-  writeSse(res, "connected", {
-    ok: true,
-    userId: currentUser.userId,
-    at: new Date().toISOString(),
-  });
-
-  let closed = false;
-  const onLive = (event: LiveEvent) => {
-    if (closed) return;
-    void (async () => {
-      try {
-        if (!(await canDeliverLiveEvent(scope, event))) return;
-        if (closed) return;
-        writeSse(res, event.type, event);
-      } catch (err) {
-        console.error("SSE deliver filter failed", err);
-      }
-    })();
-  };
-  const unsubscribe = subscribe(onLive);
-
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
-  const cleanup = () => {
-    if (closed) return;
-    closed = true;
-    if (heartbeat !== undefined) clearInterval(heartbeat);
-    unsubscribe();
-  };
-
-  heartbeat = setInterval(() => {
-    if (closed) return;
-    void (async () => {
-      try {
-        const session = await assertSessionActive(
-          currentUser.sid,
-          currentUser.userId,
-        );
-        const next = authUserFromSession(session);
-        if (
-          next.role !== currentUser.role ||
-          next.employeeId !== currentUser.employeeId ||
-          next.email !== currentUser.email
-        ) {
-          currentUser = next;
-          try {
-            scope = await resolveDataScope(currentUser);
-          } catch (err) {
-            console.error("resolveDataScope failed on SSE heartbeat", err);
-            writeSse(res, "revoked", {
-              ok: false,
-              reason: "scope_refresh_failed",
-            });
-            cleanup();
-            res.end();
-            return;
-          }
+    let closed = false;
+    const onLive = (event: LiveEvent) => {
+      if (closed) return;
+      void (async () => {
+        try {
+          if (!(await canDeliverLiveEvent(scope, event))) return;
+          if (closed) return;
+          writeSse(res, event.type, event);
+        } catch (err) {
+          console.error("SSE deliver filter failed", err);
         }
-        if (closed) return;
-        res.write(`: ping ${Date.now()}\n\n`);
-      } catch {
-        if (closed) return;
-        writeSse(res, "revoked", { ok: false, reason: "session_revoked" });
-        cleanup();
-        res.end();
-      }
-    })();
-  }, SSE_HEARTBEAT_MS);
+      })();
+    };
+    const unsubscribe = subscribe(onLive);
 
-  req.on("close", cleanup);
-  req.on("error", cleanup);
-  return undefined;
-});
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      if (heartbeat !== undefined) clearInterval(heartbeat);
+      unsubscribe();
+    };
+
+    heartbeat = setInterval(() => {
+      if (closed) return;
+      void (async () => {
+        try {
+          const session = await assertSessionActive(
+            currentUser.sid,
+            currentUser.userId,
+          );
+          const next = authUserFromSession(session);
+          if (
+            next.role !== currentUser.role ||
+            next.employeeId !== currentUser.employeeId ||
+            next.email !== currentUser.email
+          ) {
+            currentUser = next;
+            try {
+              scope = await resolveDataScope(currentUser);
+            } catch (err) {
+              console.error("resolveDataScope failed on SSE heartbeat", err);
+              writeSse(res, "revoked", {
+                ok: false,
+                reason: "scope_refresh_failed",
+              });
+              cleanup();
+              res.end();
+              return;
+            }
+          }
+          if (closed) return;
+          res.write(`: ping ${Date.now()}\n\n`);
+        } catch {
+          if (closed) return;
+          writeSse(res, "revoked", { ok: false, reason: "session_revoked" });
+          cleanup();
+          res.end();
+        }
+      })();
+    }, SSE_HEARTBEAT_MS);
+
+    req.on("close", cleanup);
+    req.on("error", cleanup);
+    return undefined;
+  }),
+);

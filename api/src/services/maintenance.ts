@@ -125,6 +125,54 @@ function unpauseFields(
   };
 }
 
+type Tx = Prisma.TransactionClient;
+
+async function lockTicket(tx: Tx, ticketId: string) {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "MaintenanceTicket" WHERE id = ${ticketId} FOR UPDATE
+  `;
+  if (rows.length === 0) {
+    throw new AppError(404, "not_found", "Ticket not found");
+  }
+}
+
+async function loadLockedTicket(tx: Tx, ticketId: string) {
+  await lockTicket(tx, ticketId);
+  const ticket = await tx.maintenanceTicket.findUnique({
+    where: { id: ticketId },
+  });
+  if (!ticket) {
+    throw new AppError(404, "not_found", "Ticket not found");
+  }
+  return ticket;
+}
+
+async function claimTicketUpdate(
+  tx: Tx,
+  ticketId: string,
+  fromStatuses: TicketStatus[],
+  data: Prisma.MaintenanceTicketUncheckedUpdateManyInput,
+  invalidMessage: (status: TicketStatus) => string,
+) {
+  const claimed = await tx.maintenanceTicket.updateMany({
+    where: { id: ticketId, status: { in: fromStatuses } },
+    data,
+  });
+  if (claimed.count === 0) {
+    const current = await tx.maintenanceTicket.findUnique({
+      where: { id: ticketId },
+    });
+    if (!current) {
+      throw new AppError(404, "not_found", "Ticket not found");
+    }
+    throw new AppError(409, "invalid_state", invalidMessage(current.status));
+  }
+  return tx.maintenanceTicket.findUniqueOrThrow({
+    where: { id: ticketId },
+    include: ticketInclude,
+  });
+}
+
 async function writeTicketEvent(
   tx: Prisma.TransactionClient,
   input: {
@@ -367,12 +415,7 @@ export async function assignMaintenanceTicket(input: {
   }
 
   const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await tx.maintenanceTicket.findUnique({
-      where: { id: input.ticketId },
-    });
-    if (!ticket) {
-      throw new AppError(404, "not_found", "Ticket not found");
-    }
+    const ticket = await loadLockedTicket(tx, input.ticketId);
     if (
       ticket.status !== TicketStatus.new &&
       ticket.status !== TicketStatus.assigned
@@ -385,14 +428,16 @@ export async function assignMaintenanceTicket(input: {
     }
 
     const fromStatus = ticket.status;
-    const row = await tx.maintenanceTicket.update({
-      where: { id: ticket.id },
-      data: {
+    const row = await claimTicketUpdate(
+      tx,
+      ticket.id,
+      [TicketStatus.new, TicketStatus.assigned],
+      {
         status: TicketStatus.assigned,
         assigneeId: input.assigneeId,
       },
-      include: ticketInclude,
-    });
+      (status) => `Cannot assign ticket in status ${status}`,
+    );
 
     await writeTicketEvent(tx, {
       ticketId: ticket.id,
@@ -425,12 +470,7 @@ export async function startMaintenanceTicket(input: {
   bypassAssigneeCheck?: boolean;
 }) {
   const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await tx.maintenanceTicket.findUnique({
-      where: { id: input.ticketId },
-    });
-    if (!ticket) {
-      throw new AppError(404, "not_found", "Ticket not found");
-    }
+    const ticket = await loadLockedTicket(tx, input.ticketId);
     if (ticket.status !== TicketStatus.assigned) {
       throw new AppError(
         409,
@@ -449,11 +489,13 @@ export async function startMaintenanceTicket(input: {
     }
 
     const fromStatus = ticket.status;
-    const row = await tx.maintenanceTicket.update({
-      where: { id: ticket.id },
-      data: { status: TicketStatus.in_progress },
-      include: ticketInclude,
-    });
+    const row = await claimTicketUpdate(
+      tx,
+      ticket.id,
+      [TicketStatus.assigned],
+      { status: TicketStatus.in_progress },
+      (status) => `Cannot start ticket in status ${status}`,
+    );
 
     await writeTicketEvent(tx, {
       ticketId: ticket.id,
@@ -488,12 +530,7 @@ export async function waitMaintenanceTicket(input: {
   bypassAssigneeCheck?: boolean;
 }) {
   const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await tx.maintenanceTicket.findUnique({
-      where: { id: input.ticketId },
-    });
-    if (!ticket) {
-      throw new AppError(404, "not_found", "Ticket not found");
-    }
+    const ticket = await loadLockedTicket(tx, input.ticketId);
     if (ticket.status !== TicketStatus.in_progress) {
       throw new AppError(
         409,
@@ -511,14 +548,16 @@ export async function waitMaintenanceTicket(input: {
 
     const reason = input.reason?.trim() || null;
     const fromStatus = ticket.status;
-    const row = await tx.maintenanceTicket.update({
-      where: { id: ticket.id },
-      data: {
+    const row = await claimTicketUpdate(
+      tx,
+      ticket.id,
+      [TicketStatus.in_progress],
+      {
         status: TicketStatus.waiting,
         ...pauseFieldsOnWait(),
       },
-      include: ticketInclude,
-    });
+      (status) => `Cannot wait ticket in status ${status}`,
+    );
 
     await writeTicketEvent(tx, {
       ticketId: ticket.id,
@@ -553,12 +592,7 @@ export async function resumeMaintenanceTicket(input: {
   bypassAssigneeCheck?: boolean;
 }) {
   const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await tx.maintenanceTicket.findUnique({
-      where: { id: input.ticketId },
-    });
-    if (!ticket) {
-      throw new AppError(404, "not_found", "Ticket not found");
-    }
+    const ticket = await loadLockedTicket(tx, input.ticketId);
     if (ticket.status !== TicketStatus.waiting) {
       throw new AppError(
         409,
@@ -576,14 +610,16 @@ export async function resumeMaintenanceTicket(input: {
 
     const fromStatus = ticket.status;
     const unpaused = unpauseFields(ticket);
-    const row = await tx.maintenanceTicket.update({
-      where: { id: ticket.id },
-      data: {
+    const row = await claimTicketUpdate(
+      tx,
+      ticket.id,
+      [TicketStatus.waiting],
+      {
         status: TicketStatus.in_progress,
         ...unpaused,
       },
-      include: ticketInclude,
-    });
+      (status) => `Cannot resume ticket in status ${status}`,
+    );
 
     await writeTicketEvent(tx, {
       ticketId: ticket.id,
@@ -619,12 +655,7 @@ export async function resolveMaintenanceTicket(input: {
   bypassAssigneeCheck?: boolean;
 }) {
   const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await tx.maintenanceTicket.findUnique({
-      where: { id: input.ticketId },
-    });
-    if (!ticket) {
-      throw new AppError(404, "not_found", "Ticket not found");
-    }
+    const ticket = await loadLockedTicket(tx, input.ticketId);
     if (
       ticket.status !== TicketStatus.in_progress &&
       ticket.status !== TicketStatus.waiting
@@ -654,17 +685,19 @@ export async function resolveMaintenanceTicket(input: {
             dueAt: ticket.dueAt,
           };
 
-    const row = await tx.maintenanceTicket.update({
-      where: { id: ticket.id },
-      data: {
+    const row = await claimTicketUpdate(
+      tx,
+      ticket.id,
+      [TicketStatus.in_progress, TicketStatus.waiting],
+      {
         status: TicketStatus.resolved,
         resolvedAt: new Date(),
         resolvedByEmployeeId: input.resolvedByEmployeeId,
         resolutionNotes: notes,
         ...unpaused,
       },
-      include: ticketInclude,
-    });
+      (status) => `Cannot resolve ticket in status ${status}`,
+    );
 
     await writeTicketEvent(tx, {
       ticketId: ticket.id,
@@ -702,12 +735,7 @@ export async function closeMaintenanceTicket(input: {
   closedByEmployeeId: string;
 }) {
   const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await tx.maintenanceTicket.findUnique({
-      where: { id: input.ticketId },
-    });
-    if (!ticket) {
-      throw new AppError(404, "not_found", "Ticket not found");
-    }
+    const ticket = await loadLockedTicket(tx, input.ticketId);
     if (ticket.status !== TicketStatus.resolved) {
       throw new AppError(
         409,
@@ -717,15 +745,17 @@ export async function closeMaintenanceTicket(input: {
     }
 
     const fromStatus = ticket.status;
-    const row = await tx.maintenanceTicket.update({
-      where: { id: ticket.id },
-      data: {
+    const row = await claimTicketUpdate(
+      tx,
+      ticket.id,
+      [TicketStatus.resolved],
+      {
         status: TicketStatus.closed,
         closedAt: new Date(),
         closedByEmployeeId: input.closedByEmployeeId,
       },
-      include: ticketInclude,
-    });
+      (status) => `Cannot close ticket in status ${status}`,
+    );
 
     await writeTicketEvent(tx, {
       ticketId: ticket.id,
@@ -763,12 +793,7 @@ export async function reopenMaintenanceTicket(input: {
   reason?: string;
 }) {
   const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await tx.maintenanceTicket.findUnique({
-      where: { id: input.ticketId },
-    });
-    if (!ticket) {
-      throw new AppError(404, "not_found", "Ticket not found");
-    }
+    const ticket = await loadLockedTicket(tx, input.ticketId);
     if (
       ticket.status !== TicketStatus.resolved &&
       ticket.status !== TicketStatus.closed
@@ -783,18 +808,11 @@ export async function reopenMaintenanceTicket(input: {
     const reason = input.reason?.trim() || null;
     const fromStatus = ticket.status;
 
-    await tx.ticketReopenEvent.create({
-      data: {
-        ticketId: ticket.id,
-        reopenedByEmployeeId: input.reopenedByEmployeeId,
-        reason,
-        previousStatus: ticket.status,
-      },
-    });
-
-    const row = await tx.maintenanceTicket.update({
-      where: { id: ticket.id },
-      data: {
+    const row = await claimTicketUpdate(
+      tx,
+      ticket.id,
+      [TicketStatus.resolved, TicketStatus.closed],
+      {
         status: TicketStatus.in_progress,
         resolvedAt: null,
         resolvedByEmployeeId: null,
@@ -803,7 +821,16 @@ export async function reopenMaintenanceTicket(input: {
         closedByEmployeeId: null,
         slaPausedAt: null,
       },
-      include: ticketInclude,
+      () => "Only resolved or closed tickets can be reopened",
+    );
+
+    await tx.ticketReopenEvent.create({
+      data: {
+        ticketId: ticket.id,
+        reopenedByEmployeeId: input.reopenedByEmployeeId,
+        reason,
+        previousStatus: fromStatus,
+      },
     });
 
     await writeTicketEvent(tx, {

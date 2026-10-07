@@ -1320,8 +1320,8 @@ async function main() {
   }
   console.log(`Extra live sessions seeded: ${extraLive}`);
 
-  // Rework + cancelled task demos
-  const reworkLoc = locations.find((l) => l.number === "107");
+  // Rework + cancelled task demos (109 — free of other active tasks today)
+  const reworkLoc = locations.find((l) => l.number === "109");
   if (reworkLoc && createdEmployees.H001) {
     await prisma.cleaningTask.create({
       data: {
@@ -1890,9 +1890,10 @@ async function main() {
       });
     }
 
-    // Sample JSON-import entries (source=import) for UI badge demo
+    // Sample JSON-import entries (source=import) for UI badge demo.
+    // Use 206 — 203 already has an active live-board task for today.
     const importRoom = locations.find(
-      (l) => l.kind === LocationKind.room && l.number === "203",
+      (l) => l.kind === LocationKind.room && l.number === "206",
     );
     const importArrival = locations.find(
       (l) => l.kind === LocationKind.room && l.number === "204",
@@ -1921,14 +1922,30 @@ async function main() {
             cleaningStatus: CleaningStatus.dirty,
           },
         });
-        const task = await prisma.cleaningTask.create({
-          data: {
+        const existingImportTask = await prisma.cleaningTask.findFirst({
+          where: {
             locationId: importRoom.id,
             hotelDate: planDay,
-            priority: Priority.high,
-            status: TaskStatus.assigned,
+            status: {
+              in: [
+                TaskStatus.assigned,
+                TaskStatus.in_progress,
+                TaskStatus.awaiting_inspection,
+                TaskStatus.rework,
+              ],
+            },
           },
         });
+        const task =
+          existingImportTask ??
+          (await prisma.cleaningTask.create({
+            data: {
+              locationId: importRoom.id,
+              hotelDate: planDay,
+              priority: Priority.high,
+              status: TaskStatus.assigned,
+            },
+          }));
         await prisma.dailyPlanEntry.create({
           data: {
             hotelDate: planDay,
@@ -1936,7 +1953,7 @@ async function main() {
             category: "departure",
             notes: "Imported departure 12:00",
             source: "import",
-            externalId: `clock:dep:MAIN:203:${hotelDateStr}`,
+            externalId: `clock:dep:MAIN:206:${hotelDateStr}`,
             importBatchId: batch.id,
             cleaningTaskId: task.id,
             roomEffectsAppliedAt: new Date(),
@@ -1994,17 +2011,34 @@ async function main() {
             let cleaningTaskId: string | null = null;
             const applyRoomEffects = offset <= 0 && category === "departure";
             if (offset === 0 && category === "departure") {
-              const task = await prisma.cleaningTask.create({
-                data: {
+              const existing = await prisma.cleaningTask.findFirst({
+                where: {
                   locationId: loc.id,
                   hotelDate: day,
-                  priority:
-                    category === "departure" ? Priority.high : Priority.normal,
-                  assignedEmployeeId: createdEmployees.H001,
-                  status: TaskStatus.assigned,
+                  status: {
+                    in: [
+                      TaskStatus.assigned,
+                      TaskStatus.in_progress,
+                      TaskStatus.awaiting_inspection,
+                      TaskStatus.rework,
+                    ],
+                  },
                 },
               });
-              cleaningTaskId = task.id;
+              if (existing) {
+                cleaningTaskId = existing.id;
+              } else {
+                const task = await prisma.cleaningTask.create({
+                  data: {
+                    locationId: loc.id,
+                    hotelDate: day,
+                    priority: Priority.high,
+                    assignedEmployeeId: createdEmployees.H001,
+                    status: TaskStatus.assigned,
+                  },
+                });
+                cleaningTaskId = task.id;
+              }
             }
             if (applyRoomEffects) {
               await prisma.location.update({

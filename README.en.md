@@ -612,7 +612,9 @@ Original `AttendanceEvent` rows are never mutated on approved correction. Overni
 
 ### Audit history migration note
 
-`20261002260000_unified_audit_events` dropped `PermissionChange` / `SettingChange` in favor of `AuditEvent`. If those tables still exist, `20261006220000_backfill_legacy_audit_history` copies rows into `AuditEvent` then drops them. History already lost without a backup cannot be reconstructed — restore staging tables from backup and run [`api/prisma/scripts/restore_permission_setting_history.sql`](api/prisma/scripts/restore_permission_setting_history.sql).
+`20261002260000_unified_audit_events` copies `PermissionChange` / `SettingChange` into `AuditEvent` then drops them. `20261006220000_backfill_legacy_audit_history` is a safety net for partial/pre-drop states (normally a no-op).
+
+If this migration was already applied with the older DROP-only SQL, Prisma may report a checksum mismatch — update the checksum in `_prisma_migrations` for that migration name after the intentional rewrite; do not edit other applied migrations. Dropped rows are **not** restored by a new migration: restore staging tables from backup and run [`api/prisma/scripts/restore_permission_setting_history.sql`](api/prisma/scripts/restore_permission_setting_history.sql). Without a backup, that history cannot be invented.
 
 ### Health
 

@@ -74,6 +74,23 @@ async function sessionTaskSnapshotDetails(
   return taskSnapshotDetails(session.taskId, expectedVersion);
 }
 
+/** Build a sync conflict result for access loss after reassignment. */
+export function accessLossConflictResult(
+  commandId: string,
+  details: TaskConflictDetails | undefined,
+  fallbackMessage: string,
+): SyncCommandResult {
+  return {
+    commandId,
+    status: "conflict",
+    code: details ? "assignee_conflict" : "out_of_scope",
+    message: details
+      ? "Task was reassigned to another employee"
+      : fallbackMessage,
+    details,
+  };
+}
+
 /**
  * Access loss after reassignment is a conflict for offline sync, not a bare
  * permission denial. True "missing action" denials stay forbidden.
@@ -87,15 +104,7 @@ async function conflictFromAccessLoss(
   if (cmd.type === "cleaning.start") {
     const taskId = String(cmd.payload.taskId ?? "");
     const details = await taskSnapshotDetails(taskId, expectedVersion);
-    return {
-      commandId: cmd.commandId,
-      status: "conflict",
-      code: details ? "assignee_conflict" : "out_of_scope",
-      message: details
-        ? "Task was reassigned to another employee"
-        : err.message,
-      details,
-    };
+    return accessLossConflictResult(cmd.commandId, details, err.message);
   }
   if (cmd.type === "cleaning.complete") {
     const sessionId = String(cmd.payload.sessionId ?? "");
@@ -103,15 +112,7 @@ async function conflictFromAccessLoss(
       sessionId,
       expectedVersion,
     );
-    return {
-      commandId: cmd.commandId,
-      status: "conflict",
-      code: details ? "assignee_conflict" : "out_of_scope",
-      message: details
-        ? "Task was reassigned to another employee"
-        : err.message,
-      details,
-    };
+    return accessLossConflictResult(cmd.commandId, details, err.message);
   }
   return null;
 }

@@ -269,8 +269,48 @@ export const OPERATIONAL_EDITABLE_ROLES: Exclude<Role, "owner">[] = [
   "supervisor",
 ];
 
+/** Roles only an owner may assign or modify. */
+export const PRIVILEGED_ROLES: readonly Role[] = [Role.owner, Role.admin];
+
+export const ALL_ROLES: Role[] = [
+  Role.owner,
+  Role.admin,
+  Role.manager,
+  Role.supervisor,
+  Role.reception,
+  Role.technician,
+  Role.housekeeper,
+];
+
 export function isOwner(role: Role): boolean {
   return role === Role.owner;
+}
+
+export function isPrivilegedRole(role: Role): boolean {
+  return role === Role.owner || role === Role.admin;
+}
+
+/**
+ * Roles the actor may assign via people.change_role / people.invite.
+ * Having the action is not enough for owner/admin — only owner may assign those.
+ */
+export function assignableRolesFor(actor: Role): Role[] {
+  if (isOwner(actor)) return [...ALL_ROLES];
+  return ALL_ROLES.filter((r) => !isPrivilegedRole(r));
+}
+
+/**
+ * Whether actor may change a user from currentRole to nextRole.
+ * Non-owners cannot assign privileged roles or modify privileged users.
+ */
+export function canChangeUserRole(
+  actor: Role,
+  currentRole: Role,
+  nextRole: Role,
+): boolean {
+  if (!assignableRolesFor(actor).includes(nextRole)) return false;
+  if (isPrivilegedRole(currentRole) && !isOwner(actor)) return false;
+  return true;
 }
 
 export function isPanel(key: string): key is Panel {

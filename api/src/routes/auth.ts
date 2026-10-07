@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Role } from "@prisma/client";
 import { prisma } from "../db";
 import { authenticateToken, requireAuth } from "../middleware/auth";
+import { asyncHandler } from "../middleware/asyncHandler";
 import { authLoginLimiter } from "../middleware/security";
 import {
   clearAuthCookies,
@@ -129,53 +130,69 @@ authRouter.post("/refresh", async (req, res, next) => {
   }
 });
 
-authRouter.post("/logout", async (req, res) => {
-  let revoked = false;
-  const extracted = extractAccessToken(req);
-  if (extracted) {
+authRouter.post(
+  "/logout",
+  asyncHandler(async (req, res) => {
     try {
-      const user = await authenticateToken(extracted.token);
-      await revokeSession(user.sid);
-      revoked = true;
-    } catch {
-      // fall through to refresh-token revoke
-    }
-  }
-
-  if (!revoked) {
-    const refreshToken = readRefreshToken(req);
-    if (refreshToken) {
-      const hash = hashRefreshToken(refreshToken);
-      const session = await prisma.authSession.findUnique({
-        where: { refreshTokenHash: hash },
-        select: { id: true },
-      });
-      if (session) {
-        await revokeSession(session.id);
+      let revoked = false;
+      const extracted = extractAccessToken(req);
+      if (extracted) {
+        try {
+          const user = await authenticateToken(extracted.token);
+          await revokeSession(user.sid);
+          revoked = true;
+        } catch {
+          // fall through to refresh-token revoke
+        }
       }
+
+      if (!revoked) {
+        const refreshToken = readRefreshToken(req);
+        if (refreshToken) {
+          const hash = hashRefreshToken(refreshToken);
+          const session = await prisma.authSession.findUnique({
+            where: { refreshTokenHash: hash },
+            select: { id: true },
+          });
+          if (session) {
+            await revokeSession(session.id);
+          }
+        }
+      }
+
+      clearAuthCookies(res);
+      return res.json({ ok: true });
+    } catch (err) {
+      clearAuthCookies(res);
+      throw err;
     }
-  }
+  }),
+);
 
-  clearAuthCookies(res);
-  return res.json({ ok: true });
-});
+authRouter.post(
+  "/logout-all",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const count = await revokeAllForUser(req.user!.userId);
+    clearAuthCookies(res);
+    return res.json({ ok: true, revoked: count });
+  }),
+);
 
-authRouter.post("/logout-all", requireAuth, async (req, res) => {
-  const count = await revokeAllForUser(req.user!.userId);
-  clearAuthCookies(res);
-  return res.json({ ok: true, revoked: count });
-});
-
-authRouter.get("/me", requireAuth, async (req, res) => {
-  const user = await prisma.user.findUnique({
-    where: { id: req.user!.userId },
-    include: { employee: true },
-  });
-  if (!user || !user.isActive) {
-    return res.status(401).json({
-      error: "unauthorized",
-      message: !user ? "User not found" : "Account blocked",
+authRouter.get(
+  "/me",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      include: { employee: true },
     });
-  }
-  return res.json(await publicUser(user));
-});
+    if (!user || !user.isActive) {
+      return res.status(401).json({
+        error: "unauthorized",
+        message: !user ? "User not found" : "Account blocked",
+      });
+    }
+    return res.json(await publicUser(user));
+  }),
+);

@@ -3,6 +3,7 @@ import { Prisma, Role } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db";
 import { requireAuth, requireAction } from "../middleware/auth";
+import { canChangeUserRole } from "../permissions";
 import { AppError } from "../services/cleaning";
 import { revokeAllForUser } from "../services/authSessions";
 import { publish } from "../events/bus";
@@ -175,19 +176,12 @@ peopleRouter.patch(
         throw new AppError(404, "not_found", "User not found");
       }
 
-      if (actorRole === Role.manager) {
-        if (
-          nextRole === Role.owner ||
-          nextRole === Role.admin ||
-          target.role === Role.owner ||
-          target.role === Role.admin
-        ) {
-          throw new AppError(
-            403,
-            "forbidden",
-            "Managers cannot assign or change owner/admin roles",
-          );
-        }
+      if (!canChangeUserRole(actorRole, target.role, nextRole)) {
+        throw new AppError(
+          403,
+          "forbidden",
+          "Cannot assign or change owner/admin roles",
+        );
       }
 
       if (target.role === Role.owner && nextRole !== Role.owner) {

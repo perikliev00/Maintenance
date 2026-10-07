@@ -11,6 +11,7 @@ import {
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES } from "../constants";
 import { AppError } from "../errors";
+import { hotelDateString } from "./attendance";
 import { getFlags, getOperations } from "./settings";
 import { publish } from "../events/bus";
 import {
@@ -173,6 +174,85 @@ const REBINDABLE_TASK_STATUSES: TaskStatus[] = [
   TaskStatus.rework,
 ];
 
+/** Unbound cycle for planned future tasks — not yet activated on the location. */
+export const UNBOUND_CLEANING_CYCLE = 0;
+
+/** Hotel-date YMD from a Date column stored as UTC midnight. */
+export function formatCleaningHotelDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** True when the task's hotel date is after today (hotel timezone YMD). */
+export function isFutureHotelDate(hotelDate: Date, todayYmd: string): boolean {
+  return formatCleaningHotelDate(hotelDate) > todayYmd;
+}
+
+async function todayHotelDateYmd(): Promise<string> {
+  const ops = await getOperations();
+  return hotelDateString(new Date(), ops.hotelTimezone);
+}
+
+/**
+ * Resolve cleaningCycle for a newly created task.
+ * Future hotel dates stay unbound (0) and do not bump location readiness.
+ * Today/past allocates a new cycle and may mark dirty if clean/pending.
+ */
+export async function resolveCycleForNewTask(
+  tx: Tx,
+  locationId: string,
+  hotelDate: Date,
+  todayYmd?: string,
+): Promise<number> {
+  const today = todayYmd ?? (await todayHotelDateYmd());
+  if (isFutureHotelDate(hotelDate, today)) {
+    await lockLocation(tx, locationId);
+    return UNBOUND_CLEANING_CYCLE;
+  }
+  return allocateCleaningCycle(tx, locationId, {
+    setDirtyIfCleanOrPending: true,
+  });
+}
+
+/**
+ * Bind a task to a fresh location cleaning cycle at start when unbound or stale.
+ * Rejects starting tasks whose hotelDate is still in the future.
+ */
+async function ensureTaskCycleForStart(
+  tx: Tx,
+  task: { id: string; locationId: string; hotelDate: Date; cleaningCycle: number },
+  todayYmd?: string,
+): Promise<number> {
+  const today = todayYmd ?? (await todayHotelDateYmd());
+  if (isFutureHotelDate(task.hotelDate, today)) {
+    throw new AppError(
+      409,
+      "invalid_state",
+      "Cannot start a cleaning task before its hotel date",
+    );
+  }
+
+  await lockLocation(tx, task.locationId);
+  const location = await tx.location.findUniqueOrThrow({
+    where: { id: task.locationId },
+  });
+
+  if (
+    task.cleaningCycle !== UNBOUND_CLEANING_CYCLE &&
+    task.cleaningCycle === location.cleaningCycle
+  ) {
+    return task.cleaningCycle;
+  }
+
+  const next = await allocateCleaningCycle(tx, task.locationId, {
+    setDirtyIfCleanOrPending: true,
+  });
+  await tx.cleaningTask.update({
+    where: { id: task.id },
+    data: { cleaningCycle: next },
+  });
+  return next;
+}
+
 /**
  * Allocate a new cleaning cycle for a location (new task ownership).
  * Optionally force dirty, or dirty only when currently clean / pending inspection.
@@ -314,7 +394,7 @@ export type TaskConflictDetails = {
   assignedEmployeeId: string | null;
 };
 
-function taskConflictDetails(
+export function taskConflictDetails(
   task: {
     version: number;
     status: string;
@@ -455,9 +535,11 @@ export async function createCleaningTask(input: {
         );
       }
 
-      const cleaningCycle = await allocateCleaningCycle(tx, location.id, {
-        setDirtyIfCleanOrPending: true,
-      });
+      const cleaningCycle = await resolveCycleForNewTask(
+        tx,
+        location.id,
+        hotelDate,
+      );
 
       const serviceType = deriveCleaningServiceType({
         locationKind: location.kind,
@@ -585,8 +667,8 @@ export async function startCleaningTask(input: {
         );
       }
 
-      // Fail fast if this task no longer owns the location cleaning cycle.
-      await assertTaskOwnsCleaningCycle(tx, task.locationId, task.cleaningCycle);
+      // Bind unbound/future-planned tasks; reject hotelDate still in the future.
+      const cleaningCycle = await ensureTaskCycleForStart(tx, task);
 
       const runningOnTask = await tx.cleaningSession.findFirst({
         where: { taskId: task.id, status: SessionStatus.running },
@@ -632,7 +714,7 @@ export async function startCleaningTask(input: {
       await applyLocationCleaningStatusIfCurrent(
         tx,
         task.locationId,
-        task.cleaningCycle,
+        cleaningCycle,
         CleaningStatus.in_progress,
         { requireCurrent: true },
       );
@@ -739,7 +821,6 @@ export async function completeCleaningSession(input: {
         where: { id: session.taskId },
       });
       assertTaskVersion(task, input.expectedVersion);
-      await assertTaskOwnsCleaningCycle(tx, task.locationId, task.cleaningCycle);
 
       const finishedAt = new Date();
       if (finishedAt < session.startedAt) {
@@ -798,12 +879,12 @@ export async function completeCleaningSession(input: {
         include: taskInclude,
       });
 
+      // Soft cycle guard: close the session even if superseded; never overwrite a newer cycle.
       await applyLocationCleaningStatusIfCurrent(
         tx,
         updatedTask.locationId,
         task.cleaningCycle,
         nextCleaningStatus,
-        { requireCurrent: true },
       );
 
       await recordAudit(tx, {
@@ -935,7 +1016,6 @@ export async function cancelCleaningSession(input: {
         where: { id: session.taskId },
       });
       assertTaskVersion(task, input.expectedVersion);
-      await assertTaskOwnsCleaningCycle(tx, task.locationId, task.cleaningCycle);
 
       const finishedAt = new Date();
       if (finishedAt < session.startedAt) {
@@ -972,12 +1052,13 @@ export async function cancelCleaningSession(input: {
           include: taskInclude,
         });
 
+        // Soft cycle guard: never overwrite a newer location cycle/status.
         await applyLocationCleaningStatusIfCurrent(
           tx,
           task.locationId,
           task.cleaningCycle,
           CleaningStatus.dirty,
-          { requireCurrent: true, onlyIfStatus: CleaningStatus.in_progress },
+          { onlyIfStatus: CleaningStatus.in_progress },
         );
       }
 

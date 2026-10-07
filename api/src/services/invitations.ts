@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "./cleaning";
+import { assignableRolesFor } from "../permissions";
 import { getSetting } from "./settings";
 import { capabilitiesFor } from "./roleGrants";
 import {
@@ -31,14 +32,12 @@ export function generateInviteCode(): string {
 }
 
 function assertAssignableRole(actorRole: Role, role: Role) {
-  if (actorRole === Role.manager) {
-    if (role === Role.owner || role === Role.admin) {
-      throw new AppError(
-        403,
-        "forbidden",
-        "Managers cannot invite owner/admin roles",
-      );
-    }
+  if (!assignableRolesFor(actorRole).includes(role)) {
+    throw new AppError(
+      403,
+      "forbidden",
+      "Cannot invite owner/admin roles",
+    );
   }
 }
 

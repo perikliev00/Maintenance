@@ -12,7 +12,12 @@ import {
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES } from "../constants";
 import { hotelDateString } from "./attendance";
-import { AppError, allocateCleaningCycle, bumpDirtyAndRebindWork, deriveCleaningServiceType } from "./cleaning";
+import {
+  AppError,
+  bumpDirtyAndRebindWork,
+  deriveCleaningServiceType,
+  resolveCycleForNewTask,
+} from "./cleaning";
 import { sectorSnapshotForLocation } from "./dataScope";
 import { assertActiveShiftId } from "./sectors";
 import { getOperations } from "./settings";
@@ -89,9 +94,11 @@ async function createTaskWithSectorSnapshot(
     locationKind: data.locationKind,
     planCategory: data.planCategory,
   });
-  const cleaningCycle = await allocateCleaningCycle(tx, data.locationId, {
-    setDirtyIfCleanOrPending: true,
-  });
+  const cleaningCycle = await resolveCycleForNewTask(
+    tx,
+    data.locationId,
+    data.hotelDate,
+  );
   try {
     return await tx.cleaningTask.create({
       data: {
@@ -310,12 +317,18 @@ export async function ensureDepartureRoomEffects(hotelDate: Date) {
   const now = new Date();
   await prisma.$transaction(async (tx) => {
     for (const entry of pending) {
+      const claimed = await tx.dailyPlanEntry.updateMany({
+        where: {
+          id: entry.id,
+          category: DailyPlanCategory.departure,
+          roomEffectsAppliedAt: null,
+        },
+        data: { roomEffectsAppliedAt: now },
+      });
+      if (claimed.count === 0) continue;
+
       await bumpDirtyAndRebindWork(tx, entry.locationId, {
         occupancy: Occupancy.vacant,
-      });
-      await tx.dailyPlanEntry.update({
-        where: { id: entry.id },
-        data: { roomEffectsAppliedAt: now },
       });
     }
   });

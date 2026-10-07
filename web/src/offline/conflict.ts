@@ -44,26 +44,24 @@ export function canRebaseConflict(
   return typeof parsed?.currentVersion === "number";
 }
 
-/** Codes that older servers may return as sync `forbidden` but are conflicts. */
+/** Explicit conflict codes that may arrive under sync status `forbidden`. */
 export const FORBIDDEN_AS_CONFLICT_CODES = new Set([
   "assignee_conflict",
   "out_of_scope",
-  "forbidden",
 ]);
 
 export function shouldTreatForbiddenAsConflict(
   code: string | null | undefined,
   message: string | null | undefined,
 ): boolean {
-  if (code && FORBIDDEN_AS_CONFLICT_CODES.has(code)) {
-    // True permission denials ("Missing cleaning.start") stay failed.
-    if (message && /^Missing\s/i.test(message)) return false;
-    return true;
-  }
+  // True permission denials ("Missing cleaning.start") stay failed.
+  if (message && /^Missing\s/i.test(message)) return false;
+  if (code && FORBIDDEN_AS_CONFLICT_CODES.has(code)) return true;
   if (
     message &&
     (/reassigned/i.test(message) ||
       /assigned to another/i.test(message) ||
+      /belongs to another/i.test(message) ||
       /outside your permitted/i.test(message) ||
       /out of scope/i.test(message))
   ) {

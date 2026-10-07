@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db";
 import { requireAuth, requireAction } from "../middleware/auth";
+import { asyncHandler } from "../middleware/asyncHandler";
 import { isOwner } from "../permissions";
 import {
   AppError,
@@ -320,14 +321,14 @@ cleaningRouter.get(
   "/employees/housekeepers",
   requireAuth,
   requireAction("cleaning.reassign"),
-  async (_req, res) => {
+  asyncHandler(async (_req, res) => {
     const employees = await prisma.employee.findMany({
       where: { user: { role: "housekeeper", isActive: true } },
       select: { id: true, fullName: true, employeeNumber: true },
       orderBy: { fullName: "asc" },
     });
     return res.json(employees);
-  },
+  }),
 );
 
 cleaningRouter.get(
