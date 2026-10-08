@@ -8,6 +8,7 @@ import {
   createNotifications,
   recipientsForLocationOps,
 } from "./notifications";
+import { markStaleOpenIntervals } from "./attendance";
 
 async function startJobRun(jobKey: string) {
   return prisma.jobRun.create({
@@ -275,6 +276,19 @@ export async function runTicketSlaBreach() {
   }
 }
 
+export async function runStaleOpenAttendance() {
+  const run = await startJobRun("stale_open_attendance");
+  try {
+    const result = await markStaleOpenIntervals();
+    await finishJobRun(run.id, "ok", result);
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await finishJobRun(run.id, "error", undefined, message);
+    throw err;
+  }
+}
+
 export async function runAllJobs() {
   const results: Record<string, unknown> = {};
   results.lock_inactive_users = await runLockInactiveUsers().catch((err) => ({
@@ -286,6 +300,11 @@ export async function runAllJobs() {
   results.ticket_sla_breach = await runTicketSlaBreach().catch((err) => ({
     error: err instanceof Error ? err.message : String(err),
   }));
+  results.stale_open_attendance = await runStaleOpenAttendance().catch(
+    (err) => ({
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
   return results;
 }
 

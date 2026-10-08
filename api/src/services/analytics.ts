@@ -12,8 +12,9 @@ import { OPEN_TICKET_STATUSES } from "../constants";
 import { computeReadiness } from "./readiness";
 import { getOperations } from "./settings";
 import {
-  isAnomalousSession,
+  avgValidMinutesFromTaskMs,
   sessionDurationBuckets,
+  sumValidSessionMs,
 } from "./cleaningResults";
 
 export type AnalyticsDomain = "maintenance" | "housekeeping";
@@ -292,7 +293,7 @@ async function getMaintenanceSummary(
 
   const forecastFrom = startOfDay(new Date(period.now.getTime() - 28 * DAY_MS));
   const recentCount = await prisma.maintenanceTicket.count({
-    where: { openedAt: { gte: forecastFrom, lte: period.now } },
+    where: { openedAt: { gte: forecastFrom, lte: period.now }, ...tw },
   });
   const dailyRate = recentCount / 28;
   const remaining = daysRemainingInMonth(period.now);
@@ -502,22 +503,7 @@ async function getHousekeepingSummary(
       withDue += 1;
       if (task.completedAt <= task.dueAt) onTime += 1;
     }
-    const validMs = task.sessions.reduce((sum, s) => {
-      if (!s.finishedAt) return sum;
-      if (
-        isAnomalousSession({
-          startedAt: s.startedAt,
-          finishedAt: s.finishedAt,
-          anomalyFlags: s.anomalyFlags,
-          anomalyThresholdMinutes,
-        })
-      ) {
-        return sum;
-      }
-      return (
-        sum + Math.max(0, s.finishedAt.getTime() - s.startedAt.getTime())
-      );
-    }, 0);
+    const validMs = sumValidSessionMs(task.sessions, anomalyThresholdMinutes);
     if (validMs > 0) {
       tasksWithValidTime += 1;
       totalValidMsForTasks += validMs;
@@ -525,10 +511,10 @@ async function getHousekeepingSummary(
   }
 
   const onTimePct = withDue === 0 ? null : round1((onTime / withDue) * 100);
-  const avgMinutesPerTask =
-    tasksWithValidTime > 0
-      ? round1(totalValidMsForTasks / (1000 * 60) / tasksWithValidTime)
-      : null;
+  const avgMinutesPerTask = avgValidMinutesFromTaskMs(
+    totalValidMsForTasks,
+    tasksWithValidTime,
+  );
   const totalValidSessionMinutes = round1(totalValidSessionMs / (1000 * 60));
   const totalExcludedSessionMinutes = round1(
     totalExcludedSessionMs / (1000 * 60),

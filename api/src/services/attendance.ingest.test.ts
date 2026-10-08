@@ -11,6 +11,7 @@ import {
   LIST_DEFAULT_LIMIT,
   LIST_MAX_LIMIT,
   listPageFromRows,
+  OPEN_MISSING_END_HOURS,
   pairEventsToIntervalDrafts,
   resolveListLimit,
   type IntervalCursor,
@@ -147,6 +148,72 @@ describe("attendance ingest rebuild pairing", () => {
     assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
     assert.ok(drafts[1]!.anomalyFlags.includes("missing_end"));
     assert.equal(drafts[1]!.endEventId, "orphan-out");
+  });
+
+  it("keeps open clock_in as open just under OPEN_MISSING_END_HOURS", () => {
+    const startedAt = new Date("2026-10-06T08:00:00.000Z");
+    const now = new Date(
+      startedAt.getTime() + (OPEN_MISSING_END_HOURS * 3600_000 - 1),
+    );
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: startedAt,
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+      now,
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.open);
+    assert.ok(!drafts[0]!.anomalyFlags.includes("missing_end"));
+  });
+
+  it("flags open clock_in as needs_review at OPEN_MISSING_END_HOURS", () => {
+    const startedAt = new Date("2026-10-06T08:00:00.000Z");
+    const now = new Date(
+      startedAt.getTime() + OPEN_MISSING_END_HOURS * 3600_000,
+    );
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: startedAt,
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+      now,
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+    assert.ok(drafts[0]!.anomalyFlags.includes("missing_end"));
+  });
+
+  it("flags open clock_in as needs_review past OPEN_MISSING_END_HOURS", () => {
+    const startedAt = new Date("2026-10-06T08:00:00.000Z");
+    const now = new Date(
+      startedAt.getTime() + (OPEN_MISSING_END_HOURS + 6.5) * 3600_000,
+    );
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: startedAt,
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+      now,
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+    assert.ok(drafts[0]!.anomalyFlags.includes("missing_end"));
   });
 
   it("counts breaks inside an interval window", () => {

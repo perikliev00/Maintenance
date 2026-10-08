@@ -2048,12 +2048,16 @@ export function deviceFingerprint(): string {
   return next;
 }
 
-export function todayHotelDate(): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+const DEFAULT_HOTEL_TIMEZONE = "Europe/Sofia";
+let cachedHotelTimezone = DEFAULT_HOTEL_TIMEZONE;
+
+export function todayHotelDate(timeZone?: string, instant: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timeZone ?? cachedHotelTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(instant);
 }
 
 export type DailyPlanCategory = "departure" | "arrival" | "priority";
@@ -2150,6 +2154,24 @@ export async function fetchDailyPlan(hotelDate: string): Promise<DailyPlan> {
   return parseJson(res);
 }
 
+export type DepartureRoomEffectsResult = {
+  hotelDate: string;
+  applied: number;
+  skipped: number;
+  total: number;
+};
+
+export async function applyDepartureRoomEffects(
+  hotelDate: string,
+): Promise<DepartureRoomEffectsResult> {
+  const res = await apiFetch(`${API_BASE}/daily-plan/apply-departure-effects`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ hotelDate }),
+  });
+  return parseJson(res);
+}
+
 export async function createDailyPlanEntry(input: {
   hotelDate: string;
   locationId: string;
@@ -2189,7 +2211,12 @@ export async function fetchPublicSettings(): Promise<PublicSettings> {
   const res = await apiFetch(`${API_BASE}/settings/public`, {
     headers: authHeaders(),
   });
-  return parseJson(res);
+  const settings = await parseJson<PublicSettings>(res);
+  const tz = settings?.operations?.hotelTimezone;
+  if (typeof tz === "string" && tz.length > 0) {
+    cachedHotelTimezone = tz;
+  }
+  return settings;
 }
 
 export async function fetchAllSettings(): Promise<SettingsBundle> {

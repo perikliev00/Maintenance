@@ -5,6 +5,8 @@ type Props = {
   events: AuditEventRow[];
   emptyLabel?: string;
   loading?: boolean;
+  accessDenied?: boolean;
+  error?: string | null;
   locale?: "bg" | "en";
 };
 
@@ -12,10 +14,18 @@ export function AuditTimeline({
   events,
   emptyLabel = "Няма записи.",
   loading,
+  accessDenied,
+  error,
   locale = "bg",
 }: Props) {
   if (loading) {
     return <p className="muted">Зареждане…</p>;
+  }
+  if (accessDenied) {
+    return <p className="muted">Нямате достъп до тази хронология.</p>;
+  }
+  if (error) {
+    return <p className="muted">{error}</p>;
   }
   if (events.length === 0) {
     return <p className="muted">{emptyLabel}</p>;

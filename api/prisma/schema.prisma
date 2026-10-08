@@ -685,6 +685,13 @@ model RoleGrant {
   @@index([role, kind])
 }
 
+/// One-shot data seed ledger. Presence of id means the named seed already ran
+/// and must not re-insert rows (admin revokes stay revoked across restarts).
+model AppliedDataSeed {
+  id        String   @id
+  appliedAt DateTime @default(now())
+}
+
 model Sector {
   id                          String           @id @default(cuid())
   propertyId                  String

@@ -11,7 +11,7 @@ import {
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES } from "../constants";
 import { AppError } from "../errors";
-import { hotelDateString } from "./attendance";
+import { todayHotelDateYmd } from "./attendance";
 import { getFlags, getOperations } from "./settings";
 import { publish } from "../events/bus";
 import {
@@ -185,11 +185,6 @@ export function formatCleaningHotelDate(d: Date): string {
 /** True when the task's hotel date is after today (hotel timezone YMD). */
 export function isFutureHotelDate(hotelDate: Date, todayYmd: string): boolean {
   return formatCleaningHotelDate(hotelDate) > todayYmd;
-}
-
-async function todayHotelDateYmd(): Promise<string> {
-  const ops = await getOperations();
-  return hotelDateString(new Date(), ops.hotelTimezone);
 }
 
 /**
@@ -1292,7 +1287,11 @@ export async function reassignCleaningTask(input: {
     where: { id: input.assignedEmployeeId },
     include: { user: true },
   });
-  if (!employee || employee.user?.role !== "housekeeper") {
+  if (
+    !employee ||
+    employee.user?.role !== "housekeeper" ||
+    !employee.user.isActive
+  ) {
     throw new AppError(400, "validation", "Assignee must be an active housekeeper");
   }
 

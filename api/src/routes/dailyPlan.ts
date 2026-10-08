@@ -3,7 +3,9 @@ import { z } from "zod";
 import { DailyPlanCategory } from "@prisma/client";
 import { prisma } from "../db";
 import { requireAuth, requireAction } from "../middleware/auth";
+import { todayHotelDateYmd } from "../services/attendance";
 import {
+  applyDepartureRoomEffects,
   createDailyPlanEntry,
   deleteDailyPlanEntry,
   getDailyPlan,
@@ -18,6 +20,10 @@ import {
 export const dailyPlanRouter = Router();
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+const hotelDateBodySchema = z.object({
+  hotelDate: dateSchema,
+});
 
 const importSchema = z.object({
   hotelDate: dateSchema,
@@ -44,7 +50,7 @@ dailyPlanRouter.get(
       const hotelDate =
         typeof req.query.hotelDate === "string"
           ? req.query.hotelDate
-          : new Date().toISOString().slice(0, 10);
+          : await todayHotelDateYmd();
       const parsed = dateSchema.safeParse(hotelDate);
       if (!parsed.success) {
         return res.status(400).json({
@@ -55,6 +61,30 @@ dailyPlanRouter.get(
       const scope = await resolveDataScope(req.user!);
       const plan = await getDailyPlan(parsed.data, locationWhere(scope));
       return res.json(plan);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+dailyPlanRouter.post(
+  "/apply-departure-effects",
+  requireAuth,
+  requireAction("plan.manage"),
+  async (req, res, next) => {
+    try {
+      const parsed = hotelDateBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "validation", details: parsed.error.flatten() });
+      }
+      const scope = await resolveDataScope(req.user!);
+      const result = await applyDepartureRoomEffects(
+        parsed.data.hotelDate,
+        locationWhere(scope),
+      );
+      return res.json(result);
     } catch (err) {
       return next(err);
     }

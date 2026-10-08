@@ -8,8 +8,9 @@
 --      Or rename restored backup tables to those staging names.
 --   2. Run this script against the live DB (AuditEvent must already exist).
 --
--- History dropped by 20261002260000_unified_audit_events without a prior copy
--- cannot be invented; only a backup of the legacy tables can recover it.
+-- History dropped by the older DROP-only version of 20261002260000_unified_audit_events
+-- (since fixed to copy+verify before drop) cannot be invented; only a backup of the
+-- legacy tables can recover it.
 
 -- PermissionChange_restore expected columns:
 --   id TEXT, role Role, kind GrantKind, key TEXT, granted BOOLEAN,

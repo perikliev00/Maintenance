@@ -112,6 +112,43 @@ export function sessionDurationBuckets(input: {
   };
 }
 
+/** Sum non-anomalous completed-session durations for a task (or session list). */
+export function sumValidSessionMs(
+  sessions: Array<{
+    startedAt: Date;
+    finishedAt: Date | null;
+    anomalyFlags: unknown;
+  }>,
+  anomalyThresholdMinutes: number,
+): number {
+  return sessions.reduce((sum, s) => {
+    if (!s.finishedAt) return sum;
+    if (
+      isAnomalousSession({
+        startedAt: s.startedAt,
+        finishedAt: s.finishedAt,
+        anomalyFlags: s.anomalyFlags,
+        anomalyThresholdMinutes,
+      })
+    ) {
+      return sum;
+    }
+    return (
+      sum + Math.max(0, s.finishedAt.getTime() - s.startedAt.getTime())
+    );
+  }, 0);
+}
+
+/** Average valid minutes per completed task with valid session time. */
+export function avgValidMinutesFromTaskMs(
+  totalValidMsForTasks: number,
+  tasksWithValidTime: number,
+): number | null {
+  return tasksWithValidTime > 0
+    ? round1(totalValidMsForTasks / (1000 * 60) / tasksWithValidTime)
+    : null;
+}
+
 function emptyCounters(): Omit<
   CleaningResultsCounters,
   | "onTimePct"
@@ -123,6 +160,7 @@ function emptyCounters(): Omit<
   onTimeOk: number;
   totalValidSessionMs: number;
   totalExcludedSessionMs: number;
+  totalValidMsForTasks: number;
   tasksWithValidTime: number;
 } {
   return {
@@ -136,6 +174,7 @@ function emptyCounters(): Omit<
     onTimeOk: 0,
     totalValidSessionMs: 0,
     totalExcludedSessionMs: 0,
+    totalValidMsForTasks: 0,
     tasksWithValidTime: 0,
   };
 }
@@ -159,10 +198,10 @@ function finalizeCounters(
       agg.onTimeKnown > 0
         ? round1((agg.onTimeOk / agg.onTimeKnown) * 100)
         : null,
-    avgValidMinutes:
-      agg.tasksWithValidTime > 0
-        ? round1(totalValidSessionMinutes / agg.tasksWithValidTime)
-        : null,
+    avgValidMinutes: avgValidMinutesFromTaskMs(
+      agg.totalValidMsForTasks,
+      agg.tasksWithValidTime,
+    ),
     totalValidSessionMinutes,
     totalExcludedSessionMinutes,
   };
@@ -341,24 +380,13 @@ export async function getCleaningResults(
       }
     }
 
-    const validSessionMs = task.sessions.reduce((sum, s) => {
-      if (!s.finishedAt) return sum;
-      if (
-        isAnomalousSession({
-          startedAt: s.startedAt,
-          finishedAt: s.finishedAt,
-          anomalyFlags: s.anomalyFlags,
-          anomalyThresholdMinutes,
-        })
-      ) {
-        return sum;
-      }
-      return (
-        sum + Math.max(0, s.finishedAt.getTime() - s.startedAt.getTime())
-      );
-    }, 0);
+    const validSessionMs = sumValidSessionMs(
+      task.sessions,
+      anomalyThresholdMinutes,
+    );
     if (validSessionMs > 0) {
       summaryAgg.tasksWithValidTime += 1;
+      summaryAgg.totalValidMsForTasks += validSessionMs;
     }
 
     const assignee = task.assignedEmployee;
@@ -378,8 +406,7 @@ export async function getCleaningResults(
       }
       if (validSessionMs > 0) {
         emp.tasksWithValidTime += 1;
-        // Per-employee valid minutes already accumulated from sessions by session employee;
-        // for avgValidMinutes use task-assigned employee's tasksWithValidTime vs their session valid ms.
+        emp.totalValidMsForTasks += validSessionMs;
       }
     }
   }

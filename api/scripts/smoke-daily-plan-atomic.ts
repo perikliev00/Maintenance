@@ -35,11 +35,12 @@ async function main() {
   const hotelDate = hotelDateAsUtcDate(new Date(), ops.hotelTimezone);
   const cycleBefore = 40;
 
+  // --- Concurrent apply: occupied + dirty (checkout morning) → vacant + cycle++ ---
   await prisma.location.update({
     where: { id: room.id },
     data: {
       cleaningCycle: cycleBefore,
-      cleaningStatus: CleaningStatus.verified_clean,
+      cleaningStatus: CleaningStatus.dirty,
       occupancy: Occupancy.occupied,
     },
   });
@@ -80,10 +81,19 @@ async function main() {
       errors: fails.map((f) =>
         f.status === "rejected" ? String(f.reason) : "",
       ),
+      results: oks.map((s) =>
+        s.status === "fulfilled" ? s.value : null,
+      ),
     },
   );
   assert(oks.length === 2, `expected both ensure calls to settle ok, got ${oks.length}`);
   assert(fails.length === 0, `expected no failures, got ${fails.length}`);
+
+  const appliedSum = oks.reduce(
+    (n, s) => n + (s.status === "fulfilled" ? s.value.applied : 0),
+    0,
+  );
+  assert(appliedSum === 1, `expected exactly one apply, got ${appliedSum}`);
 
   const afterEntry = await prisma.dailyPlanEntry.findUniqueOrThrow({
     where: { id: entry.id },
@@ -107,6 +117,65 @@ async function main() {
   assert(
     afterRoom.occupancy === Occupancy.vacant,
     `expected vacant, got ${afterRoom.occupancy}`,
+  );
+
+  // --- Skip: occupied + verified_clean (newer stay) → no room mutation ---
+  const cycleSkipBefore = 55;
+  await prisma.location.update({
+    where: { id: room.id },
+    data: {
+      cleaningCycle: cycleSkipBefore,
+      cleaningStatus: CleaningStatus.verified_clean,
+      occupancy: Occupancy.occupied,
+    },
+  });
+
+  await prisma.dailyPlanEntry.deleteMany({
+    where: {
+      hotelDate,
+      locationId: room.id,
+      category: DailyPlanCategory.departure,
+    },
+  });
+
+  const skipEntry = await prisma.dailyPlanEntry.create({
+    data: {
+      hotelDate,
+      locationId: room.id,
+      category: DailyPlanCategory.departure,
+      source: DailyPlanSource.manual,
+      notes: "smoke skip occupied+clean",
+      roomEffectsAppliedAt: null,
+      createdByEmployeeId: owner.employeeId,
+    },
+  });
+
+  const skipResult = await ensureDepartureRoomEffects(hotelDate);
+  assert(skipResult.skipped === 1, `expected skipped=1, got ${skipResult.skipped}`);
+  assert(skipResult.applied === 0, `expected applied=0, got ${skipResult.applied}`);
+
+  const skipEntryAfter = await prisma.dailyPlanEntry.findUniqueOrThrow({
+    where: { id: skipEntry.id },
+  });
+  assert(
+    skipEntryAfter.roomEffectsAppliedAt != null,
+    "roomEffectsAppliedAt should be set on skip",
+  );
+
+  const skipRoomAfter = await prisma.location.findUniqueOrThrow({
+    where: { id: room.id },
+  });
+  assert(
+    skipRoomAfter.cleaningCycle === cycleSkipBefore,
+    `expected cleaningCycle unchanged ${cycleSkipBefore}, got ${skipRoomAfter.cleaningCycle}`,
+  );
+  assert(
+    skipRoomAfter.cleaningStatus === CleaningStatus.verified_clean,
+    `expected verified_clean, got ${skipRoomAfter.cleaningStatus}`,
+  );
+  assert(
+    skipRoomAfter.occupancy === Occupancy.occupied,
+    `expected occupied, got ${skipRoomAfter.occupancy}`,
   );
 
   console.log("smoke-daily-plan-atomic: ok");

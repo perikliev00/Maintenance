@@ -11,7 +11,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES } from "../constants";
-import { hotelDateString } from "./attendance";
+import { todayHotelDateYmd } from "./attendance";
 import {
   AppError,
   bumpDirtyAndRebindWork,
@@ -20,7 +20,6 @@ import {
 } from "./cleaning";
 import { sectorSnapshotForLocation } from "./dataScope";
 import { assertActiveShiftId } from "./sectors";
-import { getOperations } from "./settings";
 
 const PRIORITY_RANK: Record<Priority, number> = {
   low: 0,
@@ -71,11 +70,6 @@ type PlanEffects = {
   cleaningTaskId: string | null;
   roomEffectsApplied: boolean;
 };
-
-async function todayHotelDateYmd(): Promise<string> {
-  const ops = await getOperations();
-  return hotelDateString(new Date(), ops.hotelTimezone);
-}
 
 async function createTaskWithSectorSnapshot(
   tx: Tx,
@@ -265,7 +259,6 @@ export async function getDailyPlan(
   locationFilter?: Prisma.LocationWhereInput,
 ) {
   const date = parseHotelDate(hotelDate);
-  await ensureDepartureRoomEffects(date);
 
   const entries = await prisma.dailyPlanEntry.findMany({
     where: {
@@ -291,15 +284,59 @@ export async function getDailyPlan(
   };
 }
 
+export type DepartureRoomEffectsResult = {
+  hotelDate: string;
+  applied: number;
+  skipped: number;
+  total: number;
+};
+
+function shouldSkipDepartureRoomEffects(
+  occupancy: Occupancy,
+  cleaningStatus: CleaningStatus,
+  planYmd: string,
+  todayYmd: string,
+): boolean {
+  if (occupancy !== Occupancy.occupied) {
+    return false;
+  }
+  // Past plan vs current stay, or same-day turn (occupied and already prepared).
+  if (planYmd < todayYmd) {
+    return true;
+  }
+  return (
+    cleaningStatus === CleaningStatus.verified_clean ||
+    cleaningStatus === CleaningStatus.pending_inspection
+  );
+}
+
+/** Apply deferred departure room effects for a YYYY-MM-DD hotel date. */
+export async function applyDepartureRoomEffects(
+  hotelDate: string,
+  locationFilter?: Prisma.LocationWhereInput,
+): Promise<DepartureRoomEffectsResult> {
+  return ensureDepartureRoomEffects(parseHotelDate(hotelDate), locationFilter);
+}
+
 /**
  * Apply deferred vacant+dirty for departure plan entries once their hotelDate
  * has arrived (or is in the past). No-op for future hotel dates.
+ * Scoped by locationFilter when provided. Skips rooms with a newer stay.
  */
-export async function ensureDepartureRoomEffects(hotelDate: Date) {
+export async function ensureDepartureRoomEffects(
+  hotelDate: Date,
+  locationFilter?: Prisma.LocationWhereInput,
+): Promise<DepartureRoomEffectsResult> {
   const todayYmd = await todayHotelDateYmd();
   const planYmd = formatHotelDate(hotelDate);
+  const empty: DepartureRoomEffectsResult = {
+    hotelDate: planYmd,
+    applied: 0,
+    skipped: 0,
+    total: 0,
+  };
   if (planYmd > todayYmd) {
-    return;
+    return empty;
   }
 
   const pending = await prisma.dailyPlanEntry.findMany({
@@ -307,14 +344,18 @@ export async function ensureDepartureRoomEffects(hotelDate: Date) {
       hotelDate,
       category: DailyPlanCategory.departure,
       roomEffectsAppliedAt: null,
+      ...(locationFilter ? { location: locationFilter } : {}),
     },
     select: { id: true, locationId: true },
   });
   if (pending.length === 0) {
-    return;
+    return empty;
   }
 
   const now = new Date();
+  let applied = 0;
+  let skipped = 0;
+
   await prisma.$transaction(async (tx) => {
     for (const entry of pending) {
       const claimed = await tx.dailyPlanEntry.updateMany({
@@ -327,11 +368,36 @@ export async function ensureDepartureRoomEffects(hotelDate: Date) {
       });
       if (claimed.count === 0) continue;
 
+      const location = await tx.location.findUniqueOrThrow({
+        where: { id: entry.locationId },
+        select: { occupancy: true, cleaningStatus: true },
+      });
+
+      if (
+        shouldSkipDepartureRoomEffects(
+          location.occupancy,
+          location.cleaningStatus,
+          planYmd,
+          todayYmd,
+        )
+      ) {
+        skipped += 1;
+        continue;
+      }
+
       await bumpDirtyAndRebindWork(tx, entry.locationId, {
         occupancy: Occupancy.vacant,
       });
+      applied += 1;
     }
   });
+
+  return {
+    hotelDate: planYmd,
+    applied,
+    skipped,
+    total: applied + skipped,
+  };
 }
 
 async function applyPlanEntryEffects(

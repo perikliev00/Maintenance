@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  avgValidMinutesFromTaskMs,
   isAnomalousSession,
   sessionDurationBuckets,
+  sumValidSessionMs,
 } from "./cleaningResults";
 
 const threshold = 480; // 2 × default overdueSessionMinutes (240)
@@ -159,5 +161,180 @@ describe("cleaning metric counter semantics (rework + rooms)", () => {
     assert.equal(totalValidMs, 30 * 60_000);
     assert.equal(totalExcludedMs, 300 * 60_000);
     assert.deepEqual(validMinutes, [30]);
+  });
+});
+
+describe("sumValidSessionMs", () => {
+  it("sums only non-anomalous sessions with finishedAt", () => {
+    const finishedAt = new Date("2026-10-07T12:00:00.000Z");
+    const ms = sumValidSessionMs(
+      [
+        {
+          startedAt: minsAgo(finishedAt, 30),
+          finishedAt,
+          anomalyFlags: [],
+        },
+        {
+          startedAt: minsAgo(finishedAt, 60),
+          finishedAt,
+          anomalyFlags: ["overdue"],
+        },
+        {
+          startedAt: minsAgo(finishedAt, 20),
+          finishedAt: null,
+          anomalyFlags: [],
+        },
+      ],
+      threshold,
+    );
+    assert.equal(ms, 30 * 60_000);
+  });
+});
+
+/**
+ * avgValidMinutes must use the same completed-task set for numerator and
+ * denominator (Analytics parity). Period session totals may still include
+ * awaiting_inspection sessions; those must not inflate the average.
+ */
+describe("avgValidMinutes task-scoped formula (F07)", () => {
+  it("does not inflate avg when period sessions include awaiting_inspection", () => {
+    const finishedAt = new Date("2026-10-07T12:00:00.000Z");
+    // Period session pool: completed task 30m + awaiting_inspection 60m
+    let periodValidSessionMs = 0;
+    for (const mins of [30, 60]) {
+      const { anomalous, durationMs } = sessionDurationBuckets({
+        startedAt: minsAgo(finishedAt, mins),
+        finishedAt,
+        anomalyFlags: [],
+        anomalyThresholdMinutes: threshold,
+      });
+      if (!anomalous) periodValidSessionMs += durationMs;
+    }
+    const periodValidMinutes = periodValidSessionMs / 60_000;
+    assert.equal(periodValidMinutes, 90);
+
+    // Task-scoped: only the completed task contributes
+    const completedTaskValidMs = sumValidSessionMs(
+      [
+        {
+          startedAt: minsAgo(finishedAt, 30),
+          finishedAt,
+          anomalyFlags: [],
+        },
+      ],
+      threshold,
+    );
+    const tasksWithValidTime = 1;
+    const avg = avgValidMinutesFromTaskMs(
+      completedTaskValidMs,
+      tasksWithValidTime,
+    );
+    assert.equal(avg, 30);
+    assert.notEqual(avg, periodValidMinutes / tasksWithValidTime);
+  });
+
+  it("averages valid minutes across completed tasks only", () => {
+    const finishedAt = new Date("2026-10-07T12:00:00.000Z");
+    const taskMs = [
+      sumValidSessionMs(
+        [
+          {
+            startedAt: minsAgo(finishedAt, 20),
+            finishedAt,
+            anomalyFlags: [],
+          },
+        ],
+        threshold,
+      ),
+      sumValidSessionMs(
+        [
+          {
+            startedAt: minsAgo(finishedAt, 40),
+            finishedAt,
+            anomalyFlags: [],
+          },
+        ],
+        threshold,
+      ),
+    ];
+    let totalValidMsForTasks = 0;
+    let tasksWithValidTime = 0;
+    for (const ms of taskMs) {
+      if (ms > 0) {
+        totalValidMsForTasks += ms;
+        tasksWithValidTime += 1;
+      }
+    }
+    assert.equal(
+      avgValidMinutesFromTaskMs(totalValidMsForTasks, tasksWithValidTime),
+      30,
+    );
+  });
+
+  it("returns null when only awaiting_inspection sessions exist (no completed tasks with valid time)", () => {
+    const finishedAt = new Date("2026-10-07T12:00:00.000Z");
+    const { anomalous, durationMs } = sessionDurationBuckets({
+      startedAt: minsAgo(finishedAt, 60),
+      finishedAt,
+      anomalyFlags: [],
+      anomalyThresholdMinutes: threshold,
+    });
+    assert.equal(anomalous, false);
+    const totalValidSessionMinutes = durationMs / 60_000;
+    assert.equal(totalValidSessionMinutes, 60);
+
+    const totalValidMsForTasks = 0;
+    const tasksWithValidTime = 0;
+    assert.equal(
+      avgValidMinutesFromTaskMs(totalValidMsForTasks, tasksWithValidTime),
+      null,
+    );
+  });
+
+  it("attributes task valid ms and task count to the same assignee for avg", () => {
+    const finishedAt = new Date("2026-10-07T12:00:00.000Z");
+    const assigneeId = "emp-assignee";
+    const sessionWorkerId = "emp-session-worker";
+
+    const completedTasks = [
+      {
+        assignedEmployeeId: assigneeId,
+        sessions: [
+          {
+            employeeId: sessionWorkerId,
+            startedAt: minsAgo(finishedAt, 45),
+            finishedAt,
+            anomalyFlags: [] as string[],
+          },
+        ],
+      },
+    ];
+
+    const byAssignee = new Map<
+      string,
+      { totalValidMsForTasks: number; tasksWithValidTime: number }
+    >();
+    for (const task of completedTasks) {
+      const validMs = sumValidSessionMs(task.sessions, threshold);
+      if (validMs <= 0 || !task.assignedEmployeeId) continue;
+      const agg = byAssignee.get(task.assignedEmployeeId) ?? {
+        totalValidMsForTasks: 0,
+        tasksWithValidTime: 0,
+      };
+      agg.totalValidMsForTasks += validMs;
+      agg.tasksWithValidTime += 1;
+      byAssignee.set(task.assignedEmployeeId, agg);
+    }
+
+    const assignee = byAssignee.get(assigneeId)!;
+    assert.equal(assignee.tasksWithValidTime, 1);
+    assert.equal(
+      avgValidMinutesFromTaskMs(
+        assignee.totalValidMsForTasks,
+        assignee.tasksWithValidTime,
+      ),
+      45,
+    );
+    assert.equal(byAssignee.has(sessionWorkerId), false);
   });
 });

@@ -1,12 +1,17 @@
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES, OPEN_TICKET_STATUSES } from "../constants";
+import { hotelDateAsUtcDate } from "./attendance";
 import { formatMaintenanceTicket } from "./maintenance";
 import { resolveDataScope, taskWhere } from "./dataScope";
+import { getOperations } from "./settings";
 import type { AuthUser } from "../middleware/auth";
 
-function hotelDateStart(isoDate?: string): Date {
-  const raw = isoDate ?? new Date().toISOString().slice(0, 10);
-  return new Date(`${raw}T00:00:00.000Z`);
+async function hotelDateStart(isoDate?: string): Promise<Date> {
+  if (isoDate) {
+    return new Date(`${isoDate}T00:00:00.000Z`);
+  }
+  const ops = await getOperations();
+  return hotelDateAsUtcDate(new Date(), ops.hotelTimezone);
 }
 
 export async function getMyWork(
@@ -15,7 +20,7 @@ export async function getMyWork(
   shiftId?: string,
 ) {
   const scope = await resolveDataScope(user);
-  const date = hotelDateStart(hotelDate);
+  const date = await hotelDateStart(hotelDate);
   const dateIso = date.toISOString().slice(0, 10);
 
   let effectiveShiftId = shiftId ?? null;

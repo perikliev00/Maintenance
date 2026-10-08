@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
+  applyDepartureRoomEffects,
   canPerformAction,
   createDailyPlanEntry,
   deleteDailyPlanEntry,
@@ -187,6 +188,7 @@ export function PlanPage({ user }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [applyingEffects, setApplyingEffects] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importText, setImportText] = useState("");
 
@@ -280,6 +282,29 @@ export function PlanPage({ user }: Props) {
     }
   }
 
+  async function onApplyDepartureEffects() {
+    setApplyingEffects(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await applyDepartureRoomEffects(hotelDate);
+      setMessage(
+        result.total === 0
+          ? "Няма чакащи ефекти от напускания за тази дата"
+          : `Ефекти от напускания: приложени ${result.applied}, пропуснати ${result.skipped}`,
+      );
+      await refresh();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Неуспешно прилагане на ефекти от напускания",
+      );
+    } finally {
+      setApplyingEffects(false);
+    }
+  }
+
   async function onImport(e: FormEvent) {
     e.preventDefault();
     setImporting(true);
@@ -358,6 +383,26 @@ export function PlanPage({ user }: Props) {
 
       {error && <div className="error banner">{error}</div>}
       {message && <div className="ok banner">{message}</div>}
+
+      {canManage && (
+        <section className="panel">
+          <h2>Ефекти от напускания</h2>
+          <p className="muted small">
+            Четенето на плана не променя стаите. Приложи deferred vacant/dirty
+            само за помещения в твоя обхват; заети и вече подготвени стаи се
+            пропускат.
+          </p>
+          <button
+            type="button"
+            disabled={applyingEffects || loading}
+            onClick={() => void onApplyDepartureEffects()}
+          >
+            {applyingEffects
+              ? "Прилагане…"
+              : "Приложи ефекти от напускания"}
+          </button>
+        </section>
+      )}
 
       {plan?.lastImport && (
         <p className="muted small">

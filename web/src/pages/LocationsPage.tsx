@@ -16,6 +16,7 @@ import {
   reassignCleaningTask,
   fetchIssueOptions,
   fetchMaintenanceCategories,
+  ApiRequestError,
   fetchAuditEvents,
   reportIssue,
   setLocationOccupancy,
@@ -82,6 +83,10 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
   const [detailLocationId, setDetailLocationId] = useState<string | null>(null);
   const [detailEvents, setDetailEvents] = useState<AuditEventRow[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailAuditError, setDetailAuditError] = useState<{
+    kind: "forbidden" | "error";
+    message: string;
+  } | null>(null);
 
   const owner = isOwner(user.role);
   const canManage =
@@ -116,19 +121,40 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
   useEffect(() => {
     if (!detailLocationId) {
       setDetailEvents([]);
+      setDetailAuditError(null);
       return;
     }
     let cancelled = false;
     (async () => {
       try {
         setDetailLoading(true);
+        setDetailAuditError(null);
         const rows = await fetchAuditEvents({
           locationId: detailLocationId,
           limit: 40,
         });
-        if (!cancelled) setDetailEvents(rows);
-      } catch {
-        if (!cancelled) setDetailEvents([]);
+        if (!cancelled) {
+          setDetailEvents(rows);
+          setDetailAuditError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDetailEvents([]);
+          if (err instanceof ApiRequestError && err.status === 403) {
+            setDetailAuditError({
+              kind: "forbidden",
+              message: "Нямате достъп до хронологията за това помещение.",
+            });
+          } else {
+            setDetailAuditError({
+              kind: "error",
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "Неуспешно зареждане на хронологията.",
+            });
+          }
+        }
       } finally {
         if (!cancelled) setDetailLoading(false);
       }
@@ -944,6 +970,12 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
               <AuditTimeline
                 events={detailEvents}
                 loading={detailLoading}
+                accessDenied={detailAuditError?.kind === "forbidden"}
+                error={
+                  detailAuditError?.kind === "error"
+                    ? detailAuditError.message
+                    : null
+                }
                 emptyLabel="Няма одит записи за това помещение."
               />
             </section>

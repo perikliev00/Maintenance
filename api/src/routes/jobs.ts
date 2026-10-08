@@ -6,6 +6,7 @@ import {
   runAllJobs,
   runLockInactiveUsers,
   runOverdueSessions,
+  runStaleOpenAttendance,
   runTicketSlaBreach,
 } from "../services/jobs";
 
@@ -42,6 +43,7 @@ jobsRouter.post(
             "lock_inactive_users",
             "overdue_sessions",
             "ticket_sla_breach",
+            "stale_open_attendance",
           ])
           .optional(),
       });
@@ -60,6 +62,9 @@ jobsRouter.post(
       }
       if (key === "ticket_sla_breach") {
         return res.json(await runTicketSlaBreach());
+      }
+      if (key === "stale_open_attendance") {
+        return res.json(await runStaleOpenAttendance());
       }
       return res.json(await runAllJobs());
     } catch (err) {

@@ -4,6 +4,7 @@ import { prisma } from "../db";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { isOwner } from "../permissions";
+import { todayHotelDateYmd } from "../services/attendance";
 import {
   AppError,
   cancelCleaningSession,
@@ -337,7 +338,7 @@ cleaningRouter.get(
   requireAction("cleaning.results_view"),
   async (req, res, next) => {
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = await todayHotelDateYmd();
       const serviceTypeEnum = z.enum([
         "stayover",
         "departure",

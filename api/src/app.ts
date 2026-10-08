@@ -29,8 +29,8 @@ import { notificationsRouter } from "./routes/notifications";
 import { AppError } from "./services/cleaning";
 import { ensureDefaultSettings } from "./services/settings";
 import {
+  applyCatalogGrantSeed,
   ensureDefaultRoleGrants,
-  seedCatalogGrantDeltas,
 } from "./services/roleGrants";
 import { ensureDefaultSlaPolicies } from "./services/maintenance";
 import { GrantKind } from "@prisma/client";
@@ -75,8 +75,8 @@ export function createApp() {
   void ensureDefaultRoleGrants().catch((err) => {
     console.warn("ensureDefaultRoleGrants failed", err);
   });
-  // Catalog deltas for newly introduced actions (skipDuplicates; never restores revokes).
-  void seedCatalogGrantDeltas([
+  // One-shot catalog seed (ledger-gated; does not restore admin revokes).
+  void applyCatalogGrantSeed("grants.sectors.transfer_cross.v1", [
     {
       role: "manager",
       kind: GrantKind.action,
@@ -88,7 +88,7 @@ export function createApp() {
       key: "sectors.transfer_cross",
     },
   ]).catch((err) => {
-    console.warn("seedCatalogGrantDeltas failed", err);
+    console.warn("applyCatalogGrantSeed failed", err);
   });
   void ensureDefaultSlaPolicies().catch((err) => {
     console.warn("ensureDefaultSlaPolicies failed", err);

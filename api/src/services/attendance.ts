@@ -14,7 +14,8 @@ import {
   recipientsWithAction,
 } from "./notifications";
 
-const OPEN_MISSING_END_HOURS = 14;
+/** Open intervals older than this become `missing_end` → `needs_review`. */
+export const OPEN_MISSING_END_HOURS = 14;
 const ABSURD_DURATION_HOURS = 16;
 const LARGE_SKEW_SECONDS = 1800;
 /** Default page size for GET /attendance/intervals */
@@ -81,6 +82,12 @@ export function hotelDateString(instant: Date, timeZone: string): string {
 export function hotelDateAsUtcDate(instant: Date, timeZone: string): Date {
   const ymd = hotelDateString(instant, timeZone);
   return new Date(`${ymd}T00:00:00.000Z`);
+}
+
+/** Today's hotel calendar date (YYYY-MM-DD) in configured operations.hotelTimezone. */
+export async function todayHotelDateYmd(instant: Date = new Date()): Promise<string> {
+  const ops = await getOperations();
+  return hotelDateString(instant, ops.hotelTimezone);
 }
 
 /** Offset (ms) such that `utc + offset ≈ wall clock in timeZone`. */
@@ -180,6 +187,28 @@ function computeWorkedMinutes(
   if (!endedAt) return null;
   const raw = Math.round((endedAt.getTime() - startedAt.getTime()) / 60_000);
   return Math.max(0, raw - breakMinutes);
+}
+
+/** Reject inverted ranges and breaks longer than the effective interval span. */
+export function assertValidAdjustmentTimes(
+  startedAt: Date,
+  endedAt: Date | null,
+  breakMinutes: number,
+): void {
+  if (!endedAt) return;
+  if (endedAt.getTime() <= startedAt.getTime()) {
+    throw new AppError(400, "validation", "End must be after start");
+  }
+  const spanMinutes = Math.round(
+    (endedAt.getTime() - startedAt.getTime()) / 60_000,
+  );
+  if (breakMinutes > spanMinutes) {
+    throw new AppError(
+      400,
+      "validation",
+      "Break minutes exceed interval duration",
+    );
+  }
 }
 
 export function mapInterval(
@@ -487,6 +516,50 @@ export async function getInterval(id: string) {
     throw new AppError(404, "not_found", "Attendance interval not found");
   }
   return mapInterval(row);
+}
+
+/**
+ * Persist `missing_end` / `needs_review` for open intervals that aged past
+ * OPEN_MISSING_END_HOURS without a new ingest rebuild.
+ */
+export async function markStaleOpenIntervals(now = new Date()) {
+  const cutoff = new Date(
+    now.getTime() - OPEN_MISSING_END_HOURS * 3600_000,
+  );
+  const candidates = await prisma.attendanceInterval.findMany({
+    where: {
+      status: AttendanceIntervalStatus.open,
+      endedAt: null,
+      startedAt: { lte: cutoff },
+    },
+    select: {
+      id: true,
+      status: true,
+      anomalyFlags: true,
+    },
+  });
+
+  let flagged = 0;
+  for (const row of candidates) {
+    const flags = asFlags(row.anomalyFlags);
+    if (
+      row.status === AttendanceIntervalStatus.needs_review &&
+      flags.includes("missing_end")
+    ) {
+      continue;
+    }
+    const nextFlags = uniqueFlags([...flags, "missing_end"]);
+    await prisma.attendanceInterval.update({
+      where: { id: row.id },
+      data: {
+        status: AttendanceIntervalStatus.needs_review,
+        anomalyFlags: nextFlags,
+      },
+    });
+    flagged += 1;
+  }
+
+  return { scanned: candidates.length, flagged };
 }
 
 export async function maxClockSkewSeconds(
@@ -1071,6 +1144,11 @@ export async function requestAdjustment(input: {
     throw new AppError(400, "validation", "Invalid proposedEndedAt");
   }
 
+  const effStart = proposedStartedAt ?? interval.startedAt;
+  const effEnd = proposedEndedAt ?? interval.endedAt;
+  const effBreak = input.proposedBreakMinutes ?? interval.breakMinutes;
+  assertValidAdjustmentTimes(effStart, effEnd, effBreak);
+
   const adj = await prisma.attendanceAdjustment.create({
     data: {
       intervalId: interval.id,
@@ -1150,6 +1228,9 @@ export async function reviewAdjustment(input: {
   const endedAt = adj.proposedEndedAt ?? adj.interval.endedAt;
   const breakMinutes =
     adj.proposedBreakMinutes ?? adj.interval.breakMinutes;
+  if (input.decision === "approved") {
+    assertValidAdjustmentTimes(startedAt, endedAt, breakMinutes);
+  }
   const workedMinutes = computeWorkedMinutes(startedAt, endedAt, breakMinutes);
   const ops =
     input.decision === "approved" ? await getOperations() : null;
