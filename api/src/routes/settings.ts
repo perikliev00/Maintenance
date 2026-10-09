@@ -13,7 +13,7 @@ import {
   ensureDefaultSlaPolicies,
   listSlaPolicies,
   upsertSlaPolicy,
-} from "../services/maintenance";
+} from "../services/slaPolicies";
 import { AppError } from "../errors";
 import { Priority } from "@prisma/client";
 

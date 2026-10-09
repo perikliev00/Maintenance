@@ -32,7 +32,7 @@ import {
   applyCatalogGrantSeed,
   ensureDefaultRoleGrants,
 } from "./services/roleGrants";
-import { ensureDefaultSlaPolicies } from "./services/maintenance";
+import { ensureDefaultSlaPolicies } from "./services/slaPolicies";
 import { GrantKind } from "@prisma/client";
 import {
   configureTrustProxy,
