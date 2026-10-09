@@ -24,8 +24,6 @@ import {
   type IssueOptionRow,
   type MaintenanceCategoryRow,
   type AuditEventRow,
-  type LocationOccupancy,
-  type LocationServiceStatus,
   startCleaningTask,
   todayHotelDate,
   type AuthUser,
@@ -35,7 +33,8 @@ import {
 } from "../api/client";
 import { TicketLifecycleActions } from "../components/TicketLifecycleActions";
 import { ScopeHint } from "../components/ScopeHint";
-import { AuditTimeline } from "../components/AuditTimeline";
+import { LocationHistoryPanel } from "../components/LocationHistoryPanel";
+import { LocationIssueDialog } from "../components/LocationIssueDialog";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 
 export type LocationKindFilter = "room" | "common_area";
@@ -106,17 +105,6 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
     (owner || canPerformAction(user, "rooms.set_occupancy"));
   const canSetServiceStatus =
     owner || canPerformAction(user, "rooms.set_service_status");
-
-  const OCCUPANCY_OPTIONS: LocationOccupancy[] = [
-    "vacant",
-    "occupied",
-    "unknown",
-  ];
-  const SERVICE_OPTIONS: LocationServiceStatus[] = [
-    "in_service",
-    "out_of_service",
-    "unknown",
-  ];
 
   useEffect(() => {
     if (!detailLocationId) {
@@ -373,119 +361,55 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
       {message && <div className="ok banner">{message}</div>}
 
       {issueLocationId && (
-        <div className="modal-backdrop">
-          <form
-            className="modal"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const locationId = issueLocationId;
-              runAction(locationId, async () => {
-                if (issuePickMode === "option" && issueOptionId) {
-                  await reportIssue({
-                    locationId,
-                    issueOptionId,
-                    title: issueTitle.trim() || undefined,
-                    blocksRoom: issueBlocks,
-                    priority: "high",
-                  });
-                } else {
-                  await reportIssue({
-                    locationId,
-                    title: issueTitle.trim(),
-                    categoryId: issueCategoryId,
-                    blocksRoom: issueBlocks,
-                    priority: "high",
-                  });
-                }
-                setMessage("Issue reported");
-                setIssueLocationId(null);
-                setIssueTitle("");
-              });
-            }}
-          >
-            <h3>Report issue</h3>
-            <label>
-              Type
-              <select
-                value={issuePickMode}
-                onChange={(e) =>
-                  setIssuePickMode(e.target.value as "option" | "custom")
-                }
-              >
-                <option value="option">From catalog</option>
-                <option value="custom">Custom</option>
-              </select>
-            </label>
-            {issuePickMode === "option" ? (
-              <label>
-                Option
-                <select
-                  value={issueOptionId}
-                  onChange={(e) => {
-                    const opt = issueOptions.find((o) => o.id === e.target.value);
-                    setIssueOptionId(e.target.value);
-                    if (opt) {
-                      setIssueTitle(opt.nameBg);
-                      if (opt.defaultBlocksRoom != null) {
-                        setIssueBlocks(opt.defaultBlocksRoom);
-                      }
-                    }
-                  }}
-                  required
-                >
-                  {issueOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.nameBg}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <>
-                <label>
-                  Title
-                  <input
-                    value={issueTitle}
-                    onChange={(e) => setIssueTitle(e.target.value)}
-                    required
-                  />
-                </label>
-                <label>
-                  Category
-                  <select
-                    value={issueCategoryId}
-                    onChange={(e) => setIssueCategoryId(e.target.value)}
-                    required
-                  >
-                    {issueCategories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nameBg}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </>
-            )}
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={issueBlocks}
-                onChange={(e) => setIssueBlocks(e.target.checked)}
-              />
-              Blocks {unitLabel} readiness
-            </label>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => setIssueLocationId(null)}
-              >
-                Cancel
-              </button>
-              <button type="submit">Submit</button>
-            </div>
-          </form>
-        </div>
+        <LocationIssueDialog
+          unitLabel={unitLabel}
+          pickMode={issuePickMode}
+          optionId={issueOptionId}
+          categoryId={issueCategoryId}
+          title={issueTitle}
+          blocksRoom={issueBlocks}
+          options={issueOptions}
+          categories={issueCategories}
+          onPickModeChange={setIssuePickMode}
+          onOptionIdChange={(id, opt) => {
+            setIssueOptionId(id);
+            if (opt) {
+              setIssueTitle(opt.nameBg);
+              if (opt.defaultBlocksRoom != null) {
+                setIssueBlocks(opt.defaultBlocksRoom);
+              }
+            }
+          }}
+          onCategoryIdChange={setIssueCategoryId}
+          onTitleChange={setIssueTitle}
+          onBlocksRoomChange={setIssueBlocks}
+          onCancel={() => setIssueLocationId(null)}
+          onSubmit={() => {
+            const locationId = issueLocationId;
+            runAction(locationId, async () => {
+              if (issuePickMode === "option" && issueOptionId) {
+                await reportIssue({
+                  locationId,
+                  issueOptionId,
+                  title: issueTitle.trim() || undefined,
+                  blocksRoom: issueBlocks,
+                  priority: "high",
+                });
+              } else {
+                await reportIssue({
+                  locationId,
+                  title: issueTitle.trim(),
+                  categoryId: issueCategoryId,
+                  blocksRoom: issueBlocks,
+                  priority: "high",
+                });
+              }
+              setMessage("Issue reported");
+              setIssueLocationId(null);
+              setIssueTitle("");
+            });
+          }}
+        />
       )}
 
       {loading ? (
@@ -868,119 +792,29 @@ export function LocationsPage({ user, kind, publicSettings }: Props) {
       )}
 
       {detailLocation && (
-        <div
-          className="location-detail-backdrop"
-          onClick={() => setDetailLocationId(null)}
-        >
-          <aside
-            className="location-detail-panel"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header>
-              <div>
-                <h3>
-                  {unitLabelCap} {detailLocation.number}
-                </h3>
-                <div className="muted">
-                  {detailLocation.buildingCode} · ет. {detailLocation.floor}
-                  {detailLocation.sector
-                    ? ` · ${detailLocation.sector.code}`
-                    : ""}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => setDetailLocationId(null)}
-              >
-                ✕
-              </button>
-            </header>
-            <div>
-              <span className={`pill cleaning-${detailLocation.cleaningStatus}`}>
-                {detailLocation.cleaningStatus}
-              </span>{" "}
-              <span className={`pill service-${detailLocation.serviceStatus}`}>
-                {detailLocation.serviceStatus}
-              </span>{" "}
-              <span className={`pill ready-${detailLocation.readiness}`}>
-                {detailLocation.readiness}
-              </span>
-            </div>
-
-            {(canSetOccupancy || canSetServiceStatus) && (
-              <section className="location-ops-controls">
-                <h4>Оперативни състояния</h4>
-                {canSetOccupancy && (
-                  <label>
-                    Occupancy
-                    <select
-                      value={detailLocation.occupancy}
-                      disabled={busyId === detailLocation.id}
-                      onChange={(e) => {
-                        const next = e.target.value as LocationOccupancy;
-                        void runAction(detailLocation.id, async () => {
-                          await setLocationOccupancy(detailLocation.id, next);
-                          setMessage(
-                            `Occupancy → ${next} (${detailLocation.number})`,
-                          );
-                        });
-                      }}
-                    >
-                      {OCCUPANCY_OPTIONS.map((o) => (
-                        <option key={o} value={o}>
-                          {o}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {canSetServiceStatus && (
-                  <label>
-                    Service status
-                    <select
-                      value={detailLocation.serviceStatus}
-                      disabled={busyId === detailLocation.id}
-                      onChange={(e) => {
-                        const next = e.target.value as LocationServiceStatus;
-                        void runAction(detailLocation.id, async () => {
-                          await setLocationServiceStatus(
-                            detailLocation.id,
-                            next,
-                          );
-                          setMessage(
-                            `Service → ${next} (${detailLocation.number})`,
-                          );
-                        });
-                      }}
-                    >
-                      {SERVICE_OPTIONS.map((o) => (
-                        <option key={o} value={o}>
-                          {o}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </section>
-            )}
-
-            <section>
-              <h4>Хронология</h4>
-              <AuditTimeline
-                events={detailEvents}
-                loading={detailLoading}
-                accessDenied={detailAuditError?.kind === "forbidden"}
-                error={
-                  detailAuditError?.kind === "error"
-                    ? detailAuditError.message
-                    : null
-                }
-                emptyLabel="Няма одит записи за това помещение."
-              />
-            </section>
-          </aside>
-        </div>
+        <LocationHistoryPanel
+          location={detailLocation}
+          unitLabelCap={unitLabelCap}
+          events={detailEvents}
+          loading={detailLoading}
+          auditError={detailAuditError}
+          busy={busyId === detailLocation.id}
+          canSetOccupancy={canSetOccupancy}
+          canSetServiceStatus={canSetServiceStatus}
+          onClose={() => setDetailLocationId(null)}
+          onOccupancyChange={(next) => {
+            void runAction(detailLocation.id, async () => {
+              await setLocationOccupancy(detailLocation.id, next);
+              setMessage(`Occupancy → ${next} (${detailLocation.number})`);
+            });
+          }}
+          onServiceStatusChange={(next) => {
+            void runAction(detailLocation.id, async () => {
+              await setLocationServiceStatus(detailLocation.id, next);
+              setMessage(`Service → ${next} (${detailLocation.number})`);
+            });
+          }}
+        />
       )}
     </main>
   );
