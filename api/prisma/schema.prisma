@@ -177,6 +177,7 @@ model Employee {
   attendanceAdjustmentsRequested AttendanceAdjustment[] @relation("AdjustmentRequester")
   attendanceAdjustmentsReviewed  AttendanceAdjustment[] @relation("AdjustmentReviewer")
   dailyPlanEntries        DailyPlanEntry[]
+  dailyPlanEntriesAssigned DailyPlanEntry[]       @relation("PlanEntryAssignee")
   dailyPlanImportBatches  DailyPlanImportBatch[]
   accessCards             AccessCard[]             @relation("CardHolder")
   issuedAccessCards       AccessCard[]             @relation("CardIssuer")
@@ -455,6 +456,8 @@ model TicketEvent {
   actor           Employee          @relation(fields: [actorEmployeeId], references: [id])
   reason          String?
   payload         Json?
+  /** Client command id for idempotent lifecycle replay (start/wait/resume/resolve). */
+  commandId       String?           @unique
   occurredAt      DateTime          @default(now())
 
   @@index([ticketId, occurredAt])
@@ -610,6 +613,11 @@ model DailyPlanEntry {
   importBatch         DailyPlanImportBatch?  @relation(fields: [importBatchId], references: [id])
   cleaningTaskId      String?
   cleaningTask        CleaningTask?          @relation(fields: [cleaningTaskId], references: [id])
+  /** Preserved for deferred departure confirm (assignee/shift at plan time). */
+  assignedEmployeeId  String?
+  assignedEmployee    Employee?              @relation("PlanEntryAssignee", fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
+  shiftId             String?
+  shift               Shift?                 @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   roomEffectsAppliedAt DateTime?
   createdByEmployeeId String
   createdBy           Employee               @relation(fields: [createdByEmployeeId], references: [id])
@@ -620,6 +628,8 @@ model DailyPlanEntry {
   @@unique([source, externalId])
   @@index([hotelDate, category])
   @@index([importBatchId])
+  @@index([assignedEmployeeId])
+  @@index([shiftId])
 }
 
 enum CardType {
@@ -732,6 +742,7 @@ model Shift {
   isActive  Boolean               @default(true)
   rosters   EmployeeShiftRoster[]
   tasks     CleaningTask[]
+  dailyPlanEntries DailyPlanEntry[]
   createdAt DateTime              @default(now())
   updatedAt DateTime              @updatedAt
 

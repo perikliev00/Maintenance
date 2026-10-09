@@ -435,12 +435,20 @@ maintenanceRouter.post(
   requireAction("tickets.resolve"),
   async (req, res, next) => {
     try {
+      const schema = z.object({ commandId: z.string().uuid().optional() });
+      const parsed = schema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "validation", details: parsed.error.flatten() });
+      }
       const scope = await resolveDataScope(req.user!);
       await assertCanAccessTicket(scope, req.params.id);
       const ticket = await startMaintenanceTicket({
         ticketId: req.params.id,
         actorEmployeeId: req.user!.employeeId,
         bypassAssigneeCheck: canBypassTicketAssignee(req.user!.role),
+        commandId: parsed.data.commandId,
       });
       return res.json(ticket);
     } catch (err) {
@@ -455,7 +463,10 @@ maintenanceRouter.post(
   requireAction("tickets.resolve"),
   async (req, res, next) => {
     try {
-      const schema = z.object({ reason: z.string().optional() });
+      const schema = z.object({
+        reason: z.string().optional(),
+        commandId: z.string().uuid().optional(),
+      });
       const parsed = schema.safeParse(req.body ?? {});
       if (!parsed.success) {
         return res
@@ -469,6 +480,7 @@ maintenanceRouter.post(
         actorEmployeeId: req.user!.employeeId,
         reason: parsed.data.reason,
         bypassAssigneeCheck: canBypassTicketAssignee(req.user!.role),
+        commandId: parsed.data.commandId,
       });
       return res.json(ticket);
     } catch (err) {
@@ -483,12 +495,20 @@ maintenanceRouter.post(
   requireAction("tickets.resolve"),
   async (req, res, next) => {
     try {
+      const schema = z.object({ commandId: z.string().uuid().optional() });
+      const parsed = schema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "validation", details: parsed.error.flatten() });
+      }
       const scope = await resolveDataScope(req.user!);
       await assertCanAccessTicket(scope, req.params.id);
       const ticket = await resumeMaintenanceTicket({
         ticketId: req.params.id,
         actorEmployeeId: req.user!.employeeId,
         bypassAssigneeCheck: canBypassTicketAssignee(req.user!.role),
+        commandId: parsed.data.commandId,
       });
       return res.json(ticket);
     } catch (err) {
@@ -505,6 +525,7 @@ maintenanceRouter.post(
     try {
       const schema = z.object({
         resolutionNotes: z.string().optional(),
+        commandId: z.string().uuid().optional(),
       });
       const parsed = schema.safeParse(req.body ?? {});
       if (!parsed.success) {
@@ -520,6 +541,7 @@ maintenanceRouter.post(
         resolvedByEmployeeId: req.user!.employeeId,
         resolutionNotes: parsed.data.resolutionNotes,
         bypassAssigneeCheck: canBypassTicketAssignee(req.user!.role),
+        commandId: parsed.data.commandId,
       });
       return res.json(ticket);
     } catch (err) {

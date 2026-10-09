@@ -68,10 +68,33 @@ function uniqueFlags(flags: AnomalyFlag[]): AnomalyFlag[] {
   return Array.from(new Set(flags));
 }
 
+const HOTEL_TZ_FALLBACK = "UTC";
+const warnedInvalidHotelTimeZones = new Set<string>();
+
+/** Resolve a usable IANA zone; invalid values fall back to UTC with a one-shot warn. */
+export function resolveUsableHotelTimeZone(timeZone: string): {
+  timeZone: string;
+  usedFallback: boolean;
+} {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return { timeZone, usedFallback: false };
+  } catch {
+    if (!warnedInvalidHotelTimeZones.has(timeZone)) {
+      warnedInvalidHotelTimeZones.add(timeZone);
+      console.error(
+        `Invalid hotelTimezone "${timeZone}"; falling back to ${HOTEL_TZ_FALLBACK}`,
+      );
+    }
+    return { timeZone: HOTEL_TZ_FALLBACK, usedFallback: true };
+  }
+}
+
 /** Hotel calendar date (YYYY-MM-DD) in the configured timezone for a UTC instant. */
 export function hotelDateString(instant: Date, timeZone: string): string {
+  const resolved = resolveUsableHotelTimeZone(timeZone);
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
+    timeZone: resolved.timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -92,8 +115,9 @@ export async function todayHotelDateYmd(instant: Date = new Date()): Promise<str
 
 /** Offset (ms) such that `utc + offset ≈ wall clock in timeZone`. */
 function timeZoneOffsetMs(instant: Date, timeZone: string): number {
+  const resolved = resolveUsableHotelTimeZone(timeZone).timeZone;
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
+    timeZone: resolved,
     hour12: false,
     year: "numeric",
     month: "2-digit",
@@ -981,23 +1005,36 @@ export async function rebuildIntervalsForEmployee(
         status: { not: AttendanceIntervalStatus.adjusted },
       },
       include: {
+        // Preserve pending requests and rejected history across rebuild.
+        // Approved corrections live on frozen `adjusted` intervals above.
         adjustments: {
-          where: { status: AttendanceAdjustmentStatus.pending },
+          where: {
+            status: {
+              in: [
+                AttendanceAdjustmentStatus.pending,
+                AttendanceAdjustmentStatus.rejected,
+              ],
+            },
+          },
         },
       },
     }),
   ]);
 
-  const pendingToRematch = replaceable.flatMap((iv) =>
+  const adjustmentsToRematch = replaceable.flatMap((iv) =>
     iv.adjustments
       .filter((a) => iv.startEventId)
       .map((a) => ({
         startEventId: iv.startEventId!,
         requestedById: a.requestedById,
+        reviewedById: a.reviewedById,
         reason: a.reason,
         proposedStartedAt: a.proposedStartedAt,
         proposedEndedAt: a.proposedEndedAt,
         proposedBreakMinutes: a.proposedBreakMinutes,
+        status: a.status,
+        createdAt: a.createdAt,
+        reviewedAt: a.reviewedAt,
       })),
   );
 
@@ -1046,26 +1083,31 @@ export async function rebuildIntervalsForEmployee(
     }
   }
 
-  for (const pending of pendingToRematch) {
-    const intervalId = createdByStart.get(pending.startEventId);
+  for (const adj of adjustmentsToRematch) {
+    const intervalId = createdByStart.get(adj.startEventId);
     if (!intervalId) continue;
     await db.attendanceAdjustment.create({
       data: {
         intervalId,
-        requestedById: pending.requestedById,
-        reason: pending.reason,
-        proposedStartedAt: pending.proposedStartedAt,
-        proposedEndedAt: pending.proposedEndedAt,
-        proposedBreakMinutes: pending.proposedBreakMinutes,
-        status: AttendanceAdjustmentStatus.pending,
+        requestedById: adj.requestedById,
+        reviewedById: adj.reviewedById,
+        reason: adj.reason,
+        proposedStartedAt: adj.proposedStartedAt,
+        proposedEndedAt: adj.proposedEndedAt,
+        proposedBreakMinutes: adj.proposedBreakMinutes,
+        status: adj.status,
+        createdAt: adj.createdAt,
+        reviewedAt: adj.reviewedAt,
       },
     });
-    await db.attendanceInterval.update({
-      where: { id: intervalId },
-      data: {
-        status: AttendanceIntervalStatus.needs_review,
-      },
-    });
+    if (adj.status === AttendanceAdjustmentStatus.pending) {
+      await db.attendanceInterval.update({
+        where: { id: intervalId },
+        data: {
+          status: AttendanceIntervalStatus.needs_review,
+        },
+      });
+    }
   }
 }
 

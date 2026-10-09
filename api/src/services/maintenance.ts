@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { Priority, Prisma, TicketStatus } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "./cleaning";
@@ -15,6 +16,12 @@ import {
   recipientsForLocationOps,
 } from "./notifications";
 import { assertActiveMaintenanceAssignee } from "./assignees";
+
+function isP2002(err: unknown): err is Prisma.PrismaClientKnownRequestError {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002"
+  );
+}
 
 const ticketInclude = {
   location: { include: { floor: { include: { building: true } } } },
@@ -174,6 +181,78 @@ async function claimTicketUpdate(
   });
 }
 
+type LifecycleCommandKind = "start" | "wait" | "resume" | "resolve";
+
+type LifecycleCommandKey = {
+  kind: LifecycleCommandKind;
+  ticketId: string;
+  actorEmployeeId: string;
+  reason?: string | null;
+  resolutionNotes?: string | null;
+};
+
+function lifecyclePayloadFingerprint(key: LifecycleCommandKey): string {
+  const normalized = {
+    kind: key.kind,
+    ticketId: key.ticketId,
+    actorEmployeeId: key.actorEmployeeId,
+    reason: key.reason ?? null,
+    resolutionNotes: key.resolutionNotes ?? null,
+  };
+  return createHash("sha256")
+    .update(JSON.stringify(normalized))
+    .digest("hex");
+}
+
+function readLifecycleFingerprint(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+  const fp = (payload as { _commandFingerprint?: unknown })._commandFingerprint;
+  return typeof fp === "string" ? fp : null;
+}
+
+async function findTicketByLifecycleCommand(commandId: string) {
+  const event = await prisma.ticketEvent.findUnique({
+    where: { commandId },
+    include: { ticket: { include: ticketInclude } },
+  });
+  return event;
+}
+
+function assertLifecycleCommandMatch(
+  event: { ticketId: string; actorEmployeeId: string; payload: unknown },
+  key: LifecycleCommandKey,
+) {
+  const expected = lifecyclePayloadFingerprint(key);
+  const actual = readLifecycleFingerprint(event.payload);
+  if (
+    actual !== expected ||
+    event.ticketId !== key.ticketId ||
+    event.actorEmployeeId !== key.actorEmployeeId
+  ) {
+    throw new AppError(
+      409,
+      "conflict",
+      "commandId reused with a different payload",
+    );
+  }
+}
+
+async function replayLifecycleCommand(
+  commandId: string | undefined,
+  key: LifecycleCommandKey,
+): Promise<{ ticket: ReturnType<typeof formatMaintenanceTicket>; idempotent: true } | null> {
+  if (!commandId) return null;
+  const existing = await findTicketByLifecycleCommand(commandId);
+  if (!existing) return null;
+  assertLifecycleCommandMatch(existing, key);
+  return {
+    ticket: formatMaintenanceTicket(existing.ticket),
+    idempotent: true,
+  };
+}
+
 async function writeTicketEvent(
   tx: Prisma.TransactionClient,
   input: {
@@ -186,8 +265,22 @@ async function writeTicketEvent(
     payload?: TicketEventPayload;
     action?: string;
     summary?: string;
+    commandId?: string;
+    commandKey?: LifecycleCommandKey;
   },
 ) {
+  const payloadBase =
+    input.payload && typeof input.payload === "object" && !Array.isArray(input.payload)
+      ? { ...(input.payload as Record<string, unknown>) }
+      : {};
+  const payload =
+    input.commandKey != null
+      ? {
+          ...payloadBase,
+          _commandFingerprint: lifecyclePayloadFingerprint(input.commandKey),
+        }
+      : input.payload;
+
   await tx.ticketEvent.create({
     data: {
       ticketId: input.ticketId,
@@ -195,7 +288,8 @@ async function writeTicketEvent(
       toStatus: input.toStatus,
       actorEmployeeId: input.actorEmployeeId,
       reason: input.reason ?? null,
-      payload: input.payload ?? undefined,
+      payload: (payload as TicketEventPayload) ?? undefined,
+      commandId: input.commandId ?? null,
     },
   });
 
@@ -464,59 +558,78 @@ export async function startMaintenanceTicket(input: {
   ticketId: string;
   actorEmployeeId: string;
   bypassAssigneeCheck?: boolean;
+  commandId?: string;
 }) {
-  const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await loadLockedTicket(tx, input.ticketId);
-    if (ticket.status !== TicketStatus.assigned) {
-      throw new AppError(
-        409,
-        "invalid_state",
-        `Cannot start ticket in status ${ticket.status}`,
+  const commandKey: LifecycleCommandKey = {
+    kind: "start",
+    ticketId: input.ticketId,
+    actorEmployeeId: input.actorEmployeeId,
+  };
+  const replayed = await replayLifecycleCommand(input.commandId, commandKey);
+  if (replayed) return replayed.ticket;
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const ticket = await loadLockedTicket(tx, input.ticketId);
+      if (ticket.status !== TicketStatus.assigned) {
+        throw new AppError(
+          409,
+          "invalid_state",
+          `Cannot start ticket in status ${ticket.status}`,
+        );
+      }
+      if (!ticket.assigneeId) {
+        throw new AppError(409, "invalid_state", "Ticket has no assignee");
+      }
+      if (
+        !input.bypassAssigneeCheck &&
+        ticket.assigneeId !== input.actorEmployeeId
+      ) {
+        throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
+      }
+
+      const fromStatus = ticket.status;
+      const row = await claimTicketUpdate(
+        tx,
+        ticket.id,
+        [TicketStatus.assigned],
+        { status: TicketStatus.in_progress },
+        (status) => `Cannot start ticket in status ${status}`,
       );
-    }
-    if (!ticket.assigneeId) {
-      throw new AppError(409, "invalid_state", "Ticket has no assignee");
-    }
-    if (
-      !input.bypassAssigneeCheck &&
-      ticket.assigneeId !== input.actorEmployeeId
-    ) {
-      throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
-    }
 
-    const fromStatus = ticket.status;
-    const row = await claimTicketUpdate(
-      tx,
-      ticket.id,
-      [TicketStatus.assigned],
-      { status: TicketStatus.in_progress },
-      (status) => `Cannot start ticket in status ${status}`,
-    );
+      await writeTicketEvent(tx, {
+        ticketId: ticket.id,
+        locationId: ticket.locationId,
+        fromStatus,
+        toStatus: TicketStatus.in_progress,
+        actorEmployeeId: input.actorEmployeeId,
+        commandId: input.commandId,
+        commandKey,
+      });
 
-    await writeTicketEvent(tx, {
-      ticketId: ticket.id,
-      locationId: ticket.locationId,
-      fromStatus,
-      toStatus: TicketStatus.in_progress,
-      actorEmployeeId: input.actorEmployeeId,
+      return row;
     });
 
-    return row;
-  });
-
-  publishTicketChanged(updated);
-  if (updated.assigneeId) {
-    await notifyTicketEvent({
-      type: "ticket.started",
-      title: "Ticket started",
-      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
-      ticket: updated,
-      actorEmployeeId: input.actorEmployeeId,
-      recipientEmployeeIds: [updated.assigneeId],
-      dedupeKey: `ticket.started:${updated.id}:${updated.status}`,
-    });
+    publishTicketChanged(updated);
+    if (updated.assigneeId) {
+      await notifyTicketEvent({
+        type: "ticket.started",
+        title: "Ticket started",
+        body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+        ticket: updated,
+        actorEmployeeId: input.actorEmployeeId,
+        recipientEmployeeIds: [updated.assigneeId],
+        dedupeKey: `ticket.started:${updated.id}:${updated.status}`,
+      });
+    }
+    return formatMaintenanceTicket(updated);
+  } catch (err) {
+    if (input.commandId && isP2002(err)) {
+      const again = await replayLifecycleCommand(input.commandId, commandKey);
+      if (again) return again.ticket;
+    }
+    throw err;
   }
-  return formatMaintenanceTicket(updated);
 }
 
 export async function waitMaintenanceTicket(input: {
@@ -524,124 +637,163 @@ export async function waitMaintenanceTicket(input: {
   actorEmployeeId: string;
   reason?: string;
   bypassAssigneeCheck?: boolean;
+  commandId?: string;
 }) {
-  const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await loadLockedTicket(tx, input.ticketId);
-    if (ticket.status !== TicketStatus.in_progress) {
-      throw new AppError(
-        409,
-        "invalid_state",
-        `Cannot wait ticket in status ${ticket.status}`,
+  const reason = input.reason?.trim() || null;
+  const commandKey: LifecycleCommandKey = {
+    kind: "wait",
+    ticketId: input.ticketId,
+    actorEmployeeId: input.actorEmployeeId,
+    reason,
+  };
+  const replayed = await replayLifecycleCommand(input.commandId, commandKey);
+  if (replayed) return replayed.ticket;
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const ticket = await loadLockedTicket(tx, input.ticketId);
+      if (ticket.status !== TicketStatus.in_progress) {
+        throw new AppError(
+          409,
+          "invalid_state",
+          `Cannot wait ticket in status ${ticket.status}`,
+        );
+      }
+      if (
+        !input.bypassAssigneeCheck &&
+        ticket.assigneeId &&
+        ticket.assigneeId !== input.actorEmployeeId
+      ) {
+        throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
+      }
+
+      const fromStatus = ticket.status;
+      const row = await claimTicketUpdate(
+        tx,
+        ticket.id,
+        [TicketStatus.in_progress],
+        {
+          status: TicketStatus.waiting,
+          ...pauseFieldsOnWait(),
+        },
+        (status) => `Cannot wait ticket in status ${status}`,
       );
-    }
-    if (
-      !input.bypassAssigneeCheck &&
-      ticket.assigneeId &&
-      ticket.assigneeId !== input.actorEmployeeId
-    ) {
-      throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
-    }
 
-    const reason = input.reason?.trim() || null;
-    const fromStatus = ticket.status;
-    const row = await claimTicketUpdate(
-      tx,
-      ticket.id,
-      [TicketStatus.in_progress],
-      {
-        status: TicketStatus.waiting,
-        ...pauseFieldsOnWait(),
-      },
-      (status) => `Cannot wait ticket in status ${status}`,
-    );
+      await writeTicketEvent(tx, {
+        ticketId: ticket.id,
+        locationId: ticket.locationId,
+        fromStatus,
+        toStatus: TicketStatus.waiting,
+        actorEmployeeId: input.actorEmployeeId,
+        reason,
+        commandId: input.commandId,
+        commandKey,
+      });
 
-    await writeTicketEvent(tx, {
-      ticketId: ticket.id,
-      locationId: ticket.locationId,
-      fromStatus,
-      toStatus: TicketStatus.waiting,
-      actorEmployeeId: input.actorEmployeeId,
-      reason,
+      return row;
     });
 
-    return row;
-  });
-
-  publishTicketChanged(updated);
-  if (updated.assigneeId) {
-    await notifyTicketEvent({
-      type: "ticket.waiting",
-      title: "Ticket waiting",
-      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
-      ticket: updated,
-      actorEmployeeId: input.actorEmployeeId,
-      recipientEmployeeIds: [updated.assigneeId],
-      dedupeKey: `ticket.waiting:${updated.id}:${updated.updatedAt.toISOString()}`,
-    });
+    publishTicketChanged(updated);
+    if (updated.assigneeId) {
+      await notifyTicketEvent({
+        type: "ticket.waiting",
+        title: "Ticket waiting",
+        body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+        ticket: updated,
+        actorEmployeeId: input.actorEmployeeId,
+        recipientEmployeeIds: [updated.assigneeId],
+        dedupeKey: `ticket.waiting:${updated.id}:${updated.updatedAt.toISOString()}`,
+      });
+    }
+    return formatMaintenanceTicket(updated);
+  } catch (err) {
+    if (input.commandId && isP2002(err)) {
+      const again = await replayLifecycleCommand(input.commandId, commandKey);
+      if (again) return again.ticket;
+    }
+    throw err;
   }
-  return formatMaintenanceTicket(updated);
 }
 
 export async function resumeMaintenanceTicket(input: {
   ticketId: string;
   actorEmployeeId: string;
   bypassAssigneeCheck?: boolean;
+  commandId?: string;
 }) {
-  const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await loadLockedTicket(tx, input.ticketId);
-    if (ticket.status !== TicketStatus.waiting) {
-      throw new AppError(
-        409,
-        "invalid_state",
-        `Cannot resume ticket in status ${ticket.status}`,
+  const commandKey: LifecycleCommandKey = {
+    kind: "resume",
+    ticketId: input.ticketId,
+    actorEmployeeId: input.actorEmployeeId,
+  };
+  const replayed = await replayLifecycleCommand(input.commandId, commandKey);
+  if (replayed) return replayed.ticket;
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const ticket = await loadLockedTicket(tx, input.ticketId);
+      if (ticket.status !== TicketStatus.waiting) {
+        throw new AppError(
+          409,
+          "invalid_state",
+          `Cannot resume ticket in status ${ticket.status}`,
+        );
+      }
+      if (
+        !input.bypassAssigneeCheck &&
+        ticket.assigneeId &&
+        ticket.assigneeId !== input.actorEmployeeId
+      ) {
+        throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
+      }
+
+      const fromStatus = ticket.status;
+      const unpaused = unpauseFields(ticket);
+      const row = await claimTicketUpdate(
+        tx,
+        ticket.id,
+        [TicketStatus.waiting],
+        {
+          status: TicketStatus.in_progress,
+          ...unpaused,
+        },
+        (status) => `Cannot resume ticket in status ${status}`,
       );
-    }
-    if (
-      !input.bypassAssigneeCheck &&
-      ticket.assigneeId &&
-      ticket.assigneeId !== input.actorEmployeeId
-    ) {
-      throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
-    }
 
-    const fromStatus = ticket.status;
-    const unpaused = unpauseFields(ticket);
-    const row = await claimTicketUpdate(
-      tx,
-      ticket.id,
-      [TicketStatus.waiting],
-      {
-        status: TicketStatus.in_progress,
-        ...unpaused,
-      },
-      (status) => `Cannot resume ticket in status ${status}`,
-    );
+      await writeTicketEvent(tx, {
+        ticketId: ticket.id,
+        locationId: ticket.locationId,
+        fromStatus,
+        toStatus: TicketStatus.in_progress,
+        actorEmployeeId: input.actorEmployeeId,
+        payload: { resumed: true },
+        commandId: input.commandId,
+        commandKey,
+      });
 
-    await writeTicketEvent(tx, {
-      ticketId: ticket.id,
-      locationId: ticket.locationId,
-      fromStatus,
-      toStatus: TicketStatus.in_progress,
-      actorEmployeeId: input.actorEmployeeId,
-      payload: { resumed: true },
+      return row;
     });
 
-    return row;
-  });
-
-  publishTicketChanged(updated);
-  if (updated.assigneeId) {
-    await notifyTicketEvent({
-      type: "ticket.resumed",
-      title: "Ticket resumed",
-      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
-      ticket: updated,
-      actorEmployeeId: input.actorEmployeeId,
-      recipientEmployeeIds: [updated.assigneeId],
-      dedupeKey: `ticket.resumed:${updated.id}:${updated.updatedAt.toISOString()}`,
-    });
+    publishTicketChanged(updated);
+    if (updated.assigneeId) {
+      await notifyTicketEvent({
+        type: "ticket.resumed",
+        title: "Ticket resumed",
+        body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+        ticket: updated,
+        actorEmployeeId: input.actorEmployeeId,
+        recipientEmployeeIds: [updated.assigneeId],
+        dedupeKey: `ticket.resumed:${updated.id}:${updated.updatedAt.toISOString()}`,
+      });
+    }
+    return formatMaintenanceTicket(updated);
+  } catch (err) {
+    if (input.commandId && isP2002(err)) {
+      const again = await replayLifecycleCommand(input.commandId, commandKey);
+      if (again) return again.ticket;
+    }
+    throw err;
   }
-  return formatMaintenanceTicket(updated);
 }
 
 export async function resolveMaintenanceTicket(input: {
@@ -649,81 +801,101 @@ export async function resolveMaintenanceTicket(input: {
   resolvedByEmployeeId: string;
   resolutionNotes?: string;
   bypassAssigneeCheck?: boolean;
+  commandId?: string;
 }) {
-  const updated = await prisma.$transaction(async (tx) => {
-    const ticket = await loadLockedTicket(tx, input.ticketId);
-    if (
-      ticket.status !== TicketStatus.in_progress &&
-      ticket.status !== TicketStatus.waiting
-    ) {
-      throw new AppError(
-        409,
-        "invalid_state",
-        `Cannot resolve ticket in status ${ticket.status}`,
+  const notes = input.resolutionNotes?.trim() || null;
+  const commandKey: LifecycleCommandKey = {
+    kind: "resolve",
+    ticketId: input.ticketId,
+    actorEmployeeId: input.resolvedByEmployeeId,
+    resolutionNotes: notes,
+  };
+  const replayed = await replayLifecycleCommand(input.commandId, commandKey);
+  if (replayed) return replayed.ticket;
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const ticket = await loadLockedTicket(tx, input.ticketId);
+      if (
+        ticket.status !== TicketStatus.in_progress &&
+        ticket.status !== TicketStatus.waiting
+      ) {
+        throw new AppError(
+          409,
+          "invalid_state",
+          `Cannot resolve ticket in status ${ticket.status}`,
+        );
+      }
+      if (
+        !input.bypassAssigneeCheck &&
+        ticket.assigneeId &&
+        ticket.assigneeId !== input.resolvedByEmployeeId
+      ) {
+        throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
+      }
+
+      const fromStatus = ticket.status;
+      const unpaused =
+        ticket.status === TicketStatus.waiting
+          ? unpauseFields(ticket)
+          : {
+              slaPausedAt: null,
+              slaPausedMsTotal: ticket.slaPausedMsTotal,
+              dueAt: ticket.dueAt,
+            };
+
+      const row = await claimTicketUpdate(
+        tx,
+        ticket.id,
+        [TicketStatus.in_progress, TicketStatus.waiting],
+        {
+          status: TicketStatus.resolved,
+          resolvedAt: new Date(),
+          resolvedByEmployeeId: input.resolvedByEmployeeId,
+          resolutionNotes: notes,
+          ...unpaused,
+        },
+        (status) => `Cannot resolve ticket in status ${status}`,
       );
-    }
-    if (
-      !input.bypassAssigneeCheck &&
-      ticket.assigneeId &&
-      ticket.assigneeId !== input.resolvedByEmployeeId
-    ) {
-      throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
-    }
 
-    const notes = input.resolutionNotes?.trim() || null;
-    const fromStatus = ticket.status;
-    const unpaused =
-      ticket.status === TicketStatus.waiting
-        ? unpauseFields(ticket)
-        : {
-            slaPausedAt: null,
-            slaPausedMsTotal: ticket.slaPausedMsTotal,
-            dueAt: ticket.dueAt,
-          };
+      await writeTicketEvent(tx, {
+        ticketId: ticket.id,
+        locationId: ticket.locationId,
+        fromStatus,
+        toStatus: TicketStatus.resolved,
+        actorEmployeeId: input.resolvedByEmployeeId,
+        reason: notes,
+        commandId: input.commandId,
+        commandKey,
+      });
 
-    const row = await claimTicketUpdate(
-      tx,
-      ticket.id,
-      [TicketStatus.in_progress, TicketStatus.waiting],
-      {
-        status: TicketStatus.resolved,
-        resolvedAt: new Date(),
-        resolvedByEmployeeId: input.resolvedByEmployeeId,
-        resolutionNotes: notes,
-        ...unpaused,
-      },
-      (status) => `Cannot resolve ticket in status ${status}`,
-    );
-
-    await writeTicketEvent(tx, {
-      ticketId: ticket.id,
-      locationId: ticket.locationId,
-      fromStatus,
-      toStatus: TicketStatus.resolved,
-      actorEmployeeId: input.resolvedByEmployeeId,
-      reason: notes,
+      return row;
     });
 
-    return row;
-  });
-
-  publishTicketChanged(updated);
-  {
-    const recipients = [
-      updated.assigneeId,
-      updated.reportedByEmployeeId,
-    ].filter((id): id is string => Boolean(id));
-    await notifyTicketEvent({
-      type: "ticket.resolved",
-      title: "Ticket resolved",
-      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
-      ticket: updated,
-      actorEmployeeId: input.resolvedByEmployeeId,
-      recipientEmployeeIds: recipients,
-      dedupeKey: `ticket.resolved:${updated.id}`,
-    });
+    publishTicketChanged(updated);
+    {
+      const recipients = [
+        updated.assigneeId,
+        updated.reportedByEmployeeId,
+      ].filter((id): id is string => Boolean(id));
+      await notifyTicketEvent({
+        type: "ticket.resolved",
+        title: "Ticket resolved",
+        body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+        ticket: updated,
+        actorEmployeeId: input.resolvedByEmployeeId,
+        recipientEmployeeIds: recipients,
+        dedupeKey: `ticket.resolved:${updated.id}`,
+      });
+    }
+    return formatMaintenanceTicket(updated);
+  } catch (err) {
+    if (input.commandId && isP2002(err)) {
+      const again = await replayLifecycleCommand(input.commandId, commandKey);
+      if (again) return again.ticket;
+    }
+    throw err;
   }
-  return formatMaintenanceTicket(updated);
 }
 
 export async function closeMaintenanceTicket(input: {

@@ -83,7 +83,10 @@ let switching = false;
 let switchChain: Promise<void> = Promise.resolve();
 
 function apiBase(): string {
-  return import.meta.env.VITE_API_URL ?? "/api";
+  return (
+    (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ??
+    "/api"
+  );
 }
 
 function getCsrfToken(): string | null {
@@ -589,13 +592,47 @@ async function fetchWithTimeout(
   }
 }
 
-async function postJson(url: string, body: Record<string, unknown>) {
-  const res = await fetchWithTimeout(url, {
-    method: "POST",
-    credentials: "include",
-    headers: authHeader(),
-    body: JSON.stringify(body),
-  });
+type RefreshFn = () => Promise<"refreshed" | "rejected" | "transient">;
+
+/**
+ * POST JSON with cookie auth. On 401, single-flight refresh (shared with
+ * api/client) then retry once with the same body/commandId and fresh CSRF.
+ * Exported for unit tests with injectable transport.
+ */
+export async function postJsonWithSessionRefresh(
+  url: string,
+  body: Record<string, unknown>,
+  deps: {
+    fetchFn?: typeof fetchWithTimeout;
+    refreshFn?: RefreshFn;
+    headersFn?: () => HeadersInit;
+  } = {},
+): Promise<unknown> {
+  const fetchFn = deps.fetchFn ?? fetchWithTimeout;
+  const headersFn = deps.headersFn ?? authHeader;
+  const refreshFn =
+    deps.refreshFn ??
+    (async () => {
+      const { refreshAccessToken } = await import("../api/client");
+      return refreshAccessToken();
+    });
+
+  const attempt = async () =>
+    fetchFn(url, {
+      method: "POST",
+      credentials: "include",
+      headers: headersFn(),
+      body: JSON.stringify(body),
+    });
+
+  let res = await attempt();
+  if (res.status === 401) {
+    const outcome = await refreshFn();
+    if (outcome === "refreshed") {
+      res = await attempt();
+    }
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const message =
@@ -614,6 +651,65 @@ async function postJson(url: string, body: Record<string, unknown>) {
   }
   markReachable();
   return data;
+}
+
+async function postJson(url: string, body: Record<string, unknown>) {
+  return postJsonWithSessionRefresh(url, body);
+}
+
+type SyncPushResult = {
+  commandId: string;
+  status: string;
+  message?: string;
+  code?: string;
+  details?: unknown;
+};
+
+async function pushSyncBatch(
+  commands: Array<{
+    commandId: string;
+    type: QueueCommandType;
+    payload: Record<string, unknown>;
+    clientTime: string;
+  }>,
+  deps: {
+    fetchFn?: typeof fetchWithTimeout;
+    refreshFn?: RefreshFn;
+    headersFn?: () => HeadersInit;
+  } = {},
+): Promise<{ ok: true; results: SyncPushResult[] } | { ok: false; status: number }> {
+  const fetchFn = deps.fetchFn ?? fetchWithTimeout;
+  const headersFn = deps.headersFn ?? authHeader;
+  const refreshFn =
+    deps.refreshFn ??
+    (async () => {
+      const { refreshAccessToken } = await import("../api/client");
+      return refreshAccessToken();
+    });
+
+  const attempt = async () =>
+    fetchFn(`${apiBase()}/sync/push`, {
+      method: "POST",
+      credentials: "include",
+      headers: headersFn(),
+      body: JSON.stringify({ commands }),
+    });
+
+  let res = await attempt();
+  if (res.status === 401) {
+    const outcome = await refreshFn();
+    if (outcome === "refreshed") {
+      res = await attempt();
+    }
+  }
+
+  const data = (await res.json().catch(() => ({}))) as {
+    results?: SyncPushResult[];
+  };
+  if (res.ok && Array.isArray(data.results)) {
+    return { ok: true, results: data.results };
+  }
+  return { ok: false, status: res.status };
 }
 
 async function markSending(items: QueuedAction[]): Promise<QueuedAction[]> {
@@ -641,14 +737,6 @@ function recoverOrphanedSending(rows: QueuedAction[]): QueuedAction[] {
     return row;
   });
 }
-
-type SyncPushResult = {
-  commandId: string;
-  status: string;
-  message?: string;
-  code?: string;
-  details?: unknown;
-};
 
 async function applySyncResult(
   item: QueuedAction,
@@ -713,7 +801,7 @@ export async function drainQueue(): Promise<void> {
 
     const sending = await markSending(pending);
 
-    // Prefer batch /sync/push when possible
+    // Prefer batch /sync/push when possible (refresh+retry on 401).
     try {
       const commands = sending.map((item) => ({
         commandId: item.commandId,
@@ -721,17 +809,9 @@ export async function drainQueue(): Promise<void> {
         payload: commandPayload(item),
         clientTime: new Date(item.createdAt).toISOString(),
       }));
-      const res = await fetchWithTimeout(`${apiBase()}/sync/push`, {
-        method: "POST",
-        credentials: "include",
-        headers: authHeader(),
-        body: JSON.stringify({ commands }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        results?: SyncPushResult[];
-      };
-      if (res.ok && Array.isArray(data.results)) {
-        for (const result of data.results) {
+      const batch = await pushSyncBatch(commands);
+      if (batch.ok) {
+        for (const result of batch.results) {
           const item = sending.find((p) => p.commandId === result.commandId);
           if (!item) continue;
           await applySyncResult(item, result);
@@ -739,8 +819,8 @@ export async function drainQueue(): Promise<void> {
         markReachable();
         return;
       }
-      if (res.status === 401) {
-        // Revert sending → pending so they can retry after re-auth
+      if (batch.status === 401) {
+        // Refresh failed — keep outbox pending until the user signs in again.
         for (const item of sending) {
           await putQueuedAction({
             ...item,

@@ -426,6 +426,158 @@ async function main() {
     "manual hist should not create bound task",
   );
 
+  // --- Confirm deferred departure: vacant/dirty + linked/created cleaning task ---
+  // Cancel today's currentTask so confirm does not collide with hotelDate tasks.
+  await prisma.cleaningTask.updateMany({
+    where: {
+      locationId: room.id,
+      hotelDate: manualPastHotelDate,
+      status: { in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework] },
+    },
+    data: { status: TaskStatus.cancelled },
+  });
+  const cycleBeforeConfirm = manualRoom.cleaningCycle;
+  const confirmFirst = await ensureDepartureRoomEffects(manualPastHotelDate, undefined, {
+    confirmEntryIds: [manualEntryRow.id],
+  });
+  assert(confirmFirst.applied === 1, `confirm applied=1, got ${confirmFirst.applied}`);
+  assert(confirmFirst.deferred === 0, `confirm deferred=0, got ${confirmFirst.deferred}`);
+
+  const confirmedRoom = await prisma.location.findUniqueOrThrow({
+    where: { id: room.id },
+  });
+  assert(confirmedRoom.occupancy === Occupancy.vacant, "confirm → vacant");
+  assert(
+    confirmedRoom.cleaningStatus === CleaningStatus.dirty,
+    "confirm → dirty",
+  );
+  assert(
+    confirmedRoom.cleaningCycle === cycleBeforeConfirm + 1 ||
+      confirmedRoom.cleaningCycle === cycleBeforeConfirm + 2,
+    `confirm bumps cycle, before=${cycleBeforeConfirm} after=${confirmedRoom.cleaningCycle}`,
+  );
+
+  const confirmedEntry = await prisma.dailyPlanEntry.findUniqueOrThrow({
+    where: { id: manualEntryRow.id },
+  });
+  assert(
+    confirmedEntry.roomEffectsAppliedAt != null,
+    "confirm stamps roomEffectsAppliedAt",
+  );
+  assert(
+    confirmedEntry.cleaningTaskId != null,
+    "confirm links/creates cleaningTaskId",
+  );
+  const confirmTasks = await prisma.cleaningTask.findMany({
+    where: {
+      locationId: room.id,
+      hotelDate: manualPastHotelDate,
+      status: { in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework] },
+    },
+  });
+  assert(
+    confirmTasks.length === 1,
+    `confirm should leave exactly 1 active task, got ${confirmTasks.length}`,
+  );
+  assert(
+    confirmTasks[0].id === confirmedEntry.cleaningTaskId,
+    "entry cleaningTaskId matches active task",
+  );
+  assert(
+    confirmTasks[0].priority === Priority.high,
+    "confirm task priority high",
+  );
+
+  // Re-confirm: no second apply / no duplicate task
+  const confirmReplay = await ensureDepartureRoomEffects(manualPastHotelDate, undefined, {
+    confirmEntryIds: [manualEntryRow.id],
+  });
+  assert(confirmReplay.applied === 0, "replay confirm applied=0");
+  assert(confirmReplay.total === 0, "replay confirm total=0 (already stamped)");
+  const confirmTasksAfterReplay = await prisma.cleaningTask.count({
+    where: {
+      locationId: room.id,
+      hotelDate: manualPastHotelDate,
+      status: { in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework] },
+    },
+  });
+  assert(
+    confirmTasksAfterReplay === 1,
+    "replay confirm must not create duplicate task",
+  );
+
+  // Unconfirmed hist deferred entry remains deferred when room is still occupied
+  // (vacant rooms apply without confirm — re-occupy so defer path is exercised).
+  await prisma.location.update({
+    where: { id: room.id },
+    data: {
+      occupancy: Occupancy.occupied,
+      cleaningStatus: CleaningStatus.dirty,
+    },
+  });
+  const histStillDeferred = await ensureDepartureRoomEffects(pastHotelDate);
+  assert(
+    histStillDeferred.deferred >= 1,
+    "hist entry without confirmEntryIds stays deferred",
+  );
+  assert(
+    histStillDeferred.deferredEntryIds.includes(histEntry.id),
+    "hist entry id listed in deferredEntryIds",
+  );
+  const histEntryStill = await prisma.dailyPlanEntry.findUniqueOrThrow({
+    where: { id: histEntry.id },
+  });
+  assert(
+    histEntryStill.roomEffectsAppliedAt == null,
+    "unconfirmed hist remains unstamped",
+  );
+  assert(
+    histEntryStill.cleaningTaskId == null,
+    "unconfirmed hist has no cleaningTaskId",
+  );
+
+  // Confirm with existing active task for past plan date → link, no second create
+  await prisma.cleaningTask.updateMany({
+    where: {
+      locationId: room.id,
+      hotelDate: pastHotelDate,
+      status: { in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework, TaskStatus.awaiting_inspection] },
+    },
+    data: { status: TaskStatus.cancelled },
+  });
+  const preexisting = await prisma.cleaningTask.create({
+    data: {
+      locationId: room.id,
+      hotelDate: pastHotelDate,
+      priority: Priority.normal,
+      status: TaskStatus.assigned,
+      cleaningCycle: confirmedRoom.cleaningCycle,
+    },
+  });
+  const linkConfirm = await ensureDepartureRoomEffects(pastHotelDate, undefined, {
+    confirmEntryIds: [histEntry.id],
+  });
+  assert(linkConfirm.applied === 1, `link-confirm applied=1, got ${linkConfirm.applied}`);
+  const linkedEntry = await prisma.dailyPlanEntry.findUniqueOrThrow({
+    where: { id: histEntry.id },
+  });
+  assert(
+    linkedEntry.cleaningTaskId === preexisting.id,
+    "confirm should link preexisting active task",
+  );
+  const linkedTask = await prisma.cleaningTask.findUniqueOrThrow({
+    where: { id: preexisting.id },
+  });
+  assert(linkedTask.priority === Priority.high, "linked task bumped to high");
+  const pastActiveCount = await prisma.cleaningTask.count({
+    where: {
+      locationId: room.id,
+      hotelDate: pastHotelDate,
+      status: { in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework] },
+    },
+  });
+  assert(pastActiveCount === 1, "linking must not create a second active task");
+
   // --- Valid current-day departure via create: vacant + dirty + cycle++ ---
   await prisma.dailyPlanEntry.deleteMany({
     where: {

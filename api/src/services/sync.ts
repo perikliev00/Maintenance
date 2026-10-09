@@ -242,6 +242,7 @@ async function applyCommand(
         const ticket = await startMaintenanceTicket({
           ticketId,
           actorEmployeeId: user.employeeId,
+          commandId: cmd.commandId,
         });
         return { commandId: cmd.commandId, status: "ok", data: ticket };
       }
@@ -262,6 +263,7 @@ async function applyCommand(
             typeof cmd.payload.reason === "string"
               ? cmd.payload.reason
               : undefined,
+          commandId: cmd.commandId,
         });
         return { commandId: cmd.commandId, status: "ok", data: ticket };
       }
@@ -278,6 +280,7 @@ async function applyCommand(
         const ticket = await resumeMaintenanceTicket({
           ticketId,
           actorEmployeeId: user.employeeId,
+          commandId: cmd.commandId,
         });
         return { commandId: cmd.commandId, status: "ok", data: ticket };
       }
@@ -298,6 +301,7 @@ async function applyCommand(
             typeof cmd.payload.resolutionNotes === "string"
               ? cmd.payload.resolutionNotes
               : undefined,
+          commandId: cmd.commandId,
         });
         return { commandId: cmd.commandId, status: "ok", data: ticket };
       }

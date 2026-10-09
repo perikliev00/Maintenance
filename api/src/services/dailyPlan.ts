@@ -380,6 +380,88 @@ async function locationsWithNewerStayEvidence(
   return withEvidence;
 }
 
+/**
+ * Link an active cleaning task or create a high-priority departure task,
+ * reusing assignee/shift when the task is unbound.
+ */
+async function linkOrCreateDepartureTask(
+  tx: Tx,
+  input: {
+    locationId: string;
+    locationKind: LocationKind;
+    hotelDate: Date;
+    assignedEmployeeId?: string;
+    shiftId?: string | null;
+    existingCleaningTaskId?: string | null;
+  },
+): Promise<string | null> {
+  const assignedEmployeeId = input.assignedEmployeeId;
+  const shiftId = input.shiftId;
+
+  const connectAssigneeAndShift = (
+    data: Prisma.CleaningTaskUpdateInput,
+    task: { assignedEmployeeId: string | null; shiftId: string | null },
+  ) => {
+    if (assignedEmployeeId && !task.assignedEmployeeId) {
+      data.assignedEmployee = { connect: { id: assignedEmployeeId } };
+    }
+    if (shiftId && !task.shiftId) {
+      data.shift = { connect: { id: shiftId } };
+    }
+  };
+
+  if (input.existingCleaningTaskId) {
+    const existing = await tx.cleaningTask.findFirst({
+      where: {
+        id: input.existingCleaningTaskId,
+        status: { in: [...ACTIVE_TASK_STATUSES] },
+      },
+    });
+    if (existing) {
+      const data: Prisma.CleaningTaskUpdateInput = {};
+      if (PRIORITY_RANK[existing.priority] < PRIORITY_RANK[Priority.high]) {
+        data.priority = Priority.high;
+      }
+      connectAssigneeAndShift(data, existing);
+      if (Object.keys(data).length) {
+        await tx.cleaningTask.update({ where: { id: existing.id }, data });
+      }
+      return existing.id;
+    }
+  }
+
+  const activeTask = await tx.cleaningTask.findFirst({
+    where: {
+      locationId: input.locationId,
+      hotelDate: input.hotelDate,
+      status: { in: [...ACTIVE_TASK_STATUSES] },
+    },
+  });
+
+  if (activeTask) {
+    const data: Prisma.CleaningTaskUpdateInput = {};
+    if (PRIORITY_RANK[activeTask.priority] < PRIORITY_RANK[Priority.high]) {
+      data.priority = Priority.high;
+    }
+    connectAssigneeAndShift(data, activeTask);
+    if (Object.keys(data).length) {
+      await tx.cleaningTask.update({ where: { id: activeTask.id }, data });
+    }
+    return activeTask.id;
+  }
+
+  const created = await createTaskWithSectorSnapshot(tx, {
+    locationId: input.locationId,
+    hotelDate: input.hotelDate,
+    priority: Priority.high,
+    assignedEmployeeId,
+    shiftId,
+    locationKind: input.locationKind,
+    planCategory: DailyPlanCategory.departure,
+  });
+  return created.id;
+}
+
 /** Apply deferred departure room effects for a YYYY-MM-DD hotel date. */
 export async function applyDepartureRoomEffects(
   hotelDate: string,
@@ -418,7 +500,13 @@ export async function ensureDepartureRoomEffects(
       roomEffectsAppliedAt: null,
       ...(locationFilter ? { location: locationFilter } : {}),
     },
-    select: { id: true, locationId: true },
+    select: {
+      id: true,
+      locationId: true,
+      assignedEmployeeId: true,
+      shiftId: true,
+      cleaningTaskId: true,
+    },
   });
   if (pending.length === 0) {
     return empty;
@@ -441,7 +529,7 @@ export async function ensureDepartureRoomEffects(
     for (const entry of pending) {
       const location = await tx.location.findUniqueOrThrow({
         where: { id: entry.locationId },
-        select: { occupancy: true },
+        select: { occupancy: true, kind: true },
       });
 
       const hasNewerStayEvidence = newerStayLocations.has(entry.locationId);
@@ -477,6 +565,22 @@ export async function ensureDepartureRoomEffects(
       await bumpDirtyAndRebindWork(tx, entry.locationId, {
         occupancy: Occupancy.vacant,
       });
+
+      const cleaningTaskId = await linkOrCreateDepartureTask(tx, {
+        locationId: entry.locationId,
+        locationKind: location.kind,
+        hotelDate,
+        assignedEmployeeId: entry.assignedEmployeeId ?? undefined,
+        shiftId: entry.shiftId,
+        existingCleaningTaskId: entry.cleaningTaskId,
+      });
+      if (cleaningTaskId && cleaningTaskId !== entry.cleaningTaskId) {
+        await tx.dailyPlanEntry.update({
+          where: { id: entry.id },
+          data: { cleaningTaskId },
+        });
+      }
+
       applied += 1;
     }
   });
@@ -742,6 +846,9 @@ export async function createDailyPlanEntry(input: {
         notes: input.notes ?? null,
         source: DailyPlanSource.manual,
         cleaningTaskId: effects.cleaningTaskId,
+        // Preserve for deferred departure confirm (even when task was skipped).
+        assignedEmployeeId: input.assignedEmployeeId ?? null,
+        shiftId: shiftId ?? null,
         roomEffectsAppliedAt: effects.roomEffectsApplied ? new Date() : null,
         createdByEmployeeId: input.createdByEmployeeId,
       },

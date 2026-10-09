@@ -3,7 +3,9 @@ import {
   type RefreshOutcome,
 } from "./sessionPolicy";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "/api";
+const API_BASE =
+  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ??
+  "/api";
 
 export type { RefreshOutcome };
 
@@ -221,7 +223,8 @@ export function canCloseIssues(role: Role): boolean {
 
 export function canPerformAction(user: AuthUser, action: Action): boolean {
   if (isOwner(user.role)) return true;
-  if (user.actions?.length) return user.actions.includes(action);
+  // Explicit array (including []) is authoritative; legacy fallback only when missing.
+  if (Array.isArray(user.actions)) return user.actions.includes(action);
   // Fallback mirrors when session predates capabilities
   if (action === "tickets.resolve") return canResolveIssues(user.role);
   if (action === "tickets.assign") return canAssignIssues(user.role);
@@ -282,7 +285,8 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
 }
 
 export function panelsForUser(user: AuthUser): Panel[] {
-  const base = user.panels?.length
+  // Explicit array (including []) is authoritative; legacy fallback only when missing.
+  const base = Array.isArray(user.panels)
     ? [...user.panels]
     : [...panelsForRole(user.role)];
   if (!base.includes("notifications")) {

@@ -134,6 +134,38 @@ function authUserFromSession(
   };
 }
 
+export class SseScopeRefreshError extends Error {
+  constructor(message = "Failed to resolve data scope") {
+    super(message);
+    this.name = "SseScopeRefreshError";
+  }
+}
+
+/**
+ * Heartbeat refresh: assert session still active, then always re-resolve
+ * DataScope so sector grant/revoke takes effect without reconnect.
+ * Exported for unit tests.
+ */
+export async function refreshSseSubscriberState(
+  currentUser: AuthUser,
+  deps: {
+    assertActive?: AssertSessionActive;
+    resolveScope?: typeof resolveDataScope;
+  } = {},
+): Promise<{ currentUser: AuthUser; scope: DataScope }> {
+  const assertActive = deps.assertActive ?? assertSessionActive;
+  const resolveScope = deps.resolveScope ?? resolveDataScope;
+  const session = await assertActive(currentUser.sid, currentUser.userId);
+  const next = authUserFromSession(session);
+  try {
+    const scope = await resolveScope(next);
+    return { currentUser: next, scope };
+  } catch (err) {
+    console.error("resolveDataScope failed on SSE heartbeat", err);
+    throw new SseScopeRefreshError();
+  }
+}
+
 eventsRouter.post("/ticket", requireAuth, (req, res) => {
   const user = req.user!;
   const payload: SseTicketPayload = {
@@ -214,34 +246,24 @@ eventsRouter.get(
       if (closed) return;
       void (async () => {
         try {
-          const session = await assertSessionActive(
-            currentUser.sid,
-            currentUser.userId,
-          );
-          const next = authUserFromSession(session);
-          if (
-            next.role !== currentUser.role ||
-            next.employeeId !== currentUser.employeeId ||
-            next.email !== currentUser.email
-          ) {
-            currentUser = next;
-            try {
-              scope = await resolveDataScope(currentUser);
-            } catch (err) {
-              console.error("resolveDataScope failed on SSE heartbeat", err);
-              writeSse(res, "revoked", {
-                ok: false,
-                reason: "scope_refresh_failed",
-              });
-              cleanup();
-              res.end();
-              return;
-            }
-          }
+          // Always re-resolve scope: sector membership can change without
+          // role/employeeId/email changing (revoked or newly granted sectors).
+          const refreshed = await refreshSseSubscriberState(currentUser);
+          currentUser = refreshed.currentUser;
+          scope = refreshed.scope;
           if (closed) return;
           res.write(`: ping ${Date.now()}\n\n`);
-        } catch {
+        } catch (err) {
           if (closed) return;
+          if (err instanceof SseScopeRefreshError) {
+            writeSse(res, "revoked", {
+              ok: false,
+              reason: "scope_refresh_failed",
+            });
+            cleanup();
+            res.end();
+            return;
+          }
           writeSse(res, "revoked", { ok: false, reason: "session_revoked" });
           cleanup();
           res.end();

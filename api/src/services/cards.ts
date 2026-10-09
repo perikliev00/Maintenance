@@ -48,31 +48,45 @@ export async function listCards(filters: {
   q?: string;
   staffOnly?: boolean;
 }) {
-  const where: Prisma.AccessCardWhereInput = {
-    ...(filters.employeeId ? { employeeId: filters.employeeId } : {}),
-    ...(filters.status ? { status: filters.status } : {}),
-    ...(filters.cardType ? { cardType: filters.cardType } : {}),
-    ...(filters.staffOnly
-      ? { cardType: { in: STAFF_CARD_TYPES }, employeeId: { not: null } }
-      : {}),
-    ...(filters.q
-      ? {
-          OR: [
-            { label: { contains: filters.q, mode: "insensitive" } },
-            {
-              employee: {
-                fullName: { contains: filters.q, mode: "insensitive" },
-              },
-            },
-            {
-              employee: {
-                employeeNumber: { contains: filters.q, mode: "insensitive" },
-              },
-            },
-          ],
-        }
-      : {}),
-  };
+  const and: Prisma.AccessCardWhereInput[] = [];
+
+  if (filters.employeeId) {
+    and.push({ employeeId: filters.employeeId });
+  }
+  if (filters.status) {
+    and.push({ status: filters.status });
+  }
+  if (filters.cardType) {
+    and.push({ cardType: filters.cardType });
+  }
+  if (filters.staffOnly) {
+    // Intersect with staff types + non-null holder. Incompatible with guest
+    // (or any non-staff cardType) → empty result via AND, not a wider set.
+    and.push({
+      cardType: { in: STAFF_CARD_TYPES },
+      employeeId: { not: null },
+    });
+  }
+  if (filters.q) {
+    and.push({
+      OR: [
+        { label: { contains: filters.q, mode: "insensitive" } },
+        {
+          employee: {
+            fullName: { contains: filters.q, mode: "insensitive" },
+          },
+        },
+        {
+          employee: {
+            employeeNumber: { contains: filters.q, mode: "insensitive" },
+          },
+        },
+      ],
+    });
+  }
+
+  const where: Prisma.AccessCardWhereInput =
+    and.length > 0 ? { AND: and } : {};
 
   return prisma.accessCard.findMany({
     where,

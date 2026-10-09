@@ -42,13 +42,43 @@ export const interfaceSchema = z.object({
   density: z.enum(["comfortable", "compact"]),
 });
 
+/**
+ * IANA timezone id check compatible with the runtime Intl implementation.
+ * Prefer DateTimeFormat probe (same path hotel-date helpers use); optionally
+ * accept ids listed by supportedValuesOf when available.
+ */
+export function isValidIanaTimeZone(timeZone: string): boolean {
+  if (!timeZone || typeof timeZone !== "string") return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return true;
+  } catch {
+    try {
+      const supported = (
+        Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
+      ).supportedValuesOf;
+      if (typeof supported === "function") {
+        return supported("timeZone").includes(timeZone);
+      }
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+}
+
 export const operationsSchema = z.object({
   overdueSessionMinutes: z.number().int().min(15).max(24 * 60),
   defaultTaskDueHours: z.number().int().min(1).max(72),
   defaultTicketSlaHours: z.number().int().min(1).max(168).default(24),
   riskTicketThreshold: z.number().int().min(1).max(50).default(2),
   riskWindowDays: z.number().int().min(1).max(365).default(30),
-  hotelTimezone: z.string().min(1),
+  hotelTimezone: z
+    .string()
+    .min(1)
+    .refine(isValidIanaTimeZone, {
+      message: "hotelTimezone must be a valid IANA time zone",
+    }),
 });
 
 export const accessSchema = z.object({
