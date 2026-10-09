@@ -11,7 +11,7 @@ import {
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES } from "../constants";
 import { AppError } from "../errors";
-import { todayHotelDateYmd } from "./attendance";
+import { todayHotelDateYmd } from "./hotelTime";
 import { getFlags, getOperations } from "./settings";
 import { publish } from "../events/bus";
 import {

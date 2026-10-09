@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DailyPlanCategory } from "@prisma/client";
 import { prisma } from "../db";
 import { requireAuth, requireAction } from "../middleware/auth";
-import { todayHotelDateYmd } from "../services/attendance";
+import { todayHotelDateYmd } from "../services/hotelTime";
 import {
   applyDepartureRoomEffects,
   createDailyPlanEntry,

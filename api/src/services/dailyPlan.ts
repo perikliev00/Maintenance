@@ -11,7 +11,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES } from "../constants";
-import { todayHotelDateYmd, zonedDayStartUtc } from "./attendance";
+import { todayHotelDateYmd, zonedDayStartUtc } from "./hotelTime";
 import { AppError } from "../errors";
 import {
   bumpDirtyAndRebindWork,

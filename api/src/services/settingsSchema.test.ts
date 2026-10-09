@@ -8,7 +8,7 @@ import {
   hotelDateString,
   resolveUsableHotelTimeZone,
   zonedDayStartUtc,
-} from "./attendance";
+} from "./hotelTime";
 
 describe("hotelTimezone validation", () => {
   it("accepts Europe/Sofia and UTC", () => {

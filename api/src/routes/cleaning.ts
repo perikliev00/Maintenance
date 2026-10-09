@@ -4,7 +4,7 @@ import { prisma } from "../db";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { isOwner } from "../permissions";
-import { todayHotelDateYmd } from "../services/attendance";
+import { todayHotelDateYmd } from "../services/hotelTime";
 import {
   cancelCleaningSession,
   completeCleaningSession,

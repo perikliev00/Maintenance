@@ -1,6 +1,6 @@
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES, OPEN_TICKET_STATUSES } from "../constants";
-import { hotelDateAsUtcDate } from "./attendance";
+import { hotelDateAsUtcDate } from "./hotelTime";
 import { formatMaintenanceTicket } from "./maintenance";
 import { resolveDataScope, taskWhere } from "./dataScope";
 import { getOperations } from "./settings";
