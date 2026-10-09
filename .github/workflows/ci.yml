@@ -87,6 +87,7 @@ jobs:
       - run: npm run db:seed
       - run: npx tsx scripts/smoke-cleaning-atomic.ts
       - run: npx tsx scripts/smoke-invitation-atomic.ts
+      - run: npx tsx scripts/smoke-invitation-role.ts
       - run: npx tsx scripts/smoke-attendance-atomic.ts
       - run: npx tsx scripts/smoke-maintenance-atomic.ts
       - run: npx tsx scripts/smoke-daily-plan-atomic.ts

@@ -20,6 +20,7 @@ import {
   ensureDepartureRoomEffects,
   importDailyPlan,
 } from "../src/services/dailyPlan";
+import { setLocationOccupancy } from "../src/services/locations";
 import { getOperations } from "../src/services/settings";
 
 const prisma = new PrismaClient();
@@ -73,8 +74,7 @@ async function main() {
     },
   });
 
-  // Clear same-day arrivals/departures so newer-stay evidence does not leak
-  // across smoke scenarios (or prior runs).
+  // Clear same-day plan entries so scenarios do not collide across runs.
   await prisma.dailyPlanEntry.deleteMany({
     where: {
       hotelDate,
@@ -148,90 +148,84 @@ async function main() {
     `expected vacant, got ${afterRoom.occupancy}`,
   );
 
-  // --- Protect: occupied + arrival on/after plan day → no room mutation ---
-  const cycleProtectBefore = 55;
-  await prisma.location.update({
-    where: { id: room.id },
-    data: {
-      cleaningCycle: cycleProtectBefore,
-      cleaningStatus: CleaningStatus.dirty,
-      occupancy: Occupancy.occupied,
-    },
-  });
-
+  // --- Planned arrival alone must not protect same-day departure ---
+  const cycleArrivalNoProtect = 55;
   await prisma.dailyPlanEntry.deleteMany({
     where: {
       hotelDate,
       locationId: room.id,
     },
   });
-
+  await prisma.location.update({
+    where: { id: room.id },
+    data: {
+      cleaningCycle: cycleArrivalNoProtect,
+      cleaningStatus: CleaningStatus.verified_clean,
+      occupancy: Occupancy.occupied,
+    },
+  });
   await prisma.dailyPlanEntry.create({
     data: {
       hotelDate,
       locationId: room.id,
       category: DailyPlanCategory.arrival,
       source: DailyPlanSource.manual,
-      notes: "smoke newer stay arrival",
+      notes: "planned arrival is not newer-stay proof",
       createdByEmployeeId: employeeId,
     },
   });
-
-  const protectEntry = await prisma.dailyPlanEntry.create({
+  const arrivalNoProtectDep = await prisma.dailyPlanEntry.create({
     data: {
       hotelDate,
       locationId: room.id,
       category: DailyPlanCategory.departure,
       source: DailyPlanSource.manual,
-      notes: "smoke protect occupied+arrival",
+      notes: "departure with planned arrival present",
       roomEffectsAppliedAt: null,
       createdByEmployeeId: employeeId,
     },
   });
-
-  const protectResult = await ensureDepartureRoomEffects(hotelDate);
+  const arrivalNoProtectResult = await ensureDepartureRoomEffects(hotelDate);
   assert(
-    protectResult.skipped === 1,
-    `expected skipped=1, got ${protectResult.skipped}`,
+    arrivalNoProtectResult.applied === 1,
+    `planned arrival must not protect; expected applied=1, got ${arrivalNoProtectResult.applied}`,
   );
   assert(
-    protectResult.applied === 0,
-    `expected applied=0, got ${protectResult.applied}`,
+    arrivalNoProtectResult.skipped === 0,
+    `expected skipped=0, got ${arrivalNoProtectResult.skipped}`,
   );
-
-  const protectEntryAfter = await prisma.dailyPlanEntry.findUniqueOrThrow({
-    where: { id: protectEntry.id },
-  });
-  assert(
-    protectEntryAfter.roomEffectsAppliedAt != null,
-    "roomEffectsAppliedAt should be set on protect",
-  );
-
-  const protectRoomAfter = await prisma.location.findUniqueOrThrow({
+  const arrivalNoProtectRoom = await prisma.location.findUniqueOrThrow({
     where: { id: room.id },
   });
   assert(
-    protectRoomAfter.cleaningCycle === cycleProtectBefore,
-    `expected cleaningCycle unchanged ${cycleProtectBefore}, got ${protectRoomAfter.cleaningCycle}`,
+    arrivalNoProtectRoom.occupancy === Occupancy.vacant,
+    "planned arrival must not block vacate",
   );
   assert(
-    protectRoomAfter.occupancy === Occupancy.occupied,
-    `expected occupied, got ${protectRoomAfter.occupancy}`,
+    arrivalNoProtectRoom.cleaningStatus === CleaningStatus.dirty,
+    "planned arrival must not block dirty",
+  );
+  const arrivalNoProtectEntry = await prisma.dailyPlanEntry.findUniqueOrThrow({
+    where: { id: arrivalNoProtectDep.id },
+  });
+  assert(
+    arrivalNoProtectEntry.roomEffectsAppliedAt != null,
+    "departure effects should be stamped when applied",
   );
 
   // --- Historical import with current guest (occupied + dirty): defer, no state/task change ---
   const histCycle = 70;
-  // Remove arrivals on/after the past day so this scenario stays "no newer-stay proof".
   await prisma.dailyPlanEntry.deleteMany({
     where: {
       locationId: room.id,
-      OR: [
-        { hotelDate: pastHotelDate },
-        {
-          category: DailyPlanCategory.arrival,
-          hotelDate: { gte: pastHotelDate },
-        },
-      ],
+      hotelDate: pastHotelDate,
+    },
+  });
+  // Drop prior reoccupy audits so this run stays "no newer-stay proof".
+  await prisma.auditEvent.deleteMany({
+    where: {
+      locationId: room.id,
+      action: "location.set_occupancy",
     },
   });
   await prisma.location.update({
@@ -543,7 +537,211 @@ async function main() {
     "future departure leaves roomEffectsAppliedAt null",
   );
 
-  // --- Historical import with proven newer stay (arrival) → protect ---
+  // --- Import order independence: arrival↔departure both vacate + one departure task ---
+  async function resetTodayForOrderTest(cycle: number) {
+    await prisma.dailyPlanEntry.deleteMany({
+      where: { hotelDate, locationId: room.id },
+    });
+    await prisma.cleaningTask.updateMany({
+      where: {
+        locationId: room.id,
+        hotelDate,
+        status: {
+          in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework],
+        },
+      },
+      data: { status: TaskStatus.cancelled },
+    });
+    await prisma.location.update({
+      where: { id: room.id },
+      data: {
+        cleaningCycle: cycle,
+        cleaningStatus: CleaningStatus.verified_clean,
+        occupancy: Occupancy.occupied,
+      },
+    });
+  }
+
+  async function assertTodayCheckoutApplied(label: string) {
+    const after = await prisma.location.findUniqueOrThrow({
+      where: { id: room.id },
+    });
+    assert(
+      after.occupancy === Occupancy.vacant,
+      `${label}: expected vacant`,
+    );
+    assert(
+      after.cleaningStatus === CleaningStatus.dirty,
+      `${label}: expected dirty`,
+    );
+    const depEntry = await prisma.dailyPlanEntry.findUniqueOrThrow({
+      where: {
+        hotelDate_locationId_category: {
+          hotelDate,
+          locationId: room.id,
+          category: DailyPlanCategory.departure,
+        },
+      },
+    });
+    assert(
+      depEntry.roomEffectsAppliedAt != null,
+      `${label}: departure roomEffectsAppliedAt set`,
+    );
+    assert(
+      depEntry.cleaningTaskId != null,
+      `${label}: departure should bind a cleaning task`,
+    );
+    const activeTasks = await prisma.cleaningTask.findMany({
+      where: {
+        locationId: room.id,
+        hotelDate,
+        status: {
+          in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework],
+        },
+      },
+    });
+    assert(
+      activeTasks.length === 1,
+      `${label}: expected exactly 1 active task, got ${activeTasks.length}`,
+    );
+    assert(
+      activeTasks[0].id === depEntry.cleaningTaskId,
+      `${label}: active task must be the departure-bound task`,
+    );
+    assert(
+      activeTasks[0].priority === Priority.high,
+      `${label}: departure task should be high priority`,
+    );
+  }
+
+  const orderCycleA = 100;
+  await resetTodayForOrderTest(orderCycleA);
+  const orderImportA = await importDailyPlan(
+    {
+      hotelDate: todayYmd,
+      sourceLabel: "smoke-order-arrival-first",
+      entries: [
+        {
+          buildingCode,
+          roomNumber,
+          category: DailyPlanCategory.arrival,
+          externalId: `smoke-order-a-arr-${room.id}-${todayYmd}`,
+        },
+        {
+          buildingCode,
+          roomNumber,
+          category: DailyPlanCategory.departure,
+          externalId: `smoke-order-a-dep-${room.id}-${todayYmd}`,
+        },
+      ],
+    },
+    employeeId,
+  );
+  assert(
+    orderImportA.batch.createdCount === 2,
+    `arrival→departure createdCount=2, got ${orderImportA.batch.createdCount}`,
+  );
+  assert(
+    orderImportA.batch.errorCount === 0,
+    "arrival→departure import should have no errors",
+  );
+  await assertTodayCheckoutApplied("arrival→departure");
+
+  const orderCycleB = 110;
+  await resetTodayForOrderTest(orderCycleB);
+  const orderImportB = await importDailyPlan(
+    {
+      hotelDate: todayYmd,
+      sourceLabel: "smoke-order-departure-first",
+      entries: [
+        {
+          buildingCode,
+          roomNumber,
+          category: DailyPlanCategory.departure,
+          externalId: `smoke-order-b-dep-${room.id}-${todayYmd}`,
+        },
+        {
+          buildingCode,
+          roomNumber,
+          category: DailyPlanCategory.arrival,
+          externalId: `smoke-order-b-arr-${room.id}-${todayYmd}`,
+        },
+      ],
+    },
+    employeeId,
+  );
+  assert(
+    orderImportB.batch.createdCount === 2,
+    `departure→arrival createdCount=2, got ${orderImportB.batch.createdCount}`,
+  );
+  assert(
+    orderImportB.batch.errorCount === 0,
+    "departure→arrival import should have no errors",
+  );
+  await assertTodayCheckoutApplied("departure→arrival");
+
+  // --- Future planned arrival (+7d) must not block today's departure ---
+  const plus7Ymd = addDaysYmd(todayYmd, 7);
+  const plus7HotelDate = new Date(`${plus7Ymd}T00:00:00.000Z`);
+  await prisma.dailyPlanEntry.deleteMany({
+    where: {
+      locationId: room.id,
+      OR: [{ hotelDate }, { hotelDate: plus7HotelDate }],
+    },
+  });
+  await prisma.cleaningTask.updateMany({
+    where: {
+      locationId: room.id,
+      hotelDate,
+      status: {
+        in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework],
+      },
+    },
+    data: { status: TaskStatus.cancelled },
+  });
+  const plus7Cycle = 120;
+  await prisma.location.update({
+    where: { id: room.id },
+    data: {
+      cleaningCycle: plus7Cycle,
+      cleaningStatus: CleaningStatus.verified_clean,
+      occupancy: Occupancy.occupied,
+    },
+  });
+  await createDailyPlanEntry({
+    hotelDate: plus7Ymd,
+    locationId: room.id,
+    category: DailyPlanCategory.arrival,
+    notes: "arrival in 7 days",
+    createdByEmployeeId: employeeId,
+  });
+  const plus7Dep = await createDailyPlanEntry({
+    hotelDate: todayYmd,
+    locationId: room.id,
+    category: DailyPlanCategory.departure,
+    notes: "today departure with +7 arrival",
+    createdByEmployeeId: employeeId,
+  });
+  assert(
+    plus7Dep.effects.occupancy === "vacant",
+    `+7 arrival must not protect; expected vacant, got ${plus7Dep.effects.occupancy}`,
+  );
+  assert(plus7Dep.effects.dirty === true, "+7 arrival must not block dirty");
+  assert(
+    plus7Dep.effects.task === "created",
+    `+7 arrival must not block task; got ${plus7Dep.effects.task}`,
+  );
+  const plus7Room = await prisma.location.findUniqueOrThrow({
+    where: { id: room.id },
+  });
+  assert(plus7Room.occupancy === Occupancy.vacant, "+7 arrival: room vacant");
+  assert(
+    plus7Room.cleaningStatus === CleaningStatus.dirty,
+    "+7 arrival: room dirty",
+  );
+
+  // --- Historical import with proven newer stay (set_occupancy audit) → protect ---
+  // Run last so the occupancy audit does not poison earlier defer scenarios.
   const protectPastYmd = addDaysYmd(todayYmd, -4);
   const protectPastHotelDate = new Date(`${protectPastYmd}T00:00:00.000Z`);
   await prisma.dailyPlanEntry.deleteMany({
@@ -555,19 +753,10 @@ async function main() {
     data: {
       cleaningCycle: protectImportCycle,
       cleaningStatus: CleaningStatus.dirty,
-      occupancy: Occupancy.occupied,
+      occupancy: Occupancy.vacant,
     },
   });
-  await prisma.dailyPlanEntry.create({
-    data: {
-      hotelDate: protectPastHotelDate,
-      locationId: room.id,
-      category: DailyPlanCategory.arrival,
-      source: DailyPlanSource.manual,
-      notes: "arrival proving newer stay",
-      createdByEmployeeId: employeeId,
-    },
-  });
+  await setLocationOccupancy(room.id, Occupancy.occupied, employeeId);
 
   const protectImport = await importDailyPlan(
     {

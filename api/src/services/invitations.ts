@@ -374,31 +374,55 @@ export async function redeemInvitation(input: {
         throw new AppError(409, "conflict", "Invitation already consumed");
       }
 
+      // Re-read user inside the TX so role/isActive/activatedAt are current
+      // (e.g. Owner may have demoted the pending user after the invite was issued).
+      await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "User" WHERE "employeeId" = ${inv.employeeId} FOR UPDATE
+      `;
+      const freshUser = await tx.user.findUnique({
+        where: { employeeId: inv.employeeId },
+      });
+
+      if (freshUser && !freshUser.isActive) {
+        throw new AppError(403, "forbidden", "Account is blocked");
+      }
+
+      const requirePassword = () => {
+        if (!passwordHash) {
+          throw new AppError(
+            400,
+            "validation",
+            "Password of at least 8 characters is required",
+          );
+        }
+        return passwordHash;
+      };
+
       let userId: string;
-      if (needsUserCreate) {
+      if (!freshUser) {
         const created = await tx.user.create({
           data: {
             employeeId: inv.employeeId,
             email: inv.email,
-            passwordHash: passwordHash!,
+            passwordHash: requirePassword(),
             role: inv.role,
             activatedAt: new Date(),
             isActive: true,
           },
         });
         userId = created.id;
-      } else if (needsActivation) {
+      } else if (!freshUser.activatedAt) {
+        // Activation: keep the current User.role; never restore Invitation.role.
         const updated = await tx.user.update({
-          where: { id: existingUser!.id },
+          where: { id: freshUser.id },
           data: {
-            passwordHash: passwordHash!,
+            passwordHash: requirePassword(),
             activatedAt: new Date(),
-            role: inv.role,
           },
         });
         userId = updated.id;
       } else {
-        userId = existingUser!.id;
+        userId = freshUser.id;
       }
 
       const device = await tx.device.create({

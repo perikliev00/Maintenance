@@ -344,28 +344,18 @@ function emptyDepartureRoomEffectsResult(
 
 /**
  * Locations with proof of a newer stay after a departure plan day:
- * arrival on/after that day, or occupancy set to occupied after that hotel day
- * (hotel timezone). Cleaning status alone is not evidence.
+ * occupancy set to occupied after that hotel day (hotel timezone).
+ * Planned arrivals are not evidence — they do not prove check-in.
+ * Cleaning status alone is not evidence.
  */
 async function locationsWithNewerStayEvidence(
   db: Tx | typeof prisma,
   locationIds: string[],
-  hotelDate: Date,
   planYmd: string,
 ): Promise<Set<string>> {
   if (locationIds.length === 0) {
     return new Set();
   }
-
-  const arrivalRows = await db.dailyPlanEntry.findMany({
-    where: {
-      locationId: { in: locationIds },
-      category: DailyPlanCategory.arrival,
-      hotelDate: { gte: hotelDate },
-    },
-    select: { locationId: true },
-  });
-  const withEvidence = new Set(arrivalRows.map((r) => r.locationId));
 
   const ops = await getOperations();
   const afterPlanDayStart = zonedDayStartUtc(
@@ -381,6 +371,7 @@ async function locationsWithNewerStayEvidence(
     },
     select: { locationId: true },
   });
+  const withEvidence = new Set<string>();
   for (const row of reoccupyRows) {
     if (row.locationId) {
       withEvidence.add(row.locationId);
@@ -438,7 +429,6 @@ export async function ensureDepartureRoomEffects(
   const newerStayLocations = await locationsWithNewerStayEvidence(
     prisma,
     locationIds,
-    hotelDate,
     planYmd,
   );
 
@@ -551,7 +541,6 @@ async function applyPlanEntryEffects(
       const newerStayLocations = await locationsWithNewerStayEvidence(
         tx,
         [location.id],
-        hotelDate,
         planYmd,
       );
       const decision = classifyDepartureRoomEffects({
