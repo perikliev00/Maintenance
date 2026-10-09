@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "../db";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { canChangeUserRole } from "../permissions";
-import { AppError } from "../services/cleaning";
+import { AppError } from "../errors";
 import { revokeAllForUser } from "../services/authSessions";
 import { publish } from "../events/bus";
 
@@ -217,14 +217,3 @@ peopleRouter.patch(
     }
   },
 );
-
-peopleRouter.use((err: unknown, _req: any, res: any, next: any) => {
-  if (err instanceof AppError) {
-    return res.status(err.status).json({
-      error: err.code,
-      message: err.message,
-      details: err.details,
-    });
-  }
-  return next(err);
-});

@@ -4,7 +4,6 @@ import { z } from "zod";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { invitationRedeemLimiter } from "../middleware/security";
 import { issueAuthCookies } from "../middleware/session";
-import { AppError } from "../services/cleaning";
 import {
   issueInvitation,
   listActiveInvitations,
@@ -165,22 +164,3 @@ devicesRouter.post(
     }
   },
 );
-
-function errorHandler(
-  err: unknown,
-  _req: any,
-  res: any,
-  next: any,
-) {
-  if (err instanceof AppError) {
-    return res.status(err.status).json({
-      error: err.code,
-      message: err.message,
-      details: err.details,
-    });
-  }
-  return next(err);
-}
-
-invitationsRouter.use(errorHandler);
-devicesRouter.use(errorHandler);

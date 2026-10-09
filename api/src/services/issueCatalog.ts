@@ -1,6 +1,6 @@
 import { IssueOptionKind, Priority } from "@prisma/client";
 import { prisma } from "../db";
-import { AppError } from "./cleaning";
+import { AppError } from "../errors";
 
 export type CategorySnapshot = {
   maintenanceCategoryId: string;

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { CardStatus, CardType } from "@prisma/client";
 import { z } from "zod";
 import { requireAuth, requireAction } from "../middleware/auth";
-import { AppError } from "../services/cleaning";
+import { AppError } from "../errors";
 import {
   issueCard,
   listCardEmployees,

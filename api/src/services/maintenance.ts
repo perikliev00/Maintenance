@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { Priority, Prisma, TicketStatus } from "@prisma/client";
 import { prisma } from "../db";
-import { AppError } from "./cleaning";
+import { AppError } from "../errors";
 import { OPEN_TICKET_STATUSES } from "../constants";
 import { publish } from "../events/bus";
 import { getOperations } from "./settings";

@@ -5,7 +5,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { prisma } from "../db";
-import { AppError } from "./cleaning";
+import { AppError } from "../errors";
 import { recordAudit } from "./audit";
 
 const STAFF_CARD_TYPES: CardType[] = [

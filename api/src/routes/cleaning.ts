@@ -6,7 +6,6 @@ import { asyncHandler } from "../middleware/asyncHandler";
 import { isOwner } from "../permissions";
 import { todayHotelDateYmd } from "../services/attendance";
 import {
-  AppError,
   cancelCleaningSession,
   completeCleaningSession,
   createCleaningTask,
@@ -411,14 +410,3 @@ cleaningRouter.get(
     }
   },
 );
-
-cleaningRouter.use((err: unknown, _req: any, res: any, next: any) => {
-  if (err instanceof AppError) {
-    return res.status(err.status).json({
-      error: err.code,
-      message: err.message,
-      details: err.details,
-    });
-  }
-  return next(err);
-});

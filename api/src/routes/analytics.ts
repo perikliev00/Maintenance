@@ -2,7 +2,6 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { getAnalyticsSummary } from "../services/analytics";
-import { AppError } from "../services/cleaning";
 import {
   locationWhere,
   resolveDataScope,
@@ -62,14 +61,3 @@ analyticsRouter.get(
     }
   },
 );
-
-analyticsRouter.use((err: unknown, _req: any, res: any, next: any) => {
-  if (err instanceof AppError) {
-    return res.status(err.status).json({
-      error: err.code,
-      message: err.message,
-      details: err.details,
-    });
-  }
-  return next(err);
-});

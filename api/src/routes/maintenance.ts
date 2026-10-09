@@ -3,7 +3,6 @@ import { IssueOptionKind, Priority, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { isOwner } from "../permissions";
-import { AppError } from "../errors";
 import {
   archiveCategory,
   archiveIssueOption,
@@ -598,14 +597,3 @@ maintenanceRouter.post(
     }
   },
 );
-
-maintenanceRouter.use((err: unknown, _req: any, res: any, next: any) => {
-  if (err instanceof AppError) {
-    return res.status(err.status).json({
-      error: err.code,
-      message: err.message,
-      details: err.details,
-    });
-  }
-  return next(err);
-});

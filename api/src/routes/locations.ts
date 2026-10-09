@@ -6,7 +6,6 @@ import {
   ServiceStatus,
 } from "@prisma/client";
 import { requireAuth, requireAction } from "../middleware/auth";
-import { AppError } from "../errors";
 import {
   assertCanAccessLocation,
   locationWhere,
@@ -328,14 +327,3 @@ locationsRouter.patch(
     }
   },
 );
-
-locationsRouter.use((err: unknown, _req: any, res: any, next: any) => {
-  if (err instanceof AppError) {
-    return res.status(err.status).json({
-      error: err.code,
-      message: err.message,
-      details: err.details,
-    });
-  }
-  return next(err);
-});

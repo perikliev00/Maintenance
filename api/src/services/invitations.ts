@@ -6,7 +6,7 @@ import {
   Role,
 } from "@prisma/client";
 import { prisma } from "../db";
-import { AppError } from "./cleaning";
+import { AppError } from "../errors";
 import { assignableRolesFor } from "../permissions";
 import { getSetting } from "./settings";
 import { capabilitiesFor } from "./roleGrants";

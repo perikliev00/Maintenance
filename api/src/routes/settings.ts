@@ -14,7 +14,7 @@ import {
   listSlaPolicies,
   upsertSlaPolicy,
 } from "../services/maintenance";
-import { AppError } from "../services/cleaning";
+import { AppError } from "../errors";
 import { Priority } from "@prisma/client";
 
 export const settingsRouter = Router();

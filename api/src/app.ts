@@ -26,7 +26,7 @@ import { myWorkRouter } from "./routes/myWork";
 import { jobsRouter } from "./routes/jobs";
 import { syncRouter } from "./routes/sync";
 import { notificationsRouter } from "./routes/notifications";
-import { AppError } from "./services/cleaning";
+import { AppError } from "./errors";
 import { ensureDefaultSettings } from "./services/settings";
 import {
   applyCatalogGrantSeed,

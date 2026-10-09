@@ -1,6 +1,6 @@
 import { GrantKind, Role } from "@prisma/client";
 import { prisma } from "../db";
-import { AppError } from "./cleaning";
+import { AppError } from "../errors";
 import {
   ALL_ACTIONS,
   ALL_PANELS,

@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { LocationKind } from "@prisma/client";
 import { requireAuth, requireAction } from "../middleware/auth";
-import { AppError } from "../errors";
 import { markRoomDirty } from "../services/cleaning";
 import {
   assertCanAccessLocation,
@@ -65,14 +64,3 @@ roomsRouter.post(
     }
   },
 );
-
-roomsRouter.use((err: unknown, _req: any, res: any, next: any) => {
-  if (err instanceof AppError) {
-    return res.status(err.status).json({
-      error: err.code,
-      message: err.message,
-      details: err.details,
-    });
-  }
-  return next(err);
-});

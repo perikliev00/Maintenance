@@ -1,7 +1,7 @@
 import { LocationKind, Prisma, SessionStatus } from "@prisma/client";
 import { prisma } from "../db";
 import { OPEN_TICKET_STATUSES } from "../constants";
-import { AppError } from "./cleaning";
+import { AppError } from "../errors";
 import {
   DEFAULT_SETTINGS,
   SETTING_KEYS,
