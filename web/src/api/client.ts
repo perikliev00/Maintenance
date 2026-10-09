@@ -2158,16 +2158,22 @@ export type DepartureRoomEffectsResult = {
   hotelDate: string;
   applied: number;
   skipped: number;
+  deferred: number;
+  deferredEntryIds: string[];
   total: number;
 };
 
 export async function applyDepartureRoomEffects(
   hotelDate: string,
+  options?: { confirmEntryIds?: string[] },
 ): Promise<DepartureRoomEffectsResult> {
   const res = await apiFetch(`${API_BASE}/daily-plan/apply-departure-effects`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({ hotelDate }),
+    body: JSON.stringify({
+      hotelDate,
+      confirmEntryIds: options?.confirmEntryIds,
+    }),
   });
   return parseJson(res);
 }

@@ -23,6 +23,7 @@ import {
   createNotifications,
   recipientsForLocationOps,
 } from "./notifications";
+import { assertActiveCleaningAssignee } from "./assignees";
 
 export { AppError };
 
@@ -500,6 +501,10 @@ export async function createCleaningTask(input: {
   const hotelDate = new Date(`${input.hotelDate}T00:00:00.000Z`);
   const sectorSnap = await sectorSnapshotForLocation(input.locationId);
   const shiftId = await resolveActiveShiftId(input.shiftId);
+
+  if (input.assignedEmployeeId) {
+    await assertActiveCleaningAssignee(input.assignedEmployeeId);
+  }
 
   try {
     const task = await prisma.$transaction(async (tx) => {
@@ -1283,17 +1288,7 @@ export async function reassignCleaningTask(input: {
     throw new AppError(400, "validation", "Reassign reason is required");
   }
 
-  const employee = await prisma.employee.findUnique({
-    where: { id: input.assignedEmployeeId },
-    include: { user: true },
-  });
-  if (
-    !employee ||
-    employee.user?.role !== "housekeeper" ||
-    !employee.user.isActive
-  ) {
-    throw new AppError(400, "validation", "Assignee must be an active housekeeper");
-  }
+  await assertActiveCleaningAssignee(input.assignedEmployeeId);
 
   const shiftId = await resolveActiveShiftId(input.shiftId);
 

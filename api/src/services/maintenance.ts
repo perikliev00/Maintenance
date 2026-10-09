@@ -14,6 +14,7 @@ import {
   createNotifications,
   recipientsForLocationOps,
 } from "./notifications";
+import { assertActiveMaintenanceAssignee } from "./assignees";
 
 const ticketInclude = {
   location: { include: { floor: { include: { building: true } } } },
@@ -407,12 +408,7 @@ export async function assignMaintenanceTicket(input: {
   assigneeId: string;
   actorEmployeeId: string;
 }) {
-  const assignee = await prisma.employee.findUnique({
-    where: { id: input.assigneeId },
-  });
-  if (!assignee) {
-    throw new AppError(404, "not_found", "Assignee not found");
-  }
+  await assertActiveMaintenanceAssignee(input.assigneeId);
 
   const updated = await prisma.$transaction(async (tx) => {
     const ticket = await loadLockedTicket(tx, input.ticketId);

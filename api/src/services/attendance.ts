@@ -518,6 +518,85 @@ export async function getInterval(id: string) {
   return mapInterval(row);
 }
 
+type StaleIntervalRow = {
+  status: AttendanceIntervalStatus;
+  endedAt: Date | null;
+  startedAt: Date;
+  anomalyFlags: unknown;
+};
+
+/** DB surface needed to claim a single stale open interval. */
+export type StaleOpenClaimDb = {
+  attendanceInterval: {
+    findUnique: (args: {
+      where: { id: string };
+      select: {
+        status: true;
+        endedAt: true;
+        startedAt: true;
+        anomalyFlags: true;
+      };
+    }) => Promise<StaleIntervalRow | null>;
+    updateMany: (args: {
+      where: {
+        id: string;
+        status: typeof AttendanceIntervalStatus.open;
+        endedAt: null;
+        startedAt: { lte: Date };
+      };
+      data: {
+        status: typeof AttendanceIntervalStatus.needs_review;
+        anomalyFlags: AnomalyFlag[];
+      };
+    }) => Promise<{ count: number }>;
+  };
+};
+
+/**
+ * Atomically flag one interval as `missing_end` / `needs_review` only if it is
+ * still open, has no end, and started at or before `cutoff`. Re-reads flags so
+ * a concurrent close/adjust cannot be overwritten with a stale snapshot.
+ * @internal exported for unit tests with a fake DB
+ */
+export async function claimStaleOpenInterval(
+  db: StaleOpenClaimDb,
+  id: string,
+  cutoff: Date,
+): Promise<boolean> {
+  const row = await db.attendanceInterval.findUnique({
+    where: { id },
+    select: {
+      status: true,
+      endedAt: true,
+      startedAt: true,
+      anomalyFlags: true,
+    },
+  });
+  if (
+    !row ||
+    row.status !== AttendanceIntervalStatus.open ||
+    row.endedAt !== null ||
+    row.startedAt.getTime() > cutoff.getTime()
+  ) {
+    return false;
+  }
+
+  const nextFlags = uniqueFlags([...asFlags(row.anomalyFlags), "missing_end"]);
+  const claimed = await db.attendanceInterval.updateMany({
+    where: {
+      id,
+      status: AttendanceIntervalStatus.open,
+      endedAt: null,
+      startedAt: { lte: cutoff },
+    },
+    data: {
+      status: AttendanceIntervalStatus.needs_review,
+      anomalyFlags: nextFlags,
+    },
+  });
+  return claimed.count > 0;
+}
+
 /**
  * Persist `missing_end` / `needs_review` for open intervals that aged past
  * OPEN_MISSING_END_HOURS without a new ingest rebuild.
@@ -532,31 +611,20 @@ export async function markStaleOpenIntervals(now = new Date()) {
       endedAt: null,
       startedAt: { lte: cutoff },
     },
-    select: {
-      id: true,
-      status: true,
-      anomalyFlags: true,
-    },
+    select: { id: true },
   });
 
   let flagged = 0;
-  for (const row of candidates) {
-    const flags = asFlags(row.anomalyFlags);
+  for (const { id } of candidates) {
     if (
-      row.status === AttendanceIntervalStatus.needs_review &&
-      flags.includes("missing_end")
+      await claimStaleOpenInterval(
+        prisma as unknown as StaleOpenClaimDb,
+        id,
+        cutoff,
+      )
     ) {
-      continue;
+      flagged += 1;
     }
-    const nextFlags = uniqueFlags([...flags, "missing_end"]);
-    await prisma.attendanceInterval.update({
-      where: { id: row.id },
-      data: {
-        status: AttendanceIntervalStatus.needs_review,
-        anomalyFlags: nextFlags,
-      },
-    });
-    flagged += 1;
   }
 
   return { scanned: candidates.length, flagged };
@@ -1333,6 +1401,14 @@ export async function reviewAdjustment(input: {
   return getInterval(adj.intervalId);
 }
 
+/** Quote a CSV cell when it contains comma, quote, CR, or LF (doubling internal quotes). */
+function escapeCsvCell(value: string): string {
+  if (/[",\r\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
 export function intervalsToCsv(
   rows: ReturnType<typeof mapInterval>[],
 ): string {
@@ -1347,21 +1423,21 @@ export function intervalsToCsv(
     "workedMinutes",
     "status",
     "anomalyFlags",
-  ];
+  ].map(escapeCsvCell);
   const lines = [header.join(",")];
   for (const r of rows) {
     const cells = [
       r.hotelDate,
       r.employee.employeeNumber,
-      `"${r.employee.fullName.replace(/"/g, '""')}"`,
+      r.employee.fullName,
       r.employee.department ?? "",
       r.startedAt,
       r.endedAt ?? "",
       String(r.breakMinutes),
       r.workedMinutes == null ? "" : String(r.workedMinutes),
       r.status,
-      `"${r.anomalyFlags.join("|")}"`,
-    ];
+      r.anomalyFlags.join("|"),
+    ].map(escapeCsvCell);
     lines.push(cells.join(","));
   }
   return lines.join("\n");

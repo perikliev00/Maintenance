@@ -291,7 +291,7 @@ export function PlanPage({ user }: Props) {
       setMessage(
         result.total === 0
           ? "Няма чакащи ефекти от напускания за тази дата"
-          : `Ефекти от напускания: приложени ${result.applied}, пропуснати ${result.skipped}`,
+          : `Ефекти от напускания: приложени ${result.applied}, защитени ${result.skipped}, чакат потвърждение ${result.deferred}`,
       );
       await refresh();
     } catch (err) {
@@ -389,8 +389,8 @@ export function PlanPage({ user }: Props) {
           <h2>Ефекти от напускания</h2>
           <p className="muted small">
             Четенето на плана не променя стаите. Приложи deferred vacant/dirty
-            само за помещения в твоя обхват; заети и вече подготвени стаи се
-            пропускат.
+            само за помещения в твоя обхват. Стаи с доказан по-нов престой се
+            защитават; неясни минали напускания остават за потвърждение.
           </p>
           <button
             type="button"

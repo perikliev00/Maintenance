@@ -11,15 +11,17 @@ import {
 } from "@prisma/client";
 import { prisma } from "../db";
 import { ACTIVE_TASK_STATUSES } from "../constants";
-import { todayHotelDateYmd } from "./attendance";
+import { todayHotelDateYmd, zonedDayStartUtc } from "./attendance";
 import {
   AppError,
   bumpDirtyAndRebindWork,
   deriveCleaningServiceType,
   resolveCycleForNewTask,
 } from "./cleaning";
+import { assertActiveCleaningAssignee } from "./assignees";
 import { sectorSnapshotForLocation } from "./dataScope";
 import { assertActiveShiftId } from "./sectors";
+import { getOperations } from "./settings";
 
 const PRIORITY_RANK: Record<Priority, number> = {
   low: 0,
@@ -59,6 +61,7 @@ type LocationRow = {
   kind: LocationKind;
   catalogStatus: string;
   cleaningStatus: CleaningStatus;
+  occupancy: Occupancy;
 };
 
 type TaskEffect = "created" | "linked" | "bumped" | "skipped";
@@ -288,53 +291,131 @@ export type DepartureRoomEffectsResult = {
   hotelDate: string;
   applied: number;
   skipped: number;
+  deferred: number;
+  deferredEntryIds: string[];
   total: number;
 };
 
-function shouldSkipDepartureRoomEffects(
-  occupancy: Occupancy,
-  cleaningStatus: CleaningStatus,
+export type DepartureRoomEffectsDecision = "apply" | "protect" | "defer";
+
+/**
+ * Classify deferred departure room effects without using cleaningStatus.
+ * Cleaning alone does not prove a newer stay (check-in keeps verified_clean).
+ */
+export function classifyDepartureRoomEffects(input: {
+  occupancy: Occupancy;
+  planYmd: string;
+  todayYmd: string;
+  hasNewerStayEvidence: boolean;
+  confirmed: boolean;
+}): DepartureRoomEffectsDecision {
+  if (input.occupancy !== Occupancy.occupied) {
+    return "apply";
+  }
+  if (input.hasNewerStayEvidence) {
+    return "protect";
+  }
+  // Past plan + occupied without proof: do not auto-vacate; await confirm.
+  if (input.planYmd < input.todayYmd) {
+    return input.confirmed ? "apply" : "defer";
+  }
+  // Same hotel day, current stay — apply even if room is still verified_clean.
+  return "apply";
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function emptyDepartureRoomEffectsResult(
   planYmd: string,
-  todayYmd: string,
-): boolean {
-  if (occupancy !== Occupancy.occupied) {
-    return false;
+): DepartureRoomEffectsResult {
+  return {
+    hotelDate: planYmd,
+    applied: 0,
+    skipped: 0,
+    deferred: 0,
+    deferredEntryIds: [],
+    total: 0,
+  };
+}
+
+/**
+ * Locations with proof of a newer stay after a departure plan day:
+ * arrival on/after that day, or occupancy set to occupied after that hotel day
+ * (hotel timezone). Cleaning status alone is not evidence.
+ */
+async function locationsWithNewerStayEvidence(
+  db: Tx | typeof prisma,
+  locationIds: string[],
+  hotelDate: Date,
+  planYmd: string,
+): Promise<Set<string>> {
+  if (locationIds.length === 0) {
+    return new Set();
   }
-  // Past plan vs current stay, or same-day turn (occupied and already prepared).
-  if (planYmd < todayYmd) {
-    return true;
-  }
-  return (
-    cleaningStatus === CleaningStatus.verified_clean ||
-    cleaningStatus === CleaningStatus.pending_inspection
+
+  const arrivalRows = await db.dailyPlanEntry.findMany({
+    where: {
+      locationId: { in: locationIds },
+      category: DailyPlanCategory.arrival,
+      hotelDate: { gte: hotelDate },
+    },
+    select: { locationId: true },
+  });
+  const withEvidence = new Set(arrivalRows.map((r) => r.locationId));
+
+  const ops = await getOperations();
+  const afterPlanDayStart = zonedDayStartUtc(
+    addDaysYmd(planYmd, 1),
+    ops.hotelTimezone,
   );
+  const reoccupyRows = await db.auditEvent.findMany({
+    where: {
+      locationId: { in: locationIds },
+      action: "location.set_occupancy",
+      occurredAt: { gte: afterPlanDayStart },
+      after: { path: ["occupancy"], equals: Occupancy.occupied },
+    },
+    select: { locationId: true },
+  });
+  for (const row of reoccupyRows) {
+    if (row.locationId) {
+      withEvidence.add(row.locationId);
+    }
+  }
+  return withEvidence;
 }
 
 /** Apply deferred departure room effects for a YYYY-MM-DD hotel date. */
 export async function applyDepartureRoomEffects(
   hotelDate: string,
   locationFilter?: Prisma.LocationWhereInput,
+  options?: { confirmEntryIds?: string[] },
 ): Promise<DepartureRoomEffectsResult> {
-  return ensureDepartureRoomEffects(parseHotelDate(hotelDate), locationFilter);
+  return ensureDepartureRoomEffects(
+    parseHotelDate(hotelDate),
+    locationFilter,
+    options,
+  );
 }
 
 /**
  * Apply deferred vacant+dirty for departure plan entries once their hotelDate
  * has arrived (or is in the past). No-op for future hotel dates.
- * Scoped by locationFilter when provided. Skips rooms with a newer stay.
+ * Scoped by locationFilter when provided. Protects rooms with a proven newer
+ * stay; defers ambiguous past occupied rooms until confirmEntryIds.
  */
 export async function ensureDepartureRoomEffects(
   hotelDate: Date,
   locationFilter?: Prisma.LocationWhereInput,
+  options?: { confirmEntryIds?: string[] },
 ): Promise<DepartureRoomEffectsResult> {
   const todayYmd = await todayHotelDateYmd();
   const planYmd = formatHotelDate(hotelDate);
-  const empty: DepartureRoomEffectsResult = {
-    hotelDate: planYmd,
-    applied: 0,
-    skipped: 0,
-    total: 0,
-  };
+  const empty = emptyDepartureRoomEffectsResult(planYmd);
   if (planYmd > todayYmd) {
     return empty;
   }
@@ -352,12 +433,42 @@ export async function ensureDepartureRoomEffects(
     return empty;
   }
 
+  const locationIds = [...new Set(pending.map((e) => e.locationId))];
+  const confirmSet = new Set(options?.confirmEntryIds ?? []);
+  const newerStayLocations = await locationsWithNewerStayEvidence(
+    prisma,
+    locationIds,
+    hotelDate,
+    planYmd,
+  );
+
   const now = new Date();
   let applied = 0;
   let skipped = 0;
+  const deferredEntryIds: string[] = [];
 
   await prisma.$transaction(async (tx) => {
     for (const entry of pending) {
+      const location = await tx.location.findUniqueOrThrow({
+        where: { id: entry.locationId },
+        select: { occupancy: true },
+      });
+
+      const hasNewerStayEvidence = newerStayLocations.has(entry.locationId);
+
+      const decision = classifyDepartureRoomEffects({
+        occupancy: location.occupancy,
+        planYmd,
+        todayYmd,
+        hasNewerStayEvidence,
+        confirmed: confirmSet.has(entry.id),
+      });
+
+      if (decision === "defer") {
+        deferredEntryIds.push(entry.id);
+        continue;
+      }
+
       const claimed = await tx.dailyPlanEntry.updateMany({
         where: {
           id: entry.id,
@@ -368,19 +479,7 @@ export async function ensureDepartureRoomEffects(
       });
       if (claimed.count === 0) continue;
 
-      const location = await tx.location.findUniqueOrThrow({
-        where: { id: entry.locationId },
-        select: { occupancy: true, cleaningStatus: true },
-      });
-
-      if (
-        shouldSkipDepartureRoomEffects(
-          location.occupancy,
-          location.cleaningStatus,
-          planYmd,
-          todayYmd,
-        )
-      ) {
+      if (decision === "protect") {
         skipped += 1;
         continue;
       }
@@ -396,7 +495,9 @@ export async function ensureDepartureRoomEffects(
     hotelDate: planYmd,
     applied,
     skipped,
-    total: applied + skipped,
+    deferred: deferredEntryIds.length,
+    deferredEntryIds,
+    total: applied + skipped + deferredEntryIds.length,
   };
 }
 
@@ -439,43 +540,73 @@ async function applyPlanEntryEffects(
     const today = todayYmd ?? (await todayHotelDateYmd());
     const planYmd = formatHotelDate(hotelDate);
     // Room state only on/after checkout day; future departures stay planned.
+    // Protect proven newer stays; defer ambiguous past occupied (no vacant/dirty
+    // and no bound task that would bump cleaningCycle).
+    let skipRoomAndBoundTask = false;
     if (planYmd <= today) {
-      await bumpDirtyAndRebindWork(tx, location.id, {
-        occupancy: Occupancy.vacant,
+      const live = await tx.location.findUniqueOrThrow({
+        where: { id: location.id },
+        select: { occupancy: true },
       });
-      occupancyEffect = "vacant";
-      dirtyEffect = true;
-      roomEffectsApplied = true;
+      const newerStayLocations = await locationsWithNewerStayEvidence(
+        tx,
+        [location.id],
+        hotelDate,
+        planYmd,
+      );
+      const decision = classifyDepartureRoomEffects({
+        occupancy: live.occupancy,
+        planYmd,
+        todayYmd: today,
+        hasNewerStayEvidence: newerStayLocations.has(location.id),
+        confirmed: false,
+      });
+      if (decision === "apply") {
+        await bumpDirtyAndRebindWork(tx, location.id, {
+          occupancy: Occupancy.vacant,
+        });
+        occupancyEffect = "vacant";
+        dirtyEffect = true;
+        roomEffectsApplied = true;
+      } else if (decision === "protect") {
+        roomEffectsApplied = true;
+        skipRoomAndBoundTask = true;
+      } else {
+        // defer: keep roomEffectsAppliedAt null for later confirm; preserve stay
+        skipRoomAndBoundTask = true;
+      }
     }
 
-    if (activeTask) {
-      cleaningTaskId = activeTask.id;
-      const data: Prisma.CleaningTaskUpdateInput = {};
-      if (PRIORITY_RANK[activeTask.priority] < PRIORITY_RANK[Priority.high]) {
-        data.priority = Priority.high;
-        taskEffect = "bumped";
+    if (!skipRoomAndBoundTask) {
+      if (activeTask) {
+        cleaningTaskId = activeTask.id;
+        const data: Prisma.CleaningTaskUpdateInput = {};
+        if (PRIORITY_RANK[activeTask.priority] < PRIORITY_RANK[Priority.high]) {
+          data.priority = Priority.high;
+          taskEffect = "bumped";
+        } else {
+          taskEffect = "linked";
+        }
+        connectAssigneeAndShift(data, activeTask);
+        if (Object.keys(data).length) {
+          await tx.cleaningTask.update({
+            where: { id: activeTask.id },
+            data,
+          });
+        }
       } else {
-        taskEffect = "linked";
-      }
-      connectAssigneeAndShift(data, activeTask);
-      if (Object.keys(data).length) {
-        await tx.cleaningTask.update({
-          where: { id: activeTask.id },
-          data,
+        const created = await createTaskWithSectorSnapshot(tx, {
+          locationId: location.id,
+          hotelDate,
+          priority: Priority.high,
+          assignedEmployeeId,
+          shiftId,
+          locationKind: location.kind,
+          planCategory: category,
         });
+        cleaningTaskId = created.id;
+        taskEffect = "created";
       }
-    } else {
-      const created = await createTaskWithSectorSnapshot(tx, {
-        locationId: location.id,
-        hotelDate,
-        priority: Priority.high,
-        assignedEmployeeId,
-        shiftId,
-        locationKind: location.kind,
-        planCategory: category,
-      });
-      cleaningTaskId = created.id;
-      taskEffect = "created";
     }
   } else if (category === DailyPlanCategory.priority) {
     if (activeTask) {
@@ -599,12 +730,7 @@ export async function createDailyPlanEntry(input: {
   }
 
   if (input.assignedEmployeeId) {
-    const emp = await prisma.employee.findUnique({
-      where: { id: input.assignedEmployeeId },
-    });
-    if (!emp) {
-      throw new AppError(404, "not_found", "Assignee not found");
-    }
+    await assertActiveCleaningAssignee(input.assignedEmployeeId);
   }
 
   const result = await prisma.$transaction(async (tx) => {

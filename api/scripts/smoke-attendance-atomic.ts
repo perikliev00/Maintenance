@@ -14,6 +14,8 @@ import { AppError } from "../src/errors";
 import {
   hotelDateString,
   ingestEvent,
+  markStaleOpenIntervals,
+  OPEN_MISSING_END_HOURS,
   requestAdjustment,
   reviewAdjustment,
 } from "../src/services/attendance";
@@ -382,6 +384,190 @@ async function main() {
       "reject win must keep original end",
     );
   }
+
+  // --- Stale open missing_end job: happy path, re-run, concurrent, vs adjust ---
+  await wipeEmployeeDay();
+
+  const staleStartedAt = new Date(
+    Date.now() - (OPEN_MISSING_END_HOURS + 2) * 3600_000,
+  );
+  const staleOpen = await prisma.attendanceInterval.create({
+    data: {
+      employeeId,
+      hotelDate,
+      startedAt: staleStartedAt,
+      endedAt: null,
+      breakMinutes: 0,
+      workedMinutes: null,
+      status: AttendanceIntervalStatus.open,
+      anomalyFlags: ["large_clock_skew"],
+    },
+  });
+
+  const firstFlag = await markStaleOpenIntervals();
+  assert(firstFlag.flagged >= 1, "stale open should be flagged at least once");
+  const afterFlag = await prisma.attendanceInterval.findUniqueOrThrow({
+    where: { id: staleOpen.id },
+  });
+  assert(
+    afterFlag.status === AttendanceIntervalStatus.needs_review,
+    `stale open should become needs_review, got ${afterFlag.status}`,
+  );
+  const afterFlags = Array.isArray(afterFlag.anomalyFlags)
+    ? (afterFlag.anomalyFlags as string[])
+    : [];
+  assert(afterFlags.includes("missing_end"), "should have missing_end");
+  assert(
+    afterFlags.includes("large_clock_skew"),
+    "should preserve prior anomaly flags",
+  );
+
+  const secondFlag = await markStaleOpenIntervals();
+  assert(
+    secondFlag.flagged === 0,
+    `re-run must not re-flag, got flagged=${secondFlag.flagged}`,
+  );
+  const afterRerun = await prisma.attendanceInterval.findUniqueOrThrow({
+    where: { id: staleOpen.id },
+  });
+  assert(
+    afterRerun.status === AttendanceIntervalStatus.needs_review,
+    "re-run must keep needs_review",
+  );
+
+  await wipeEmployeeDay();
+  const concurrentOpen = await prisma.attendanceInterval.create({
+    data: {
+      employeeId,
+      hotelDate,
+      startedAt: staleStartedAt,
+      endedAt: null,
+      breakMinutes: 0,
+      workedMinutes: null,
+      status: AttendanceIntervalStatus.open,
+      anomalyFlags: ["overlap"],
+    },
+  });
+
+  const concurrentFlagSettled = await Promise.all([
+    markStaleOpenIntervals(),
+    markStaleOpenIntervals(),
+  ]);
+  const totalFlagged =
+    concurrentFlagSettled[0]!.flagged + concurrentFlagSettled[1]!.flagged;
+  const maxScanned = Math.max(
+    concurrentFlagSettled[0]!.scanned,
+    concurrentFlagSettled[1]!.scanned,
+  );
+  assert(
+    totalFlagged === maxScanned,
+    `concurrent markStale claims each candidate once (flagged sum=${totalFlagged}, scanned=${maxScanned})`,
+  );
+  const afterConcurrent = await prisma.attendanceInterval.findUniqueOrThrow({
+    where: { id: concurrentOpen.id },
+  });
+  assert(
+    afterConcurrent.status === AttendanceIntervalStatus.needs_review,
+    "concurrent markStale must leave needs_review",
+  );
+  const concurrentFlags = Array.isArray(afterConcurrent.anomalyFlags)
+    ? (afterConcurrent.anomalyFlags as string[])
+    : [];
+  assert(
+    concurrentFlags.includes("missing_end") &&
+      concurrentFlags.includes("overlap"),
+    `concurrent markStale must keep overlap+missing_end, got ${concurrentFlags.join(",")}`,
+  );
+
+  await wipeEmployeeDay();
+  const raceOpen = await prisma.attendanceInterval.create({
+    data: {
+      employeeId,
+      hotelDate,
+      startedAt: staleStartedAt,
+      endedAt: null,
+      breakMinutes: 0,
+      workedMinutes: null,
+      status: AttendanceIntervalStatus.open,
+      anomalyFlags: ["large_clock_skew"],
+    },
+  });
+  const raceProposedEnd = new Date(staleStartedAt.getTime() + 8 * 3600_000);
+  const raceAdj = await requestAdjustment({
+    intervalId: raceOpen.id,
+    requestedById: employeeId,
+    actorRole: Role.housekeeper,
+    reason: "smoke stale vs approve",
+    proposedStartedAt: staleStartedAt.toISOString(),
+    proposedEndedAt: raceProposedEnd.toISOString(),
+    proposedBreakMinutes: 30,
+  });
+
+  const raceSettled = await Promise.allSettled([
+    markStaleOpenIntervals(),
+    reviewAdjustment({
+      adjustmentId: raceAdj.id,
+      reviewedById: owner.employeeId!,
+      decision: "approved",
+    }),
+  ]);
+  console.log("stale_vs_approve", {
+    markStale: raceSettled[0]!.status,
+    approve: raceSettled[1]!.status,
+    approveCode:
+      raceSettled[1]!.status === "rejected"
+        ? errCode(raceSettled[1]!.reason)
+        : "ok",
+  });
+  assert(
+    raceSettled[1]!.status === "fulfilled",
+    "approve must succeed in stale-vs-approve race",
+  );
+
+  const raceFinal = await prisma.attendanceInterval.findUniqueOrThrow({
+    where: { id: raceOpen.id },
+  });
+  assert(
+    raceFinal.status === AttendanceIntervalStatus.adjusted,
+    `approve win must leave adjusted (not overwritten by job), got ${raceFinal.status}`,
+  );
+  assert(raceFinal.endedAt != null, "approve win must set endedAt");
+  const raceFinalFlags = Array.isArray(raceFinal.anomalyFlags)
+    ? (raceFinal.anomalyFlags as string[])
+    : [];
+  assert(
+    !raceFinalFlags.includes("missing_end"),
+    "approve win must not keep missing_end from stale job",
+  );
+
+  // Meanwhile-closed: closed interval must not be flagged
+  await wipeEmployeeDay();
+  const closedStale = await prisma.attendanceInterval.create({
+    data: {
+      employeeId,
+      hotelDate,
+      startedAt: staleStartedAt,
+      endedAt: raceProposedEnd,
+      breakMinutes: 0,
+      workedMinutes: 480,
+      status: AttendanceIntervalStatus.closed,
+      anomalyFlags: ["large_clock_skew"],
+    },
+  });
+  const closedFlag = await markStaleOpenIntervals();
+  const closedAfter = await prisma.attendanceInterval.findUniqueOrThrow({
+    where: { id: closedStale.id },
+  });
+  assert(
+    closedAfter.status === AttendanceIntervalStatus.closed,
+    "closed interval must stay closed",
+  );
+  assert(
+    JSON.stringify(closedAfter.anomalyFlags) ===
+      JSON.stringify(["large_clock_skew"]),
+    "closed interval flags must be unchanged",
+  );
+  void closedFlag;
 
   console.log("smoke-attendance-atomic: ok");
 }

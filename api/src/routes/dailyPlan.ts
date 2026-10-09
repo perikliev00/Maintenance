@@ -23,6 +23,7 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 const hotelDateBodySchema = z.object({
   hotelDate: dateSchema,
+  confirmEntryIds: z.array(z.string().min(1)).max(500).optional(),
 });
 
 const importSchema = z.object({
@@ -83,6 +84,7 @@ dailyPlanRouter.post(
       const result = await applyDepartureRoomEffects(
         parsed.data.hotelDate,
         locationWhere(scope),
+        { confirmEntryIds: parsed.data.confirmEntryIds },
       );
       return res.json(result);
     } catch (err) {
