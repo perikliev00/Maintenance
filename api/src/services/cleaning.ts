@@ -24,24 +24,9 @@ import {
   recipientsForLocationOps,
 } from "./notifications";
 import { assertActiveCleaningAssignee } from "./assignees";
+import { assertActiveShiftId } from "./shifts";
 
 export { AppError };
-
-/** Resolve an active shift id, or null when clearing. */
-async function resolveActiveShiftId(
-  shiftId: string | null | undefined,
-): Promise<string | null | undefined> {
-  if (shiftId === undefined) return undefined;
-  if (shiftId === null || shiftId === "") return null;
-  const shift = await prisma.shift.findUnique({ where: { id: shiftId } });
-  if (!shift) {
-    throw new AppError(404, "not_found", "Shift not found");
-  }
-  if (!shift.isActive) {
-    throw new AppError(400, "invalid_state", "Shift is inactive");
-  }
-  return shift.id;
-}
 
 /** Derive work type for comparable analytics (референция §6.1 / §9). */
 export function deriveCleaningServiceType(input: {
@@ -500,7 +485,7 @@ export async function createCleaningTask(input: {
 }) {
   const hotelDate = new Date(`${input.hotelDate}T00:00:00.000Z`);
   const sectorSnap = await sectorSnapshotForLocation(input.locationId);
-  const shiftId = await resolveActiveShiftId(input.shiftId);
+  const shiftId = await assertActiveShiftId(input.shiftId);
 
   if (input.assignedEmployeeId) {
     await assertActiveCleaningAssignee(input.assignedEmployeeId);
@@ -1290,7 +1275,7 @@ export async function reassignCleaningTask(input: {
 
   await assertActiveCleaningAssignee(input.assignedEmployeeId);
 
-  const shiftId = await resolveActiveShiftId(input.shiftId);
+  const shiftId = await assertActiveShiftId(input.shiftId);
 
   const updated = await prisma.$transaction(async (tx) => {
     await lockTask(tx, input.taskId);

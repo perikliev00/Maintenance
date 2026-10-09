@@ -12,17 +12,19 @@ import {
 } from "../services/dataScope";
 import {
   createSector,
-  createShift,
   getSector,
   listMySectors,
   listSectors,
-  listShiftRoster,
-  listShifts,
   setSectorLocations,
   updateSector,
+} from "../services/sectors";
+import {
+  createShift,
+  listShiftRoster,
+  listShifts,
   updateShift,
   upsertShiftRoster,
-} from "../services/sectors";
+} from "../services/shifts";
 
 export const sectorsRouter = Router();
 export const shiftsRouter = Router();

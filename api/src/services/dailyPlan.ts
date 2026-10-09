@@ -14,7 +14,7 @@ import {
   parseHotelDate,
 } from "./dailyPlanEffects";
 import { todayHotelDateYmd } from "./hotelTime";
-import { assertActiveShiftId } from "./sectors";
+import { assertActiveShiftId } from "./shifts";
 
 export {
   applyDepartureRoomEffects,
