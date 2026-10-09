@@ -64,7 +64,30 @@ async function main() {
   const futureHotelDate = new Date(`${futureYmd}T00:00:00.000Z`);
   const cycleBefore = 40;
 
-  // --- Concurrent apply: occupied + dirty (checkout morning) → vacant + cycle++ ---
+  // Concurrent apply of one same-day departure. Exactly one call claims the
+  // entry (applied === 1). With no active task, that winner runs two cycle
+  // allocations: bumpDirtyAndRebindWork → allocateCleaningCycle (+1), then
+  // createTaskWithSectorSnapshot → resolveCycleForNewTask → allocateCleaningCycle (+1).
+  // The loser sees roomEffectsAppliedAt and does not allocate. Net cycle is +2.
+  // On 195dfbbb CI the old +1 assertion saw 42: earlier smokes had cleared the
+  // seed task on the first room, so ensure created one. A leftover active task
+  // links instead and only bump allocates (+1). Cancel active tasks here so
+  // both environments take the create path. Cleaning-cycle rules are unchanged.
+  await prisma.cleaningTask.updateMany({
+    where: {
+      locationId: room.id,
+      hotelDate,
+      status: {
+        in: [
+          TaskStatus.assigned,
+          TaskStatus.in_progress,
+          TaskStatus.awaiting_inspection,
+          TaskStatus.rework,
+        ],
+      },
+    },
+    data: { status: TaskStatus.cancelled },
+  });
   await prisma.location.update({
     where: { id: room.id },
     data: {
@@ -136,8 +159,8 @@ async function main() {
     where: { id: room.id },
   });
   assert(
-    afterRoom.cleaningCycle === cycleBefore + 1,
-    `expected cleaningCycle ${cycleBefore + 1}, got ${afterRoom.cleaningCycle}`,
+    afterRoom.cleaningCycle === cycleBefore + 2,
+    `expected cleaningCycle ${cycleBefore + 2}, got ${afterRoom.cleaningCycle}`,
   );
   assert(
     afterRoom.cleaningStatus === CleaningStatus.dirty,
