@@ -1,17 +1,40 @@
 import {
+  fetchWithAuthRetry,
+  refreshAccessToken,
+  API_BASE,
+} from "../api/http";
+import {
   canRebaseConflict,
   decideSyncResult,
   rebaseBodyWithCurrentVersion,
   shouldTreatForbiddenAsConflict,
 } from "./conflict";
+import {
+  completeCleaningQueued as completeCleaningCommand,
+  reportTicketQueued as reportTicketCommand,
+  resolveTicketQueued as resolveTicketCommand,
+  resumeTicketQueued as resumeTicketCommand,
+  startCleaningQueued as startCleaningCommand,
+  startTicketQueued as startTicketCommand,
+  waitTicketQueued as waitTicketCommand,
+} from "./commands";
+import {
+  clearOfflineStores,
+  deleteQueuedAction,
+  listQueueForUser,
+  putQueuedAction,
+  readMyWorkCache,
+  writeMyWorkCache,
+} from "./storage";
 
 export type ConnMode = "online" | "offline" | "syncing" | "unreachable";
 
-export type QueueActionStatus =
-  | "pending"
-  | "sending"
-  | "conflict"
-  | "failed";
+export type {
+  MyWorkCachePayload,
+  QueueActionStatus,
+  QueueCommandType,
+  QueuedAction,
+} from "./storage";
 
 export {
   canRebaseConflict,
@@ -20,6 +43,13 @@ export {
   rebaseBodyWithCurrentVersion,
 } from "./conflict";
 
+import type {
+  MyWorkCachePayload,
+  QueueActionStatus,
+  QueueCommandType,
+  QueuedAction,
+} from "./storage";
+
 export type QueueStats = {
   pending: number;
   sending: number;
@@ -27,44 +57,6 @@ export type QueueStats = {
   failed: number;
 };
 
-export type QueueCommandType =
-  | "cleaning.start"
-  | "cleaning.complete"
-  | "ticket.start"
-  | "ticket.wait"
-  | "ticket.resume"
-  | "ticket.resolve"
-  | "ticket.report";
-
-export type QueuedAction = {
-  id: string;
-  userId: string;
-  commandId: string;
-  type: QueueCommandType;
-  url: string;
-  method: "POST";
-  body: Record<string, unknown>;
-  createdAt: number;
-  updatedAt: number;
-  status: QueueActionStatus;
-  lastError: string | null;
-  conflictCode: string | null;
-  conflictMessage: string | null;
-  conflictDetails: unknown;
-  retries: number;
-};
-
-export type MyWorkCachePayload = {
-  tasks: unknown[];
-  tickets: unknown[];
-  savedAt: number;
-  hotelDate: string;
-};
-
-const DB_NAME = "meridian-offline";
-const DB_VERSION = 2;
-const QUEUE_STORE = "queue";
-const CACHE_STORE = "cache";
 const REQUEST_TIMEOUT_MS = 8000;
 const BACKOFF_MS = [2000, 5000, 15000] as const;
 const MAX_RETRIES = 8;
@@ -82,13 +74,6 @@ let switching = false;
 /** Serialize setOfflineUser so concurrent logout/login cannot interleave. */
 let switchChain: Promise<void> = Promise.resolve();
 
-function apiBase(): string {
-  return (
-    (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ??
-    "/api"
-  );
-}
-
 function getCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|; )csrf=([^;]*)/);
   return match ? decodeURIComponent(match[1]!) : null;
@@ -101,98 +86,6 @@ function authHeader(): HeadersInit {
   const csrf = getCsrfToken();
   if (csrf) headers["X-CSRF-Token"] = csrf;
   return headers;
-}
-
-function cacheKeyFor(userId: string): string {
-  return `mywork:${userId}`;
-}
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (event) => {
-      const db = req.result;
-      const oldVersion = event.oldVersion;
-
-      if (oldVersion < 1) {
-        if (!db.objectStoreNames.contains(QUEUE_STORE)) {
-          const queue = db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
-          queue.createIndex("userId", "userId", { unique: false });
-          queue.createIndex("userId_status", ["userId", "status"], {
-            unique: false,
-          });
-        }
-        if (!db.objectStoreNames.contains(CACHE_STORE)) {
-          db.createObjectStore(CACHE_STORE, { keyPath: "key" });
-        }
-      }
-
-      if (oldVersion > 0 && oldVersion < 2) {
-        // Drop unscoped v1 data — ownership cannot be attributed safely.
-        if (db.objectStoreNames.contains(QUEUE_STORE)) {
-          db.deleteObjectStore(QUEUE_STORE);
-        }
-        if (db.objectStoreNames.contains(CACHE_STORE)) {
-          db.deleteObjectStore(CACHE_STORE);
-        }
-        const queue = db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
-        queue.createIndex("userId", "userId", { unique: false });
-        queue.createIndex("userId_status", ["userId", "status"], {
-          unique: false,
-        });
-        db.createObjectStore(CACHE_STORE, { keyPath: "key" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error("IndexedDB open failed"));
-  });
-}
-
-async function withStore<T>(
-  storeName: string,
-  mode: IDBTransactionMode,
-  fn: (store: IDBObjectStore) => IDBRequest<T> | void,
-): Promise<T | undefined> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, mode);
-    const store = tx.objectStore(storeName);
-    const req = fn(store);
-    tx.oncomplete = () => {
-      resolve(req ? (req.result as T) : undefined);
-      db.close();
-    };
-    tx.onerror = () => {
-      reject(tx.error ?? new Error("IndexedDB transaction failed"));
-      db.close();
-    };
-  });
-}
-
-async function putQueuedAction(row: QueuedAction): Promise<void> {
-  await withStore(QUEUE_STORE, "readwrite", (store) => store.put(row));
-}
-
-async function deleteQueuedAction(id: string): Promise<void> {
-  await withStore(QUEUE_STORE, "readwrite", (store) => store.delete(id));
-}
-
-async function listQueueForUser(userId: string): Promise<QueuedAction[]> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(QUEUE_STORE, "readonly");
-    const store = tx.objectStore(QUEUE_STORE);
-    const index = store.index("userId");
-    const req = index.getAll(userId);
-    req.onsuccess = () => {
-      resolve((req.result as QueuedAction[]) ?? []);
-      db.close();
-    };
-    req.onerror = () => {
-      reject(req.error);
-      db.close();
-    };
-  });
 }
 
 function resolveConn(conn?: ConnMode, stats?: QueueStats): ConnMode {
@@ -287,8 +180,7 @@ export async function clearAuthenticatedHttpCaches(): Promise<void> {
 /** Wipe all private IndexedDB outbox + My Work cache rows (shared-device safe). */
 export async function purgePrivateOfflineData(): Promise<void> {
   try {
-    await withStore(QUEUE_STORE, "readwrite", (store) => store.clear());
-    await withStore(CACHE_STORE, "readwrite", (store) => store.clear());
+    await clearOfflineStores();
   } catch {
     /* best-effort */
   }
@@ -455,40 +347,15 @@ export async function saveMyWorkCache(
   payload: MyWorkCachePayload,
 ): Promise<void> {
   if (switching || !activeUserId) return;
-  await withStore(CACHE_STORE, "readwrite", (store) =>
-    store.put({ key: cacheKeyFor(activeUserId!), ...payload }),
-  );
+  await writeMyWorkCache(activeUserId, payload);
 }
 
 export async function loadMyWorkCache(): Promise<MyWorkCachePayload | null> {
   if (switching || !activeUserId) return null;
   const userId = activeUserId;
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(CACHE_STORE, "readonly");
-    const store = tx.objectStore(CACHE_STORE);
-    const req = store.get(cacheKeyFor(userId));
-    req.onsuccess = () => {
-      // Drop result if account switched mid-read.
-      if (switching || activeUserId !== userId) {
-        resolve(null);
-        db.close();
-        return;
-      }
-      const row = req.result as (MyWorkCachePayload & { key: string }) | undefined;
-      if (!row) {
-        resolve(null);
-      } else {
-        const { key: _k, ...rest } = row;
-        resolve(rest);
-      }
-      db.close();
-    };
-    req.onerror = () => {
-      reject(req.error);
-      db.close();
-    };
-  });
+  const row = await readMyWorkCache(userId);
+  if (switching || activeUserId !== userId) return null;
+  return row;
 }
 
 export async function dismissQueuedAction(id: string): Promise<void> {
@@ -610,28 +477,18 @@ export async function postJsonWithSessionRefresh(
 ): Promise<unknown> {
   const fetchFn = deps.fetchFn ?? fetchWithTimeout;
   const headersFn = deps.headersFn ?? authHeader;
-  const refreshFn =
-    deps.refreshFn ??
-    (async () => {
-      const { refreshAccessToken } = await import("../api/client");
-      return refreshAccessToken();
-    });
+  const refreshFn = deps.refreshFn ?? refreshAccessToken;
 
-  const attempt = async () =>
-    fetchFn(url, {
-      method: "POST",
-      credentials: "include",
-      headers: headersFn(),
-      body: JSON.stringify(body),
-    });
-
-  let res = await attempt();
-  if (res.status === 401) {
-    const outcome = await refreshFn();
-    if (outcome === "refreshed") {
-      res = await attempt();
-    }
-  }
+  const res = await fetchWithAuthRetry(
+    () =>
+      fetchFn(url, {
+        method: "POST",
+        credentials: "include",
+        headers: headersFn(),
+        body: JSON.stringify(body),
+      }),
+    { refreshFn },
+  );
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -680,28 +537,18 @@ async function pushSyncBatch(
 ): Promise<{ ok: true; results: SyncPushResult[] } | { ok: false; status: number }> {
   const fetchFn = deps.fetchFn ?? fetchWithTimeout;
   const headersFn = deps.headersFn ?? authHeader;
-  const refreshFn =
-    deps.refreshFn ??
-    (async () => {
-      const { refreshAccessToken } = await import("../api/client");
-      return refreshAccessToken();
-    });
+  const refreshFn = deps.refreshFn ?? refreshAccessToken;
 
-  const attempt = async () =>
-    fetchFn(`${apiBase()}/sync/push`, {
-      method: "POST",
-      credentials: "include",
-      headers: headersFn(),
-      body: JSON.stringify({ commands }),
-    });
-
-  let res = await attempt();
-  if (res.status === 401) {
-    const outcome = await refreshFn();
-    if (outcome === "refreshed") {
-      res = await attempt();
-    }
-  }
+  const res = await fetchWithAuthRetry(
+    () =>
+      fetchFn(`${API_BASE}/sync/push`, {
+        method: "POST",
+        credentials: "include",
+        headers: headersFn(),
+        body: JSON.stringify({ commands }),
+      }),
+    { refreshFn },
+  );
 
   const data = (await res.json().catch(() => ({}))) as {
     results?: SyncPushResult[];
@@ -995,11 +842,7 @@ export async function startCleaningQueued(
   taskId: string,
   expectedVersion?: number,
 ): Promise<QueuedResult> {
-  return runOrEnqueue(
-    "cleaning.start",
-    `${apiBase()}/cleaning/tasks/${taskId}/start`,
-    { commandId: crypto.randomUUID(), expectedVersion },
-  );
+  return startCleaningCommand(taskId, expectedVersion, runOrEnqueue);
 }
 
 export async function completeCleaningQueued(
@@ -1007,63 +850,31 @@ export async function completeCleaningQueued(
   notes?: string,
   expectedVersion?: number,
 ): Promise<QueuedResult> {
-  return runOrEnqueue(
-    "cleaning.complete",
-    `${apiBase()}/cleaning/sessions/${sessionId}/complete`,
-    {
-      commandId: crypto.randomUUID(),
-      ...(notes?.trim() ? { notes: notes.trim() } : {}),
-      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
-    },
-  );
+  return completeCleaningCommand(sessionId, notes, expectedVersion, runOrEnqueue);
 }
 
 export async function startTicketQueued(ticketId: string): Promise<QueuedResult> {
-  return runOrEnqueue(
-    "ticket.start",
-    `${apiBase()}/maintenance/tickets/${ticketId}/start`,
-    { commandId: crypto.randomUUID() },
-  );
+  return startTicketCommand(ticketId, runOrEnqueue);
 }
 
 export async function waitTicketQueued(
   ticketId: string,
   reason?: string,
 ): Promise<QueuedResult> {
-  return runOrEnqueue(
-    "ticket.wait",
-    `${apiBase()}/maintenance/tickets/${ticketId}/wait`,
-    {
-      commandId: crypto.randomUUID(),
-      ...(reason?.trim() ? { reason: reason.trim() } : {}),
-    },
-  );
+  return waitTicketCommand(ticketId, reason, runOrEnqueue);
 }
 
 export async function resumeTicketQueued(
   ticketId: string,
 ): Promise<QueuedResult> {
-  return runOrEnqueue(
-    "ticket.resume",
-    `${apiBase()}/maintenance/tickets/${ticketId}/resume`,
-    { commandId: crypto.randomUUID() },
-  );
+  return resumeTicketCommand(ticketId, runOrEnqueue);
 }
 
 export async function resolveTicketQueued(
   ticketId: string,
   resolutionNotes?: string,
 ): Promise<QueuedResult> {
-  return runOrEnqueue(
-    "ticket.resolve",
-    `${apiBase()}/maintenance/tickets/${ticketId}/resolve`,
-    {
-      commandId: crypto.randomUUID(),
-      ...(resolutionNotes?.trim()
-        ? { resolutionNotes: resolutionNotes.trim() }
-        : {}),
-    },
-  );
+  return resolveTicketCommand(ticketId, resolutionNotes, runOrEnqueue);
 }
 
 export async function reportTicketQueued(input: {
@@ -1074,15 +885,7 @@ export async function reportTicketQueued(input: {
   priority?: string;
   blocksRoom: boolean;
 }): Promise<QueuedResult> {
-  return runOrEnqueue("ticket.report", `${apiBase()}/maintenance/tickets`, {
-    commandId: crypto.randomUUID(),
-    locationId: input.locationId,
-    blocksRoom: input.blocksRoom,
-    ...(input.title?.trim() ? { title: input.title.trim() } : {}),
-    ...(input.issueOptionId ? { issueOptionId: input.issueOptionId } : {}),
-    ...(input.categoryId ? { categoryId: input.categoryId } : {}),
-    ...(input.priority ? { priority: input.priority } : {}),
-  });
+  return reportTicketCommand(input, runOrEnqueue);
 }
 
 /** Kick initial drain when module loads in browser. */

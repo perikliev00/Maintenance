@@ -166,47 +166,43 @@ function shouldSkipRefresh(url: string): boolean {
   );
 }
 
+/**
+ * One attempt, then a single retry after a successful refresh on 401.
+ * `attempt` must rebuild headers so the retry sends a fresh CSRF token.
+ */
+export async function fetchWithAuthRetry(
+  attempt: () => Promise<Response>,
+  options?: {
+    refreshFn?: () => Promise<RefreshOutcome>;
+    skipRefresh?: boolean;
+  },
+): Promise<Response> {
+  const res = await attempt();
+  if (options?.skipRefresh || res.status !== 401) return res;
+  const outcome = await (options?.refreshFn ?? refreshAccessToken)();
+  if (outcome !== "refreshed") return res;
+  return attempt();
+}
+
 /** Cookie-session fetch with CSRF and single-flight refresh on 401. */
 export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
-  const headers: Record<string, string> = {
-    ...buildAuthHeaders(method),
-    ...(init.headers as Record<string, string> | undefined),
+  const attempt = async () => {
+    const headers: Record<string, string> = {
+      ...buildAuthHeaders(method),
+      ...(init.headers as Record<string, string> | undefined),
+    };
+    try {
+      return await fetch(url, {
+        ...init,
+        headers,
+        credentials: "include",
+      });
+    } catch (cause) {
+      throw new ApiRequestError("Network error", { kind: "network", cause });
+    }
   };
-
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      ...init,
-      headers,
-      credentials: "include",
-    });
-  } catch (cause) {
-    throw new ApiRequestError("Network error", { kind: "network", cause });
-  }
-
-  if (res.status !== 401 || shouldSkipRefresh(url)) {
-    return res;
-  }
-
-  const outcome = await refreshAccessToken();
-  if (outcome !== "refreshed") {
-    return res;
-  }
-
-  const retryHeaders: Record<string, string> = {
-    ...buildAuthHeaders(method),
-    ...(init.headers as Record<string, string> | undefined),
-  };
-  try {
-    return await fetch(url, {
-      ...init,
-      headers: retryHeaders,
-      credentials: "include",
-    });
-  } catch (cause) {
-    throw new ApiRequestError("Network error", { kind: "network", cause });
-  }
+  return fetchWithAuthRetry(attempt, { skipRefresh: shouldSkipRefresh(url) });
 }
 
 export async function logout(): Promise<void> {
