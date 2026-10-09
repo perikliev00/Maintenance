@@ -8,8 +8,6 @@ import {
   fetchSectors,
   fetchShiftRoster,
   fetchShifts,
-  roomQrImageUrl,
-  roomQrScanUrl,
   saveShiftRoster,
   setSectorLocations,
   todayHotelDate,
@@ -23,6 +21,9 @@ import {
   type ShiftRow,
 } from "../api/client";
 import { LocationCatalogPanel } from "../components/LocationCatalogPanel";
+import { LocationQrPanel } from "../components/LocationQrPanel";
+import { SectorPanel } from "../components/SectorPanel";
+import { ShiftPanel } from "../components/ShiftPanel";
 
 type Props = { user: AuthUser };
 
@@ -152,17 +153,6 @@ export function HousekeepingPage({ user }: Props) {
         String(r.floor).includes(q),
     );
   }, [rooms, locationFilter]);
-
-  const qrRooms = useMemo(() => {
-    const q = qrFilter.trim().toLowerCase();
-    if (!q) return rooms;
-    return rooms.filter(
-      (r) =>
-        r.number.toLowerCase().includes(q) ||
-        r.buildingCode.toLowerCase().includes(q) ||
-        (r.sector?.code.toLowerCase().includes(q) ?? false),
-    );
-  }, [rooms, qrFilter]);
 
   function resetSectorForm() {
     setEditingSectorId(null);
@@ -347,520 +337,111 @@ export function HousekeepingPage({ user }: Props) {
       )}
 
       {tab === "sectors" && (
-        <section className="panel">
-          <h2>{label("Сектори", "Sectors")}</h2>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{label("Код", "Code")}</th>
-                  <th>{label("Име", "Name")}</th>
-                  <th>{label("Супервайзър", "Supervisor")}</th>
-                  <th>{label("Помещения", "Locations")}</th>
-                  <th>{label("Статус", "Status")}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {sectors.map((s) => (
-                  <tr key={s.id}>
-                    <td>
-                      <strong>{s.code}</strong>
-                    </td>
-                    <td>
-                      {locale === "bg" ? s.nameBg : s.nameEn}
-                      <div className="muted small">
-                        {locale === "bg" ? s.nameEn : s.nameBg}
-                      </div>
-                    </td>
-                    <td>
-                      {s.primarySupervisor
-                        ? `${s.primarySupervisor.fullName} (${s.primarySupervisor.employeeNumber})`
-                        : "—"}
-                    </td>
-                    <td>{s.locationCount}</td>
-                    <td>
-                      {s.isActive
-                        ? label("активен", "active")
-                        : label("неактивен", "inactive")}
-                    </td>
-                    <td>
-                      {canManageSectors && (
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() => startEditSector(s)}
-                        >
-                          {label("Редакция", "Edit")}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {sectors.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="muted">
-                      {label("Няма сектори", "No sectors yet")}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {canManageSectors && (
-            <form className="report-form" onSubmit={onSaveSector}>
-              <h3>
-                {editingSectorId
-                  ? label("Редакция на сектор", "Edit sector")
-                  : label("Нов сектор", "New sector")}
-              </h3>
-              <label>
-                {label("Код", "Code")}
-                <input
-                  value={sectorCode}
-                  onChange={(e) => setSectorCode(e.target.value)}
-                  required
-                  maxLength={32}
-                />
-              </label>
-              <label>
-                {label("Име BG", "Name BG")}
-                <input
-                  value={sectorNameBg}
-                  onChange={(e) => setSectorNameBg(e.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                {label("Име EN", "Name EN")}
-                <input
-                  value={sectorNameEn}
-                  onChange={(e) => setSectorNameEn(e.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                {label("Супервайзър", "Supervisor")}
-                <select
-                  value={sectorSupervisorId}
-                  onChange={(e) => setSectorSupervisorId(e.target.value)}
-                  disabled={isSupervisorScope}
-                >
-                  <option value="">—</option>
-                  {supervisors.map((p) => (
-                    <option key={p.employeeId} value={p.employeeId}>
-                      {p.fullName} ({p.employeeNumber})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={sectorActive}
-                  onChange={(e) => setSectorActive(e.target.checked)}
-                />
-                {label("Активен", "Active")}
-              </label>
-
-              <div>
-                <strong>
-                  {label("Помещения", "Locations")} ({selectedLocationIds.length})
-                </strong>
-                <input
-                  type="search"
-                  placeholder={label("Филтър…", "Filter…")}
-                  value={locationFilter}
-                  onChange={(e) => setLocationFilter(e.target.value)}
-                  style={{ marginTop: 8, marginBottom: 8 }}
-                />
-                <div
-                  className="table-wrap"
-                  style={{ maxHeight: 220, overflow: "auto" }}
-                >
-                  {filteredRooms.map((r) => (
-                    <label key={r.id} className="check-row">
-                      <input
-                        type="checkbox"
-                        checked={selectedLocationIds.includes(r.id)}
-                        onChange={() => toggleLocation(r.id)}
-                      />
-                      {r.buildingCode} {r.number}
-                      <span className="muted small">
-                        {" "}
-                        · ет. {r.floor}
-                        {r.sector && r.sector.id !== editingSectorId
-                          ? ` · ${r.sector.code}`
-                          : ""}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="row-actions">
-                <button type="submit" disabled={busy}>
-                  {busy
-                    ? label("Запис…", "Saving…")
-                    : label("Запази", "Save")}
-                </button>
-                {editingSectorId && (
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={resetSectorForm}
-                    disabled={busy}
-                  >
-                    {label("Отмени", "Cancel")}
-                  </button>
-                )}
-              </div>
-            </form>
-          )}
-        </section>
+        <SectorPanel
+          label={label}
+          locale={locale}
+          sectors={sectors}
+          supervisors={supervisors}
+          filteredRooms={filteredRooms}
+          canManage={canManageSectors}
+          isSupervisorScope={isSupervisorScope}
+          busy={busy}
+          editingSectorId={editingSectorId}
+          sectorCode={sectorCode}
+          sectorNameBg={sectorNameBg}
+          sectorNameEn={sectorNameEn}
+          sectorSupervisorId={sectorSupervisorId}
+          sectorActive={sectorActive}
+          selectedLocationIds={selectedLocationIds}
+          locationFilter={locationFilter}
+          onSectorCodeChange={setSectorCode}
+          onSectorNameBgChange={setSectorNameBg}
+          onSectorNameEnChange={setSectorNameEn}
+          onSectorSupervisorIdChange={setSectorSupervisorId}
+          onSectorActiveChange={setSectorActive}
+          onLocationFilterChange={setLocationFilter}
+          onToggleLocation={toggleLocation}
+          onStartEdit={startEditSector}
+          onReset={resetSectorForm}
+          onSave={onSaveSector}
+        />
       )}
 
       {tab === "shifts" && (
-        <section className="panel">
-          <h2>{label("Смени", "Shifts")}</h2>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{label("Код", "Code")}</th>
-                  <th>{label("Име", "Name")}</th>
-                  <th>{label("Начало", "Start")}</th>
-                  <th>{label("Край", "End")}</th>
-                  <th>{label("Ред", "Order")}</th>
-                  <th>{label("Статус", "Status")}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {shifts.map((s) => (
-                  <tr key={s.id}>
-                    <td>
-                      <strong>{s.code}</strong>
-                    </td>
-                    <td>{locale === "bg" ? s.nameBg : s.nameEn}</td>
-                    <td>{s.startTime}</td>
-                    <td>{s.endTime}</td>
-                    <td>{s.sortOrder}</td>
-                    <td>
-                      {s.isActive
-                        ? label("активна", "active")
-                        : label("неактивна", "inactive")}
-                    </td>
-                    <td>
-                      {canManageShifts && (
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() => startEditShift(s)}
-                        >
-                          {label("Редакция", "Edit")}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {shifts.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="muted">
-                      {label("Няма смени", "No shifts yet")}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {canManageShifts && (
-            <form className="report-form" onSubmit={onSaveShift}>
-              <h3>
-                {editingShiftId
-                  ? label("Редакция на смяна", "Edit shift")
-                  : label("Нова смяна", "New shift")}
-              </h3>
-              <label>
-                {label("Код", "Code")}
-                <input
-                  value={shiftCode}
-                  onChange={(e) => setShiftCode(e.target.value)}
-                  required
-                  maxLength={32}
-                />
-              </label>
-              <label>
-                {label("Име BG", "Name BG")}
-                <input
-                  value={shiftNameBg}
-                  onChange={(e) => setShiftNameBg(e.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                {label("Име EN", "Name EN")}
-                <input
-                  value={shiftNameEn}
-                  onChange={(e) => setShiftNameEn(e.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                {label("Начало (HH:mm)", "Start (HH:mm)")}
-                <input
-                  value={shiftStart}
-                  onChange={(e) => setShiftStart(e.target.value)}
-                  pattern="([01]\d|2[0-3]):[0-5]\d"
-                  required
-                />
-              </label>
-              <label>
-                {label("Край (HH:mm)", "End (HH:mm)")}
-                <input
-                  value={shiftEnd}
-                  onChange={(e) => setShiftEnd(e.target.value)}
-                  pattern="([01]\d|2[0-3]):[0-5]\d"
-                  required
-                />
-              </label>
-              <label>
-                {label("Ред", "Sort order")}
-                <input
-                  type="number"
-                  min={0}
-                  value={shiftSort}
-                  onChange={(e) => setShiftSort(Number(e.target.value) || 0)}
-                />
-              </label>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={shiftActive}
-                  onChange={(e) => setShiftActive(e.target.checked)}
-                />
-                {label("Активна", "Active")}
-              </label>
-              <div className="row-actions">
-                <button type="submit" disabled={busy}>
-                  {busy
-                    ? label("Запис…", "Saving…")
-                    : label("Запази", "Save")}
-                </button>
-                {editingShiftId && (
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={resetShiftForm}
-                    disabled={busy}
-                  >
-                    {label("Отмени", "Cancel")}
-                  </button>
-                )}
-              </div>
-            </form>
-          )}
-
-          {canManageShifts && (
-            <div className="roster-block" style={{ marginTop: "1.5rem" }}>
-              <h3>{label("Ростер за дата", "Roster for date")}</h3>
-              <label>
-                {label("Хотелска дата", "Hotel date")}
-                <input
-                  type="date"
-                  value={rosterDate}
-                  onChange={(e) => setRosterDate(e.target.value)}
-                />
-              </label>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>{label("Служител", "Employee")}</th>
-                      <th>{label("Смяна", "Shift")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {housekeepers.map((hk) => (
-                      <tr key={hk.id}>
-                        <td>
-                          {hk.fullName}{" "}
-                          <span className="muted">({hk.employeeNumber})</span>
-                        </td>
-                        <td>
-                          <select
-                            value={rosterDraft[hk.id] ?? ""}
-                            onChange={(e) =>
-                              setRosterDraft((prev) => ({
-                                ...prev,
-                                [hk.id]: e.target.value,
-                              }))
-                            }
-                          >
-                            <option value="">
-                              {label("— няма —", "— none —")}
-                            </option>
-                            {shifts
-                              .filter((s) => s.isActive)
-                              .map((s) => (
-                                <option key={s.id} value={s.id}>
-                                  {locale === "bg" ? s.nameBg : s.nameEn} (
-                                  {s.startTime}–{s.endTime})
-                                </option>
-                              ))}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                    {housekeepers.length === 0 && (
-                      <tr>
-                        <td colSpan={2} className="muted">
-                          {label(
-                            "Няма камериери",
-                            "No housekeepers",
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  setError(null);
-                  setMessage(null);
-                  try {
-                    const entries = Object.entries(rosterDraft)
-                      .filter(([, sid]) => sid)
-                      .map(([employeeId, sid]) => ({
-                        employeeId,
-                        shiftId: sid,
-                      }));
-                    const saved = await saveShiftRoster({
-                      hotelDate: rosterDate,
-                      entries,
-                    });
-                    setRosterEntries(saved.entries);
-                    setMessage(
-                      label(
-                        `Ростерът за ${rosterDate} е записан (${saved.entries.length})`,
-                        `Roster for ${rosterDate} saved (${saved.entries.length})`,
-                      ),
-                    );
-                  } catch (err) {
-                    setError(
-                      err instanceof Error ? err.message : "Failed to save roster",
-                    );
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                {busy
-                  ? label("Запис…", "Saving…")
-                  : label("Запази ростер", "Save roster")}
-              </button>
-              {rosterEntries.length > 0 && (
-                <p className="muted small">
-                  {label(
-                    `Текущи записи: ${rosterEntries.length}`,
-                    `Current entries: ${rosterEntries.length}`,
-                  )}
-                </p>
-              )}
-            </div>
-          )}
-        </section>
+        <ShiftPanel
+          label={label}
+          locale={locale}
+          shifts={shifts}
+          housekeepers={housekeepers}
+          canManage={canManageShifts}
+          busy={busy}
+          editingShiftId={editingShiftId}
+          shiftCode={shiftCode}
+          shiftNameBg={shiftNameBg}
+          shiftNameEn={shiftNameEn}
+          shiftStart={shiftStart}
+          shiftEnd={shiftEnd}
+          shiftSort={shiftSort}
+          shiftActive={shiftActive}
+          rosterDate={rosterDate}
+          rosterEntries={rosterEntries}
+          rosterDraft={rosterDraft}
+          onShiftCodeChange={setShiftCode}
+          onShiftNameBgChange={setShiftNameBg}
+          onShiftNameEnChange={setShiftNameEn}
+          onShiftStartChange={setShiftStart}
+          onShiftEndChange={setShiftEnd}
+          onShiftSortChange={setShiftSort}
+          onShiftActiveChange={setShiftActive}
+          onRosterDateChange={setRosterDate}
+          onRosterDraftChange={(employeeId, shiftId) =>
+            setRosterDraft((prev) => ({ ...prev, [employeeId]: shiftId }))
+          }
+          onStartEdit={startEditShift}
+          onReset={resetShiftForm}
+          onSave={onSaveShift}
+          onSaveRoster={async () => {
+            setBusy(true);
+            setError(null);
+            setMessage(null);
+            try {
+              const entries = Object.entries(rosterDraft)
+                .filter(([, sid]) => sid)
+                .map(([employeeId, sid]) => ({
+                  employeeId,
+                  shiftId: sid,
+                }));
+              const saved = await saveShiftRoster({
+                hotelDate: rosterDate,
+                entries,
+              });
+              setRosterEntries(saved.entries);
+              setMessage(
+                label(
+                  `Ростерът за ${rosterDate} е записан (${saved.entries.length})`,
+                  `Roster for ${rosterDate} saved (${saved.entries.length})`,
+                ),
+              );
+            } catch (err) {
+              setError(
+                err instanceof Error ? err.message : "Failed to save roster",
+              );
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
       )}
 
       {tab === "qr" && (
-        <section className="panel">
-          <h2>{label("QR кодове", "QR codes")}</h2>
-          <p className="muted">
-            {label(
-              "Генериране и печат на QR за помещения. Сканирането само идентифицира стаята — без автоматичен start/complete. (Invite QR за устройства е в Екип.)",
-              "Generate and print room QR codes. Scanning only identifies the room — no auto start/complete. (Device invite QR lives under Team.)",
-            )}
-          </p>
-          <label className="inline-search">
-            {label("Филтър…", "Filter…")}
-            <input
-              value={qrFilter}
-              onChange={(e) => setQrFilter(e.target.value)}
-              placeholder={label("номер / сграда", "number / building")}
-            />
-          </label>
-          {previewQr && (
-            <div className="qr-print-card" style={{ margin: "1rem 0" }}>
-              <h3>
-                {previewQr.buildingCode} {previewQr.number}
-              </h3>
-              <img
-                src={roomQrImageUrl(roomQrScanUrl(previewQr.qrToken!), 220)}
-                alt={`QR ${previewQr.number}`}
-                width={220}
-                height={220}
-              />
-              <p className="muted small">{roomQrScanUrl(previewQr.qrToken!)}</p>
-              <div className="row-actions">
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                >
-                  {label("Печат", "Print")}
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => setPreviewQr(null)}
-                >
-                  {label("Затвори", "Close")}
-                </button>
-              </div>
-            </div>
-          )}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{label("Помещение", "Location")}</th>
-                  <th>{label("Сектор", "Sector")}</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {qrRooms.map((r) => (
-                  <tr key={r.id}>
-                    <td>
-                      <strong>
-                        {r.buildingCode} {r.number}
-                      </strong>
-                      <div className="muted small">
-                        ет. {r.floor} · {r.kind === "common_area" ? "common" : "room"}
-                      </div>
-                    </td>
-                    <td>{r.sector?.code ?? "—"}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="ghost"
-                        disabled={!r.qrToken}
-                        onClick={() => setPreviewQr(r)}
-                      >
-                        {label("QR", "QR")}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <LocationQrPanel
+          label={label}
+          rooms={rooms}
+          filter={qrFilter}
+          preview={previewQr}
+          onFilterChange={setQrFilter}
+          onPreviewChange={setPreviewQr}
+        />
       )}
     </main>
   );
