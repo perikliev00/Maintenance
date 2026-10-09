@@ -14,6 +14,7 @@ import {
   reassignCleaningTask,
   startCleaningTask,
 } from "../services/cleaning";
+import { listCleaningTasks } from "../services/cleaningTasksQuery";
 import { getCleaningResults } from "../services/cleaningResults";
 import { getFlags } from "../services/settings";
 import {
@@ -49,30 +50,7 @@ cleaningRouter.get("/tasks", requireAuth, requireAction("rooms.view"), async (re
       ...(statuses?.length ? { status: { in: statuses as never[] } } : {}),
     };
 
-    const tasks = await prisma.cleaningTask.findMany({
-      where,
-      include: {
-        location: { include: { floor: { include: { building: true } } } },
-        assignedEmployee: true,
-        shift: {
-          select: {
-            id: true,
-            code: true,
-            nameBg: true,
-            nameEn: true,
-            startTime: true,
-            endTime: true,
-          },
-        },
-        sector: { select: { id: true, code: true, nameBg: true, nameEn: true } },
-        sectorSupervisor: {
-          select: { id: true, fullName: true, employeeNumber: true },
-        },
-        sessions: true,
-        inspections: true,
-      },
-      orderBy: [{ hotelDate: "desc" }, { createdAt: "desc" }],
-    });
+    const tasks = await listCleaningTasks(where);
 
     return res.json(tasks);
   } catch (err) {

@@ -24,6 +24,7 @@ import {
   recipientsForLocationOps,
 } from "./notifications";
 import { assertActiveCleaningAssignee } from "./assignees";
+import { taskInclude } from "./cleaningTasksQuery";
 import { assertActiveShiftId } from "./shifts";
 
 export { AppError };
@@ -48,27 +49,6 @@ export function deriveCleaningServiceType(input: {
 }
 
 type Tx = Prisma.TransactionClient;
-
-const taskInclude = {
-  location: { include: { floor: { include: { building: true } } } },
-  assignedEmployee: true,
-  shift: {
-    select: {
-      id: true,
-      code: true,
-      nameBg: true,
-      nameEn: true,
-      startTime: true,
-      endTime: true,
-    },
-  },
-  sector: { select: { id: true, code: true, nameBg: true, nameEn: true } },
-  sectorSupervisor: {
-    select: { id: true, fullName: true, employeeNumber: true },
-  },
-  sessions: true,
-  inspections: true,
-} satisfies Prisma.CleaningTaskInclude;
 
 function p2002Targets(err: Prisma.PrismaClientKnownRequestError): string[] {
   const target = err.meta?.target;
