@@ -30,7 +30,6 @@ function ev(
 
 describe("attendance ingest rebuild pairing", () => {
   it("pairs clock_in then clock_out into a closed interval", () => {
-    const hotelDate = new Date("2026-10-06T00:00:00.000Z");
     const drafts = pairEventsToIntervalDrafts({
       events: [
         ev({
@@ -45,7 +44,7 @@ describe("attendance ingest rebuild pairing", () => {
         }),
       ],
       frozen: [],
-      hotelDate,
+      timeZone: "UTC",
     });
     assert.equal(drafts.length, 1);
     assert.equal(drafts[0]!.startEventId, "in1");
@@ -57,7 +56,6 @@ describe("attendance ingest rebuild pairing", () => {
   it("restores intervals from an event stream after a partial apply gap", () => {
     // Simulates: clock_in event exists but interval never written; later
     // clock_out arrives — full rebuild must create the closed interval.
-    const hotelDate = new Date("2026-10-06T00:00:00.000Z");
     const drafts = pairEventsToIntervalDrafts({
       events: [
         ev({
@@ -72,7 +70,7 @@ describe("attendance ingest rebuild pairing", () => {
         }),
       ],
       frozen: [],
-      hotelDate,
+      timeZone: "UTC",
     });
     assert.equal(drafts.length, 1);
     assert.equal(drafts[0]!.startEventId, "orphan-in");
@@ -81,7 +79,6 @@ describe("attendance ingest rebuild pairing", () => {
   });
 
   it("leaves adjusted (frozen) ranges untouched and skips overlapping events", () => {
-    const hotelDate = new Date("2026-10-06T00:00:00.000Z");
     const frozenStart = new Date("2026-10-06T08:00:00.000Z").getTime();
     const frozenEnd = new Date("2026-10-06T12:00:00.000Z").getTime();
     const drafts = pairEventsToIntervalDrafts({
@@ -108,7 +105,7 @@ describe("attendance ingest rebuild pairing", () => {
         }),
       ],
       frozen: [{ startMs: frozenStart, endMs: frozenEnd }],
-      hotelDate,
+      timeZone: "UTC",
     });
     assert.equal(drafts.length, 1);
     assert.equal(drafts[0]!.startEventId, "in2");
@@ -116,7 +113,6 @@ describe("attendance ingest rebuild pairing", () => {
   });
 
   it("flags duplicate clock_in while open and orphan clock_out", () => {
-    const hotelDate = new Date("2026-10-06T00:00:00.000Z");
     const drafts = pairEventsToIntervalDrafts({
       events: [
         ev({
@@ -141,7 +137,7 @@ describe("attendance ingest rebuild pairing", () => {
         }),
       ],
       frozen: [],
-      hotelDate,
+      timeZone: "UTC",
     });
     assert.equal(drafts.length, 2);
     assert.ok(drafts[0]!.anomalyFlags.includes("duplicate_kind"));
@@ -217,7 +213,6 @@ describe("attendance ingest rebuild pairing", () => {
   });
 
   it("counts breaks inside an interval window", () => {
-    const hotelDate = new Date("2026-10-06T00:00:00.000Z");
     const drafts = pairEventsToIntervalDrafts({
       events: [
         ev({
@@ -242,7 +237,7 @@ describe("attendance ingest rebuild pairing", () => {
         }),
       ],
       frozen: [],
-      hotelDate,
+      timeZone: "UTC",
     });
     assert.equal(drafts.length, 1);
     assert.equal(drafts[0]!.breakMinutes, 30);
@@ -332,13 +327,14 @@ describe("attendance list pagination contract", () => {
     let loaded = 0;
 
     for (let page = 0; page < 10; page++) {
-      const decoded = cursor ? decodeIntervalCursor(cursor) : null;
-      const window = afterCursor(all, decoded).slice(0, limit + 1);
-      const { pageRows, nextCursor } = listPageFromRows(
-        window,
-        limit,
-        toCursor,
-      );
+      const decoded: IntervalCursor | null = cursor
+        ? decodeIntervalCursor(cursor)
+        : null;
+      const window: FakeRow[] = afterCursor(all, decoded).slice(0, limit + 1);
+      const { pageRows, nextCursor }: {
+        pageRows: FakeRow[];
+        nextCursor: string | null;
+      } = listPageFromRows(window, limit, toCursor);
       assert.equal(pageRows.length, Math.min(limit, total - loaded));
       for (const row of pageRows) {
         assert.equal(seen.has(row.id), false, `duplicate ${row.id}`);

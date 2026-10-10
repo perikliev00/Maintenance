@@ -107,8 +107,8 @@ describe("claimStaleOpenInterval", () => {
     assert.equal(fake.updateCalls, 1);
     assert.equal(fake.row?.status, AttendanceIntervalStatus.adjusted);
     assert.equal(fake.row?.endedAt?.toISOString(), "2026-10-08T16:00:00.000Z");
-    assert.deepEqual(fake.row?.anomalyFlags, []);
     assert.ok(!fake.row?.anomalyFlags.includes("missing_end"));
+    assert.deepEqual(fake.row?.anomalyFlags, []);
   });
 
   it("flags a truly stale open interval for review and preserves other flags", async () => {

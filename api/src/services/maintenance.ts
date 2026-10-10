@@ -101,6 +101,10 @@ export function formatMaintenanceTicket<
   };
 }
 
+type FormattedMaintenanceTicket = ReturnType<
+  typeof formatMaintenanceTicket<TicketWithRelations>
+>;
+
 function pauseFieldsOnWait(now = new Date()) {
   return { slaPausedAt: now };
 }
@@ -237,7 +241,7 @@ function assertLifecycleCommandMatch(
 async function replayLifecycleCommand(
   commandId: string | undefined,
   key: LifecycleCommandKey,
-): Promise<{ ticket: ReturnType<typeof formatMaintenanceTicket>; idempotent: true } | null> {
+): Promise<{ ticket: FormattedMaintenanceTicket; idempotent: true } | null> {
   if (!commandId) return null;
   const existing = await findTicketByLifecycleCommand(commandId);
   if (!existing) return null;

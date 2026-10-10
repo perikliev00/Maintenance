@@ -48,8 +48,9 @@ async function main() {
     orderBy: { number: "asc" },
   });
   assert(room, "no active room");
-  const buildingCode = room.floor.building.code;
-  const roomNumber = room.number;
+  const roomRow = room;
+  const buildingCode = roomRow.floor.building.code;
+  const roomNumber = roomRow.number;
 
   const ops = await getOperations();
   const todayYmd = await todayHotelDateYmd();
@@ -715,11 +716,11 @@ async function main() {
   // --- Import order independence: arrival↔departure both vacate + one departure task ---
   async function resetTodayForOrderTest(cycle: number) {
     await prisma.dailyPlanEntry.deleteMany({
-      where: { hotelDate, locationId: room.id },
+      where: { hotelDate, locationId: roomRow.id },
     });
     await prisma.cleaningTask.updateMany({
       where: {
-        locationId: room.id,
+        locationId: roomRow.id,
         hotelDate,
         status: {
           in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework],
@@ -728,7 +729,7 @@ async function main() {
       data: { status: TaskStatus.cancelled },
     });
     await prisma.location.update({
-      where: { id: room.id },
+      where: { id: roomRow.id },
       data: {
         cleaningCycle: cycle,
         cleaningStatus: CleaningStatus.verified_clean,
@@ -739,7 +740,7 @@ async function main() {
 
   async function assertTodayCheckoutApplied(label: string) {
     const after = await prisma.location.findUniqueOrThrow({
-      where: { id: room.id },
+      where: { id: roomRow.id },
     });
     assert(
       after.occupancy === Occupancy.vacant,
@@ -753,7 +754,7 @@ async function main() {
       where: {
         hotelDate_locationId_category: {
           hotelDate,
-          locationId: room.id,
+          locationId: roomRow.id,
           category: DailyPlanCategory.departure,
         },
       },
@@ -768,7 +769,7 @@ async function main() {
     );
     const activeTasks = await prisma.cleaningTask.findMany({
       where: {
-        locationId: room.id,
+        locationId: roomRow.id,
         hotelDate,
         status: {
           in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework],
