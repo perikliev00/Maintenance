@@ -38,7 +38,7 @@
 
 | ID и кратко име | Приоритет | Зависимости | Статус | Commit/PR | Изпълнени проверки и резултати | Блокери и бележки |
 |---|---|---|---|---|---|---|
-| F-01 — Seed reset FK (NotificationDelivery→Notification преди Employee) | P1 | — | done | (виж журнала / последния F-01 commit) | Disposable PG `localhost:5434/maintenance_f01`. Преди fix: `migrate deploy` → `db:seed` → `npm test` (128/128) → втори `db:seed` → P2003 `Notification_recipientEmployeeId_fkey` на `employee.deleteMany()`. Baseline: RoleGrant=164; AppliedDataSeed=`grants.sectors.transfer_cross.v1`; Notification=20 / Delivery=60. След fix: seed → test 128/128 → втори seed OK → 6 atomic smokes OK; RoleGrant=164; AppliedDataSeed непроменен. | Само `api/prisma/seed.ts` (+2 deleteMany без catch). Schema/CI/roleGrants непроменени. |
+| F-01 — Seed reset FK (NotificationDelivery→Notification преди Employee) | P1 | — | done | `9840223` | Disposable PG `localhost:5434/maintenance_f01`. Преди fix: `migrate deploy` → `db:seed` → `npm test` (128/128) → втори `db:seed` → P2003 `Notification_recipientEmployeeId_fkey` на `employee.deleteMany()`. Baseline: RoleGrant=164; AppliedDataSeed=`grants.sectors.transfer_cross.v1`; Notification=20 / Delivery=60. След fix: seed → test 128/128 → втори seed OK → 6 atomic smokes OK; RoleGrant=164; AppliedDataSeed непроменен. | Само `api/prisma/seed.ts` (+2 deleteMany без catch). Schema/CI/roleGrants непроменени. |
 | T-01 — Компилируеми тестове и smoke скриптове | P1 | F-01 (практически за надежден gate; type-only може да се подготви, но C.2 редът е след F-01) | pending | — | — | R-01/R-04. Без blanket casts. |
 | T-02 — CI изпълнява наличните реални проверки | P1 | F-01, T-01 | pending | — | — | Disposable PostgreSQL 16. Без skip/`continue-on-error`. |
 
@@ -144,4 +144,4 @@ F-01 е в етап 0 по-горе. Останалите F задачи не с
 | Дата | Промяна |
 |---|---|
 | 2026-10-10 | Създадени `plan.md` (пълен прикачен документ) и този регистър. Приложен код не е променян. Следваща задача: F-01. |
-| 2026-10-10 | F-01 изпълнена: `seed.ts` reset трие NotificationDelivery→Notification преди Employee. Възпроизведен P2003 преди fix; след fix втори seed + 6 atomic smokes + ledger/grants OK на disposable PostgreSQL 16 (`maintenance_f01` @ 5434). Следваща задача: T-01 (не е стартирана). |
+| 2026-10-10 | F-01 изпълнена (`9840223`): `seed.ts` reset трие NotificationDelivery→Notification преди Employee. Възпроизведен P2003 преди fix; след fix втори seed + 6 atomic smokes + ledger/grants OK на disposable PostgreSQL 16 (`maintenance_f01` @ 5434). Следваща задача: T-01 (не е стартирана). |
