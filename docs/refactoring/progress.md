@@ -3,7 +3,7 @@
 **План:** [`plan.md`](./plan.md)  
 **Базова версия от плана:** `16d1b61aded6a3a19b598f9531e06ea469bf6bef`  
 **Създаден:** 10 октомври 2026 г.  
-**Статус на изпълнението:** F-01, T-01, T-02 и T-03 изпълнени; следваща допустима задача T-04.
+**Статус на изпълнението:** F-01, T-01–T-04 изпълнени; следваща допустима задача T-12.
 
 ## Правила за бъдещите агенти
 
@@ -20,12 +20,12 @@
 
 | Поле | Стойност |
 |---|---|
-| **ID** | **T-04** |
-| Кратко име | Scope smoke с истински откази |
-| Приоритет | P1 |
-| Защо е първа | Част C.2, етап 1: `T-03 → T-04 → T-12`. F-01–T-03 са `done`. |
-| Точен обхват | По договора на T-04 в `plan.md` (R-02): assert-based scope smoke с истински откази. |
-| Предварителни проверки | T-03 acceptances; seed и grants изрично подготвени; автентикацията работи. |
+| **ID** | **T-12** |
+| Кратко име | Единна audit signature |
+| Приоритет | P2 |
+| Защо е първа | Част C.2, етап 1: `T-03 → T-04 → T-12`. F-01–T-04 са `done`. |
+| Точен обхват | По договора на T-12 в `plan.md` (R-06): typed `(input, db = prisma)` за recordAudit/Many. |
+| Предварителни проверки | T-02–T-04; audit write fixtures (JsonNull/trim/occurredAt) и tx rollback test. |
 | Не изпълнявай още | Тази секция само посочва следващата допустима задача; изпълнението започва само след изрично възлагане. |
 
 ## Регистър на задачите
@@ -47,7 +47,7 @@
 | ID и кратко име | Приоритет | Зависимости | Статус | Commit/PR | Изпълнени проверки и резултати | Блокери и бележки |
 |---|---|---|---|---|---|---|
 | T-03 — Реални grant bootstrap тестове и точни fixtures | P2 | T-01, T-02 | done | `d02c0fc`; [Actions run 38083739741](https://github.com/perikliev00/Maintenance/actions/runs/38083739741) | Ephemeral DB + child processes: real `ensureDefaultRoleGrants`/`applyCatalogGrantSeed`; test seedId `grants.t03.catalog.v1`; G1–G6 + restart spawn; control ledger `grants.t03.control`. Attendance/cards: own employee/user fixtures; history/AND asserts запазени; FK cleanup + notifications; control `t03-unrelated-control@test.local`. Local `@5433`: typecheck:tests; `npm test` 125/125 ×2 (+5 stress); `test:db` 3/3. CI api/web/smoke/audit-upgrade green. | `api/tests/fixtures.ts`, `roleGrants.bootstrap.child.ts`; tsconfig include `tests/**`. Без seed reset като revoke proof. |
-| T-04 — Scope smoke с истински откази | P1 | T-03 | pending | — | — | R-02. Assert-based; включване в CI. |
+| T-04 — Scope smoke с истински откази | P1 | T-03 | done | `4dfaee3`; [Actions run 38085520819](https://github.com/perikliev00/Maintenance/actions/runs/38085520819) | Assert-based `smoke-data-scope.ts`: createApp+listen; two-sector fixtures; own allowed / foreign 403; hk foreign assignee=0; empty scope ≠ all; ticket/audit/live via exports. Negative: expect 200 on foreign GET → exit 1. CI smoke step after daily-plan atomic. | `api/tests/fixtures.ts` scope builders; no backfill; no production scope changes. |
 | T-12 — Единна audit signature | P2 | T-02, T-03, T-04 | pending | — | — | R-06. Без промяна на payload/transaction ownership. |
 
 ### Етап 2 — Command boundary
@@ -134,10 +134,10 @@ F-01 е в етап 0 по-горе. Останалите F задачи не с
 
 | Категория | Брой | Статус |
 |---|---|---|
-| T задачи (вкл. T-24a–T-24e) | 34 | 3× `done` (T-01, T-02, T-03); 31× `pending` |
+| T задачи (вкл. T-24a–T-24e) | 34 | 4× `done` (T-01–T-04); 30× `pending` |
 | F задачи (вкл. F-10a, F-10b) | 11 | 1× `done` (F-01); 10× `pending` |
-| **Общо регистрирани** | **45** | 4× `done` |
-| Предложена следваща | T-04 | не е започната |
+| **Общо регистрирани** | **45** | 5× `done` |
+| Предложена следваща | T-12 | не е започната |
 
 ## Журнал на промени по регистъра
 
@@ -148,3 +148,4 @@ F-01 е в етап 0 по-горе. Останалите F задачи не с
 | 2026-10-10 | T-01 изпълнена (`9b6251c`): test tsconfigs + typecheck scripts; web `types:[]` и `@types/node@^22`; lifecycle FormattedMaintenanceTicket; daily-plan roomRow; ingest/stale fixture types. Baseline и after на `maintenance_t01@5434`: api 128/128, web 34/34; двата задължителни smokes OK. Следваща задача: T-02 (не е стартирана). |
 | 2026-10-10 | T-02 изпълнена (`b53d8ef`): CI api `typecheck:tests`; web `typecheck:tests`+`npm test`; smoke migrate→SQL invariants→seed→test→seed→lifecycle→6 atomics; audit-upgrade непроменен. PG16-измерени predicates в `assert-sql-invariants.ts`; negative DROP INDEX exit 1 → recreate exit 0. Actions: https://github.com/perikliev00/Maintenance/actions/runs/38081720492 (success). Следваща задача: T-03 (не е стартирана). |
 | 2026-10-10 | T-03 изпълнена (`d02c0fc`): реални grant bootstrap тестове на ephemeral PG + child restart; attendance/cards fixtures с точен FK cleanup; `api/tests/fixtures.ts`. Aggregate `npm test` 125/125 (×2); Actions: https://github.com/perikliev00/Maintenance/actions/runs/38083739741 (success). Следваща задача: T-04 (не е стартирана). |
+| 2026-10-10 | T-04 изпълнена (`4dfaee3`): assert-based scope smoke + in-process server + CI; two-sector fixtures; foreign 403. Actions: https://github.com/perikliev00/Maintenance/actions/runs/38085520819 (success). Следваща задача: T-12 (пакет фаза B). |
