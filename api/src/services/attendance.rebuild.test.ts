@@ -12,46 +12,52 @@ import {
   requestAdjustment,
   reviewAdjustment,
 } from "./attendance";
+import {
+  cleanupEmployeeGraph,
+  createEmployeeWithUser,
+  ensureUnrelatedControlFixture,
+  UNRELATED_CONTROL_EMAIL,
+} from "../../tests/fixtures";
+
 const prisma = new PrismaClient();
 
 describe("rebuildIntervalsForEmployee adjustment history", () => {
   const createdEventIds: string[] = [];
+  const fixtureEmployeeIds: string[] = [];
   let employeeId = "";
   let reviewerId = "";
   let hotelDate = new Date("2026-10-08T00:00:00.000Z");
 
   after(async () => {
-    if (employeeId) {
-      await prisma.attendanceAdjustment.deleteMany({
-        where: { interval: { employeeId } },
-      });
-      await prisma.attendanceInterval.deleteMany({ where: { employeeId } });
-      await prisma.attendanceEvent.deleteMany({
-        where: { id: { in: createdEventIds } },
-      });
-    }
+    await cleanupEmployeeGraph(prisma, fixtureEmployeeIds);
     await prisma.$disconnect();
   });
 
   it("keeps rejected adjustment history after late-event rebuild", async () => {
-    const owner = await prisma.user.findUniqueOrThrow({
-      where: { email: "owner@meridian.local" },
-    });
-    const tech = await prisma.user.findUniqueOrThrow({
-      where: { email: "technician@meridian.local" },
-    });
-    assert.ok(owner.employeeId);
-    assert.ok(tech.employeeId);
-    employeeId = tech.employeeId;
-    reviewerId = owner.employeeId;
-
+    const control = await ensureUnrelatedControlFixture(prisma);
     const stamp = Date.now();
+    const subject = await createEmployeeWithUser(prisma, {
+      employeeNumber: `T03-ATT-S-${stamp}`,
+      email: `t03-att-subject-${stamp}@test.local`,
+      role: Role.technician,
+      fullName: "T03 Attendance Subject",
+    });
+    const reviewer = await createEmployeeWithUser(prisma, {
+      employeeNumber: `T03-ATT-R-${stamp}`,
+      email: `t03-att-reviewer-${stamp}@test.local`,
+      role: Role.owner,
+      fullName: "T03 Attendance Reviewer",
+    });
+    fixtureEmployeeIds.push(subject.employeeId, reviewer.employeeId);
+    employeeId = subject.employeeId;
+    reviewerId = reviewer.employeeId;
+
     // Use UTC so hotel-day keys match normalized event times without DST edge cases.
     const tz = "UTC";
     hotelDate = new Date("2026-03-15T00:00:00.000Z");
     const prevHotelDate = new Date("2026-03-14T00:00:00.000Z");
 
-    // Isolate: wipe intervals/adjustments/events for this employee on the test days.
+    // Isolate: wipe only this fixture employee's intervals/adjustments/events on test days.
     await prisma.attendanceAdjustment.deleteMany({
       where: {
         interval: {
@@ -159,7 +165,9 @@ describe("rebuildIntervalsForEmployee adjustment history", () => {
 
     // Pending rematch: create another openable pending on rebuilt interval
     const closed = afterIntervals.find(
-      (iv) => iv.startEventId === clockIn.id && iv.status !== AttendanceIntervalStatus.adjusted,
+      (iv) =>
+        iv.startEventId === clockIn.id &&
+        iv.status !== AttendanceIntervalStatus.adjusted,
     );
     assert.ok(closed);
     const pending = await requestAdjustment({
@@ -196,5 +204,11 @@ describe("rebuildIntervalsForEmployee adjustment history", () => {
       },
     });
     assert.equal(rejectedCount, 1, "rebuild must not duplicate rejected history");
+
+    const controlStill = await prisma.user.findUnique({
+      where: { email: UNRELATED_CONTROL_EMAIL },
+    });
+    assert.ok(controlStill, "unrelated control fixture must remain");
+    assert.equal(controlStill.employeeId, control.employeeId);
   });
 });

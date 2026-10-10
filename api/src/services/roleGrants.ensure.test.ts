@@ -1,133 +1,143 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
-import { GrantKind, Role } from "@prisma/client";
-import {
-  DEFAULT_ACTION_GRANTS,
-  DEFAULT_PANEL_GRANTS,
-} from "../permissions";
+import path from "node:path";
+import { PrismaClient } from "@prisma/client";
+import dotenv from "dotenv";
 
-/**
- * Documents the bootstrap contract: once any RoleGrant rows exist,
- * ensure must not compute "missing defaults" to re-insert. Revoked
- * default keys stay absent (presence = allow).
- */
-function wouldReseedMissingDefaults(totalCount: number): boolean {
-  // Mirrors ensureDefaultRoleGrants after the fix.
-  return totalCount === 0;
+const CONTROL_SEED_ID = "grants.t03.control";
+const DB_NAME_PREFIX = "maintenance_t03_grants";
+const API_ROOT = path.resolve(__dirname, "../..");
+const CHILD_PATH = path.join(API_ROOT, "tests", "roleGrants.bootstrap.child.ts");
+
+// Prefer api/.env over a stale shell DATABASE_URL (dotenv default does not override).
+dotenv.config({ path: path.join(API_ROOT, ".env"), override: true });
+
+function requireDatabaseUrl(): string {
+  const url = process.env.DATABASE_URL;
+  assert.ok(url, "DATABASE_URL is required for grant bootstrap isolation tests");
+  return url;
 }
 
-/**
- * Mirrors applyCatalogGrantSeed ledger gate: deltas run at most once per seedId.
- * After the seed is recorded, missing grant rows are intentional absences.
- */
-function simulateApplyCatalogGrantSeed(input: {
-  appliedSeedIds: Set<string>;
-  grants: Set<string>;
-  seedId: string;
-  deltas: string[];
-}): { grants: Set<string>; appliedSeedIds: Set<string>; inserted: number } {
-  if (input.appliedSeedIds.has(input.seedId)) {
-    return {
-      grants: new Set(input.grants),
-      appliedSeedIds: new Set(input.appliedSeedIds),
-      inserted: 0,
-    };
+function withDatabaseName(databaseUrl: string, dbName: string): string {
+  const u = new URL(databaseUrl);
+  u.pathname = `/${dbName}`;
+  return u.toString();
+}
+
+function assertSafeDbName(dbName: string): void {
+  assert.match(dbName, /^[a-zA-Z0-9_]+$/, `unsafe db name: ${dbName}`);
+}
+
+async function recreateEphemeralDb(adminUrl: string, dbName: string): Promise<void> {
+  assertSafeDbName(dbName);
+  const prisma = new PrismaClient({ datasources: { db: { url: adminUrl } } });
+  try {
+    await prisma.$executeRawUnsafe(
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid()`,
+    );
+    await prisma.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${dbName}"`);
+    await prisma.$executeRawUnsafe(`CREATE DATABASE "${dbName}"`);
+  } finally {
+    await prisma.$disconnect();
   }
-  const grants = new Set(input.grants);
-  let inserted = 0;
-  for (const key of input.deltas) {
-    if (!grants.has(key)) {
-      grants.add(key);
-      inserted += 1;
+}
+
+async function dropEphemeralDb(adminUrl: string, dbName: string): Promise<void> {
+  assertSafeDbName(dbName);
+  const prisma = new PrismaClient({ datasources: { db: { url: adminUrl } } });
+  try {
+    await prisma.$executeRawUnsafe(
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid()`,
+    );
+    await prisma.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${dbName}"`);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+function migrateDeploy(databaseUrl: string): void {
+  const result = spawnSync(
+    process.platform === "win32" ? "npx.cmd" : "npx",
+    ["prisma", "migrate", "deploy"],
+    {
+      cwd: API_ROOT,
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+      encoding: "utf8",
+      shell: process.platform === "win32",
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      `prisma migrate deploy failed (exit ${String(result.status)}):\n${result.stdout}\n${result.stderr}`,
+    );
+  }
+}
+
+function runChild(databaseUrl: string, scenario: "bootstrap" | "restart"): void {
+  const result = spawnSync(
+    process.platform === "win32" ? "npx.cmd" : "npx",
+    ["tsx", CHILD_PATH],
+    {
+      cwd: API_ROOT,
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+        T03_SCENARIO: scenario,
+      },
+      encoding: "utf8",
+      shell: process.platform === "win32",
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      `grant child ${scenario} failed (exit ${String(result.status)}):\n${result.stdout}\n${result.stderr}`,
+    );
+  }
+}
+
+async function insertControl(databaseUrl: string): Promise<void> {
+  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+  try {
+    await prisma.appliedDataSeed.create({
+      data: { id: CONTROL_SEED_ID },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+async function assertControl(databaseUrl: string): Promise<void> {
+  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+  try {
+    const row = await prisma.appliedDataSeed.findUnique({
+      where: { id: CONTROL_SEED_ID },
+    });
+    assert.ok(row, "unrelated control AppliedDataSeed must remain");
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+describe("ensureDefaultRoleGrants / applyCatalogGrantSeed (real DB)", () => {
+  it("bootstraps on ephemeral DB, keeps revokes across restart, preserves control", async () => {
+    const baseUrl = requireDatabaseUrl();
+    const dbName = `${DB_NAME_PREFIX}_${process.pid}_${Date.now()}`;
+    const ephUrl = withDatabaseName(baseUrl, dbName);
+
+    await recreateEphemeralDb(baseUrl, dbName);
+    try {
+      migrateDeploy(ephUrl);
+      await insertControl(ephUrl);
+
+      runChild(ephUrl, "bootstrap");
+      runChild(ephUrl, "restart");
+      await assertControl(ephUrl);
+
+      runChild(ephUrl, "restart");
+      await assertControl(ephUrl);
+    } finally {
+      await dropEphemeralDb(baseUrl, dbName);
     }
-  }
-  const appliedSeedIds = new Set(input.appliedSeedIds);
-  appliedSeedIds.add(input.seedId);
-  return { grants, appliedSeedIds, inserted };
-}
-
-describe("ensureDefaultRoleGrants contract", () => {
-  it("only seeds when the RoleGrant table is empty", () => {
-    assert.equal(wouldReseedMissingDefaults(0), true);
-    assert.equal(wouldReseedMissingDefaults(1), false);
-    assert.equal(
-      wouldReseedMissingDefaults(
-        DEFAULT_PANEL_GRANTS.supervisor.length +
-          DEFAULT_ACTION_GRANTS.supervisor.length,
-      ),
-      false,
-    );
-  });
-
-  it("treats a revoked default key as intentionally absent, not a seed gap", () => {
-    const defaults = new Set(
-      DEFAULT_ACTION_GRANTS.supervisor.map(
-        (key) => `${Role.supervisor}|${GrantKind.action}|${key}`,
-      ),
-    );
-    const afterRevoke = new Set(defaults);
-    afterRevoke.delete(
-      `${Role.supervisor}|${GrantKind.action}|analytics.view`,
-    );
-
-    assert.ok(defaults.has(`${Role.supervisor}|${GrantKind.action}|analytics.view`));
-    assert.equal(
-      afterRevoke.has(`${Role.supervisor}|${GrantKind.action}|analytics.view`),
-      false,
-    );
-    // With totalCount > 0, ensure must not put the key back.
-    assert.equal(wouldReseedMissingDefaults(afterRevoke.size), false);
-  });
-});
-
-describe("applyCatalogGrantSeed contract", () => {
-  const seedId = "grants.sectors.transfer_cross.v1";
-  const managerKey = `${Role.manager}|${GrantKind.action}|sectors.transfer_cross`;
-  const adminKey = `${Role.admin}|${GrantKind.action}|sectors.transfer_cross`;
-  const deltas = [managerKey, adminKey];
-
-  it("applies deltas once and records the seed id", () => {
-    const first = simulateApplyCatalogGrantSeed({
-      appliedSeedIds: new Set(),
-      grants: new Set(),
-      seedId,
-      deltas,
-    });
-    assert.equal(first.inserted, 2);
-    assert.ok(first.appliedSeedIds.has(seedId));
-    assert.ok(first.grants.has(managerKey));
-    assert.ok(first.grants.has(adminKey));
-
-    const second = simulateApplyCatalogGrantSeed({
-      appliedSeedIds: first.appliedSeedIds,
-      grants: first.grants,
-      seedId,
-      deltas,
-    });
-    assert.equal(second.inserted, 0);
-    assert.deepEqual([...second.grants].sort(), [...first.grants].sort());
-  });
-
-  it("does not restore a revoked grant after the seed is already applied", () => {
-    const afterFirst = simulateApplyCatalogGrantSeed({
-      appliedSeedIds: new Set(),
-      grants: new Set(),
-      seedId,
-      deltas,
-    });
-    // Admin revoke: delete the row (presence = allow).
-    const afterRevoke = new Set(afterFirst.grants);
-    afterRevoke.delete(managerKey);
-
-    // Restart / re-call with ledger already marked applied.
-    const afterRestart = simulateApplyCatalogGrantSeed({
-      appliedSeedIds: afterFirst.appliedSeedIds,
-      grants: afterRevoke,
-      seedId,
-      deltas,
-    });
-    assert.equal(afterRestart.inserted, 0);
-    assert.equal(afterRestart.grants.has(managerKey), false);
-    assert.ok(afterRestart.grants.has(adminKey));
   });
 });
