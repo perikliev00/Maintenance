@@ -3,7 +3,7 @@
 **План:** [`plan.md`](./plan.md)  
 **Базова версия от плана:** `16d1b61aded6a3a19b598f9531e06ea469bf6bef`  
 **Създаден:** 10 октомври 2026 г.  
-**Статус на изпълнението:** F-01 и T-01 изпълнени; следваща допустима задача T-02.
+**Статус на изпълнението:** F-01, T-01 и T-02 изпълнени; следваща допустима задача T-03.
 
 ## Правила за бъдещите агенти
 
@@ -20,12 +20,12 @@
 
 | Поле | Стойност |
 |---|---|
-| **ID** | **T-02** |
-| Кратко име | CI изпълнява наличните реални проверки |
-| Приоритет | P1 |
-| Защо е първа | Част C.2, етап 0: `F-01 → T-01 → T-02`. F-01 и T-01 са `done`. |
-| Точен обхват | По договора на T-02 в `plan.md` (R-01): CI изпълнява наличните реални проверки без skip/`continue-on-error`. |
-| Предварителни проверки | F-01/T-01 acceptances; disposable PostgreSQL 16 в CI. |
+| **ID** | **T-03** |
+| Кратко име | Реални grant bootstrap тестове и точни fixtures |
+| Приоритет | P2 |
+| Защо е първа | Част C.2, етап 1: `T-03 → T-04 → T-12`. F-01, T-01 и T-02 са `done`. |
+| Точен обхват | По договора на T-03 в `plan.md` (R-02): реални grant bootstrap тестове и точни fixtures. |
+| Предварителни проверки | T-01/T-02 acceptances; записани revoke/restart, adjustment-history и cards AND expectations. |
 | Не изпълнявай още | Тази секция само посочва следващата допустима задача; изпълнението започва само след изрично възлагане. |
 
 ## Регистър на задачите
@@ -40,7 +40,7 @@
 |---|---|---|---|---|---|---|
 | F-01 — Seed reset FK (NotificationDelivery→Notification преди Employee) | P1 | — | done | `9840223` | Disposable PG `localhost:5434/maintenance_f01`. Преди fix: `migrate deploy` → `db:seed` → `npm test` (128/128) → втори `db:seed` → P2003 `Notification_recipientEmployeeId_fkey` на `employee.deleteMany()`. Baseline: RoleGrant=164; AppliedDataSeed=`grants.sectors.transfer_cross.v1`; Notification=20 / Delivery=60. След fix: seed → test 128/128 → втори seed OK → 6 atomic smokes OK; RoleGrant=164; AppliedDataSeed непроменен. | Само `api/prisma/seed.ts` (+2 deleteMany без catch). Schema/CI/roleGrants непроменени. |
 | T-01 — Компилируеми тестове и smoke скриптове | P1 | F-01 | done | `9b6251c` | Disposable PG `localhost:5434/maintenance_t01`. Преди: migrate+seed; api/web production tsc=0; api `npm test` 128/128; web `npm test` 34/34. След: api/web production tsc+build=0; `typecheck:tests`=0 (api+web); web `listFilesOnly` включва 4-те `*.test.ts`; api test 128/128; web test 34/34; `smoke-daily-plan-atomic` OK; `smoke-ticket-lifecycle-idempotency` OK. | `api/tsconfig.tests.json`, `web/tsconfig.tests.json`, `typecheck:tests` scripts; web `types:[]` + `@types/node@^22`; FormattedMaintenanceTicket; roomRow; ingest timeZone/annotations; stale includes-before-deepEqual. CI непроменян. |
-| T-02 — CI изпълнява наличните реални проверки | P1 | F-01, T-01 | pending | — | — | Disposable PostgreSQL 16. Без skip/`continue-on-error`. |
+| T-02 — CI изпълнява наличните реални проверки | P1 | F-01, T-01 | done | `b53d8ef`; [Actions run 38081720492](https://github.com/perikliev00/Maintenance/actions/runs/38081720492) | CI green (api/web/smoke/smoke-audit-upgrade). PG16 predicates: SessionStatus `running`; TaskStatus `= ANY (ARRAY[...])`; TicketEvent `indpred` NULL. Negative: DROP `CleaningSession_one_running_per_task` → assert exit 1; recreate+migrate → exit 0. Local disposable `maintenance-t02-pg@5435`: migrate→SQL→seed→test 128→seed→lifecycle→6 atomics; api/web typecheck+build; web test 34. CI steps: typecheck:tests (api+web), web test, SQL invariants, lifecycle, 6 atomics. | `assert-sql-invariants.ts`; `test:db`; ci.yml. Без skip/`continue-on-error`. |
 
 ### Етап 1 — Реални договори
 
@@ -134,10 +134,10 @@ F-01 е в етап 0 по-горе. Останалите F задачи не с
 
 | Категория | Брой | Статус |
 |---|---|---|
-| T задачи (вкл. T-24a–T-24e) | 34 | 1× `done` (T-01); 33× `pending` |
+| T задачи (вкл. T-24a–T-24e) | 34 | 2× `done` (T-01, T-02); 32× `pending` |
 | F задачи (вкл. F-10a, F-10b) | 11 | 1× `done` (F-01); 10× `pending` |
-| **Общо регистрирани** | **45** | 2× `done` |
-| Предложена следваща | T-02 | не е започната |
+| **Общо регистрирани** | **45** | 3× `done` |
+| Предложена следваща | T-03 | не е започната |
 
 ## Журнал на промени по регистъра
 
@@ -146,3 +146,4 @@ F-01 е в етап 0 по-горе. Останалите F задачи не с
 | 2026-10-10 | Създадени `plan.md` (пълен прикачен документ) и този регистър. Приложен код не е променян. Следваща задача: F-01. |
 | 2026-10-10 | F-01 изпълнена (`9840223`): `seed.ts` reset трие NotificationDelivery→Notification преди Employee. Възпроизведен P2003 преди fix; след fix втори seed + 6 atomic smokes + ledger/grants OK на disposable PostgreSQL 16 (`maintenance_f01` @ 5434). Следваща задача: T-01 (не е стартирана). |
 | 2026-10-10 | T-01 изпълнена (`9b6251c`): test tsconfigs + typecheck scripts; web `types:[]` и `@types/node@^22`; lifecycle FormattedMaintenanceTicket; daily-plan roomRow; ingest/stale fixture types. Baseline и after на `maintenance_t01@5434`: api 128/128, web 34/34; двата задължителни smokes OK. Следваща задача: T-02 (не е стартирана). |
+| 2026-10-10 | T-02 изпълнена (`b53d8ef`): CI api `typecheck:tests`; web `typecheck:tests`+`npm test`; smoke migrate→SQL invariants→seed→test→seed→lifecycle→6 atomics; audit-upgrade непроменен. PG16-измерени predicates в `assert-sql-invariants.ts`; negative DROP INDEX exit 1 → recreate exit 0. Actions: https://github.com/perikliev00/Maintenance/actions/runs/38081720492 (success). Следваща задача: T-03 (не е стартирана). |
