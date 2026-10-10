@@ -97,6 +97,7 @@ jobs:
       - run: npx tsx scripts/smoke-attendance-atomic.ts
       - run: npx tsx scripts/smoke-maintenance-atomic.ts
       - run: npx tsx scripts/smoke-daily-plan-atomic.ts
+      - run: npx tsx scripts/smoke-data-scope.ts
 
   smoke-audit-upgrade:
     name: Smoke audit upgrade
