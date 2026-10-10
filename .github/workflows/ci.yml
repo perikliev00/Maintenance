@@ -29,6 +29,7 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npm run build
+      - run: npm run typecheck:tests
 
   web:
     name: Web
@@ -47,6 +48,8 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      - run: npm run typecheck:tests
+      - run: npm test
 
   smoke:
     name: Smoke
@@ -83,9 +86,11 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx prisma migrate deploy
+      - run: npx tsx scripts/assert-sql-invariants.ts
       - run: npm run db:seed
       - run: npm test
       - run: npm run db:seed
+      - run: npx tsx scripts/smoke-ticket-lifecycle-idempotency.ts
       - run: npx tsx scripts/smoke-cleaning-atomic.ts
       - run: npx tsx scripts/smoke-invitation-atomic.ts
       - run: npx tsx scripts/smoke-invitation-role.ts
