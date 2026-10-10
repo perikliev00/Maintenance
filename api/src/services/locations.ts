@@ -385,7 +385,7 @@ export async function createLocation(input: {
         },
         include: locationInclude,
       });
-      await recordAudit(tx, {
+      await recordAudit({
         actorEmployeeId: input.actorEmployeeId,
         action: "location.create",
         entityType: "location",
@@ -399,7 +399,7 @@ export async function createLocation(input: {
           serviceStatus: row.serviceStatus,
         },
         summary: `Created ${row.kind} ${row.number}`,
-      });
+      }, tx);
       return row;
     });
     publish("location.changed", { locationId: created.id });
@@ -442,7 +442,7 @@ export async function updateLocation(
         },
         include: locationInclude,
       });
-      await recordAudit(tx, {
+      await recordAudit({
         actorEmployeeId: input.actorEmployeeId,
         action: "location.update",
         entityType: "location",
@@ -459,7 +459,7 @@ export async function updateLocation(
           kind: row.kind,
         },
         summary: `Updated location ${row.number}`,
-      });
+      }, tx);
       return row;
     });
     publish("location.changed", { locationId: updated.id });
@@ -485,7 +485,7 @@ export async function archiveLocation(id: string, actorEmployeeId?: string) {
       data: { catalogStatus: CatalogStatus.archived },
       include: locationInclude,
     });
-    await recordAudit(tx, {
+    await recordAudit({
       actorEmployeeId,
       action: "location.archive",
       entityType: "location",
@@ -494,7 +494,7 @@ export async function archiveLocation(id: string, actorEmployeeId?: string) {
       before: { catalogStatus: existing.catalogStatus },
       after: { catalogStatus: CatalogStatus.archived },
       summary: `Archived location ${row.number}`,
-    });
+    }, tx);
     return row;
   });
   publish("location.changed", { locationId: updated.id });
@@ -517,7 +517,7 @@ export async function restoreLocation(id: string, actorEmployeeId?: string) {
       data: { catalogStatus: CatalogStatus.active },
       include: locationInclude,
     });
-    await recordAudit(tx, {
+    await recordAudit({
       actorEmployeeId,
       action: "location.restore",
       entityType: "location",
@@ -526,7 +526,7 @@ export async function restoreLocation(id: string, actorEmployeeId?: string) {
       before: { catalogStatus: existing.catalogStatus },
       after: { catalogStatus: CatalogStatus.active },
       summary: `Restored location ${row.number}`,
-    });
+    }, tx);
     return row;
   });
   publish("location.changed", { locationId: updated.id });
@@ -560,7 +560,7 @@ export async function setLocationOccupancy(
       data: { occupancy },
       include: locationInclude,
     });
-    await recordAudit(tx, {
+    await recordAudit({
       actorEmployeeId,
       action: "location.set_occupancy",
       entityType: "location",
@@ -569,7 +569,7 @@ export async function setLocationOccupancy(
       before: { occupancy: existing.occupancy },
       after: { occupancy },
       summary: `Set occupancy of ${row.number} to ${occupancy}`,
-    });
+    }, tx);
     return row;
   });
   publish("location.changed", { locationId: updated.id });
@@ -596,7 +596,7 @@ export async function setLocationServiceStatus(
       data: { serviceStatus },
       include: locationInclude,
     });
-    await recordAudit(tx, {
+    await recordAudit({
       actorEmployeeId,
       action: "location.set_service_status",
       entityType: "location",
@@ -605,7 +605,7 @@ export async function setLocationServiceStatus(
       before: { serviceStatus: existing.serviceStatus },
       after: { serviceStatus },
       summary: `Set service status of ${row.number} to ${serviceStatus}`,
-    });
+    }, tx);
     return row;
   });
   publish("location.changed", { locationId: updated.id });

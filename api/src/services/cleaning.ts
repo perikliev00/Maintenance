@@ -528,7 +528,7 @@ export async function createCleaningTask(input: {
         include: taskInclude,
       });
 
-      await recordAudit(tx, {
+      await recordAudit({
         actorEmployeeId: input.actorEmployeeId,
         action: "cleaning.task.create",
         entityType: "cleaning_task",
@@ -543,7 +543,7 @@ export async function createCleaningTask(input: {
           hotelDate: input.hotelDate,
         },
         summary: `Created cleaning task for ${created.location.number}`,
-      });
+      }, tx);
 
       return created;
     });
@@ -684,7 +684,7 @@ export async function startCleaningTask(input: {
         { requireCurrent: true },
       );
 
-      await recordAudit(tx, {
+      await recordAudit({
         actorEmployeeId: input.employeeId,
         action: "cleaning.task.start",
         entityType: "cleaning_task",
@@ -696,7 +696,7 @@ export async function startCleaningTask(input: {
           sessionId: session.id,
         },
         summary: `Started cleaning ${updatedTask.location.number}`,
-      });
+      }, tx);
 
       return { session, task: updatedTask, idempotent: false };
     });
@@ -852,7 +852,7 @@ export async function completeCleaningSession(input: {
         nextCleaningStatus,
       );
 
-      await recordAudit(tx, {
+      await recordAudit({
         actorEmployeeId: input.employeeId,
         action: "cleaning.session.complete",
         entityType: "cleaning_session",
@@ -867,7 +867,7 @@ export async function completeCleaningSession(input: {
           notes: input.notes?.trim() || null,
         },
         summary: `Completed cleaning ${updatedTask.location.number}`,
-      });
+      }, tx);
 
       return { session: updatedSession, task: updatedTask, idempotent: false };
     });
@@ -1027,7 +1027,7 @@ export async function cancelCleaningSession(input: {
         );
       }
 
-      await recordAudit(tx, {
+      await recordAudit({
         actorEmployeeId: input.employeeId,
         action: "cleaning.session.cancel",
         entityType: "cleaning_session",
@@ -1038,7 +1038,7 @@ export async function cancelCleaningSession(input: {
           notes: input.notes?.trim() || null,
         },
         summary: `Cancelled cleaning session for ${updatedTask.location.number}`,
-      });
+      }, tx);
 
       return { session: updatedSession, task: updatedTask, idempotent: false };
     });
@@ -1135,7 +1135,7 @@ export async function inspectCleaningTask(input: {
           task.cleaningCycle,
           CleaningStatus.verified_clean,
         );
-        await recordAudit(tx, {
+        await recordAudit({
           actorEmployeeId: input.inspectorEmployeeId,
           action: "cleaning.inspect",
           entityType: "inspection",
@@ -1152,7 +1152,7 @@ export async function inspectCleaningTask(input: {
           summary: locationUpdated
             ? `Approved cleaning ${updatedTask.location.number}`
             : `Approved cleaning ${updatedTask.location.number} (stale cycle; location unchanged)`,
-        });
+        }, tx);
         return { inspection, task: updatedTask, idempotent: false };
       }
 
@@ -1173,7 +1173,7 @@ export async function inspectCleaningTask(input: {
         task.cleaningCycle,
         CleaningStatus.dirty,
       );
-      await recordAudit(tx, {
+      await recordAudit({
         actorEmployeeId: input.inspectorEmployeeId,
         action: "cleaning.inspect",
         entityType: "inspection",
@@ -1193,7 +1193,7 @@ export async function inspectCleaningTask(input: {
           : `Rejected cleaning ${updatedTask.location.number} (stale cycle; location unchanged)${
               input.findings?.trim() ? ` — ${input.findings.trim()}` : ""
             }`,
-      });
+      }, tx);
       return { inspection, task: updatedTask, idempotent: false };
     });
     if (!result.idempotent) {
@@ -1331,7 +1331,7 @@ export async function reassignCleaningTask(input: {
       include: taskInclude,
     });
 
-    await recordAudit(tx, {
+    await recordAudit({
       actorEmployeeId: input.actorEmployeeId,
       action: "cleaning.task.reassign",
       entityType: "cleaning_task",
@@ -1347,7 +1347,7 @@ export async function reassignCleaningTask(input: {
         shiftId: result.shiftId,
       },
       summary: `Reassigned cleaning ${result.location.number}`,
-    });
+    }, tx);
 
     return result;
   });
@@ -1462,7 +1462,7 @@ export async function markRoomDirty(
         },
       },
     });
-    await recordAudit(tx, {
+    await recordAudit({
       actorEmployeeId,
       action: "location.mark_dirty",
       entityType: "location",
@@ -1477,7 +1477,7 @@ export async function markRoomDirty(
         cleaningCycle: nextCycle,
       },
       summary: `Marked ${row.number} dirty`,
-    });
+    }, tx);
     return row;
   });
   publish("location.changed", { locationId: updated.id });

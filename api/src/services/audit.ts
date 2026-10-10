@@ -22,20 +22,10 @@ function toJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull 
   return value as Prisma.InputJsonValue;
 }
 
-function isAuditDb(value: unknown): value is AuditDb {
-  return !!value && typeof value === "object" && "auditEvent" in value;
-}
-
 export async function recordAudit(
-  dbOrInput: AuditDb | RecordAuditInput,
-  inputOrDb?: RecordAuditInput | AuditDb,
+  input: RecordAuditInput,
+  db: AuditDb = prisma,
 ) {
-  const db = isAuditDb(dbOrInput)
-    ? dbOrInput
-    : isAuditDb(inputOrDb)
-      ? inputOrDb
-      : prisma;
-  const input = (isAuditDb(dbOrInput) ? inputOrDb : dbOrInput) as RecordAuditInput;
   return db.auditEvent.create({
     data: {
       actorEmployeeId: input.actorEmployeeId ?? null,
@@ -53,15 +43,9 @@ export async function recordAudit(
 }
 
 export async function recordAuditMany(
-  dbOrRows: AuditDb | RecordAuditInput[],
-  rowsOrDb?: RecordAuditInput[] | AuditDb,
+  rows: RecordAuditInput[],
+  db: AuditDb = prisma,
 ) {
-  const db = isAuditDb(dbOrRows)
-    ? dbOrRows
-    : isAuditDb(rowsOrDb)
-      ? rowsOrDb
-      : prisma;
-  const rows = (isAuditDb(dbOrRows) ? rowsOrDb : dbOrRows) as RecordAuditInput[];
   if (!rows.length) return { count: 0 };
   return db.auditEvent.createMany({
     data: rows.map((input) => ({

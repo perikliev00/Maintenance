@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "test:db": "tsx --test src/services/attendance.rebuild.test.ts src/services/cards.filter.test.ts src/services/roleGrants.ensure.test.ts",
+    "test:db": "tsx --test src/services/attendance.rebuild.test.ts src/services/cards.filter.test.ts src/services/roleGrants.ensure.test.ts src/services/audit.write.test.ts",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

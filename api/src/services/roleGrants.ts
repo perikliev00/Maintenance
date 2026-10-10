@@ -337,7 +337,6 @@ export async function replaceRoleGrants(input: {
     }
     if (changes.length) {
       await recordAuditMany(
-        tx,
         changes.map((c) => ({
           actorEmployeeId: input.actorEmployeeId,
           action: c.granted ? "permission.grant" : "permission.revoke",
@@ -353,6 +352,7 @@ export async function replaceRoleGrants(input: {
           },
           summary: `${c.granted ? "Granted" : "Revoked"} ${c.kind} ${c.key} for ${input.targetRole}`,
         })),
+        tx,
       );
     }
   });
