@@ -56,6 +56,8 @@ async function main() {
   await prisma.syncRun.deleteMany().catch(() => undefined);
   await prisma.appSetting.deleteMany();
   await prisma.roleGrant.deleteMany();
+  await prisma.notificationDelivery.deleteMany();
+  await prisma.notification.deleteMany();
   await prisma.user.deleteMany();
   await prisma.employee.deleteMany();
   await prisma.location.deleteMany();
