@@ -32,7 +32,7 @@ export {
   type IntervalCursor,
   type ListIntervalsFilter,
   type ListIntervalsPage,
-} from "../attendanceReports";
+} from "./reports";
 
 export {
   hotelDateAsUtcDate,

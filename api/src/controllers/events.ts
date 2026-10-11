@@ -1,0 +1,271 @@
+import type { Request, Response } from "express";
+import jwt from "jsonwebtoken";
+import type { Role } from "@prisma/client";
+import {
+  authenticateToken,
+  type AuthUser,
+} from "../middleware/auth";
+import { getJwtSecret } from "../auth/tokens";
+import { subscribe, type LiveEvent } from "../events/bus";
+import { canDeliverLiveEvent } from "../events/authorizeLiveEvent";
+import { resolveDataScope, type DataScope } from "../services/dataScope";
+import { assertSessionActive } from "../services/authSessions";
+
+const SSE_TICKET_PURPOSE = "sse" as const;
+const SSE_TICKET_EXPIRES_SEC = 5 * 60;
+const SSE_HEARTBEAT_MS = 25_000;
+
+type SseTicketPayload = {
+  purpose: typeof SSE_TICKET_PURPOSE;
+  userId: string;
+  employeeId: string;
+  role: Role;
+  email: string;
+  sid: string;
+};
+
+function isSseTicketPayload(value: unknown): value is SseTicketPayload {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.purpose === SSE_TICKET_PURPOSE &&
+    typeof v.userId === "string" &&
+    typeof v.employeeId === "string" &&
+    typeof v.role === "string" &&
+    typeof v.email === "string" &&
+    typeof v.sid === "string"
+  );
+}
+
+type AssertSessionActive = typeof assertSessionActive;
+
+/**
+ * Resolve an SSE ticket JWT to AuthUser using the active AuthSession / DB role.
+ * JWT role/email/employeeId claims are ignored for authorization.
+ * Exported for unit tests.
+ */
+export async function resolveSseTicketUser(
+  ticket: string,
+  assertActive: AssertSessionActive = assertSessionActive,
+): Promise<AuthUser | null> {
+  try {
+    const decoded = jwt.verify(ticket, getJwtSecret());
+    if (!isSseTicketPayload(decoded)) return null;
+    const session = await assertActive(decoded.sid, decoded.userId);
+    return authUserFromSession(session);
+  } catch {
+    return null;
+  }
+}
+
+/** Session access token via Authorization: Bearer (preferred). */
+async function authenticateBearer(req: Request): Promise<AuthUser | null> {
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) return null;
+  const token = header.slice("Bearer ".length);
+  try {
+    // Reject SSE tickets presented as Bearer — they belong in ?ticket=
+    const peek = jwt.decode(token);
+    if (
+      peek &&
+      typeof peek === "object" &&
+      (peek as { purpose?: unknown }).purpose === SSE_TICKET_PURPOSE
+    ) {
+      return null;
+    }
+    return await authenticateToken(token);
+  } catch {
+    return null;
+  }
+}
+
+/** Short-lived stream ticket via ?ticket= (EventSource-compatible). */
+async function authenticateTicket(req: Request): Promise<AuthUser | null> {
+  const ticket =
+    typeof req.query.ticket === "string" ? req.query.ticket : null;
+  if (!ticket) return null;
+  return resolveSseTicketUser(ticket);
+}
+
+async function authenticateStream(req: Request): Promise<AuthUser | null> {
+  const viaBearer = await authenticateBearer(req);
+  if (viaBearer) return viaBearer;
+
+  // httpOnly session cookie (same-origin / credentialed fetch stream)
+  const cookieToken =
+    typeof req.cookies?.session === "string" ? req.cookies.session : null;
+  if (cookieToken) {
+    try {
+      const peek = jwt.decode(cookieToken);
+      if (
+        peek &&
+        typeof peek === "object" &&
+        (peek as { purpose?: unknown }).purpose === SSE_TICKET_PURPOSE
+      ) {
+        return null;
+      }
+      return await authenticateToken(cookieToken);
+    } catch {
+      /* fall through */
+    }
+  }
+
+  return authenticateTicket(req);
+}
+
+function writeSse(res: Response, event: string, data: unknown) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function authUserFromSession(
+  session: Awaited<ReturnType<AssertSessionActive>>,
+): AuthUser {
+  return {
+    userId: session.user.id,
+    employeeId: session.user.employeeId,
+    role: session.user.role,
+    email: session.user.email,
+    sid: session.id,
+  };
+}
+
+export class SseScopeRefreshError extends Error {
+  constructor(message = "Failed to resolve data scope") {
+    super(message);
+    this.name = "SseScopeRefreshError";
+  }
+}
+
+/**
+ * Heartbeat refresh: assert session still active, then always re-resolve
+ * DataScope so sector grant/revoke takes effect without reconnect.
+ * Exported for unit tests.
+ */
+export async function refreshSseSubscriberState(
+  currentUser: AuthUser,
+  deps: {
+    assertActive?: AssertSessionActive;
+    resolveScope?: typeof resolveDataScope;
+  } = {},
+): Promise<{ currentUser: AuthUser; scope: DataScope }> {
+  const assertActive = deps.assertActive ?? assertSessionActive;
+  const resolveScope = deps.resolveScope ?? resolveDataScope;
+  const session = await assertActive(currentUser.sid, currentUser.userId);
+  const next = authUserFromSession(session);
+  try {
+    const scope = await resolveScope(next);
+    return { currentUser: next, scope };
+  } catch (err) {
+    console.error("resolveDataScope failed on SSE heartbeat", err);
+    throw new SseScopeRefreshError();
+  }
+}
+
+export function issueTicket(req: Request, res: Response) {
+  const user = req.user!;
+  const payload: SseTicketPayload = {
+    purpose: SSE_TICKET_PURPOSE,
+    userId: user.userId,
+    employeeId: user.employeeId,
+    role: user.role,
+    email: user.email,
+    sid: user.sid,
+  };
+  const token = jwt.sign(payload, getJwtSecret(), {
+    expiresIn: SSE_TICKET_EXPIRES_SEC,
+  });
+  res.json({ token, expiresIn: SSE_TICKET_EXPIRES_SEC });
+}
+
+export async function stream(req: Request, res: Response) {
+  const user = await authenticateStream(req);
+  if (!user) {
+    return res.status(401).json({
+      error: "unauthorized",
+      message: "Missing or invalid token",
+    });
+  }
+
+  let currentUser = user;
+  let scope: DataScope;
+  try {
+    scope = await resolveDataScope(currentUser);
+  } catch (err) {
+    console.error("resolveDataScope failed for SSE", err);
+    return res.status(500).json({
+      error: "internal",
+      message: "Failed to resolve data scope",
+    });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+
+  writeSse(res, "connected", {
+    ok: true,
+    userId: currentUser.userId,
+    at: new Date().toISOString(),
+  });
+
+  let closed = false;
+  const onLive = (event: LiveEvent) => {
+    if (closed) return;
+    void (async () => {
+      try {
+        if (!(await canDeliverLiveEvent(scope, event))) return;
+        if (closed) return;
+        writeSse(res, event.type, event);
+      } catch (err) {
+        console.error("SSE deliver filter failed", err);
+      }
+    })();
+  };
+  const unsubscribe = subscribe(onLive);
+
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    if (heartbeat !== undefined) clearInterval(heartbeat);
+    unsubscribe();
+  };
+
+  heartbeat = setInterval(() => {
+    if (closed) return;
+    void (async () => {
+      try {
+        // Always re-resolve scope: sector membership can change without
+        // role/employeeId/email changing (revoked or newly granted sectors).
+        const refreshed = await refreshSseSubscriberState(currentUser);
+        currentUser = refreshed.currentUser;
+        scope = refreshed.scope;
+        if (closed) return;
+        res.write(`: ping ${Date.now()}\n\n`);
+      } catch (err) {
+        if (closed) return;
+        if (err instanceof SseScopeRefreshError) {
+          writeSse(res, "revoked", {
+            ok: false,
+            reason: "scope_refresh_failed",
+          });
+          cleanup();
+          res.end();
+          return;
+        }
+        writeSse(res, "revoked", { ok: false, reason: "session_revoked" });
+        cleanup();
+        res.end();
+      }
+    })();
+  }, SSE_HEARTBEAT_MS);
+
+  req.on("close", cleanup);
+  req.on("error", cleanup);
+  return undefined;
+}

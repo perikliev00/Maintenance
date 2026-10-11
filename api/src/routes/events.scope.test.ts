@@ -4,7 +4,7 @@ import { Role } from "@prisma/client";
 import {
   refreshSseSubscriberState,
   SseScopeRefreshError,
-} from "./events";
+} from "../controllers/events";
 import type { AuthUser } from "../middleware/auth";
 import type { DataScope } from "../services/dataScope";
 

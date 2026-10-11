@@ -1,40 +1,24 @@
 import { Prisma, AttendanceIntervalStatus } from "@prisma/client";
-import { prisma } from "../db";
-import { AppError } from "../errors";
-import { addDaysYmd, asFlags, hotelDateKey } from "./attendanceRules";
-import { hotelDateString } from "./hotelTime";
-import { getOperations } from "./settings";
-
-export const LIST_DEFAULT_LIMIT = 200;
-/** Max page size for a single list request (not a hard total cap) */
-export const LIST_MAX_LIMIT = 500;
-/** Batch size when draining all rows for CSV export */
-export const EXPORT_BATCH = 1000;
-/** Hard ceiling for a single CSV export response */
-export const EXPORT_CEILING = 50_000;
-
-const intervalInclude = {
-  employee: {
-    select: {
-      id: true,
-      fullName: true,
-      employeeNumber: true,
-      department: true,
-    },
-  },
-  adjustments: {
-    orderBy: { createdAt: "desc" as const },
-    take: 5,
-    include: {
-      requestedBy: {
-        select: { id: true, fullName: true, employeeNumber: true },
-      },
-      reviewedBy: {
-        select: { id: true, fullName: true, employeeNumber: true },
-      },
-    },
-  },
-} satisfies Prisma.AttendanceIntervalInclude;
+import { prisma } from "../../../db";
+import { AppError } from "../../../errors";
+import { addDaysYmd, hotelDateKey } from "../../attendanceRules";
+import { hotelDateString } from "../../hotelTime";
+import { getOperations } from "../../settings";
+import {
+  EXPORT_BATCH,
+  EXPORT_CEILING,
+  intervalInclude,
+  mapInterval,
+  type ListIntervalsFilter,
+  type ListIntervalsPage,
+} from "./map";
+import {
+  decodeIntervalCursor,
+  drainExportPages,
+  listPageFromRows,
+  resolveListLimit,
+  type IntervalCursor,
+} from "./pagination";
 
 function monthRange(month: string): { from: Date; to: Date } {
   const [y, m] = month.split("-").map(Number);
@@ -44,137 +28,6 @@ function monthRange(month: string): { from: Date; to: Date } {
   const from = new Date(Date.UTC(y, m - 1, 1));
   const to = new Date(Date.UTC(y, m, 1));
   return { from, to };
-}
-
-export function mapInterval(
-  row: Prisma.AttendanceIntervalGetPayload<{ include: typeof intervalInclude }>,
-) {
-  return {
-    id: row.id,
-    employeeId: row.employeeId,
-    employee: row.employee,
-    hotelDate: row.hotelDate.toISOString().slice(0, 10),
-    startedAt: row.startedAt.toISOString(),
-    endedAt: row.endedAt?.toISOString() ?? null,
-    breakMinutes: row.breakMinutes,
-    workedMinutes: row.workedMinutes,
-    status: row.status,
-    anomalyFlags: asFlags(row.anomalyFlags),
-    startEventId: row.startEventId,
-    endEventId: row.endEventId,
-    adjustments: row.adjustments.map((a) => ({
-      id: a.id,
-      status: a.status,
-      reason: a.reason,
-      proposedStartedAt: a.proposedStartedAt?.toISOString() ?? null,
-      proposedEndedAt: a.proposedEndedAt?.toISOString() ?? null,
-      proposedBreakMinutes: a.proposedBreakMinutes,
-      requestedBy: a.requestedBy,
-      reviewedBy: a.reviewedBy,
-      createdAt: a.createdAt.toISOString(),
-      reviewedAt: a.reviewedAt?.toISOString() ?? null,
-    })),
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
-
-export type ListIntervalsFilter = {
-  scope?: "month" | "today" | "week" | "review";
-  month?: string;
-  department?: string;
-  q?: string;
-  employeeId?: string;
-};
-
-export type ListIntervalsPage = {
-  limit?: number;
-  cursor?: string;
-};
-
-export type IntervalCursor = {
-  hotelDate: string;
-  startedAt: string;
-  id: string;
-};
-
-export function encodeIntervalCursor(c: IntervalCursor): string {
-  return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
-}
-
-export function decodeIntervalCursor(raw: string): IntervalCursor {
-  try {
-    const parsed = JSON.parse(
-      Buffer.from(raw, "base64url").toString("utf8"),
-    ) as Partial<IntervalCursor>;
-    if (
-      typeof parsed.hotelDate !== "string" ||
-      typeof parsed.startedAt !== "string" ||
-      typeof parsed.id !== "string"
-    ) {
-      throw new Error("invalid");
-    }
-    return {
-      hotelDate: parsed.hotelDate,
-      startedAt: parsed.startedAt,
-      id: parsed.id,
-    };
-  } catch {
-    throw new AppError(400, "validation", "Invalid attendance cursor");
-  }
-}
-
-/** Clamp a requested list page size into [1, LIST_MAX_LIMIT]. */
-export function resolveListLimit(requested?: number): number {
-  return Math.min(
-    Math.max(1, requested ?? LIST_DEFAULT_LIMIT),
-    LIST_MAX_LIMIT,
-  );
-}
-
-/**
- * Slice a findMany result fetched with `take: limit + 1` into a page plus
- * opaque nextCursor. Used by listIntervals so pagination is unit-testable.
- */
-export function listPageFromRows<T>(
-  rows: T[],
-  limit: number,
-  toCursor: (row: T) => IntervalCursor,
-): { pageRows: T[]; nextCursor: string | null; limit: number } {
-  const hasMore = rows.length > limit;
-  const pageRows = hasMore ? rows.slice(0, limit) : rows;
-  const last = pageRows[pageRows.length - 1];
-  const nextCursor =
-    hasMore && last ? encodeIntervalCursor(toCursor(last)) : null;
-  return { pageRows, nextCursor, limit };
-}
-
-/**
- * Drain all pages via cursor batches until exhausted or ceiling is hit.
- * Used by listIntervalsForExport so full CSV export is unit-testable.
- */
-export async function drainExportPages<T>(opts: {
-  batchSize: number;
-  ceiling: number;
-  fetchPage: (cursor: IntervalCursor | null) => Promise<T[]>;
-  toCursor: (row: T) => IntervalCursor;
-}): Promise<{ rows: T[]; truncated: boolean }> {
-  const rows: T[] = [];
-  let cursor: IntervalCursor | null = null;
-  for (;;) {
-    const batch = await opts.fetchPage(cursor);
-    if (!batch.length) break;
-    for (const row of batch) {
-      rows.push(row);
-    }
-    if (batch.length < opts.batchSize) break;
-    const last = batch[batch.length - 1]!;
-    cursor = opts.toCursor(last);
-    if (rows.length >= opts.ceiling) {
-      return { rows: rows.slice(0, opts.ceiling), truncated: true };
-    }
-  }
-  return { rows, truncated: false };
 }
 
 async function resolveDateWindow(
@@ -376,46 +229,4 @@ export async function maxClockSkewSeconds(
     if (max == null || abs > max) max = abs;
   }
   return max;
-}
-
-/** Quote a CSV cell when it contains comma, quote, CR, or LF (doubling internal quotes). */
-function escapeCsvCell(value: string): string {
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
-
-export function intervalsToCsv(
-  rows: ReturnType<typeof mapInterval>[],
-): string {
-  const header = [
-    "hotelDate",
-    "employeeNumber",
-    "fullName",
-    "department",
-    "startedAt",
-    "endedAt",
-    "breakMinutes",
-    "workedMinutes",
-    "status",
-    "anomalyFlags",
-  ].map(escapeCsvCell);
-  const lines = [header.join(",")];
-  for (const r of rows) {
-    const cells = [
-      r.hotelDate,
-      r.employee.employeeNumber,
-      r.employee.fullName,
-      r.employee.department ?? "",
-      r.startedAt,
-      r.endedAt ?? "",
-      String(r.breakMinutes),
-      r.workedMinutes == null ? "" : String(r.workedMinutes),
-      r.status,
-      r.anomalyFlags.join("|"),
-    ].map(escapeCsvCell);
-    lines.push(cells.join(","));
-  }
-  return lines.join("\n");
 }

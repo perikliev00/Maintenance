@@ -3,10 +3,10 @@ import { describe, it } from "node:test";
 import jwt from "jsonwebtoken";
 import { Role } from "@prisma/client";
 import { AppError } from "../errors";
-import { resolveSseTicketUser } from "./events";
+import { resolveSseTicketUser } from "../controllers/events";
 
 /**
- * Mirrors api/src/routes/events.ts ticket contract without booting Express/DB.
+ * Mirrors api/src/controllers/events.ts ticket contract without booting Express/DB.
  */
 const SSE_TICKET_PURPOSE = "sse";
 const SSE_TICKET_EXPIRES_SEC = 5 * 60;

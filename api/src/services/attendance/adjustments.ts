@@ -2,7 +2,7 @@ import {
   assertValidAdjustmentTimes,
   computeWorkedMinutes,
 } from "../attendanceRules";
-import { getInterval } from "../attendanceReports";
+import { getInterval } from "./reports";
 import {
   AttendanceAdjustmentStatus,
   AttendanceIntervalStatus,

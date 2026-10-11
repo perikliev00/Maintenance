@@ -1,18 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
-import { getMyWork } from "../services/myWork";
+import * as MyWorkController from "../controllers/myWork";
 
 export const myWorkRouter = Router();
 
-myWorkRouter.get("/", requireAuth, async (req, res, next) => {
-  try {
-    const hotelDate =
-      typeof req.query.hotelDate === "string" ? req.query.hotelDate : undefined;
-    const shiftId =
-      typeof req.query.shiftId === "string" ? req.query.shiftId : undefined;
-    const data = await getMyWork(req.user!, hotelDate, shiftId);
-    return res.json(data);
-  } catch (err) {
-    return next(err);
-  }
-});
+myWorkRouter.get("/", requireAuth, MyWorkController.list);

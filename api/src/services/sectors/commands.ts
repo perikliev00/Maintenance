@@ -1,78 +1,14 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "../db";
-import { AppError } from "../errors";
-import { recordAudit } from "./audit";
-import type { DataScope } from "./dataScope";
-
-const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
-const OUT_OF_SCOPE = "Outside your permitted data scope";
-
-export type SectorMembershipAuth = {
-  scope: DataScope;
-  allowCrossSectorTransfer: boolean;
-};
-
-export function assertHhMm(value: string, field: string) {
-  if (!HH_MM.test(value)) {
-    throw new AppError(400, "validation", `${field} must be HH:mm`);
-  }
-}
-
-const sectorInclude = {
-  primarySupervisor: {
-    select: { id: true, fullName: true, employeeNumber: true },
-  },
-  locations: {
-    include: {
-      location: {
-        select: {
-          id: true,
-          number: true,
-          kind: true,
-          floor: {
-            select: {
-              number: true,
-              building: { select: { code: true, name: true } },
-            },
-          },
-        },
-      },
-    },
-  },
-  _count: { select: { locations: true } },
-} satisfies Prisma.SectorInclude;
-
-function mapSector(
-  sector: Prisma.SectorGetPayload<{ include: typeof sectorInclude }>,
-) {
-  return {
-    id: sector.id,
-    propertyId: sector.propertyId,
-    code: sector.code,
-    nameBg: sector.nameBg,
-    nameEn: sector.nameEn,
-    isActive: sector.isActive,
-    primarySupervisor: sector.primarySupervisor
-      ? {
-          id: sector.primarySupervisor.id,
-          fullName: sector.primarySupervisor.fullName,
-          employeeNumber: sector.primarySupervisor.employeeNumber,
-        }
-      : null,
-    locationCount: sector._count.locations,
-    locations: sector.locations.map((sl) => ({
-      id: sl.location.id,
-      number: sl.location.number,
-      kind: sl.location.kind,
-      floor: sl.location.floor.number,
-      buildingCode: sl.location.floor.building.code,
-      building: sl.location.floor.building.name,
-    })),
-    locationIds: sector.locations.map((sl) => sl.locationId),
-    createdAt: sector.createdAt,
-    updatedAt: sector.updatedAt,
-  };
-}
+import { prisma } from "../../db";
+import { AppError } from "../../errors";
+import { recordAudit } from "../audit";
+import type { DataScope } from "../dataScope";
+import { mapSector, sectorInclude } from "./format";
+import {
+  replaceMembership,
+  type SectorMembershipAuth,
+} from "./membership";
+import { getSector } from "./queries";
 
 async function resolvePropertyId(explicit?: string) {
   if (explicit) {
@@ -91,45 +27,6 @@ async function resolvePropertyId(explicit?: string) {
   return first.id;
 }
 
-export async function listSectors(
-  includeInactive = false,
-  scopeFilter?: Prisma.SectorWhereInput,
-) {
-  const rows = await prisma.sector.findMany({
-    where: {
-      ...(includeInactive ? {} : { isActive: true }),
-      ...(scopeFilter ?? {}),
-    },
-    include: sectorInclude,
-    orderBy: [{ code: "asc" }],
-  });
-  return rows.map(mapSector);
-}
-
-/** Active sectors where the employee is primary supervisor (§5 „свои сектори“). */
-export async function listMySectors(employeeId: string) {
-  const rows = await prisma.sector.findMany({
-    where: {
-      primarySupervisorEmployeeId: employeeId,
-      isActive: true,
-    },
-    include: sectorInclude,
-    orderBy: [{ code: "asc" }],
-  });
-  return rows.map(mapSector);
-}
-
-export async function getSector(id: string) {
-  const sector = await prisma.sector.findUnique({
-    where: { id },
-    include: sectorInclude,
-  });
-  if (!sector) {
-    throw new AppError(404, "not_found", "Sector not found");
-  }
-  return mapSector(sector);
-}
-
 async function assertSupervisor(employeeId: string | null | undefined) {
   if (!employeeId) return;
   const employee = await prisma.employee.findUnique({
@@ -138,92 +35,6 @@ async function assertSupervisor(employeeId: string | null | undefined) {
   });
   if (!employee) {
     throw new AppError(400, "validation", "Supervisor employee not found");
-  }
-}
-
-async function assertDestinationInScope(
-  scope: DataScope,
-  sectorId: string,
-): Promise<void> {
-  if (scope.kind === "all") return;
-  if (scope.kind === "sectors" && scope.sectorIds.includes(sectorId)) return;
-  throw new AppError(403, "forbidden", OUT_OF_SCOPE);
-}
-
-/**
- * Pure decision: whether moving location from sourceSectorId → destinationSectorId
- * is allowed for this actor. Exported for unit tests.
- */
-export function assertLocationTransferAllowed(
-  auth: SectorMembershipAuth,
-  destinationSectorId: string,
-  sourceSectorId: string | null,
-): void {
-  if (sourceSectorId === destinationSectorId) return;
-
-  const sourceInOwnSectors =
-    auth.scope.kind === "sectors" &&
-    sourceSectorId != null &&
-    auth.scope.sectorIds.includes(sourceSectorId);
-
-  if (sourceInOwnSectors) return;
-
-  if (!auth.allowCrossSectorTransfer) {
-    throw new AppError(403, "forbidden", OUT_OF_SCOPE);
-  }
-}
-
-/**
- * Authoritative membership replace: destination + per-location source checks
- * run inside the same transaction as the writes (TOCTOU-safe).
- *
- * - Rebalance among own sectors (kind=sectors, source in sectorIds): allowed.
- * - Unassigned / foreign / any inter-sector move for kind=all: requires
- *   allowCrossSectorTransfer.
- */
-async function replaceMembership(
-  tx: Prisma.TransactionClient,
-  sectorId: string,
-  locationIds: string[],
-  auth: SectorMembershipAuth,
-) {
-  await assertDestinationInScope(auth.scope, sectorId);
-
-  const unique = [...new Set(locationIds)];
-  if (unique.length) {
-    const found = await tx.location.findMany({
-      where: { id: { in: unique } },
-      select: { id: true },
-    });
-    if (found.length !== unique.length) {
-      throw new AppError(400, "validation", "One or more locations not found");
-    }
-
-    const memberships = await tx.sectorLocation.findMany({
-      where: { locationId: { in: unique } },
-      select: { locationId: true, sectorId: true },
-    });
-    const sourceByLocation = new Map(
-      memberships.map((m) => [m.locationId, m.sectorId]),
-    );
-
-    for (const locationId of unique) {
-      const sourceSectorId = sourceByLocation.get(locationId) ?? null;
-      assertLocationTransferAllowed(auth, sectorId, sourceSectorId);
-    }
-
-    await tx.sectorLocation.deleteMany({
-      where: {
-        locationId: { in: unique },
-        sectorId: { not: sectorId },
-      },
-    });
-  }
-  await tx.sectorLocation.deleteMany({ where: { sectorId } });
-  if (unique.length) {
-    await tx.sectorLocation.createMany({
-      data: unique.map((locationId) => ({ sectorId, locationId })),
-    });
   }
 }
 
@@ -416,13 +227,3 @@ export async function setSectorLocations(
   });
   return getSector(id);
 }
-
-export {
-  assertActiveShiftId,
-  createShift,
-  getEmployeeRosterShiftId,
-  listShiftRoster,
-  listShifts,
-  updateShift,
-  upsertShiftRoster,
-} from "./shifts";
