@@ -3,13 +3,12 @@ import { LocationKind } from "@prisma/client";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { markRoomDirty } from "../services/cleaning";
 import {
-  assertCanAccessLocation,
   locationWhere,
   resolveDataScope,
 } from "../services/dataScope";
 import {
   findActiveLocations,
-  findLocationById,
+  loadScopedLocation,
   mapLocation,
 } from "../services/locations";
 
@@ -31,11 +30,10 @@ roomsRouter.get("/", requireAuth, requireAction("rooms.view"), async (req, res, 
 roomsRouter.get("/:id", requireAuth, requireAction("rooms.view"), async (req, res, next) => {
   try {
     const scope = await resolveDataScope(req.user!);
-    const location = await findLocationById(req.params.id, LocationKind.room);
-    if (!location) {
-      return res.status(404).json({ error: "not_found", message: "Room not found" });
-    }
-    await assertCanAccessLocation(scope, location.id);
+    const location = await loadScopedLocation(scope, req.params.id, {
+      kind: LocationKind.room,
+      notFoundMessage: "Room not found",
+    });
     return res.json(mapLocation(location));
   } catch (err) {
     return next(err);
@@ -49,11 +47,10 @@ roomsRouter.post(
   async (req, res, next) => {
     try {
       const scope = await resolveDataScope(req.user!);
-      const existing = await findLocationById(req.params.id, LocationKind.room);
-      if (!existing) {
-        return res.status(404).json({ error: "not_found", message: "Room not found" });
-      }
-      await assertCanAccessLocation(scope, existing.id);
+      await loadScopedLocation(scope, req.params.id, {
+        kind: LocationKind.room,
+        notFoundMessage: "Room not found",
+      });
       const location = await markRoomDirty(
         req.params.id,
         req.user!.employeeId,

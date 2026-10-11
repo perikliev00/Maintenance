@@ -14,10 +14,10 @@ import {
 import {
   archiveLocation,
   createLocation,
-  findLocationById,
   findLocationByQrToken,
   getLocationHierarchy,
   listLocationsCatalog,
+  loadScopedLocation,
   locationQrPayload,
   mapLocation,
   restoreLocation,
@@ -151,13 +151,7 @@ locationsRouter.patch(
       }
 
       const scope = await resolveDataScope(req.user!);
-      const existing = await findLocationById(req.params.id);
-      if (!existing) {
-        return res
-          .status(404)
-          .json({ error: "not_found", message: "Location not found" });
-      }
-      await assertCanAccessLocation(scope, existing.id);
+      await loadScopedLocation(scope, req.params.id);
 
       const location = await setLocationOccupancy(
         req.params.id,
@@ -186,13 +180,7 @@ locationsRouter.patch(
       }
 
       const scope = await resolveDataScope(req.user!);
-      const existing = await findLocationById(req.params.id);
-      if (!existing) {
-        return res
-          .status(404)
-          .json({ error: "not_found", message: "Location not found" });
-      }
-      await assertCanAccessLocation(scope, existing.id);
+      await loadScopedLocation(scope, req.params.id);
 
       const location = await setLocationServiceStatus(
         req.params.id,
@@ -213,13 +201,7 @@ locationsRouter.post(
   async (req, res, next) => {
     try {
       const scope = await resolveDataScope(req.user!);
-      const existing = await findLocationById(req.params.id);
-      if (!existing) {
-        return res
-          .status(404)
-          .json({ error: "not_found", message: "Location not found" });
-      }
-      await assertCanAccessLocation(scope, existing.id);
+      await loadScopedLocation(scope, req.params.id);
       const location = await archiveLocation(
         req.params.id,
         req.user!.employeeId,
@@ -238,13 +220,7 @@ locationsRouter.post(
   async (req, res, next) => {
     try {
       const scope = await resolveDataScope(req.user!);
-      const existing = await findLocationById(req.params.id);
-      if (!existing) {
-        return res
-          .status(404)
-          .json({ error: "not_found", message: "Location not found" });
-      }
-      await assertCanAccessLocation(scope, existing.id);
+      await loadScopedLocation(scope, req.params.id);
       const location = await restoreLocation(
         req.params.id,
         req.user!.employeeId,
@@ -262,15 +238,10 @@ locationsRouter.get(
   requireAction("sectors.manage"),
   async (req, res, next) => {
     try {
-      const location = await findLocationById(req.params.id);
-      if (!location || location.catalogStatus !== "active") {
-        return res.status(404).json({
-          error: "not_found",
-          message: "Location not found",
-        });
-      }
       const scope = await resolveDataScope(req.user!);
-      await assertCanAccessLocation(scope, location.id);
+      const location = await loadScopedLocation(scope, req.params.id, {
+        activeOnly: true,
+      });
       return res.json(locationQrPayload(location));
     } catch (err) {
       return next(err);
@@ -307,13 +278,7 @@ locationsRouter.patch(
       }
 
       const scope = await resolveDataScope(req.user!);
-      const existing = await findLocationById(req.params.id);
-      if (!existing) {
-        return res
-          .status(404)
-          .json({ error: "not_found", message: "Location not found" });
-      }
-      await assertCanAccessLocation(scope, existing.id);
+      await loadScopedLocation(scope, req.params.id);
 
       const location = await updateLocation(req.params.id, {
         floorId: parsed.data.floorId,

@@ -73,3 +73,13 @@ export async function assertActiveMaintenanceAssignee(
     MAINTENANCE_ASSIGNEE_MESSAGE,
   );
 }
+
+export async function listActiveHousekeepers() {
+  return prisma.employee.findMany({
+    where: {
+      user: { role: { in: [...CLEANING_ASSIGNEE_ROLES] }, isActive: true },
+    },
+    select: { id: true, fullName: true, employeeNumber: true },
+    orderBy: { fullName: "asc" },
+  });
+}
