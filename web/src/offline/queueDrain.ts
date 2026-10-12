@@ -16,6 +16,7 @@ import {
   scheduleBackoff,
   setDraining,
 } from "./connState";
+import { recoverOrphanedSending } from "./recoverOrphaned";
 import {
   deleteQueuedAction,
   listQueueForUser,
@@ -106,16 +107,6 @@ async function markSending(items: QueuedAction[]): Promise<QueuedAction[]> {
   }
   notify("syncing");
   return next;
-}
-
-function recoverOrphanedSending(rows: QueuedAction[]): QueuedAction[] {
-  const now = Date.now();
-  return rows.map((row) => {
-    if (row.status === "sending") {
-      return { ...row, status: "pending" as const, updatedAt: now };
-    }
-    return row;
-  });
 }
 
 async function applySyncResult(

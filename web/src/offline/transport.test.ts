@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { postJsonWithSessionRefresh } from "./index";
+import { postJsonWithSessionRefresh } from "./transport";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {

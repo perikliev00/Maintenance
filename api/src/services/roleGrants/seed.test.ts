@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 
 const CONTROL_SEED_ID = "grants.t03.control";
 const DB_NAME_PREFIX = "maintenance_t03_grants";
-const API_ROOT = path.resolve(__dirname, "../..");
+const API_ROOT = path.resolve(__dirname, "../../..");
 const CHILD_PATH = path.join(API_ROOT, "tests", "roleGrants.bootstrap.child.ts");
 
 // Prefer api/.env over a stale shell DATABASE_URL (dotenv default does not override).

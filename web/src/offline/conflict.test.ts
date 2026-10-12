@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   canRebaseConflict,
   decideSyncResult,
+  entityIdFromQueued,
   parseConflictDetails,
   rebaseBodyWithCurrentVersion,
   shouldTreatForbiddenAsConflict,
@@ -122,5 +123,110 @@ describe("parseConflictDetails", () => {
     });
     assert.equal(d?.currentVersion, 3);
     assert.equal(d?.assignedEmployeeId, null);
+  });
+});
+
+describe("entityIdFromQueued", () => {
+  it("prefers body taskId over sessionId, ticketId, and URL", () => {
+    assert.equal(
+      entityIdFromQueued("cleaning.start", "/api/tasks/from-url/start", {
+        taskId: "task-body",
+        sessionId: "sess-body",
+        ticketId: "tkt-body",
+      }),
+      "task-body",
+    );
+    assert.equal(
+      entityIdFromQueued("cleaning.complete", "/api/sessions/from-url/complete", {
+        sessionId: "sess-body",
+        ticketId: "tkt-body",
+      }),
+      "sess-body",
+    );
+    assert.equal(
+      entityIdFromQueued("ticket.resolve", "/api/tickets/from-url/resolve", {
+        ticketId: "tkt-body",
+      }),
+      "tkt-body",
+    );
+  });
+
+  it("falls through empty-string body fields to URL", () => {
+    assert.equal(
+      entityIdFromQueued("cleaning.start", "/api/tasks/task-url/start", {
+        taskId: "",
+      }),
+      "task-url",
+    );
+  });
+
+  it("parses cleaning.start task id from URL", () => {
+    assert.equal(
+      entityIdFromQueued("cleaning.start", "/api/tasks/task-9/start", {}),
+      "task-9",
+    );
+  });
+
+  it("parses cleaning.complete session id from URL", () => {
+    assert.equal(
+      entityIdFromQueued(
+        "cleaning.complete",
+        "/api/sessions/sess-9/complete",
+        {},
+      ),
+      "sess-9",
+    );
+  });
+
+  it("parses ticket.* ticket id from URL", () => {
+    assert.equal(
+      entityIdFromQueued("ticket.wait", "/api/tickets/tkt-9/wait", {}),
+      "tkt-9",
+    );
+  });
+
+  it("returns null for missing URL segments or unknown types", () => {
+    assert.equal(entityIdFromQueued("cleaning.start", "/api/other", {}), null);
+    assert.equal(entityIdFromQueued("unknown.op", "/api/tasks/x", {}), null);
+  });
+
+  it("ignores non-string body ids and falls through to URL", () => {
+    assert.equal(
+      entityIdFromQueued("cleaning.start", "/api/tasks/t1/start", {
+        taskId: 123,
+      }),
+      "t1",
+    );
+    assert.equal(
+      entityIdFromQueued("ticket.start", "/api/tickets/from-url/start", {
+        sessionId: 1,
+        ticketId: "tkt-1",
+      }),
+      "tkt-1",
+    );
+  });
+
+  it("falls through empty sessionId/ticketId to URL", () => {
+    assert.equal(
+      entityIdFromQueued("cleaning.complete", "/api/sessions/s1/complete", {
+        sessionId: "",
+      }),
+      "s1",
+    );
+    assert.equal(
+      entityIdFromQueued("ticket.report", "/api/tickets/tkt-r/report", {
+        ticketId: "",
+      }),
+      "tkt-r",
+    );
+  });
+
+  it("returns empty/null for malformed tasks URL or type–URL mismatch", () => {
+    // `/tasks/` yields an empty segment (not nullish), so the helper returns "".
+    assert.equal(entityIdFromQueued("cleaning.start", "/api/tasks/", {}), "");
+    assert.equal(
+      entityIdFromQueued("cleaning.complete", "/api/tasks/t1/start", {}),
+      null,
+    );
   });
 });

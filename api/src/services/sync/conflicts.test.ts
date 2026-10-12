@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { accessLossConflictResult } from "./sync";
+import { accessLossConflictResult } from "./conflicts";
 
 describe("accessLossConflictResult", () => {
   it("returns assignee_conflict with task snapshot details", () => {

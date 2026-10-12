@@ -11,13 +11,13 @@ import {
   rebuildIntervalsForEmployee,
   requestAdjustment,
   reviewAdjustment,
-} from "./attendance";
+} from "./index";
 import {
   cleanupEmployeeGraph,
   createEmployeeWithUser,
   ensureUnrelatedControlFixture,
   UNRELATED_CONTROL_EMAIL,
-} from "../../tests/fixtures";
+} from "../../../tests/fixtures";
 
 const prisma = new PrismaClient();
 

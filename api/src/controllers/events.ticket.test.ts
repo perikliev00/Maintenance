@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import jwt from "jsonwebtoken";
 import { Role } from "@prisma/client";
 import { AppError } from "../errors";
-import { resolveSseTicketUser } from "../controllers/events";
+import { resolveSseTicketUser } from "./events";
 
 /**
  * Mirrors api/src/controllers/events.ts ticket contract without booting Express/DB.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { AttendanceIntervalStatus } from "@prisma/client";
-import { intervalsToCsv } from "./attendance";
+import { intervalsToCsv } from "./csv";
 
 type CsvRow = Parameters<typeof intervalsToCsv>[0][number];
 

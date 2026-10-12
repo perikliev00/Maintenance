@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Occupancy } from "@prisma/client";
-import { classifyDepartureRoomEffects } from "./dailyPlan";
+import { classifyDepartureRoomEffects } from "./departure";
 
 describe("classifyDepartureRoomEffects", () => {
   const today = "2026-10-09";

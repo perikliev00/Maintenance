@@ -4,7 +4,7 @@ import {
   UNBOUND_CLEANING_CYCLE,
   formatCleaningHotelDate,
   isFutureHotelDate,
-} from "./cleaning";
+} from "./cycles";
 
 describe("cleaning cycle date helpers", () => {
   it("formatCleaningHotelDate uses UTC YMD", () => {

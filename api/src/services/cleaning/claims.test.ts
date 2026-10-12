@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { AppError } from "../errors";
-import { taskConflictDetails } from "./cleaning";
+import { AppError } from "../../errors";
+import { assertTaskVersion, taskConflictDetails } from "./claims";
 
 describe("taskConflictDetails", () => {
   it("includes currentVersion, status, assignee, and expectedVersion", () => {
@@ -73,5 +73,34 @@ describe("taskConflictDetails", () => {
       (err.details as { currentVersion: number }).currentVersion,
       2,
     );
+  });
+});
+
+describe("assertTaskVersion", () => {
+  const task = {
+    version: 4,
+    status: "assigned",
+    assignedEmployeeId: "emp-a",
+  };
+
+  it("allows matching version", () => {
+    assert.doesNotThrow(() => assertTaskVersion(task, 4));
+  });
+
+  it("allows missing expected version", () => {
+    assert.doesNotThrow(() => assertTaskVersion(task));
+    assert.doesNotThrow(() => assertTaskVersion(task, undefined));
+  });
+
+  it("rejects stale version with version_conflict details", () => {
+    try {
+      assertTaskVersion(task, 2);
+      assert.fail("expected version_conflict");
+    } catch (err) {
+      assert.ok(err instanceof AppError);
+      assert.equal(err.status, 409);
+      assert.equal(err.code, "version_conflict");
+      assert.deepEqual(err.details, taskConflictDetails(task, 2));
+    }
   });
 });

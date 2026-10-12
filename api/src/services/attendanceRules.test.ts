@@ -1,0 +1,661 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { AttendanceEventKind, AttendanceIntervalStatus } from "@prisma/client";
+import { AppError } from "../errors";
+import {
+  OPEN_MISSING_END_HOURS,
+  assertValidAdjustmentTimes,
+  computeWorkedMinutes,
+  eventRequiresIntervalLink,
+  pairEventsToIntervalDrafts,
+  uniqueFlags,
+  type RebuildEvent,
+} from "./attendanceRules";
+
+describe("assertValidAdjustmentTimes", () => {
+  const start = new Date("2026-10-08T08:00:00.000Z");
+
+  it("allows end after start with break within span", () => {
+    const end = new Date("2026-10-08T16:00:00.000Z");
+    assert.doesNotThrow(() => assertValidAdjustmentTimes(start, end, 30));
+    assert.doesNotThrow(() => assertValidAdjustmentTimes(start, end, 480));
+  });
+
+  it("skips checks when endedAt is null (open interval)", () => {
+    assert.doesNotThrow(() => assertValidAdjustmentTimes(start, null, 999));
+  });
+
+  it("rejects end before start", () => {
+    const end = new Date("2026-10-08T07:00:00.000Z");
+    assert.throws(
+      () => assertValidAdjustmentTimes(start, end, 0),
+      (err: unknown) =>
+        err instanceof AppError &&
+        err.status === 400 &&
+        err.code === "validation" &&
+        err.message === "End must be after start",
+    );
+  });
+
+  it("rejects end equal to start", () => {
+    assert.throws(
+      () => assertValidAdjustmentTimes(start, start, 0),
+      (err: unknown) =>
+        err instanceof AppError &&
+        err.status === 400 &&
+        err.code === "validation" &&
+        err.message === "End must be after start",
+    );
+  });
+
+  it("rejects break minutes that exceed interval duration", () => {
+    const end = new Date("2026-10-08T09:00:00.000Z"); // 60 minutes
+    assert.throws(
+      () => assertValidAdjustmentTimes(start, end, 61),
+      (err: unknown) =>
+        err instanceof AppError &&
+        err.status === 400 &&
+        err.code === "validation" &&
+        err.message === "Break minutes exceed interval duration",
+    );
+  });
+});
+
+function ev(
+  partial: Partial<RebuildEvent> &
+    Pick<RebuildEvent, "id" | "kind" | "normalizedTime">,
+): RebuildEvent {
+  return {
+    clockSkewSeconds: null,
+    ...partial,
+  };
+}
+
+describe("attendance ingest rebuild pairing", () => {
+  it("pairs clock_in then clock_out into a closed interval", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.startEventId, "in1");
+    assert.equal(drafts[0]!.endEventId, "out1");
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.closed);
+    assert.equal(drafts[0]!.workedMinutes, 480);
+  });
+
+  it("restores intervals from an event stream after a partial apply gap", () => {
+    // Simulates: clock_in event exists but interval never written; later
+    // clock_out arrives — full rebuild must create the closed interval.
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "orphan-in",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T09:00:00.000Z"),
+        }),
+        ev({
+          id: "out",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T17:30:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.startEventId, "orphan-in");
+    assert.equal(drafts[0]!.endEventId, "out");
+    assert.equal(drafts[0]!.workedMinutes, 510);
+  });
+
+  it("leaves adjusted (frozen) ranges untouched and skips overlapping events", () => {
+    const frozenStart = new Date("2026-10-06T08:00:00.000Z").getTime();
+    const frozenEnd = new Date("2026-10-06T12:00:00.000Z").getTime();
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in-frozen",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+        ev({
+          id: "out-frozen",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T12:00:00.000Z"),
+        }),
+        ev({
+          id: "in2",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T13:00:00.000Z"),
+        }),
+        ev({
+          id: "out2",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T17:00:00.000Z"),
+        }),
+      ],
+      frozen: [{ startMs: frozenStart, endMs: frozenEnd }],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.startEventId, "in2");
+    assert.equal(drafts[0]!.endEventId, "out2");
+  });
+
+  it("flags duplicate clock_in while open and orphan clock_out", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+        ev({
+          id: "in2",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T09:00:00.000Z"),
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+        ev({
+          id: "orphan-out",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T18:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 2);
+    assert.ok(drafts[0]!.anomalyFlags.includes("duplicate_kind"));
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+    assert.ok(drafts[1]!.anomalyFlags.includes("missing_end"));
+    assert.equal(drafts[1]!.endEventId, "orphan-out");
+  });
+
+  it("keeps open clock_in as open just under OPEN_MISSING_END_HOURS", () => {
+    const startedAt = new Date("2026-10-06T08:00:00.000Z");
+    const now = new Date(
+      startedAt.getTime() + (OPEN_MISSING_END_HOURS * 3600_000 - 1),
+    );
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: startedAt,
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+      now,
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.open);
+    assert.ok(!drafts[0]!.anomalyFlags.includes("missing_end"));
+  });
+
+  it("flags open clock_in as needs_review at OPEN_MISSING_END_HOURS", () => {
+    const startedAt = new Date("2026-10-06T08:00:00.000Z");
+    const now = new Date(
+      startedAt.getTime() + OPEN_MISSING_END_HOURS * 3600_000,
+    );
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: startedAt,
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+      now,
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+    assert.ok(drafts[0]!.anomalyFlags.includes("missing_end"));
+  });
+
+  it("flags open clock_in as needs_review past OPEN_MISSING_END_HOURS", () => {
+    const startedAt = new Date("2026-10-06T08:00:00.000Z");
+    const now = new Date(
+      startedAt.getTime() + (OPEN_MISSING_END_HOURS + 6.5) * 3600_000,
+    );
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: startedAt,
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+      now,
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+    assert.ok(drafts[0]!.anomalyFlags.includes("missing_end"));
+  });
+
+  it("counts breaks inside an interval window", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+        ev({
+          id: "bs",
+          kind: AttendanceEventKind.break_start,
+          normalizedTime: new Date("2026-10-06T12:00:00.000Z"),
+        }),
+        ev({
+          id: "be",
+          kind: AttendanceEventKind.break_end,
+          normalizedTime: new Date("2026-10-06T12:30:00.000Z"),
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.breakMinutes, 30);
+    assert.equal(drafts[0]!.workedMinutes, 450);
+  });
+
+  it("marks clock kinds as start/end links (breaks attach by time window)", () => {
+    // Heal-on-retry rebuilds whenever findIntervalForEvent returns null for
+    // any kind; this helper only documents pairing roles.
+    assert.equal(eventRequiresIntervalLink(AttendanceEventKind.clock_in), true);
+    assert.equal(eventRequiresIntervalLink(AttendanceEventKind.clock_out), true);
+    assert.equal(
+      eventRequiresIntervalLink(AttendanceEventKind.break_start),
+      false,
+    );
+  });
+
+  it("does not flag skew just under 1800s", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+          clockSkewSeconds: 1799,
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.closed);
+    assert.ok(!drafts[0]!.anomalyFlags.includes("large_clock_skew"));
+  });
+
+  it("flags large_clock_skew at exactly 1800s", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+          clockSkewSeconds: 1800,
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.ok(drafts[0]!.anomalyFlags.includes("large_clock_skew"));
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+  });
+
+  it("flags large_clock_skew for negative skew at -1800", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+          clockSkewSeconds: -1800,
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.ok(drafts[0]!.anomalyFlags.includes("large_clock_skew"));
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+  });
+
+  it("propagates skew from break events while open", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+        ev({
+          id: "bs",
+          kind: AttendanceEventKind.break_start,
+          normalizedTime: new Date("2026-10-06T12:00:00.000Z"),
+          clockSkewSeconds: 1800,
+        }),
+        ev({
+          id: "be",
+          kind: AttendanceEventKind.break_end,
+          normalizedTime: new Date("2026-10-06T12:30:00.000Z"),
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.ok(drafts[0]!.anomalyFlags.includes("large_clock_skew"));
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+  });
+
+  it("merges skew from duplicate clock_in into closed interval", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+        ev({
+          id: "in2",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T09:00:00.000Z"),
+          clockSkewSeconds: 1800,
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.ok(drafts[0]!.anomalyFlags.includes("duplicate_kind"));
+    assert.ok(drafts[0]!.anomalyFlags.includes("large_clock_skew"));
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+  });
+
+  it("does not flag absurd_duration at exactly 16 hours", () => {
+    const start = new Date("2026-10-06T08:00:00.000Z");
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: start,
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date(start.getTime() + 16 * 3600_000),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.ok(!drafts[0]!.anomalyFlags.includes("absurd_duration"));
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.closed);
+  });
+
+  it("flags absurd_duration just over 16 hours", () => {
+    const start = new Date("2026-10-06T08:00:00.000Z");
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: start,
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date(start.getTime() + 16 * 3600_000 + 1),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.ok(drafts[0]!.anomalyFlags.includes("absurd_duration"));
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+  });
+
+  it("flags absurd_duration when clock_out precedes clock_in", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.ok(drafts[0]!.anomalyFlags.includes("absurd_duration"));
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.needs_review);
+  });
+
+  it("open interval has null workedMinutes", () => {
+    const startedAt = new Date("2026-10-06T08:00:00.000Z");
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: startedAt,
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+      now: new Date(startedAt.getTime() + 3600_000),
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.endedAt, null);
+    assert.equal(drafts[0]!.workedMinutes, null);
+  });
+
+  it("sums multiple break pairs in the window", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+        ev({
+          id: "bs1",
+          kind: AttendanceEventKind.break_start,
+          normalizedTime: new Date("2026-10-06T10:00:00.000Z"),
+        }),
+        ev({
+          id: "be1",
+          kind: AttendanceEventKind.break_end,
+          normalizedTime: new Date("2026-10-06T10:15:00.000Z"),
+        }),
+        ev({
+          id: "bs2",
+          kind: AttendanceEventKind.break_start,
+          normalizedTime: new Date("2026-10-06T13:00:00.000Z"),
+        }),
+        ev({
+          id: "be2",
+          kind: AttendanceEventKind.break_end,
+          normalizedTime: new Date("2026-10-06T13:15:00.000Z"),
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.breakMinutes, 30);
+    assert.equal(drafts[0]!.workedMinutes, 450);
+  });
+
+  it("ignores break_end without break_start", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+        ev({
+          id: "be",
+          kind: AttendanceEventKind.break_end,
+          normalizedTime: new Date("2026-10-06T12:00:00.000Z"),
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.breakMinutes, 0);
+    assert.equal(drafts[0]!.workedMinutes, 480);
+  });
+
+  it("ignores unfinished break_start", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "in1",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-06T08:00:00.000Z"),
+        }),
+        ev({
+          id: "bs",
+          kind: AttendanceEventKind.break_start,
+          normalizedTime: new Date("2026-10-06T12:00:00.000Z"),
+        }),
+        ev({
+          id: "out1",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-06T16:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.breakMinutes, 0);
+    assert.equal(drafts[0]!.workedMinutes, 480);
+  });
+});
+
+describe("computeWorkedMinutes", () => {
+  const start = new Date("2026-10-08T08:00:00.000Z");
+
+  it("returns null when endedAt is null", () => {
+    assert.equal(computeWorkedMinutes(start, null, 999), null);
+  });
+
+  it("subtracts break from rounded span", () => {
+    const end = new Date("2026-10-08T16:00:00.000Z");
+    assert.equal(computeWorkedMinutes(start, end, 30), 450);
+  });
+
+  it("clamps to zero when break exceeds span", () => {
+    const end = new Date("2026-10-08T09:00:00.000Z");
+    assert.equal(computeWorkedMinutes(start, end, 90), 0);
+  });
+
+  it("rounds fractional minutes via Math.round", () => {
+    const end = new Date(start.getTime() + 90_000);
+    assert.equal(computeWorkedMinutes(start, end, 0), 2);
+  });
+
+  it("allows zero-length span to yield zero", () => {
+    assert.equal(computeWorkedMinutes(start, start, 0), 0);
+  });
+});
+
+describe("uniqueFlags", () => {
+  it("dedupes while preserving first-seen order", () => {
+    assert.deepEqual(uniqueFlags(["overlap", "missing_end", "overlap"]), [
+      "overlap",
+      "missing_end",
+    ]);
+  });
+
+  it("returns empty array for empty input", () => {
+    assert.deepEqual(uniqueFlags([]), []);
+  });
+
+  it("leaves already-unique flags unchanged", () => {
+    assert.deepEqual(uniqueFlags(["absurd_duration", "large_clock_skew"]), [
+      "absurd_duration",
+      "large_clock_skew",
+    ]);
+  });
+});

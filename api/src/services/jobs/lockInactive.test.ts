@@ -6,7 +6,7 @@ import {
   latestActivityAt,
   runLockInactiveUsers,
   type LockInactiveClaimDb,
-} from "./jobs";
+} from "./lockInactive";
 
 const cutoff = new Date("2026-09-01T00:00:00.000Z");
 const stale = new Date("2026-07-01T00:00:00.000Z");

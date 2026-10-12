@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Role } from "@prisma/client";
-import { AppError } from "../errors";
-import type { DataScope } from "./dataScope";
+import { AppError } from "../../errors";
+import type { DataScope } from "../dataScope";
 import {
   assertLocationTransferAllowed,
   type SectorMembershipAuth,
-} from "./sectors";
+} from "./membership";
 
 function sectorsScope(sectorIds: string[]): DataScope {
   return {

@@ -5,7 +5,7 @@ import {
   claimStaleOpenInterval,
   OPEN_MISSING_END_HOURS,
   type StaleOpenClaimDb,
-} from "./attendance";
+} from "./index";
 
 type Row = {
   status: AttendanceIntervalStatus;

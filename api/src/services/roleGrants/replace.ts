@@ -1,40 +1,14 @@
 import { GrantKind, Role } from "@prisma/client";
 import { prisma } from "../../db";
 import { AppError } from "../../errors";
-import {
-  MATRIX_ROLES,
-  type Action,
-  type Panel,
-  isAction,
-  isPanel,
-} from "../../permissions";
+import { MATRIX_ROLES } from "../../permissions";
 import { recordAuditMany } from "../audit";
 import {
   getGrantMap,
   invalidateGrantCache,
-  type RoleGrants,
 } from "./cache";
+import { normalizePanelsActions } from "./normalize";
 import { editableRolesFor, getGrantsForRole } from "./query";
-
-function normalizePanelsActions(
-  panelsIn: string[],
-  actionsIn: string[],
-): RoleGrants {
-  const actions = Array.from(
-    new Set(actionsIn.filter(isAction)),
-  ) as Action[];
-  let panels = Array.from(new Set(panelsIn.filter(isPanel))) as Panel[];
-
-  const hasManage = actions.includes("permissions.manage");
-  if (hasManage && !panels.includes("permissions")) {
-    panels = [...panels, "permissions"];
-  }
-  if (!hasManage) {
-    panels = panels.filter((p) => p !== "permissions");
-  }
-
-  return { panels, actions };
-}
 
 export async function replaceRoleGrants(input: {
   targetRole: Role;
