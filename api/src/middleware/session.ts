@@ -68,15 +68,23 @@ export function clearAuthCookies(res: Response): void {
 
 export type AuthVia = "bearer" | "cookie";
 
+/**
+ * Non-empty Bearer access token after trimming (incl. Unicode whitespace like U+00A0).
+ * Empty/whitespace-only "Bearer …" is not usable auth — callers fall through to cookies.
+ */
+export function readBearerAccessToken(req: Request): string | null {
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) return null;
+  const token = header.slice("Bearer ".length).trim();
+  return token || null;
+}
+
 export function extractAccessToken(req: Request): {
   token: string;
   via: AuthVia;
 } | null {
-  const header = req.headers.authorization;
-  if (header?.startsWith("Bearer ")) {
-    const token = header.slice("Bearer ".length).trim();
-    if (token) return { token, via: "bearer" };
-  }
+  const bearer = readBearerAccessToken(req);
+  if (bearer) return { token: bearer, via: "bearer" };
   const cookieToken = req.cookies?.[SESSION_COOKIE];
   if (typeof cookieToken === "string" && cookieToken) {
     return { token: cookieToken, via: "cookie" };
@@ -97,15 +105,14 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
  * CSRF double-submit for cookie-authenticated mutating requests.
- * Bearer clients (scripts) skip this check.
+ *
+ * Skip only when a usable Bearer token will authenticate the request and no
+ * refresh cookie is present (refresh/logout prefer the cookie over Bearer).
+ * Whitespace-only Bearer (e.g. "Bearer \\u00A0") does not skip — auth falls
+ * through to cookies, so CSRF must apply.
  */
 export function requireCsrf(req: Request, res: Response, next: NextFunction) {
   if (SAFE_METHODS.has(req.method.toUpperCase())) {
-    return next();
-  }
-
-  const header = req.headers.authorization;
-  if (header?.startsWith("Bearer ")) {
     return next();
   }
 
@@ -115,6 +122,12 @@ export function requireCsrf(req: Request, res: Response, next: NextFunction) {
   const hasRefreshCookie =
     typeof req.cookies?.[REFRESH_COOKIE] === "string" &&
     Boolean(req.cookies[REFRESH_COOKIE]);
+
+  // Usable Bearer authenticates access without cookies; refresh cookie means
+  // /auth/refresh (and logout fallback) still act via cookie → require CSRF.
+  if (readBearerAccessToken(req) && !hasRefreshCookie) {
+    return next();
+  }
 
   if (!hasSessionCookie && !hasRefreshCookie) {
     return next();
