@@ -1,3 +1,4 @@
+/** My Work repair tickets list; lifecycle actions are permission-gated via `canResolve`. */
 import type { MaintenanceTicket } from "../../api/client";
 import {
   TicketLifecycleActions,
@@ -5,11 +6,16 @@ import {
 } from "../../components/TicketLifecycleActions";
 import { t, statusLabel } from "./labels";
 
+/** Compact building-code + room number for a My Work ticket card. */
 function ticketLocationLabel(ticket: MaintenanceTicket): string {
   const b = ticket.location.floor.building.code;
   return `${b} ${ticket.location.number}`;
 }
 
+/**
+ * My Work repair tickets list.
+ * Lifecycle actions are permission-gated via `canResolve`.
+ */
 export function TicketsSection({
   locale,
   tickets,
@@ -47,10 +53,12 @@ export function TicketsSection({
               <p>{ticket.title}</p>
               <p className="muted">
                 {ticket.priority}
+                {/* Call out blocking tickets so housekeepers can see impact. */}
                 {ticket.blocksRoom
                   ? ` · ${t(locale, "блокира стая", "blocks room")}`
                   : ""}
               </p>
+              {/* Shared lifecycle buttons; busyId scopes disable to one card. */}
               <TicketLifecycleActions
                 ticket={ticket}
                 busy={busyId === ticket.id}

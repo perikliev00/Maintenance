@@ -1,3 +1,9 @@
+/**
+ * IndexedDB persistence for the per-user outbox and My Work cache.
+ *
+ * DB v2 rebuilds stores so legacy unscoped v1 rows cannot be attributed to a
+ * user after a shared-device login (safer to drop than to guess ownership).
+ */
 export type QueueActionStatus =
   | "pending"
   | "sending"
@@ -13,6 +19,7 @@ export type QueueCommandType =
   | "ticket.resolve"
   | "ticket.report";
 
+/** One idempotent command waiting to sync (`commandId` is the server dedupe key). */
 export type QueuedAction = {
   id: string;
   userId: string;
@@ -31,6 +38,7 @@ export type QueuedAction = {
   retries: number;
 };
 
+/** Last-known My Work lists for offline UI when live fetches fail. */
 export type MyWorkCachePayload = {
   tasks: unknown[];
   tickets: unknown[];
@@ -43,10 +51,12 @@ const DB_VERSION = 2;
 const QUEUE_STORE = "queue";
 const CACHE_STORE = "cache";
 
+/** Cache store key so My Work snapshots stay per-user. */
 function cacheKeyFor(userId: string): string {
   return `mywork:${userId}`;
 }
 
+/** Open (and upgrade) the offline IndexedDB; closes are owned by callers. */
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -54,6 +64,7 @@ function openDb(): Promise<IDBDatabase> {
       const db = req.result;
       const oldVersion = event.oldVersion;
 
+      // Fresh install: create scoped queue + cache stores.
       if (oldVersion < 1) {
         if (!db.objectStoreNames.contains(QUEUE_STORE)) {
           const queue = db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
@@ -88,6 +99,7 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+/** Run one request inside a transaction and close the DB when it completes. */
 async function withStore<T>(
   storeName: string,
   mode: IDBTransactionMode,
@@ -109,19 +121,23 @@ async function withStore<T>(
   });
 }
 
+/** Upsert one outbox row (id is the primary key). */
 export async function putQueuedAction(row: QueuedAction): Promise<void> {
   await withStore(QUEUE_STORE, "readwrite", (store) => store.put(row));
 }
 
+/** Remove one outbox row after successful sync or dismiss. */
 export async function deleteQueuedAction(id: string): Promise<void> {
   await withStore(QUEUE_STORE, "readwrite", (store) => store.delete(id));
 }
 
+/** All queue rows for one user (caller filters by status). */
 export async function listQueueForUser(userId: string): Promise<QueuedAction[]> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(QUEUE_STORE, "readonly");
     const store = tx.objectStore(QUEUE_STORE);
+    // Index lookup — never scan other users' rows.
     const index = store.index("userId");
     const req = index.getAll(userId);
     req.onsuccess = () => {
@@ -135,11 +151,13 @@ export async function listQueueForUser(userId: string): Promise<QueuedAction[]> 
   });
 }
 
+/** Wipe entire queue + cache stores (logout / account switch purge). */
 export async function clearOfflineStores(): Promise<void> {
   await withStore(QUEUE_STORE, "readwrite", (store) => store.clear());
   await withStore(CACHE_STORE, "readwrite", (store) => store.clear());
 }
 
+/** Persist My Work snapshot under the per-user cache key. */
 export async function writeMyWorkCache(
   userId: string,
   payload: MyWorkCachePayload,
@@ -149,6 +167,7 @@ export async function writeMyWorkCache(
   );
 }
 
+/** Load My Work snapshot; strips the internal `key` field before returning. */
 export async function readMyWorkCache(
   userId: string,
 ): Promise<MyWorkCachePayload | null> {
@@ -162,6 +181,7 @@ export async function readMyWorkCache(
       if (!row) {
         resolve(null);
       } else {
+        // Drop the store key so callers see only the payload shape.
         const { key: _k, ...rest } = row;
         resolve(rest);
       }

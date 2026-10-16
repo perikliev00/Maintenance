@@ -1,6 +1,9 @@
+/**
+ * Location catalog and live board: CRUD, occupancy/service status, scoped load.
+ */
 export { locationInclude } from "./types";
 export type { LocationForMap } from "./types";
-export { mapLocation, mapRoom } from "./format";
+export { mapLocation } from "./format";
 export { loadScopedLocation } from "./access";
 export {
   findActiveLocations,

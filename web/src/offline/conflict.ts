@@ -1,4 +1,11 @@
-/** Shared offline conflict helpers (pure — unit-testable). */
+/**
+ * Pure offline conflict helpers (unit-testable, no I/O).
+ *
+ * Version conflicts can be rebased by advancing `expectedVersion`; assignee /
+ * scope losses cannot — those need human dismiss or a different action.
+ * Some 403 "forbidden" sync results are really reassignment conflicts and are
+ * mapped into the conflict bucket so Retry/Rebase UI still applies.
+ */
 
 export type ConflictDetails = {
   expectedVersion?: number;
@@ -13,6 +20,7 @@ export const NON_REBASEABLE_CODES = new Set([
   "out_of_scope",
 ]);
 
+/** Narrow unknown sync `details` into typed conflict fields (best-effort). */
 export function parseConflictDetails(raw: unknown): ConflictDetails | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -26,6 +34,7 @@ export function parseConflictDetails(raw: unknown): ConflictDetails | null {
   if (typeof o.status === "string") {
     details.status = o.status;
   }
+  // null is a valid "unassigned" signal from the server.
   if (
     o.assignedEmployeeId === null ||
     typeof o.assignedEmployeeId === "string"
@@ -35,10 +44,15 @@ export function parseConflictDetails(raw: unknown): ConflictDetails | null {
   return details;
 }
 
+/**
+ * Rebase is only safe when the server gave a numeric `currentVersion` and the
+ * code is not an ownership/scope loss (retrying those would keep failing).
+ */
 export function canRebaseConflict(
   conflictCode: string | null | undefined,
   details: unknown,
 ): boolean {
+  // Assignee / scope losses need dismiss, not version bump.
   if (conflictCode && NON_REBASEABLE_CODES.has(conflictCode)) return false;
   const parsed = parseConflictDetails(details);
   return typeof parsed?.currentVersion === "number";
@@ -50,6 +64,10 @@ export const FORBIDDEN_AS_CONFLICT_CODES = new Set([
   "out_of_scope",
 ]);
 
+/**
+ * Some 403 sync results are reassignment/scope conflicts (show Retry/Rebase UI)
+ * rather than hard permission denials (stay in failed).
+ */
 export function shouldTreatForbiddenAsConflict(
   code: string | null | undefined,
   message: string | null | undefined,
@@ -57,6 +75,7 @@ export function shouldTreatForbiddenAsConflict(
   // True permission denials ("Missing cleaning.start") stay failed.
   if (message && /^Missing\s/i.test(message)) return false;
   if (code && FORBIDDEN_AS_CONFLICT_CODES.has(code)) return true;
+  // Heuristic on human-readable messages when code is missing.
   if (
     message &&
     (/reassigned/i.test(message) ||
@@ -96,9 +115,11 @@ export function decideSyncResult(
   retries: number,
   maxRetries: number,
 ): QueuedActionPatch {
+  // Success — remove from outbox.
   if (result.status === "ok") {
     return { status: "deleted" };
   }
+  // Explicit version / state conflict — park for rebase UI.
   if (result.status === "conflict") {
     return {
       status: "conflict",
@@ -109,6 +130,7 @@ export function decideSyncResult(
     };
   }
   if (result.status === "forbidden") {
+    // Reassignment-style 403 → conflict bucket; true ACL miss → failed.
     if (
       shouldTreatForbiddenAsConflict(result.code ?? null, result.message ?? null)
     ) {
@@ -129,6 +151,7 @@ export function decideSyncResult(
       retries: retries + 1,
     };
   }
+  // Other errors: retry until maxRetries, then failed.
   const next = retries + 1;
   return {
     status: next >= maxRetries ? "failed" : "pending",
@@ -146,18 +169,22 @@ export function rebaseBodyWithCurrentVersion(
   details: unknown,
 ): Record<string, unknown> | null {
   const parsed = parseConflictDetails(details);
+  // Without currentVersion there is nothing safe to advance to.
   if (typeof parsed?.currentVersion !== "number") return null;
   return { ...body, expectedVersion: parsed.currentVersion };
 }
 
+/** Best-effort entity id for UI grouping (body fields, else path segments). */
 export function entityIdFromQueued(
   type: string,
   url: string,
   body: Record<string, unknown>,
 ): string | null {
+  // Prefer explicit body ids when present.
   if (typeof body.taskId === "string" && body.taskId) return body.taskId;
   if (typeof body.sessionId === "string" && body.sessionId) return body.sessionId;
   if (typeof body.ticketId === "string" && body.ticketId) return body.ticketId;
+  // Fall back to parsing REST paths used by cleaning/ticket commands.
   if (type === "cleaning.start") {
     return url.split("/tasks/")[1]?.split("/")[0] ?? null;
   }

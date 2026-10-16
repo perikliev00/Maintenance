@@ -1,3 +1,4 @@
+/** Theme / locale / density defaults for the UI. */
 import type { Dispatch, SetStateAction } from "react";
 import type { LabelFn } from "./constants";
 
@@ -7,14 +8,20 @@ type Props = {
   label: LabelFn;
 };
 
+/**
+ * UI defaults editors: theme, locale, and density bound to the settings draft.
+ */
 export function InterfaceTab({ draft, setDraft, label }: Props) {
+  // Early / value return.
   return (
     <div className="settings-form">
       <label>
         {label("Тема по подразбиране", "Default theme")}
         <select
+          // Fall back to dark when unset so the select stays controlled.
           value={String((draft as { defaultTheme?: string }).defaultTheme ?? "dark")}
           onChange={(e) =>
+            // State transition.
             setDraft((p) => ({ ...p, defaultTheme: e.target.value }))
           }
         >
@@ -27,6 +34,7 @@ export function InterfaceTab({ draft, setDraft, label }: Props) {
         <select
           value={String((draft as { locale?: string }).locale ?? "bg")}
           onChange={(e) =>
+            // State transition.
             setDraft((p) => ({ ...p, locale: e.target.value }))
           }
         >
@@ -39,6 +47,7 @@ export function InterfaceTab({ draft, setDraft, label }: Props) {
         <select
           value={String((draft as { density?: string }).density ?? "comfortable")}
           onChange={(e) =>
+            // State transition.
             setDraft((p) => ({ ...p, density: e.target.value }))
           }
         >

@@ -1,5 +1,7 @@
+/** Snapshot payload for the operations live board (sessions + attention queue). */
 import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
 
+// Module export.
 export type LiveBoardLocation = {
   id: string;
   number: string;
@@ -8,12 +10,14 @@ export type LiveBoardLocation = {
   floor: number;
 };
 
+// Module export.
 export type LiveBoardEmployee = {
   id: string;
   fullName: string;
   employeeNumber: string;
 };
 
+// Module export.
 export type LiveActiveSession = {
   sessionId: string;
   taskId: string;
@@ -25,6 +29,7 @@ export type LiveActiveSession = {
   location: LiveBoardLocation;
 };
 
+// Module export.
 export type LiveCompletedSession = {
   sessionId: string;
   taskId: string;
@@ -72,9 +77,15 @@ export type OperationsLive = {
   };
 };
 
+/**
+ * One-shot live board snapshot (active sessions, attention queue, audit feed).
+ * Prefer SSE via `liveEvents` for continuous updates; this is the initial load.
+ */
 export async function fetchOperationsLive(): Promise<OperationsLive> {
+  // Initial board load; continuous updates come from `subscribeLiveEvents`.
   const res = await apiFetch(`${API_BASE}/operations/live`, {
     headers: authHeaders(),
   });
+  // Return value / early exit.
   return parseJson(res);
 }

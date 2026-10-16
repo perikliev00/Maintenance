@@ -1,3 +1,8 @@
+/**
+ * Read-only audit event list with loading / forbidden / error empty states.
+ * `accessDenied` is separate from generic `error` so callers can show a soft
+ * “no access” message without treating it as a hard failure.
+ */
 import type { AuditEventRow } from "../api/client";
 import { auditHeadline } from "../audit/labels";
 
@@ -5,11 +10,15 @@ type Props = {
   events: AuditEventRow[];
   emptyLabel?: string;
   loading?: boolean;
+  /** Permission denial for this timeline (distinct from fetch errors). */
   accessDenied?: boolean;
   error?: string | null;
   locale?: "bg" | "en";
 };
 
+/**
+ * AuditTimeline React component / page.
+ */
 export function AuditTimeline({
   events,
   emptyLabel = "Няма записи.",
@@ -18,6 +27,7 @@ export function AuditTimeline({
   error,
   locale = "bg",
 }: Props) {
+  // Ordered empty states: loading → permission → error → empty list.
   if (loading) {
     return <p className="muted">Зареждане…</p>;
   }
@@ -39,6 +49,7 @@ export function AuditTimeline({
             <span className="muted">
               {new Date(ev.occurredAt).toLocaleString()}
             </span>
+            {/* Actor is optional on system-generated events. */}
             {ev.actor && (
               <span className="audit-timeline-actor">{ev.actor.fullName}</span>
             )}
@@ -46,6 +57,7 @@ export function AuditTimeline({
           <div className="audit-timeline-summary">
             {auditHeadline(ev, locale)}
           </div>
+          {/* Optional free-text reason from the mutating action. */}
           {ev.reason && (
             <div className="muted audit-timeline-reason">
               Причина: {ev.reason}

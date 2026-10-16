@@ -1,6 +1,13 @@
+/**
+ * Background job: notify on open tickets past dueAt (SLA not paused).
+ * Dedupes via a recent `ticket.sla_breach` audit within 12 hours.
+ */
+// Ticket, audit, and notification tables for breach scan + dedupe.
 import { prisma } from "../../db";
+// Status filter shared with ticket list queries (excludes waiting/terminal).
 import { OPEN_TICKET_STATUSES } from "../../constants";
 import { recordAudit } from "../audit";
+// SSE bus for live ticket panels after breach is recorded.
 import { publish } from "../../events/bus";
 import {
   createNotifications,
@@ -8,10 +15,17 @@ import {
 } from "../notifications";
 import { startJobRun, finishJobRun } from "./runLifecycle";
 
+/**
+ * Find past-due open tickets and emit breach notifications/audits.
+ * @returns Counts of breached tickets scanned and those that created inbox rows.
+ */
 export async function runTicketSlaBreach() {
+  // Persist JobRun row for ops visibility before any DB work.
   const run = await startJobRun("ticket_sla_breach");
   try {
+    // Single clock for dueAt comparison, dedupe window, and notification keys.
     const now = new Date();
+    // Open + past dueAt + SLA not paused (waiting tickets are excluded).
     const tickets = await prisma.maintenanceTicket.findMany({
       where: {
         status: { in: [...OPEN_TICKET_STATUSES] },
@@ -28,9 +42,12 @@ export async function runTicketSlaBreach() {
         location: { select: { number: true } },
       },
     });
+    // Empty result still finishes JobRun ok with zero counts.
 
+    // Tickets that actually inserted at least one notification this run.
     let notified = 0;
     for (const ticket of tickets) {
+      // Dedupe: skip if we already audited a breach within the last 12 hours.
       const recent = await prisma.auditEvent.findFirst({
         where: {
           entityType: "maintenance_ticket",
@@ -40,8 +57,11 @@ export async function runTicketSlaBreach() {
         },
         select: { id: true },
       });
+      // 12h window matches audit occurredAt filter above.
+      // Already notified recently — skip duplicate breach handling.
       if (recent) continue;
 
+      // System audit doubles as the 12h dedupe marker.
       await recordAudit({
         actorEmployeeId: null,
         action: "ticket.sla_breach",
@@ -49,22 +69,28 @@ export async function runTicketSlaBreach() {
         entityId: ticket.id,
         after: {
           status: ticket.status,
+          // ISO dueAt preserved for audit timeline display.
           dueAt: ticket.dueAt?.toISOString() ?? null,
         },
       });
+      // Push live ticket update to SSE subscribers for boards and detail views.
       publish("ticket.changed", {
         ticketId: ticket.id,
         locationId: ticket.locationId,
       });
 
+      // Assignee plus ops with tickets.assign for this location's scope.
+      // Location-scoped ops holding tickets.assign receive supervisor copies.
       const supervisors = await recipientsForLocationOps(
         ticket.locationId,
         "tickets.assign",
       );
+      // Assignee first when present; supervisors may overlap (deduped downstream).
       const recipients = [
         ...(ticket.assigneeId ? [ticket.assigneeId] : []),
         ...supervisors,
       ];
+      // Hour-bucketed dedupeKey limits inbox spam if the job runs often.
       const result = await createNotifications({
         type: "ticket.sla_breach",
         title: "Ticket SLA breached",
@@ -76,23 +102,28 @@ export async function runTicketSlaBreach() {
         recipientEmployeeIds: recipients,
         dedupeKey: `ticket.sla_breach:${ticket.id}:${now.toISOString().slice(0, 13)}`,
         payload: {
+          // Deep-link hints for the web client notification drawer.
           panel: "repairs",
           ticketId: ticket.id,
           locationId: ticket.locationId,
           locationNumber: ticket.location.number,
         },
       });
+      // Count only tickets that actually created at least one notification row.
       if (result.created > 0) notified += 1;
     }
 
+    // Mark JobRun success with scan vs notify counts for the jobs panel.
     await finishJobRun(run.id, "ok", {
       breached: tickets.length,
       notified,
     });
     return { breached: tickets.length, notified };
   } catch (err) {
+    // Normalize unknown throwables to a string stored on the JobRun row.
     const message = err instanceof Error ? err.message : String(err);
     await finishJobRun(run.id, "error", undefined, message);
+    // Propagate so the scheduler can log and apply retry/backoff policy.
     throw err;
   }
 }

@@ -1,3 +1,4 @@
+/** Paginated cleaning results report for a hotel-date range (DataScope-filtered). */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { getCleaningResults } from "../../services/cleaningResults";
@@ -8,15 +9,20 @@ import {
 } from "../../services/dataScope";
 import { todayHotelDateYmd } from "../../services/hotelTime";
 
+/** GET /cleaning/results — paginated results for from/to (defaults to today). */
 export async function get(req: Request, res: Response, next: NextFunction) {
+  // Try block for fallible work.
   try {
+    // Default date window is the current hotel calendar day.
     const today = await todayHotelDateYmd();
+    // Zod field / transform.
     const serviceTypeEnum = z.enum([
       "stayover",
       "departure",
       "arrival",
       "common_area",
     ]);
+    // Zod schema for request shape.
     const schema = z.object({
       from: z
         .string()
@@ -37,28 +43,38 @@ export async function get(req: Request, res: Response, next: NextFunction) {
         ])
         .optional(),
     });
+    // Parse and validate input.
     const parsed = schema.safeParse(req.query);
+    // Reject invalid request payload.
     if (!parsed.success) {
+      // Validation error response.
       return res.status(400).json({
         error: "validation",
         details: parsed.error.flatten(),
       });
     }
+    // Reject inverted date ranges.
     if (parsed.data.from > parsed.data.to) {
+      // Validation error response.
       return res.status(400).json({
         error: "validation",
         message: "`from` must be on or before `to`",
       });
     }
 
+    // Normalize single/comma-separated serviceType into a typed array.
     const rawTypes = parsed.data.serviceType;
     let serviceTypes: Array<
       "stayover" | "departure" | "arrival" | "common_area"
     > | undefined;
+    // Branch: conditional gate.
     if (rawTypes !== undefined) {
       const list = Array.isArray(rawTypes) ? rawTypes : [rawTypes];
+      // Zod field / transform.
       const checked = z.array(serviceTypeEnum).safeParse(list);
+      // Branch: conditional gate.
       if (!checked.success) {
+        // Validation error response.
         return res.status(400).json({
           error: "validation",
           details: checked.error.flatten(),
@@ -67,7 +83,9 @@ export async function get(req: Request, res: Response, next: NextFunction) {
       serviceTypes = checked.data;
     }
 
+    // Scope filters so sector-limited users only see their results.
     const scope = await resolveDataScope(req.user!);
+    // Capture service / command result.
     const result = await getCleaningResults({
       from: parsed.data.from,
       to: parsed.data.to,
@@ -77,8 +95,10 @@ export async function get(req: Request, res: Response, next: NextFunction) {
       sessionWhere: sessionTaskWhere(scope),
       taskWhere: taskWhere(scope),
     });
+    // JSON success response.
     return res.json(result);
   } catch (err) {
+    // Forward error to Express.
     return next(err);
   }
 }

@@ -1,3 +1,7 @@
+/**
+ * Dispatch one sync command by type and map AppError status to SyncCommandResult.
+ * 403 → forbidden, 409 → conflict; unknown types → error.
+ */
 import { AppError } from "../../errors";
 import type { AuthUser } from "../../middleware/auth";
 import { resolveDataScope } from "../dataScope";
@@ -14,13 +18,19 @@ import {
 } from "./commands/tickets";
 import type { SyncCommand, SyncCommandResult } from "./types";
 
+/**
+ * Resolve the user's data scope once, then hand off to a typed handler.
+ * Handlers may further remap access-loss 403s to conflict (see conflicts.ts).
+ */
 export async function applyCommand(
   user: AuthUser,
   cmd: SyncCommand,
 ): Promise<SyncCommandResult> {
   try {
+    // Scope once per command so handlers share the same sector/assignment view.
     const scope = await resolveDataScope(user);
 
+    // Dispatch by offline command type; handlers own validation + mutations.
     switch (cmd.type) {
       case "cleaning.start":
         return handleCleaningStart(user, scope, cmd);
@@ -37,6 +47,7 @@ export async function applyCommand(
       case "ticket.resolve":
         return handleTicketResolve(user, scope, cmd);
       default:
+        // Forward-compat: unknown types fail soft so the batch can continue.
         return {
           commandId: cmd.commandId,
           status: "error",
@@ -44,6 +55,7 @@ export async function applyCommand(
         };
     }
   } catch (err) {
+    // Map AppError HTTP statuses into sync result statuses for the client.
     if (err instanceof AppError) {
       if (err.status === 403) {
         return {
@@ -67,6 +79,7 @@ export async function applyCommand(
         message: err.message,
       };
     }
+    // Unexpected throws become opaque error results (batch continues).
     return {
       commandId: cmd.commandId,
       status: "error",

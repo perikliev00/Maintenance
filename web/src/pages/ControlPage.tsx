@@ -1,3 +1,7 @@
+/**
+ * Manager control desk: role edits, create cleaning tasks, and ticket
+ * assign/close/reopen/lifecycle. Role changes are limited by `assignableRolesFor`.
+ */
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ROLE_LABELS,
@@ -28,19 +32,28 @@ type Props = {
   user: AuthUser;
 };
 
+/**
+ * Manager control desk: role edits, create cleaning tasks, and ticket
+ * assign/close/reopen/lifecycle. Role changes are limited by `assignableRolesFor`.
+ */
 export function ControlPage({ user }: Props) {
+  // Roles this actor is allowed to assign to others.
   const allowedRoles = useMemo(
     () => assignableRolesFor(user.role),
     [user.role],
   );
 
+  // Directory + draft role map keyed by userId.
   const [people, setPeople] = useState<Person[]>([]);
   const [roleDrafts, setRoleDrafts] = useState<Record<string, Role>>({});
+  // People search query (also triggers reload).
   const [q, setQ] = useState("");
+  // Open vs recently resolved ticket feeds.
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [resolvedTickets, setResolvedTickets] = useState<MaintenanceTicket[]>(
     [],
   );
+  // Cleaning-task form options.
   const [rooms, setRooms] = useState<Room[]>([]);
   const [housekeepers, setHousekeepers] = useState<
     Array<{ id: string; fullName: string; employeeNumber: string }>
@@ -48,19 +61,24 @@ export function ControlPage({ user }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Per-row busy flags for role save vs ticket mutations.
   const [savingId, setSavingId] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
+  // Create-cleaning-task form drafts.
   const [taskRoomId, setTaskRoomId] = useState("");
   const [taskAssigneeId, setTaskAssigneeId] = useState("");
   const [taskPriority, setTaskPriority] = useState("normal");
   const [creatingTask, setCreatingTask] = useState(false);
+  // Per-ticket assignee select drafts (open issues).
   const [assignDrafts, setAssignDrafts] = useState<Record<string, string>>({});
 
+  // Ticket action gates derived from role helpers.
   const canAssign = canAssignIssues(user.role);
   const canClose = canCloseIssues(user.role);
   const canResolve = canResolveIssues(user.role);
 
+  // Assignee choices for ticket assign drafts (technicians + supervisors).
   const technicians = useMemo(
     () =>
       people.filter(
@@ -69,7 +87,12 @@ export function ControlPage({ user }: Props) {
     [people],
   );
 
+  /**
+   * Load people, open/resolved tickets, rooms, and housekeepers in parallel.
+   * Seeds role drafts and default task form ids when empty.
+   */
   const refresh = useCallback(async () => {
+    // Parallel fetch: directory, ticket feeds, rooms, housekeepers.
     const [peopleData, ticketData, resolvedData, roomData, hkData] =
       await Promise.all([
         fetchPeople({ q: q.trim() || undefined, includeInactive: true }),
@@ -78,6 +101,7 @@ export function ControlPage({ user }: Props) {
         fetchRooms(),
         fetchHousekeepers(),
       ]);
+    // Replace people list and rebuild editable role drafts for accounts with roles.
     setPeople(peopleData);
     setRoleDrafts(
       Object.fromEntries(
@@ -90,10 +114,12 @@ export function ControlPage({ user }: Props) {
     setResolvedTickets(resolvedData);
     setRooms(roomData);
     setHousekeepers(hkData);
+    // Default first room / housekeeper into the create-task form once.
     if (!taskRoomId && roomData[0]) setTaskRoomId(roomData[0].id);
     if (!taskAssigneeId && hkData[0]) setTaskAssigneeId(hkData[0].id);
   }, [q, taskRoomId, taskAssigneeId]);
 
+  // Soft live refresh while idle (not loading / not mid-mutation).
   const liveAt = useLiveRefresh(refresh, {
     enabled: !loading,
     busy:
@@ -109,6 +135,7 @@ export function ControlPage({ user }: Props) {
     ],
   });
 
+  // Initial load + reload when people search query changes.
   useEffect(() => {
     (async () => {
       try {
@@ -124,9 +151,15 @@ export function ControlPage({ user }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
+  /**
+   * Persist a role draft for one person when it differs from the current role.
+   * No-ops when missing userId/role or draft unchanged.
+   */
   async function saveRole(person: Person) {
+    // Early return: person must have a linked user account and role.
     if (!person.userId || !person.role) return;
     const next = roleDrafts[person.userId];
+    // Early return: nothing to save or draft matches current.
     if (!next || next === person.role) return;
     setSavingId(person.userId);
     setError(null);
@@ -142,13 +175,19 @@ export function ControlPage({ user }: Props) {
     }
   }
 
+  /**
+   * Create a cleaning task for the selected room with optional assignee.
+   * Due time defaults to now + 4 hours on the current hotel date.
+   */
   async function onCreateTask(e: FormEvent) {
     e.preventDefault();
+    // Early return: room is required.
     if (!taskRoomId) return;
     setCreatingTask(true);
     setError(null);
     setMessage(null);
     try {
+      // Default due window: four hours from now.
       const due = new Date();
       due.setHours(due.getHours() + 4);
       await createCleaningTask({
@@ -176,18 +215,22 @@ export function ControlPage({ user }: Props) {
         </div>
       </header>
 
+      {/* Owner gets a full-control banner. */}
       {user.role === "owner" && (
         <div className="owner-banner">
           Роля собственик — пълен контрол: всички роли, всички панели, всички действия
         </div>
       )}
+      {/* Error / success feedback banners. */}
       {error && <div className="error banner">{error}</div>}
       {message && <div className="ok banner">{message}</div>}
 
+      {/* Loading gate vs main control grid. */}
       {loading ? (
         <p className="muted">Loading control…</p>
       ) : (
         <div className="control-grid">
+          {/* People roles panel with search. */}
           <section className="panel">
             <div className="panel-header">
               <h2>Роли</h2>
@@ -212,11 +255,14 @@ export function ControlPage({ user }: Props) {
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Only people with linked user accounts and roles. */}
                   {people
                     .filter((p) => p.userId && p.role)
                     .map((person) => {
+                    // Draft role for this row (falls back to current).
                     const draft =
                       roleDrafts[person.userId!] ?? (person.role as Role);
+                    // Owner sees full assignable set; others keep current role in options.
                     const options =
                       user.role === "owner"
                         ? allowedRoles
@@ -230,6 +276,7 @@ export function ControlPage({ user }: Props) {
                               allowedRoles.includes(r) ||
                               r === person.role,
                           );
+                    // Managers cannot edit owner/admin accounts.
                     const locked =
                       user.role === "manager" &&
                       (person.role === "owner" || person.role === "admin");
@@ -258,6 +305,7 @@ export function ControlPage({ user }: Props) {
                           </select>
                         </td>
                         <td>
+                          {/* Save disabled when locked, busy, or draft unchanged. */}
                           <button
                             type="button"
                             disabled={
@@ -278,6 +326,7 @@ export function ControlPage({ user }: Props) {
             </div>
           </section>
 
+          // Create cleaning task form.
           <section className="panel">
             <h2>Създай задача за почистване</h2>
             <form className="report-form" onSubmit={onCreateTask}>
@@ -327,18 +376,21 @@ export function ControlPage({ user }: Props) {
             </form>
           </section>
 
+          // Open tickets: assign + lifecycle actions.
           <section className="panel control-issues">
             <div className="panel-header">
               <h2>Отворени проблеми</h2>
               <button type="button" className="ghost" onClick={() => refresh()}>
                 Refresh
               </button>
+              // Live stamp when soft refresh last succeeded.
               {liveAt && (
                 <span className="muted live-stamp" title={liveAt}>
                   live
                 </span>
               )}
             </div>
+            // Empty vs open-ticket feed.
             {tickets.length === 0 ? (
               <p className="muted">Няма отворени проблеми.</p>
             ) : (
@@ -362,10 +414,12 @@ export function ControlPage({ user }: Props) {
                     <div className="issue-meta muted">
                       <span>{ticket.reportedBy.fullName}</span>
                       <span>{new Date(ticket.openedAt).toLocaleString()}</span>
+                      {/* Show current assignee when present. */}
                       {ticket.assignee && (
                         <span>→ {ticket.assignee.fullName}</span>
                       )}
                     </div>
+                    {/* Assign UI only for new/assigned when actor can assign. */}
                     {canAssign &&
                       (ticket.status === "new" ||
                         ticket.status === "assigned") && (
@@ -405,10 +459,12 @@ export function ControlPage({ user }: Props) {
                               )
                             }
                             onClick={async () => {
+                              // Resolve assignee from draft, current, or first tech.
                               const assigneeId =
                                 assignDrafts[ticket.id] ??
                                 ticket.assignee?.id ??
                                 technicians[0]?.id;
+                              // Early return: no assignee available.
                               if (!assigneeId) return;
                               setResolvingId(ticket.id);
                               setError(null);
@@ -431,6 +487,7 @@ export function ControlPage({ user }: Props) {
                           </button>
                         </div>
                       )}
+                    {/* Shared resolve/start/hold lifecycle controls. */}
                     <TicketLifecycleActions
                       ticket={ticket}
                       busy={resolvingId === ticket.id}
@@ -449,10 +506,12 @@ export function ControlPage({ user }: Props) {
             )}
           </section>
 
+          // Recently resolved: close or reopen.
           <section className="panel control-issues">
             <div className="panel-header">
               <h2>Наскоро резолвнати</h2>
             </div>
+            // Empty vs resolved-ticket feed.
             {resolvedTickets.length === 0 ? (
               <p className="muted">Няма резолвнати проблеми.</p>
             ) : (
@@ -482,6 +541,7 @@ export function ControlPage({ user }: Props) {
                           : "—"}
                       </span>
                     </div>
+                    {/* Optional resolution notes. */}
                     {ticket.resolutionNotes && (
                       <p className="muted">{ticket.resolutionNotes}</p>
                     )}
@@ -489,6 +549,7 @@ export function ControlPage({ user }: Props) {
                       className="actions"
                       style={{ marginTop: "0.5rem", gap: "0.35rem" }}
                     >
+                      {/* Close gate: canClose + still resolved. */}
                       {canClose && ticket.status === "resolved" && (
                         <button
                           type="button"
@@ -515,11 +576,13 @@ export function ControlPage({ user }: Props) {
                           Close
                         </button>
                       )}
+                      {/* Reopen always available; cancel prompt aborts. */}
                       <button
                         type="button"
                         className="subtle"
                         disabled={resolvingId === ticket.id}
                         onClick={async () => {
+                          // Optional reason; null means user cancelled the prompt.
                           const reason = window.prompt(
                             "Причина за повторно отваряне (опционално)",
                           );

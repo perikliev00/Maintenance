@@ -1,3 +1,4 @@
+/** Tab ids, nav labels, and human labels for module/flag keys. */
 export type Tab =
   | "modules"
   | "flags"

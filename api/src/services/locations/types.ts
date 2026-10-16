@@ -1,6 +1,14 @@
+/**
+ * Location Prisma include for live board + catalog, and the DTO input type
+ * consumed by {@link mapLocation}.
+ */
 import { LocationKind, TaskStatus } from "@prisma/client";
 import { ACTIVE_TASK_STATUSES, OPEN_TICKET_STATUSES } from "../../constants";
 
+/**
+ * Relations for board payloads: floor/building, sector, latest active task,
+ * and open blocking maintenance tickets.
+ */
 export const locationInclude = {
   floor: { include: { building: true } },
   sectorMembership: {
@@ -61,6 +69,7 @@ type InspectionRow = {
   inspector: { id: string; fullName: string; employeeNumber: string };
 };
 
+/** Shape expected by {@link mapLocation} (subset of a full Prisma payload). */
 export type LocationForMap = {
   id: string;
   floorId: string;

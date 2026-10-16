@@ -1,3 +1,6 @@
+/**
+ * Per-housekeeper cleaning results report: metrics helpers + query entrypoint.
+ */
 export type {
   CleaningResultsQuery,
   CleaningResultsCounters,

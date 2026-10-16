@@ -1,3 +1,7 @@
+/**
+ * Derives Locations board action gates from role + capability flags.
+ * Occupancy is rooms-only (`!isCommon`); owners bypass most capability checks.
+ */
 import {
   canPerformAction,
   canResolveIssues,
@@ -16,17 +20,21 @@ export type LocationPagePermissions = {
   canSetServiceStatus: boolean;
 };
 
+/** Map AuthUser capabilities onto the Locations page UI gates. */
 export function locationPagePermissions(
   user: AuthUser,
   isCommon: boolean,
 ): LocationPagePermissions {
+  // Owners bypass most capability checks on this board.
   const owner = isOwner(user.role);
   return {
     owner,
+    // Create task / mark dirty.
     canManage:
       owner ||
       canPerformAction(user, "cleaning.create") ||
       canPerformAction(user, "rooms.mark_dirty"),
+    // Start / complete cleaning sessions.
     canWork:
       owner ||
       canPerformAction(user, "cleaning.start") ||
@@ -35,6 +43,7 @@ export function locationPagePermissions(
     canReviewOverdue:
       owner || canPerformAction(user, "cleaning.review_overdue"),
     canResolve: owner || canResolveIssues(user.role),
+    // Occupancy controls are rooms-only (hidden on common-area board).
     canSetOccupancy:
       !isCommon && (owner || canPerformAction(user, "rooms.set_occupancy")),
     canSetServiceStatus:

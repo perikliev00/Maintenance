@@ -1,3 +1,6 @@
+/**
+ * components/ScopeHint.tsx — UI module (densified documentation).
+ */
 import { useEffect, useState } from "react";
 import {
   fetchMySectors,
@@ -9,14 +12,19 @@ type Props = {
   locale?: "bg" | "en";
 };
 
-/** Shows “your sectors” scope hint for supervisors (server already filters). */
+/**
+ * Shows “your sectors” scope hint for supervisors (server already filters).
+ * Non-supervisors render nothing; fetch failure keeps AuthUser’s sector count.
+ */
 export function ScopeHint({ user, locale = "bg" }: Props) {
+  // Seed from AuthUser so first paint has a count before `/sectors/mine` returns.
   const [count, setCount] = useState<number | null>(
     user.supervisedSectorCount ?? null,
   );
   const [codes, setCodes] = useState<string[]>([]);
 
   useEffect(() => {
+    // Non-supervisors never need the fetch.
     if (user.role !== "supervisor") return;
     let cancelled = false;
     void fetchMySectors()
@@ -33,6 +41,7 @@ export function ScopeHint({ user, locale = "bg" }: Props) {
     };
   }, [user.role, user.employeeId]);
 
+  // Permission gate: only supervisors see the scope hint.
   if (user.role !== "supervisor") return null;
 
   const n = count ?? 0;
@@ -40,6 +49,7 @@ export function ScopeHint({ user, locale = "bg" }: Props) {
     locale === "en"
       ? `Scope: your sectors (${n})`
       : `Обхват: вашите сектори (${n})`;
+  // Prefer live codes; fall back to empty-state copy when none assigned.
   const detail =
     codes.length > 0
       ? codes.join(", ")

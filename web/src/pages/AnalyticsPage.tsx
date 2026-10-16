@@ -1,3 +1,7 @@
+/**
+ * Analytics dashboard: date-range summary with domain filters and bar/trend charts.
+ * Metric deltas compare the selected period to the previous window of equal length.
+ */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchAnalyticsSummary,
@@ -11,42 +15,68 @@ import {
   AnalyticsTrendChart,
 } from "../components/AnalyticsCharts";
 
+/** Format a Date as YYYY-MM-DD (UTC date portion). */
 function isoDate(d: Date): string {
+  // Return value / early exit.
   return d.toISOString().slice(0, 10);
 }
 
+/** YYYY-MM-DD for today minus `n` UTC calendar days. */
 function daysAgo(n: number): string {
   const d = new Date();
+  // Shift calendar day in UTC so presets stay stable across local TZ.
   d.setUTCDate(d.getUTCDate() - n);
+  // Return value / early exit.
   return isoDate(d);
 }
 
+/**
+ * Display a KPI number, or a Bulgarian "insufficient data" placeholder
+ * when the value is null/undefined/non-finite.
+ */
 function formatMetric(value: number | null | undefined, suffix = ""): string {
+  // Backend sends null when sample size is too small for a reliable metric.
   if (value === null || value === undefined || !Number.isFinite(value)) {
+    // Return value / early exit.
     return "няма достатъчно данни";
   }
+  // Return value / early exit.
   return `${value}${suffix}`;
 }
 
+/** Human period stamp: single day or `from – to` range. */
 function formatPeriodStamp(fromIso: string, toIso: string): string {
   const f = fromIso.slice(0, 10);
   const t = toIso.slice(0, 10);
+  // Collapse same-day ranges to one date label.
   return f === t ? f : `${f} – ${t}`;
 }
 
+/**
+ * Signed percentage delta vs previous equal-length window, or null when
+ * comparison data is missing.
+ */
 function formatDelta(cmp?: AnalyticsMetricCompare): string | null {
+  // No prior window / null deltaPct — hide the badge entirely.
   if (!cmp || cmp.deltaPct === null || cmp.previous === null) return null;
   const sign = cmp.deltaPct > 0 ? "+" : "";
+  // Return value / early exit.
   return `${sign}${cmp.deltaPct}%`;
 }
 
+/** CSS class for up/down/flat delta coloring. */
 function deltaClass(cmp?: AnalyticsMetricCompare): string {
+  // Branch: conditional gate.
   if (!cmp || cmp.deltaPct === null) return "analytics-delta muted";
+  // Branch: conditional gate.
   if (cmp.deltaPct > 0) return "analytics-delta analytics-delta-up";
+  // Branch: conditional gate.
   if (cmp.deltaPct < 0) return "analytics-delta analytics-delta-down";
+  // Return value / early exit.
   return "analytics-delta muted";
 }
 
+/** Bilingual / lookup table `CATEGORY_LABELS` (data only). */
 const CATEGORY_LABELS: Record<string, string> = {
   climate: "Климат",
   electrical: "Ел.",
@@ -55,6 +85,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "Друго",
 };
 
+/** Bilingual / lookup table `PRIORITY_LABELS` (data only). */
 const PRIORITY_LABELS: Record<string, string> = {
   low: "Нисък",
   normal: "Нормален",
@@ -62,6 +93,7 @@ const PRIORITY_LABELS: Record<string, string> = {
   urgent: "Спешен",
 };
 
+/** Bilingual / lookup table `SERVICE_TYPE_LABELS` (data only). */
 const SERVICE_TYPE_LABELS: Record<string, string> = {
   stayover: "Престой",
   departure: "Напускане",
@@ -69,50 +101,77 @@ const SERVICE_TYPE_LABELS: Record<string, string> = {
   common_area: "Обща част",
 };
 
+/**
+ * Resolve a breakdown key to a display label using live catalog names first,
+ * then static fallbacks, then the raw key.
+ */
 function labelKey(
   key: string,
   kind: "category" | "priority" | "serviceType",
   categoryLabels: Record<string, string>,
 ): string {
+  // Prefer API catalog names (may include inactive categories for history).
   if (kind === "category") {
+    // Return value / early exit.
     return categoryLabels[key] ?? CATEGORY_LABELS[key] ?? key;
   }
+  // Branch: conditional gate.
   if (kind === "serviceType") {
+    // Return value / early exit.
     return SERVICE_TYPE_LABELS[key] ?? key;
   }
+  // Return value / early exit.
   return PRIORITY_LABELS[key] ?? key;
 }
 
+/** Bulgarian labels for risk-room factor codes from the API. */
 function factorLabel(factor: string): string {
+  // Prefix match: tickets_gte_N collapses to one "repeat tickets" label.
   if (factor.startsWith("tickets_gte_")) return "Повторяеми тикети";
+  // Branch: conditional gate.
   if (factor === "blocking_past_sla") return "Блокиране + SLA";
+  // Branch: conditional gate.
   if (factor === "rejected_inspections_gte_2") return "Отхвърлени инспекции";
+  // Return value / early exit.
   return factor;
 }
 
+/** Danger badge for blocking/reject factors; warn otherwise. */
 function factorBadgeClass(factor: string): string {
+  // Branch: conditional gate.
   if (factor === "blocking_past_sla" || factor === "rejected_inspections_gte_2") {
+    // Return value / early exit.
     return "badge-danger";
   }
+  // Return value / early exit.
   return "badge-warn";
 }
 
+/** Unit wording for the seasonal forecast panel. */
 function forecastUnitLabel(unit: string): string {
+  // Branch: conditional gate.
   if (unit === "cleaned_tasks") return "почистени задачи";
+  // Return value / early exit.
   return "сигнали";
 }
 
+/**
+ * Download risk-room rows as a CSV blob via a temporary object URL.
+ */
 function exportRiskCsv(
   rows: AnalyticsSummary["riskRooms"],
   filename: string,
 ) {
   const header = ["location", "count", "factors"];
+  // JSON.stringify escapes commas/quotes in labels and factor lists.
   const lines = [
     header.join(","),
     ...rows.map((r) =>
       [
+        // Serialize request body.
         JSON.stringify(r.label),
         String(r.ticketCount),
+        // Serialize request body.
         JSON.stringify(r.factors.map(factorLabel).join("; ")),
       ].join(","),
     ),
@@ -120,6 +179,7 @@ function exportRiskCsv(
   const blob = new Blob([lines.join("\n")], {
     type: "text/csv;charset=utf-8",
   });
+  // Trigger download without navigating away from the SPA.
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -128,6 +188,9 @@ function exportRiskCsv(
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Single KPI tile with optional sample size and period-over-period delta.
+ */
 function KpiCard({
   label,
   value,
@@ -142,6 +205,7 @@ function KpiCard({
   tone?: "warn" | "danger";
 }) {
   const delta = formatDelta(compare);
+  // Return value / early exit.
   return (
     <div
       className={`stat-card analytics-kpi${
@@ -151,7 +215,9 @@ function KpiCard({
       <span className="muted">{label}</span>
       <strong>{value}</strong>
       <div className="analytics-kpi-meta">
+        {/* Render branch: sample && <span className="muted analytics-sample">sample */}
         {sample && <span className="muted analytics-sample">{sample}</span>}
+        {/* Delta badge when comparable; em-dash when compare exists but delta is null. */}
         {delta ? (
           <span className={deltaClass(compare)} title="Спрямо предходен период">
             {delta}
@@ -164,21 +230,35 @@ function KpiCard({
   );
 }
 
+/**
+ * Analytics dashboard page: domain tabs, date presets, KPI grids, charts,
+ * seasonal forecast, and risk-room CSV export.
+ */
 export function AnalyticsPage() {
+  // Stable "today" for presets so re-renders do not shift the range mid-session.
   const today = useMemo(() => isoDate(new Date()), []);
+  // Local React state.
   const [domain, setDomain] = useState<AnalyticsDomain>("maintenance");
+  // Local React state.
   const [from, setFrom] = useState(daysAgo(29));
+  // Local React state.
   const [to, setTo] = useState(today);
+  // Local React state.
   const [data, setData] = useState<AnalyticsSummary | null>(null);
+  // Local React state.
   const [loading, setLoading] = useState(true);
+  // Local React state.
   const [error, setError] = useState<string | null>(null);
+  // Local React state.
   const [categoryLabels, setCategoryLabels] = useState<Record<string, string>>(
     () => ({ ...CATEGORY_LABELS }),
   );
 
+  // Load issue-category names once (include inactive for historical breakdown keys).
   useEffect(() => {
     fetchMaintenanceCategories({ includeInactive: true })
       .then((cats) =>
+        // State transition.
         setCategoryLabels(
           Object.fromEntries(cats.map((c) => [c.key, c.nameBg])),
         ),
@@ -186,47 +266,66 @@ export function AnalyticsPage() {
       .catch(() => undefined);
   }, []);
 
+  /** Fetch summary for the current domain + date range. */
   const refresh = useCallback(async () => {
+    // State transition.
     setError(null);
+    // Capture service / command result.
     const result = await fetchAnalyticsSummary({ domain, from, to });
+    // State transition.
     setData(result);
   }, [domain, from, to]);
 
+  // Re-fetch whenever refresh deps change; ignore late responses after unmount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Try block for fallible work.
       try {
+        // State transition.
         setLoading(true);
+        // Await async step.
         await refresh();
       } catch (err) {
+        // Only surface errors if this effect is still current.
         if (!cancelled) {
+          // State transition.
           setError(
             err instanceof Error ? err.message : "Failed to load analytics",
           );
+          // State transition.
           setData(null);
         }
       } finally {
+        // Branch: conditional gate.
         if (!cancelled) setLoading(false);
       }
     })();
+    // Return value / early exit.
     return () => {
       cancelled = true;
     };
   }, [refresh]);
 
+  /** Snap the date range to today / last 7 / last 30 UTC days. */
   function applyPreset(kind: "today" | "7d" | "30d") {
+    // State transition.
     setTo(today);
+    // Branch: conditional gate.
     if (kind === "today") setFrom(today);
+    // Else-if branch.
     else if (kind === "7d") setFrom(daysAgo(6));
     else setFrom(daysAgo(29));
   }
 
+  // Return value / early exit.
   return (
     <main className="content">
       <header className="page-header analytics-header">
         <div>
           <h1>Умна аналитика</h1>
           <p>Сигнали, SLA, одит и сезонна прогноза с проверими определения</p>
+          {/* Server-resolved period may differ slightly from local from/to inputs. */}
           {data && (
             <p className="muted analytics-period-stamp">
               Период: {formatPeriodStamp(data.period.from, data.period.to)}
@@ -264,6 +363,7 @@ export function AnalyticsPage() {
             className="subtle"
             disabled={loading}
             onClick={() => {
+              // Fire-and-forget async call.
               void refresh();
             }}
           >
@@ -293,13 +393,16 @@ export function AnalyticsPage() {
         </button>
       </div>
 
+      {/* Render branch: error && <p className="err-text">error</p> */}
       {error && <p className="err-text">{error}</p>}
+      {/* Initial load only — keep prior KPIs visible while refreshing. */}
       {loading && !data && (
         <section className="panel">
           <p className="muted">Зареждане на аналитиката…</p>
         </section>
       )}
 
+      {/* Guard: response domain must match selected tab (stale race). */}
       {data && data.domain === "maintenance" && domain === "maintenance" && (
         <>
           <div className="results-kpi-grid">
@@ -332,6 +435,7 @@ export function AnalyticsPage() {
               value={formatMetric(data.kpis.riskRooms)}
               tone={data.kpis.riskRooms > 0 ? "danger" : undefined}
             />
+            {/* Duration percentiles hide when sample is insufficient. */}
             <KpiCard
               label="P50 / P90 (мин)"
               value={
@@ -372,6 +476,7 @@ export function AnalyticsPage() {
         </>
       )}
 
+      {/* Housekeeping KPIs — same domain-match guard as maintenance. */}
       {data && data.domain === "housekeeping" && domain === "housekeeping" && (
         <>
           <div className="results-kpi-grid">
@@ -408,6 +513,7 @@ export function AnalyticsPage() {
               label="Готови стаи"
               value={formatMetric(data.kpis.readyRooms)}
             />
+            {/* onTimePct is null when no deadline-bearing tasks exist. */}
             <KpiCard
               label="Навреме %"
               value={
@@ -491,6 +597,7 @@ export function AnalyticsPage() {
                   n={data.kpis.onTimeSampleCount}
                 </span>
               </div>
+              {/* Empty state when no deadline-bearing tasks in the period. */}
               {data.kpis.onTimePct === null ? (
                 <p className="muted">Няма задачи с известен срок в периода.</p>
               ) : (
@@ -514,6 +621,7 @@ export function AnalyticsPage() {
         </>
       )}
 
+      {/* Forecast + risk rooms shared across both domains once data is loaded. */}
       {data && (
         <>
           <section className="panel analytics-forecast">
@@ -523,6 +631,7 @@ export function AnalyticsPage() {
                 {forecastUnitLabel(data.forecast.unit)}
               </span>
             </div>
+            {/* Server-provided formula string — keep as-is for auditability. */}
             <div className="owner-banner analytics-forecast-formula">
               {data.forecast.formula}
             </div>
@@ -549,6 +658,7 @@ export function AnalyticsPage() {
               <h2>Рискови стаи</h2>
               <div className="analytics-risk-actions">
                 <span className="muted">{data.riskRooms.length}</span>
+                {/* CSV export only when there is at least one risk row. */}
                 {data.riskRooms.length > 0 && (
                   <button
                     type="button"

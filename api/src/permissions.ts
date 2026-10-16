@@ -1,5 +1,13 @@
+/**
+ * Permission catalog and role-assignment policy for the hotel ops UI.
+ *
+ * Panel/action string catalogs and DEFAULT_*_GRANTS seed RoleGrant rows;
+ * runtime authorization reads grants from the DB via roleGrants services.
+ * Owner is excluded from matrix defaults — owners bypass or are handled separately.
+ */
 import { Role } from "@prisma/client";
 
+/** UI panels the client may show; keys match RoleGrant panel grants. */
 export const ALL_PANELS = [
   "mywork",
   "repairs",
@@ -19,8 +27,10 @@ export const ALL_PANELS = [
   "settings",
   "permissions",
 ] as const;
+/** Panel union derived from the catalog above. */
 export type Panel = (typeof ALL_PANELS)[number];
 
+/** Fine-grained actions checked by requireAction / canPerform. */
 export const ALL_ACTIONS = [
   "rooms.view",
   "rooms.mark_dirty",
@@ -62,13 +72,16 @@ export const ALL_ACTIONS = [
   "audit.view",
   "jobs.view",
 ] as const;
+/** Action union derived from the catalog above. */
 export type Action = (typeof ALL_ACTIONS)[number];
 
 /** Seed / bootstrap source only — runtime reads RoleGrant from DB. */
 export const DEFAULT_PANEL_GRANTS: Record<Exclude<Role, "owner">, Panel[]> = {
+  // Floor roles: limited nav surface for day-to-day work.
   housekeeper: ["mywork", "home", "rooms", "common"],
   technician: ["mywork", "repairs", "home", "rooms", "common"],
   reception: ["home", "rooms", "common", "plan", "cards"],
+  // Ops leadership: live board, plan, results, analytics.
   supervisor: [
     "home",
     "rooms",
@@ -83,6 +96,7 @@ export const DEFAULT_PANEL_GRANTS: Record<Exclude<Role, "owner">, Panel[]> = {
     "cleaning",
     "repairs",
   ],
+  // Manager: full ops + control / settings / permissions.
   manager: [
     "home",
     "rooms",
@@ -101,6 +115,7 @@ export const DEFAULT_PANEL_GRANTS: Record<Exclude<Role, "owner">, Panel[]> = {
     "settings",
     "permissions",
   ],
+  // Admin: broad access without live/control board defaults.
   admin: [
     "home",
     "rooms",
@@ -243,6 +258,7 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
   ],
 };
 
+/** Default first panel after login when no override is stored. */
 export const LANDING_BY_ROLE: Record<Role, Panel> = {
   housekeeper: "mywork",
   technician: "mywork",
@@ -253,6 +269,7 @@ export const LANDING_BY_ROLE: Record<Role, Panel> = {
   owner: "control",
 };
 
+/** Roles editable in the permissions matrix UI (owner excluded). */
 export const MATRIX_ROLES: Exclude<Role, "owner">[] = [
   "housekeeper",
   "technician",
@@ -262,6 +279,7 @@ export const MATRIX_ROLES: Exclude<Role, "owner">[] = [
   "admin",
 ];
 
+/** Floor roles whose grants managers typically adjust day-to-day. */
 export const OPERATIONAL_EDITABLE_ROLES: Exclude<Role, "owner">[] = [
   "housekeeper",
   "technician",
@@ -269,9 +287,7 @@ export const OPERATIONAL_EDITABLE_ROLES: Exclude<Role, "owner">[] = [
   "supervisor",
 ];
 
-/** Roles only an owner may assign or modify. */
-export const PRIVILEGED_ROLES: readonly Role[] = [Role.owner, Role.admin];
-
+/** All Prisma Role values in display / matrix order (owner first). */
 export const ALL_ROLES: Role[] = [
   Role.owner,
   Role.admin,
@@ -282,11 +298,15 @@ export const ALL_ROLES: Role[] = [
   Role.housekeeper,
 ];
 
+/** Whether the role is the hotel owner (full bypass / special assignment rules). */
 export function isOwner(role: Role): boolean {
+  // Owner is the only full-bypass role in assignment and matrix rules.
   return role === Role.owner;
 }
 
+/** Owner and admin — restricted for non-owner role assignment. */
 export function isPrivilegedRole(role: Role): boolean {
+  // Privileged roles may only be assigned by an owner.
   return role === Role.owner || role === Role.admin;
 }
 
@@ -295,7 +315,9 @@ export function isPrivilegedRole(role: Role): boolean {
  * Having the action is not enough for owner/admin — only owner may assign those.
  */
 export function assignableRolesFor(actor: Role): Role[] {
+  // Owner may assign any role including owner/admin.
   if (isOwner(actor)) return [...ALL_ROLES];
+  // Everyone else is limited to non-privileged floor/ops roles.
   return ALL_ROLES.filter((r) => !isPrivilegedRole(r));
 }
 
@@ -308,30 +330,29 @@ export function canChangeUserRole(
   currentRole: Role,
   nextRole: Role,
 ): boolean {
+  // Target role must be in the actor's assignable set.
   if (!assignableRolesFor(actor).includes(nextRole)) return false;
+  // Non-owners cannot touch users who are already owner/admin.
   if (isPrivilegedRole(currentRole) && !isOwner(actor)) return false;
+  // Both gates passed — role change is allowed.
   return true;
 }
 
+/** Type guard: string is a known panel catalog key. */
 export function isPanel(key: string): key is Panel {
+  // Narrow unknown strings against the panel catalog.
   return (ALL_PANELS as readonly string[]).includes(key);
 }
 
+/** Type guard: string is a known action catalog key. */
 export function isAction(key: string): key is Action {
+  // Narrow unknown strings against the action catalog.
   return (ALL_ACTIONS as readonly string[]).includes(key);
 }
 
+/** Default landing panel for a role after login. */
 export function landingPanelFor(role: Role): Panel {
+  // Lookup table is the single source for post-login home panel.
   return LANDING_BY_ROLE[role];
 }
 
-/** Sync fallback from defaults (seed/tests/offline client mirror only). */
-export function defaultPanelsForRole(role: Role): Panel[] {
-  if (isOwner(role)) return [...ALL_PANELS];
-  return [...DEFAULT_PANEL_GRANTS[role as Exclude<Role, "owner">]];
-}
-
-export function defaultActionsForRole(role: Role): Action[] {
-  if (isOwner(role)) return [...ALL_ACTIONS];
-  return [...DEFAULT_ACTION_GRANTS[role as Exclude<Role, "owner">]];
-}

@@ -1,3 +1,6 @@
+/**
+ * Maintenance issue catalog: categories, issue options, frozen snapshots, seed.
+ */
 export type { CategorySnapshot } from "./types";
 export {
   listCategories,

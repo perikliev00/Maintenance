@@ -1,3 +1,8 @@
+/**
+ * Admin settings shell: tabbed drafts patched with a required reason, plus
+ * system status and optional issue catalog (`issue_options.manage`).
+ * Live-refreshes on `settings.changed` while not busy.
+ */
 import { useCallback, useEffect, useState } from "react";
 import {
   fetchAllSettings,
@@ -26,7 +31,12 @@ import { HistoryTab } from "./HistoryTab";
 
 type Props = { user: AuthUser };
 
+/**
+ * Admin settings shell: tabbed drafts patched with a required reason, plus
+ * system status and optional issue catalog (`issue_options.manage`).
+ */
 export function SettingsPage({ user }: Props) {
+  // Gate for the issue-catalog tab.
   const canManageIssues = canPerformAction(user, "issue_options.manage");
   const [tab, setTab] = useState<Tab>("modules");
   const [bundle, setBundle] = useState<SettingsBundle | null>(null);
@@ -41,105 +51,155 @@ export function SettingsPage({ user }: Props) {
   const [loading, setLoading] = useState(true);
   const [slaPolicies, setSlaPolicies] = useState<SlaPolicyRow[]>([]);
 
+  /** Pick BG vs EN copy for this page. */
   const label = (bg: string, en: string) => (locale === "bg" ? bg : en);
 
+  /** Load settings bundle, system status, and SLA policies. */
   const refresh = useCallback(async () => {
     const [all, sys, policies] = await Promise.all([
       fetchAllSettings(),
       fetchSystemStatus(),
+      // Promise catch handler.
       fetchSlaPolicies().catch(() => [] as SlaPolicyRow[]),
     ]);
+    // State transition.
     setSlaPolicies(policies);
+    // State transition.
     setBundle(all);
+    // State transition.
     setSystem(sys);
+    // Mirror interface.locale into local UI locale when present.
     const iface = all.interface?.value as { locale?: "bg" | "en" } | undefined;
+    // Branch: conditional gate.
     if (iface?.locale) setLocale(iface.locale);
+    // Sync draft for editable tabs (not history/issues).
     if (tab !== "history" && tab !== "issues" && all[tab]) {
+      // State transition.
       setDraft(
         structuredClone(all[tab].value) as Record<string, unknown>,
       );
     }
   }, [tab]);
 
+  // Live-refresh settings while not in the initial loading/busy state.
   useLiveRefresh(refresh, {
     enabled: !loading,
     busy,
     eventTypes: ["settings.changed"],
   });
 
+  // Initial load.
   useEffect(() => {
     (async () => {
+      // Try block for fallible work.
       try {
+        // State transition.
         setLoading(true);
+        // Await async step.
         await refresh();
       } catch (err) {
+        // State transition.
         setError(err instanceof Error ? err.message : "Failed to load settings");
       } finally {
+        // State transition.
         setLoading(false);
       }
     })();
   }, [refresh]);
 
+  // On tab change: fetch history, or clone the matching draft from the bundle.
   useEffect(() => {
+    // Branch: conditional gate.
     if (tab === "history") {
       fetchSettingsHistory({ limit: 80 })
+        // Promise then handler.
         .then(setHistory)
+        // Promise catch handler.
         .catch((err) =>
+          // State transition.
           setError(err instanceof Error ? err.message : "History failed"),
         );
       return;
     }
+    // Branch: conditional gate.
     if (tab !== "issues" && bundle?.[tab]) {
+      // State transition.
       setDraft(
         structuredClone(bundle[tab].value) as Record<string, unknown>,
       );
+      // State transition.
       setReason("");
     }
   }, [tab, bundle]);
 
+  /** Patch the current tab's draft with an optional reason, then refresh. */
   async function save() {
+    // History and issues tabs have their own save paths.
     if (tab === "history" || tab === "issues") return;
+    // State transition.
     setBusy(true);
+    // State transition.
     setError(null);
+    // State transition.
     setMessage(null);
+    // Try block for fallible work.
     try {
+      // Await async step.
       await patchSetting(tab, draft, reason.trim() || undefined);
+      // State transition.
       setMessage(label("Запазено", "Saved"));
+      // State transition.
       setReason("");
+      // Await async step.
       await refresh();
       const hist = await fetchSettingsHistory({ limit: 80 });
+      // State transition.
       setHistory(hist);
     } catch (err) {
+      // State transition.
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
+      // State transition.
       setBusy(false);
     }
   }
 
+  /**
+   * Helper `setBool`.
+   */
   function setBool(path: string, value: boolean) {
+    // State transition.
     setDraft((prev) => ({ ...prev, [path]: value }));
   }
 
+  /**
+   * Helper `setNestedChannel`.
+   */
   function setNestedChannel(
     channel: string,
     field: "enabled" | "status",
     value: boolean | string,
   ) {
+    // State transition.
     setDraft((prev) => {
       const cur = { ...((prev[channel] as object) ?? {}) } as Record<
         string,
         unknown
       >;
       cur[field] = value;
+      // Branch: conditional gate.
       if (channel === "device_push" && field === "enabled") {
         cur.enabled = false;
         cur.status = "not_configured";
       }
+      // Early / value return.
       return { ...prev, [channel]: cur };
     });
   }
 
+  // Branch: conditional gate.
   if (loading && !bundle) {
+    // Early / value return.
     return (
       <main className="content">
         <p className="muted">{label("Зареждане…", "Loading…")}</p>
@@ -147,6 +207,7 @@ export function SettingsPage({ user }: Props) {
     );
   }
 
+  // Early / value return.
   return (
     <main className="content">
       <header className="page-header">
@@ -161,6 +222,7 @@ export function SettingsPage({ user }: Props) {
         </div>
       </header>
 
+      {/* Render branch: system && <SystemStatusSection system=system label=label */}
       {system && <SystemStatusSection system={system} label={label} />}
 
       <div className="settings-tabs" role="tablist">
@@ -176,6 +238,7 @@ export function SettingsPage({ user }: Props) {
             {locale === "bg" ? t.bg : t.en}
           </button>
         ))}
+        {/* Render branch: canManageIssues && ( */}
         {canManageIssues && (
           <button
             type="button"
@@ -189,7 +252,9 @@ export function SettingsPage({ user }: Props) {
         )}
       </div>
 
+      {/* Render branch: error && <div className="error banner">error</div> */}
       {error && <div className="error banner">{error}</div>}
+      {/* Render branch: message && <div className="ok banner">message</div> */}
       {message && <div className="ok banner">{message}</div>}
 
       <section className="panel">
@@ -216,6 +281,7 @@ export function SettingsPage({ user }: Props) {
                     .overdueSessionMinutes ?? 240,
                 )}
                 onChange={(e) =>
+                  // State transition.
                   setDraft((p) => ({
                     ...p,
                     overdueSessionMinutes: Number(e.target.value),
@@ -234,6 +300,7 @@ export function SettingsPage({ user }: Props) {
                     .defaultTaskDueHours ?? 4,
                 )}
                 onChange={(e) =>
+                  // State transition.
                   setDraft((p) => ({
                     ...p,
                     defaultTaskDueHours: Number(e.target.value),
@@ -252,6 +319,7 @@ export function SettingsPage({ user }: Props) {
                     .defaultTicketSlaHours ?? 24,
                 )}
                 onChange={(e) =>
+                  // State transition.
                   setDraft((p) => ({
                     ...p,
                     defaultTicketSlaHours: Number(e.target.value),
@@ -270,6 +338,7 @@ export function SettingsPage({ user }: Props) {
               {(["low", "normal", "high", "urgent"] as const).map((priority) => {
                 const row = slaPolicies.find((p) => p.priority === priority);
                 const hours = row?.hours ?? (priority === "urgent" ? 4 : priority === "high" ? 8 : priority === "low" ? 72 : 24);
+                // Early / value return.
                 return (
                   <label key={priority}>
                     {priority}
@@ -281,28 +350,37 @@ export function SettingsPage({ user }: Props) {
                       disabled={busy}
                       onChange={async (e) => {
                         const next = Number(e.target.value);
+                        // Branch: conditional gate.
                         if (!Number.isFinite(next) || next < 1) return;
+                        // State transition.
                         setBusy(true);
+                        // State transition.
                         setError(null);
+                        // Try block for fallible work.
                         try {
                           const updated = await updateSlaPolicy(priority, {
                             hours: next,
                             isActive: true,
                           });
+                          // State transition.
                           setSlaPolicies((prev) => {
                             const others = prev.filter((p) => p.priority !== priority);
+                            // Early / value return.
                             return [...others, updated].sort((a, b) =>
                               a.priority.localeCompare(b.priority),
                             );
                           });
+                          // State transition.
                           setMessage(
                             label("SLA политиката е записана", "SLA policy saved"),
                           );
                         } catch (err) {
+                          // State transition.
                           setError(
                             err instanceof Error ? err.message : "SLA update failed",
                           );
                         } finally {
+                          // State transition.
                           setBusy(false);
                         }
                       }}
@@ -322,6 +400,7 @@ export function SettingsPage({ user }: Props) {
                     .riskTicketThreshold ?? 2,
                 )}
                 onChange={(e) =>
+                  // State transition.
                   setDraft((p) => ({
                     ...p,
                     riskTicketThreshold: Number(e.target.value),
@@ -339,6 +418,7 @@ export function SettingsPage({ user }: Props) {
                   (draft as { riskWindowDays?: number }).riskWindowDays ?? 30,
                 )}
                 onChange={(e) =>
+                  // State transition.
                   setDraft((p) => ({
                     ...p,
                     riskWindowDays: Number(e.target.value),
@@ -354,6 +434,7 @@ export function SettingsPage({ user }: Props) {
                     "Europe/Sofia",
                 )}
                 onChange={(e) =>
+                  // State transition.
                   setDraft((p) => ({ ...p, hotelTimezone: e.target.value }))
                 }
               />

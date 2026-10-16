@@ -1,3 +1,8 @@
+/**
+ * List + print preview for location QR codes.
+ * Scanning only identifies the room (no auto start/complete); rows without
+ * `qrToken` cannot open a preview.
+ */
 import {
   roomQrImageUrl,
   roomQrScanUrl,
@@ -13,6 +18,10 @@ type Props = {
   onPreviewChange: (room: Room | null) => void;
 };
 
+/**
+ * Presentational panel: filterable location QR list with print preview.
+ * Scanning only identifies the room — no auto start/complete.
+ */
 export function LocationQrPanel({
   label,
   rooms,
@@ -21,7 +30,9 @@ export function LocationQrPanel({
   onFilterChange,
   onPreviewChange,
 }: Props) {
+  // Normalize filter for case-insensitive substring match.
   const q = filter.trim().toLowerCase();
+  // Empty filter → full list; otherwise match number / building / sector code.
   const qrRooms = !q
     ? rooms
     : rooms.filter(
@@ -40,6 +51,7 @@ export function LocationQrPanel({
           "Generate and print room QR codes. Scanning only identifies the room — no auto start/complete. (Device invite QR lives under Team.)",
         )}
       </p>
+      {/* Client-side filter input (does not hit the network). */}
       <label className="inline-search">
         {label("Филтър…", "Filter…")}
         <input
@@ -48,11 +60,13 @@ export function LocationQrPanel({
           placeholder={label("номер / сграда", "number / building")}
         />
       </label>
+      {/* Print preview card — only when a row with qrToken was selected. */}
       {preview && (
         <div className="qr-print-card" style={{ margin: "1rem 0" }}>
           <h3>
             {preview.buildingCode} {preview.number}
           </h3>
+          {/* External QR image from the scan URL; token is required here. */}
           <img
             src={roomQrImageUrl(roomQrScanUrl(preview.qrToken!), 220)}
             alt={`QR ${preview.number}`}
@@ -61,9 +75,11 @@ export function LocationQrPanel({
           />
           <p className="muted small">{roomQrScanUrl(preview.qrToken!)}</p>
           <div className="row-actions">
+            {/* Browser print dialog for the preview card. */}
             <button type="button" onClick={() => window.print()}>
               {label("Печат", "Print")}
             </button>
+            {/* Clear preview selection. */}
             <button
               type="button"
               className="ghost"
@@ -92,11 +108,13 @@ export function LocationQrPanel({
                   </strong>
                   <div className="muted small">
                     ет. {r.floor} ·{" "}
+                    {/* Kind label for common areas vs guest rooms. */}
                     {r.kind === "common_area" ? "common" : "room"}
                   </div>
                 </td>
                 <td>{r.sector?.code ?? "—"}</td>
                 <td>
+                  {/* Disabled when the location has no qrToken yet. */}
                   <button
                     type="button"
                     className="ghost"

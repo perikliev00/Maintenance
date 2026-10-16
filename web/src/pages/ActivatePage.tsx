@@ -1,3 +1,7 @@
+/**
+ * Device/invitation activation: redeems invite code with optional password and
+ * device fingerprint. Prefills code from the URL hash query (`?code=`).
+ */
 import { FormEvent, useMemo, useState } from "react";
 import {
   deviceFingerprint,
@@ -14,44 +18,66 @@ type Props = {
   onBackToLogin: () => void;
 };
 
+/** Read invitation code from `#...?...code=...` hash query. */
 function readCodeFromHash(): string {
   const hash = window.location.hash.replace(/^#/, "");
   const qIndex = hash.indexOf("?");
+  // No query segment → empty code (user types it).
   if (qIndex < 0) return "";
   const params = new URLSearchParams(hash.slice(qIndex + 1));
+  // Return value / early exit.
   return (params.get("code") ?? "").trim();
 }
 
+/** Invite redeem UI; binds a device fingerprint on success. */
 export function ActivatePage({
   onActivated,
   theme,
   onToggleTheme,
   onBackToLogin,
 }: Props) {
+  // Prefill once from the hash so QR deep-links land with the code filled.
   const initialCode = useMemo(() => readCodeFromHash(), []);
+  // Local React state.
   const [code, setCode] = useState(initialCode);
+  // Local React state.
   const [password, setPassword] = useState("");
+  // Local React state.
   const [confirm, setConfirm] = useState("");
+  // Local React state.
   const [deviceLabel, setDeviceLabel] = useState(() => {
+    // Coarse device label for the invitations devices table.
     const ua = navigator.userAgent;
+    // Branch: conditional gate.
     if (/Mobile|Android|iPhone/i.test(ua)) return "Phone";
+    // Return value / early exit.
     return "Browser";
   });
+  // Local React state.
   const [error, setError] = useState<string | null>(null);
+  // Local React state.
   const [loading, setLoading] = useState(false);
 
+  /** Validate password rules, redeem invite, then hand user to the shell. */
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    // State transition.
     setError(null);
+    // Optional password — when set, enforce length + confirm match.
     if (password && password.length < 8) {
+      // State transition.
       setError("Password must be at least 8 characters");
       return;
     }
+    // Branch: conditional gate.
     if (password && password !== confirm) {
+      // State transition.
       setError("Passwords do not match");
       return;
     }
+    // State transition.
     setLoading(true);
+    // Try block for fallible work.
     try {
       const data = await redeemInvitation({
         code: code.trim(),
@@ -59,15 +85,19 @@ export function ActivatePage({
         deviceLabel: deviceLabel.trim() || "Device",
         fingerprint: deviceFingerprint(),
       });
+      // Clear the activate hash so routing does not bounce back here.
       window.location.hash = "";
       onActivated(data.user);
     } catch (err) {
+      // State transition.
       setError(err instanceof Error ? err.message : "Activation failed");
     } finally {
+      // State transition.
       setLoading(false);
     }
   }
 
+  // Return value / early exit.
   return (
     <div className="login-page">
       <button
@@ -123,8 +153,10 @@ export function ActivatePage({
             autoComplete="new-password"
           />
         </label>
+        {/* Render branch: error && <div className="error">error</div> */}
         {error && <div className="error">{error}</div>}
         <button type="submit" disabled={loading}>
+          {/* Render branch: loading ? "Activating…" : "Activate" */}
           {loading ? "Activating…" : "Activate"}
         </button>
         <button type="button" className="ghost" onClick={onBackToLogin}>

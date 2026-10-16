@@ -1,3 +1,7 @@
+/**
+ * Operations live dashboard snapshot: running sessions, needs-attention queue,
+ * recent completions, and a short audit feed — optionally scoped by data access.
+ */
 import {
   Prisma,
   SessionStatus,
@@ -8,17 +12,26 @@ import { OPEN_TICKET_STATUSES } from "../constants";
 import { getOperations } from "./settings";
 import { LIVE_AUDIT_ACTIONS } from "./audit";
 
+/** Completions strip window (minutes). */
 const RECENTLY_COMPLETED_MINUTES = 60;
+/** Audit feed lookback (hours). */
 const AUDIT_HOURS = 24;
+/** Max audit rows in the live feed. */
 const AUDIT_LIMIT = 40;
+/** Cap per needs-attention source query. */
 const NEEDS_ATTENTION_LIMIT = 50;
 
+/**
+ * Compact location DTO for live cards (building + floor flattened).
+ * Avoids shipping full floor/building joins to the ops dashboard.
+ */
 function locationPayload(location: {
   id: string;
   number: string;
   kind: string;
   floor: { number: number; building: { code: string } };
 }) {
+  // Flatten nested floor.building into buildingCode + floor number.
   return {
     id: location.id,
     number: location.number,
@@ -28,11 +41,16 @@ function locationPayload(location: {
   };
 }
 
+/**
+ * Compact employee DTO for live cards.
+ * Same shape used for session assignees and needs-attention rows.
+ */
 function employeePayload(employee: {
   id: string;
   fullName: string;
   employeeNumber: string;
 }) {
+  // Strip unused employee columns from the live payload.
   return {
     id: employee.id,
     fullName: employee.fullName,
@@ -40,32 +58,44 @@ function employeePayload(employee: {
   };
 }
 
+/** Nested floor/building include shared by session/task/ticket live queries. */
 const locationInclude = {
   floor: { include: { building: true } },
 } as const;
 
+/**
+ * Parallel fan-out of live ops queries. Overdue = session elapsed ≥ configured
+ * minutes; anomaly = 2× that threshold. Empty location scope means hotel-wide.
+ */
 export async function getOperationsLive(scopeWhere?: {
   task?: Prisma.CleaningTaskWhereInput;
   ticket?: Prisma.MaintenanceTicketWhereInput;
   session?: Prisma.CleaningSessionWhereInput;
   location?: Prisma.LocationWhereInput;
 }) {
+  // Snapshot clock used for elapsed/overdue and window cutoffs.
   const now = Date.now();
+  // Overdue minutes from operations settings.
   const operations = await getOperations();
   const overdueThresholdMinutes = operations.overdueSessionMinutes;
+  // Double the overdue window marks sessions as anomalies for supervisor triage.
   const anomalyThresholdMinutes = overdueThresholdMinutes * 2;
 
+  // Completions within the last hour appear in the recent strip.
   const recentCompletedSince = new Date(
     now - RECENTLY_COMPLETED_MINUTES * 60 * 1000,
   );
+  // Audit feed covers the last AUDIT_HOURS hours.
   const auditSince = new Date(now - AUDIT_HOURS * 60 * 60 * 1000);
 
+  // Normalize optional data-scope fragments (empty object = hotel-wide).
   const taskScope = scopeWhere?.task ?? {};
   const ticketScope = scopeWhere?.ticket ?? {};
   const sessionScope = scopeWhere?.session ?? {};
   const locationScope = scopeWhere?.location ?? {};
   const hasLocationScope = Object.keys(locationScope).length > 0;
 
+  // Resolve location ids once so the audit query can filter by locationId IN.
   const scopedLocationIds = hasLocationScope
     ? (
         await prisma.location.findMany({
@@ -75,6 +105,7 @@ export async function getOperationsLive(scopeWhere?: {
       ).map((l) => l.id)
     : null;
 
+  // Fan-out the six live queries in parallel.
   const [
     runningSessions,
     recentlyCompletedRaw,
@@ -83,6 +114,7 @@ export async function getOperationsLive(scopeWhere?: {
     blockingTickets,
     recentAuditEvents,
   ] = await Promise.all([
+    // All currently running cleaning sessions (scoped).
     prisma.cleaningSession.findMany({
       where: { status: SessionStatus.running, ...sessionScope },
       include: {
@@ -91,6 +123,7 @@ export async function getOperationsLive(scopeWhere?: {
       },
       orderBy: { startedAt: "asc" },
     }),
+    // Recently finished sessions for the completions strip.
     prisma.cleaningSession.findMany({
       where: {
         status: SessionStatus.completed,
@@ -104,6 +137,7 @@ export async function getOperationsLive(scopeWhere?: {
       orderBy: { finishedAt: "desc" },
       take: 40,
     }),
+    // Tasks waiting on inspection (needs-attention source).
     prisma.cleaningTask.findMany({
       where: { status: TaskStatus.awaiting_inspection, ...taskScope },
       include: {
@@ -113,6 +147,7 @@ export async function getOperationsLive(scopeWhere?: {
       orderBy: { updatedAt: "desc" },
       take: NEEDS_ATTENTION_LIMIT,
     }),
+    // Active tasks past their dueAt (needs-attention source).
     prisma.cleaningTask.findMany({
       where: {
         status: {
@@ -133,6 +168,7 @@ export async function getOperationsLive(scopeWhere?: {
       orderBy: { dueAt: "asc" },
       take: NEEDS_ATTENTION_LIMIT,
     }),
+    // Open tickets that block rooms (needs-attention source).
     prisma.maintenanceTicket.findMany({
       where: {
         blocksRoom: true,
@@ -146,6 +182,7 @@ export async function getOperationsLive(scopeWhere?: {
       orderBy: [{ priority: "desc" }, { openedAt: "asc" }],
       take: NEEDS_ATTENTION_LIMIT,
     }),
+    // Recent ops-relevant audit events (optionally location-scoped).
     prisma.auditEvent.findMany({
       where: {
         occurredAt: { gte: auditSince },
@@ -178,11 +215,15 @@ export async function getOperationsLive(scopeWhere?: {
     }),
   ]);
 
+  // Map running sessions to DTOs with live overdue/anomaly flags.
   const activeSessions = runningSessions.map((s) => {
+    // Elapsed whole minutes since session start (floor, not round).
     const elapsedMinutes = Math.floor(
       (now - s.startedAt.getTime()) / 60_000,
     );
+    // Overdue once elapsed hits the configured operations threshold.
     const overdue = elapsedMinutes >= overdueThresholdMinutes;
+    // Anomaly = 2× overdue threshold for supervisor triage.
     const anomaly = elapsedMinutes >= anomalyThresholdMinutes;
     return {
       sessionId: s.id,
@@ -196,7 +237,9 @@ export async function getOperationsLive(scopeWhere?: {
     };
   });
 
+  // Map recent completions with duration minutes.
   const recentlyCompleted = recentlyCompletedRaw.map((s) => {
+    // finishedAt is non-null for completed sessions.
     const finishedAt = s.finishedAt!;
     const durationMinutes = Math.floor(
       (finishedAt.getTime() - s.startedAt.getTime()) / 60_000,
@@ -223,16 +266,21 @@ export async function getOperationsLive(scopeWhere?: {
     status: string;
   };
 
+  // Accumulator for the needs-attention queue (capped sources above).
   const needsAttention: NeedsItem[] = [];
+  // Deduplicate across awaiting / past-due / blocking sources.
   const seenKeys = new Set<string>();
 
+  /** Deduplicate needs-attention rows by kind+id. */
   function pushNeed(item: NeedsItem) {
     const key = `${item.kind}:${item.id}`;
+    // Skip if this kind+id was already pushed.
     if (seenKeys.has(key)) return;
     seenKeys.add(key);
     needsAttention.push(item);
   }
 
+  // Inspection queue first (higher visual priority in the UI).
   for (const t of awaitingTasks) {
     pushNeed({
       kind: "awaiting_inspection",
@@ -248,6 +296,7 @@ export async function getOperationsLive(scopeWhere?: {
     });
   }
 
+  // Past-due active tasks; skip those already listed as awaiting_inspection.
   for (const t of pastDueTasks) {
     // Avoid duplicating pure awaiting_inspection rows already listed
     if (t.status === TaskStatus.awaiting_inspection) continue;
@@ -265,6 +314,7 @@ export async function getOperationsLive(scopeWhere?: {
     });
   }
 
+  // Blocking open tickets last among needs-attention kinds.
   for (const ticket of blockingTickets) {
     pushNeed({
       kind: "blocking_ticket",
@@ -278,6 +328,7 @@ export async function getOperationsLive(scopeWhere?: {
     });
   }
 
+  // Resolve room numbers for audit rows that carry a locationId.
   const locationIds = [
     ...new Set(
       recentAuditEvents
@@ -285,6 +336,7 @@ export async function getOperationsLive(scopeWhere?: {
         .filter((id): id is string => !!id),
     ),
   ];
+  // Batch-load numbers so the feed can show room without N+1 queries.
   const locationsById = new Map(
     (
       await prisma.location.findMany({
@@ -303,6 +355,7 @@ export async function getOperationsLive(scopeWhere?: {
     actorName: string | null;
   };
 
+  // Flatten audit events into the feed DTO with fallback summaries.
   const auditFeed: AuditItem[] = recentAuditEvents.map((ev) => ({
     at: ev.occurredAt.toISOString(),
     type: ev.action,
@@ -316,6 +369,7 @@ export async function getOperationsLive(scopeWhere?: {
     actorName: ev.actor?.fullName ?? null,
   }));
 
+  // Aggregate banner counts from the mapped session DTOs.
   const overdueCount = activeSessions.filter((s) => s.overdue).length;
   const anomaliesCount = activeSessions.filter((s) => s.anomaly).length;
 

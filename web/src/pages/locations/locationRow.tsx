@@ -1,3 +1,8 @@
+/**
+ * Single Locations board row: status pills, blocking issues, and lifecycle
+ * actions. Start/complete gates combine `canWork` with assignee ownership
+ * (owners/supervisors may act on others' tasks).
+ */
 import type { AuthUser, Room } from "../../api/client";
 import { IssuesCell, ReportIssueButton } from "./issues";
 import {
@@ -30,6 +35,10 @@ type LocationRowProps = {
   refresh: () => Promise<void>;
 };
 
+/**
+ * Single Locations board row: status pills, blocking issues, and lifecycle actions.
+ * Start/complete gates combine `canWork` with assignee ownership rules.
+ */
 export function LocationRow({
   location: loc,
   user,
@@ -51,10 +60,12 @@ export function LocationRow({
   runAction,
   refresh,
 }: LocationRowProps) {
+  // Unpack permission flags used for action gates below.
   const { owner, canManage, canWork, canInspect, canResolve } = permissions;
   const busy = busyId === loc.id;
   const task = loc.activeTask;
   const isMyRunning = task?.runningSession?.employeeId === user.employeeId;
+  // Owners/supervisors may start others' tasks; staff only their own / unassigned.
   const canStartThis =
     canWork &&
     task &&
@@ -64,6 +75,7 @@ export function LocationRow({
       user.role === "supervisor" ||
       !task.assignee ||
       task.assignee.id === user.employeeId);
+  // Complete only the session owner (or owner/supervisor override).
   const canCompleteThis =
     canWork &&
     task?.runningSession &&
@@ -80,12 +92,14 @@ export function LocationRow({
       <td>{loc.buildingCode}</td>
       <td>{loc.floor}</td>
       <td>
+        {/* Sector code with full name tooltip, or em dash. */}
         {loc.sector ? (
           <span title={loc.sector.nameBg}>{loc.sector.code}</span>
         ) : (
           <span className="muted">—</span>
         )}
       </td>
+      {/* Occupancy column hidden for common areas inside OccupancyCell. */}
       <OccupancyCell isCommon={isCommon} occupancy={loc.occupancy} />
       <td>
         <span className={`pill service-${loc.serviceStatus}`}>
@@ -100,10 +114,12 @@ export function LocationRow({
       <TaskPriorityDueCell task={task} />
       <td>
         <span className={`pill ready-${loc.readiness}`}>{loc.readiness}</span>
+        {/* Optional readiness reason chips. */}
         {loc.readinessReasons.length > 0 && (
           <div className="reasons">{loc.readinessReasons.join(", ")}</div>
         )}
       </td>
+      {/* Blocking issues + resolve actions. */}
       <IssuesCell
         location={loc}
         busy={busy}
@@ -115,6 +131,7 @@ export function LocationRow({
       />
       <TaskInfoCell task={task} />
       <td>
+        {/* Lifecycle + report-issue actions (stopPropagation inside). */}
         <LifecycleActions
           location={loc}
           busy={busy}

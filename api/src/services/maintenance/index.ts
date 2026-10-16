@@ -1,3 +1,7 @@
+/**
+ * Maintenance ticket lifecycle: create → assign → start → wait/resume →
+ * resolve → close (with reopen). Re-exports SLA policy helpers used at create.
+ */
 export {
   ensureDefaultSlaPolicies,
   listSlaPolicies,

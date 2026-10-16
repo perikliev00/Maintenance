@@ -1,9 +1,14 @@
+/**
+ * /sectors — sector admin (sectors.manage) plus /mine for the caller's own sectors
+ * (auth only; no manage action required).
+ */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../middleware/auth";
 import * as sectorsController from "../controllers/sectors";
 
 export const sectorsRouter = Router();
 
+// GET / — admin list of all sectors.
 sectorsRouter.get(
   "/",
   requireAuth,
@@ -11,8 +16,10 @@ sectorsRouter.get(
   sectorsController.list,
 );
 
+// GET /mine — sectors for the current employee (auth only; not full admin list).
 sectorsRouter.get("/mine", requireAuth, sectorsController.listMine);
 
+// GET /:id — single sector detail including locations/members.
 sectorsRouter.get(
   "/:id",
   requireAuth,
@@ -20,6 +27,7 @@ sectorsRouter.get(
   sectorsController.get,
 );
 
+// POST / — create a sector.
 sectorsRouter.post(
   "/",
   requireAuth,
@@ -27,6 +35,7 @@ sectorsRouter.post(
   sectorsController.create,
 );
 
+// PATCH /:id — update sector metadata / membership.
 sectorsRouter.patch(
   "/:id",
   requireAuth,
@@ -34,6 +43,7 @@ sectorsRouter.patch(
   sectorsController.update,
 );
 
+// PUT /:id/locations — replace the location set for a sector.
 sectorsRouter.put(
   "/:id/locations",
   requireAuth,

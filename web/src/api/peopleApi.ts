@@ -1,3 +1,7 @@
+/**
+ * People directory, invitations, and device fingerprint helpers.
+ * `redeemInvitation` is unauthenticated (sets cookies + user cache like login).
+ */
 import type { AuthUser, Role } from "./capabilities";
 import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
 
@@ -39,20 +43,7 @@ export type IssuedInvitation = {
   expiresAt: string;
 };
 
-export type DeviceRow = {
-  id: string;
-  label: string;
-  fingerprint: string;
-  employeeId: string;
-  userId: string;
-  fullName: string;
-  employeeNumber: string;
-  email: string;
-  role: Role;
-  activatedAt: string;
-  lastSeenAt: string;
-};
-
+/** Active housekeepers for assignment pickers (abortable). */
 export async function fetchHousekeepers(init?: { signal?: AbortSignal }) {
   const res = await apiFetch(`${API_BASE}/cleaning/employees/housekeepers`, {
     headers: authHeaders(),
@@ -61,6 +52,7 @@ export async function fetchHousekeepers(init?: { signal?: AbortSignal }) {
   return parseJson<Array<{ id: string; fullName: string; employeeNumber: string }>>(res);
 }
 
+/** People directory with optional search, role, and onboarding filters. */
 export async function fetchPeople(params?: {
   q?: string;
   role?: string;
@@ -79,6 +71,7 @@ export async function fetchPeople(params?: {
   return parseJson(res);
 }
 
+/** Change a user's role (owner-gated on the server). */
 export async function updatePersonRole(userId: string, role: Role): Promise<Person> {
   const res = await apiFetch(`${API_BASE}/people/${userId}/role`, {
     method: "PATCH",
@@ -88,6 +81,10 @@ export async function updatePersonRole(userId: string, role: Role): Promise<Pers
   return parseJson(res);
 }
 
+/**
+ * Issue an invite for a new hire (`kind: "new"`) or an existing employee row
+ * (`kind: "existing"`). Returns the one-time code + QR payload.
+ */
 export async function issueInvitation(
   body:
     | {
@@ -113,6 +110,7 @@ export async function issueInvitation(
   return parseJson(res);
 }
 
+/** List invitation rows (codes are hinted, not fully revealed after issue). */
 export async function fetchInvitations(): Promise<Invitation[]> {
   const res = await apiFetch(`${API_BASE}/invitations`, {
     headers: authHeaders(),
@@ -120,6 +118,7 @@ export async function fetchInvitations(): Promise<Invitation[]> {
   return parseJson(res);
 }
 
+/** Revoke an unused invitation so the code can no longer be redeemed. */
 export async function revokeInvitation(id: string): Promise<Invitation> {
   const res = await apiFetch(`${API_BASE}/invitations/${id}/revoke`, {
     method: "POST",
@@ -128,12 +127,17 @@ export async function revokeInvitation(id: string): Promise<Invitation> {
   return parseJson(res);
 }
 
+/**
+ * Activate an invite code. Uses raw `fetch` (no refresh retry) because there is
+ * no prior session; persists the returned user like `login`.
+ */
 export async function redeemInvitation(body: {
   code: string;
   password?: string;
   deviceLabel: string;
   fingerprint: string;
 }): Promise<{ user: AuthUser }> {
+  // Unauthenticated redeem — cookies arrive via Set-Cookie on success.
   const res = await fetch(`${API_BASE}/invitations/redeem`, {
     method: "POST",
     credentials: "include",
@@ -141,30 +145,15 @@ export async function redeemInvitation(body: {
     body: JSON.stringify(body),
   });
   const data = await parseJson<{ user: AuthUser }>(res);
+  // Mirror login: non-secret user cache for UI bootstrap.
   localStorage.setItem("user", JSON.stringify(data.user));
   return data;
 }
 
-export async function fetchDevices(employeeId?: string): Promise<DeviceRow[]> {
-  const search = new URLSearchParams();
-  if (employeeId) search.set("employeeId", employeeId);
-  const qs = search.toString();
-  const res = await apiFetch(`${API_BASE}/devices${qs ? `?${qs}` : ""}`, {
-    headers: authHeaders(),
-  });
-  return parseJson(res);
-}
-
-export async function revokeDevice(id: string): Promise<{ id: string; revokedAt: string }> {
-  const res = await apiFetch(`${API_BASE}/devices/${id}/revoke`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  return parseJson(res);
-}
-
+/** Stable per-browser id sent with invite redeem for device binding. */
 export function deviceFingerprint(): string {
   const key = "device_fingerprint";
+  // Reuse existing fingerprint so re-activates bind to the same device.
   const existing = localStorage.getItem(key);
   if (existing) return existing;
   const next = `web-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;

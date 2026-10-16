@@ -1,3 +1,6 @@
+/**
+ * Assign (or reassign) a ticket that is still in new/assigned.
+ */
 import { TicketStatus } from "@prisma/client";
 import { prisma } from "../../db";
 import { AppError } from "../../errors";
@@ -8,15 +11,23 @@ import { formatMaintenanceTicket } from "./format";
 import { loadLockedTicket } from "./locks";
 import { notifyTicketEvent, publishTicketChanged } from "./notify";
 
+/**
+ * Sets assignee and status=assigned. Allowed only from new or assigned
+ * (reassignment before work starts). Notifies the new assignee.
+ */
 export async function assignMaintenanceTicket(input: {
   ticketId: string;
   assigneeId: string;
   actorEmployeeId: string;
 }) {
+  // Reject inactive / non-technician assignees before opening a transaction.
   await assertActiveMaintenanceAssignee(input.assigneeId);
 
+  // Serialize assign against concurrent start/wait/resolve on the same ticket.
   const updated = await prisma.$transaction(async (tx) => {
+    // Serialize concurrent assign/start on this ticket.
     const ticket = await loadLockedTicket(tx, input.ticketId);
+    // Only pre-work states may be (re)assigned.
     if (
       ticket.status !== TicketStatus.new &&
       ticket.status !== TicketStatus.assigned
@@ -28,7 +39,9 @@ export async function assignMaintenanceTicket(input: {
       );
     }
 
+    // Capture fromStatus before the claim mutates the row.
     const fromStatus = ticket.status;
+    // Conditional update — loses the race cleanly if status moved.
     const row = await claimTicketUpdate(
       tx,
       ticket.id,
@@ -40,6 +53,7 @@ export async function assignMaintenanceTicket(input: {
       (status) => `Cannot assign ticket in status ${status}`,
     );
 
+    // Timeline event for the ticket history panel.
     await writeTicketEvent(tx, {
       ticketId: ticket.id,
       locationId: ticket.locationId,
@@ -52,7 +66,9 @@ export async function assignMaintenanceTicket(input: {
     return row;
   });
 
+  // Live SSE / bus update for open ticket views.
   publishTicketChanged(updated);
+  // Inbox notification to the newly assigned technician.
   await notifyTicketEvent({
     type: "ticket.assigned",
     title: "Ticket assigned to you",
@@ -60,7 +76,9 @@ export async function assignMaintenanceTicket(input: {
     ticket: updated,
     actorEmployeeId: input.actorEmployeeId,
     recipientEmployeeIds: [input.assigneeId],
+    // Dedupe on ticket+assignee so retries do not spam.
     dedupeKey: `ticket.assigned:${updated.id}:${input.assigneeId}`,
   });
+  // Legacy category alias for older clients.
   return formatMaintenanceTicket(updated);
 }

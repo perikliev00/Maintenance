@@ -1,9 +1,17 @@
+/**
+ * components/BrandMark.tsx — UI module (densified documentation).
+ */
 type Props = {
   size?: number;
   className?: string;
 };
 
+/**
+ * Decorative app logo mark (SVG).
+ * Purely visual — `aria-hidden` so screen readers skip it.
+ */
 export function BrandMark({ size = 28, className }: Props) {
+  // Colors come from CSS variables so the mark follows the active theme.
   return (
     <svg
       className={className}

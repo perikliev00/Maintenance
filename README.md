@@ -369,8 +369,7 @@ sectors.transfer_cross
 ```
 
 Login и `GET /auth/me` връщат `panels[]`, `actions[]`, `landing`.  
-Middleware: `requireAction(action)` ползва `canPerform` (owner → allow).  
-`requireRoles(...)` също пропуска owner винаги.
+Middleware: `requireAction(action)` ползва `canPerform` (owner → allow).
 
 ### Матрица панел × роля
 

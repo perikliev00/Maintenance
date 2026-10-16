@@ -1,7 +1,10 @@
+/**
+ * Role-based data scope: resolve caller scope, build Prisma where-clauses,
+ * and assert entity access before mutations.
+ */
 export type { DataScope, DataScopeKind } from "./types";
 export { resolveDataScope } from "./resolve";
 export {
-  sectorIdForLocation,
   sectorSnapshotForLocation,
   sectorSupervisorForSector,
 } from "./sectorSnapshots";

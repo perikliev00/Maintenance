@@ -1,3 +1,7 @@
+/**
+ * Lightweight SVG analytics charts (horizontal bars + daily trend area).
+ * No chart library — paths are built locally for a small dependency footprint.
+ */
 import { useId, useMemo, useState } from "react";
 import type { AnalyticsSeriesPoint } from "../api/client";
 
@@ -5,14 +9,22 @@ const VB_W = 640;
 const VB_H = 220;
 const PAD = { top: 18, right: 16, bottom: 32, left: 40 };
 
+/**
+ * Catmull-Rom–style cubic SVG path through the given points.
+ * Single point becomes a move-only path; empty input returns "".
+ */
 function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
+  // Nothing to draw.
   if (points.length === 0) return "";
+  // Degenerate: a single move command (no curve segments).
   if (points.length === 1) {
     const p = points[0];
     return `M ${p.x} ${p.y}`;
   }
   let d = `M ${points[0].x} ${points[0].y}`;
+  // Build cubic segments between consecutive samples.
   for (let i = 0; i < points.length - 1; i++) {
+    // Neighbor samples for control-point estimation (clamp at ends).
     const p0 = points[i === 0 ? i : i - 1];
     const p1 = points[i];
     const p2 = points[i + 1];
@@ -26,6 +38,10 @@ function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
   return d;
 }
 
+/**
+ * Horizontal bar breakdown chart.
+ * Zero counts get zero width; non-zero bars keep a small minimum for visibility.
+ */
 export function AnalyticsBarChart({
   items,
   title,
@@ -35,6 +51,7 @@ export function AnalyticsBarChart({
   title: string;
   countLabel?: string;
 }) {
+  // Floor max at 1 so empty datasets do not divide by zero.
   const max = Math.max(1, ...items.map((i) => i.count));
   const total = items.reduce((s, i) => s + i.count, 0);
 
@@ -46,15 +63,18 @@ export function AnalyticsBarChart({
           {countLabel ?? `${items.length} · общо ${total}`}
         </span>
       </div>
+      {/* Empty period vs horizontal bar rows. */}
       {items.length === 0 ? (
         <p className="muted">Няма данни за периода.</p>
       ) : (
         <div className="analytics-hchart" role="img" aria-label={title}>
           {items.map((item, idx) => {
             const pctOfMax = (item.count / max) * 100;
+            // Minimum 6% width for non-zero bars so tiny counts stay visible.
             const widthPct = Math.max(item.count === 0 ? 0 : 6, pctOfMax);
             const share =
               total > 0 ? Math.round((item.count / total) * 100) : 0;
+            // Highlight the busiest category (ties all get is-top).
             const isTop = item.count === max && item.count > 0;
             return (
               <div
@@ -75,6 +95,7 @@ export function AnalyticsBarChart({
                 </div>
                 <div className="analytics-hchart-meta">
                   <span className="analytics-hchart-value">{item.count}</span>
+                  {/* Share % omitted when the whole chart totals zero. */}
                   {total > 0 && (
                     <span className="muted analytics-hchart-share">{share}%</span>
                   )}
@@ -88,16 +109,23 @@ export function AnalyticsBarChart({
   );
 }
 
+/**
+ * Daily count trend SVG with hover guide.
+ * Hit-rects are wide so sparse days stay easy to target.
+ */
 export function AnalyticsTrendChart({
   series,
 }: {
   series: AnalyticsSeriesPoint[];
 }) {
+  // Sanitize useId for SVG fragment URLs (colons break some browsers).
   const gradId = useId().replace(/:/g, "");
+  // Index of the hovered day, or null when the pointer left the chart.
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const max = Math.max(1, ...series.map((s) => s.count));
   const total = series.reduce((s, p) => s + p.count, 0);
+  // Peak day used for the header callout.
   const peak = useMemo(
     () =>
       series.reduce(
@@ -107,22 +135,26 @@ export function AnalyticsTrendChart({
     [series],
   );
 
+  // Project series into viewBox coordinates + smooth path strings.
   const plot = useMemo(() => {
     const innerW = VB_W - PAD.left - PAD.right;
     const innerH = VB_H - PAD.top - PAD.bottom;
     const n = series.length;
     const coords = series.map((p, i) => {
+      // Center a single point; otherwise space evenly across the inner width.
       const x =
         n <= 1 ? PAD.left + innerW / 2 : PAD.left + (i / (n - 1)) * innerW;
       const y = PAD.top + innerH * (1 - p.count / max);
       return { x, y, ...p };
     });
     const line = buildSmoothPath(coords.map(({ x, y }) => ({ x, y })));
+    // Close the line down to the baseline for the filled area.
     const area =
       coords.length === 0
         ? ""
         : `${line} L ${coords[coords.length - 1].x} ${PAD.top + innerH} L ${coords[0].x} ${PAD.top + innerH} Z`;
     const yTicks = [max, Math.round(max / 2), 0];
+    // Thin out x-axis labels on dense series (~6 labels).
     const labelEvery = Math.max(1, Math.ceil(n / 6));
     return { coords, line, area, yTicks, innerH, labelEvery };
   }, [series, max]);
@@ -136,9 +168,11 @@ export function AnalyticsTrendChart({
         <h2>Тренд</h2>
         <span className="muted">
           {series.length} дни · общо {total}
+          {/* Peak callout only when there is a non-zero max day. */}
           {peak.count > 0 ? ` · връх ${peak.count}` : ""}
         </span>
       </div>
+      {/* Empty / all-zero / chart branches. */}
       {series.length === 0 ? (
         <p className="muted">Няма данни за периода.</p>
       ) : allZero ? (
@@ -176,6 +210,7 @@ export function AnalyticsTrendChart({
               </filter>
             </defs>
 
+            {/* Horizontal grid + y-axis tick labels. */}
             {plot.yTicks.map((tick, i) => {
               const y =
                 PAD.top +
@@ -212,6 +247,7 @@ export function AnalyticsTrendChart({
               filter={`url(#soft-${gradId})`}
             />
 
+            // Hover guide line + point marker.
             {hover && (
               <>
                 <line
@@ -230,6 +266,7 @@ export function AnalyticsTrendChart({
               </>
             )}
 
+            // Per-day hit targets + sparse x labels.
             {plot.coords.map((p, i) => {
               const showLabel =
                 i === 0 ||
@@ -237,6 +274,7 @@ export function AnalyticsTrendChart({
                 i % plot.labelEvery === 0;
               return (
                 <g key={p.date}>
+                  {/* Date label only on first/last/every Nth day. */}
                   {showLabel && (
                     <text
                       className="analytics-area-axis"
@@ -261,6 +299,7 @@ export function AnalyticsTrendChart({
             })}
           </svg>
 
+          // HTML tooltip positioned from SVG viewBox fractions.
           {hover && (
             <div
               className="analytics-tooltip"

@@ -1,5 +1,9 @@
+/**
+ * Shared Prisma types and include shape for maintenance ticket reads/writes.
+ */
 import { Priority, Prisma } from "@prisma/client";
 
+/** Standard relations loaded with every ticket mutation / list response. */
 export const ticketInclude = {
   location: { include: { floor: { include: { building: true } } } },
   reportedBy: true,
@@ -15,6 +19,7 @@ export type TicketWithRelations = Prisma.MaintenanceTicketGetPayload<{
   include: typeof ticketInclude;
 }>;
 
+/** Create payload: provide issueOptionId XOR categoryId (validated in create). */
 export type CreateMaintenanceTicketInput = {
   locationId: string;
   title?: string;
@@ -23,6 +28,7 @@ export type CreateMaintenanceTicketInput = {
   priority?: Priority;
   blocksRoom: boolean;
   reportedByEmployeeId: string;
+  /** Client command id for offline/idempotent create (unique on ticket). */
   commandId?: string;
   dueAt?: Date;
 };

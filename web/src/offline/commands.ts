@@ -1,3 +1,8 @@
+/**
+ * Pure command builders: map domain ops to queue type + URL + body.
+ * Inject `run` (usually `runOrEnqueue`) so unit tests can assert payloads
+ * without hitting the network or IndexedDB.
+ */
 import { API_BASE } from "../api/http";
 import type { QueueCommandType } from "./storage";
 
@@ -9,6 +14,7 @@ export type RunOrEnqueue = (
   body: Record<string, unknown>,
 ) => Promise<QueuedResult>;
 
+/** Build cleaning.start command payload and hand off to `run`. */
 export function startCleaningQueued(
   taskId: string,
   expectedVersion: number | undefined,
@@ -21,6 +27,7 @@ export function startCleaningQueued(
   );
 }
 
+/** Build cleaning.complete payload (trim notes; optional optimistic version). */
 export function completeCleaningQueued(
   sessionId: string,
   notes: string | undefined,
@@ -38,6 +45,7 @@ export function completeCleaningQueued(
   );
 }
 
+/** Build ticket.start command. */
 export function startTicketQueued(
   ticketId: string,
   run: RunOrEnqueue,
@@ -49,6 +57,7 @@ export function startTicketQueued(
   );
 }
 
+/** Build ticket.wait command; omit empty reason. */
 export function waitTicketQueued(
   ticketId: string,
   reason: string | undefined,
@@ -64,6 +73,7 @@ export function waitTicketQueued(
   );
 }
 
+/** Build ticket.resume command. */
 export function resumeTicketQueued(
   ticketId: string,
   run: RunOrEnqueue,
@@ -75,6 +85,7 @@ export function resumeTicketQueued(
   );
 }
 
+/** Build ticket.resolve command; omit empty resolution notes. */
 export function resolveTicketQueued(
   ticketId: string,
   resolutionNotes: string | undefined,
@@ -92,6 +103,7 @@ export function resolveTicketQueued(
   );
 }
 
+/** Build ticket.report create payload from the issue dialog fields. */
 export function reportTicketQueued(
   input: {
     locationId: string;
@@ -103,6 +115,7 @@ export function reportTicketQueued(
   },
   run: RunOrEnqueue,
 ): Promise<QueuedResult> {
+  // Only include optional fields when present so the body stays minimal.
   return run("ticket.report", `${API_BASE}/maintenance/tickets`, {
     commandId: crypto.randomUUID(),
     locationId: input.locationId,

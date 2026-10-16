@@ -1,3 +1,7 @@
+/**
+ * Live SSE: issue short-lived stream tickets and open /events/stream.
+ * Delivery is filtered by DataScope; heartbeats re-check session and scope.
+ */
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import type { Role } from "@prisma/client";
@@ -11,8 +15,11 @@ import { canDeliverLiveEvent } from "../events/authorizeLiveEvent";
 import { resolveDataScope, type DataScope } from "../services/dataScope";
 import { assertSessionActive } from "../services/authSessions";
 
+/** JWT purpose claim that marks an SSE ticket (not a session access token). */
 const SSE_TICKET_PURPOSE = "sse" as const;
+/** SSE ticket lifetime (seconds). */
 const SSE_TICKET_EXPIRES_SEC = 5 * 60;
+/** Heartbeat interval; also refreshes session + DataScope. */
 const SSE_HEARTBEAT_MS = 25_000;
 
 type SseTicketPayload = {
@@ -24,6 +31,7 @@ type SseTicketPayload = {
   sid: string;
 };
 
+/** Type guard for decoded SSE ticket JWT claims. */
 function isSseTicketPayload(value: unknown): value is SseTicketPayload {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
@@ -49,8 +57,10 @@ export async function resolveSseTicketUser(
   assertActive: AssertSessionActive = assertSessionActive,
 ): Promise<AuthUser | null> {
   try {
+    // Verify signature/expiry of the short-lived SSE ticket.
     const decoded = jwt.verify(ticket, getJwtSecret());
     if (!isSseTicketPayload(decoded)) return null;
+    // Reload session + user from DB (do not trust JWT role claims).
     const session = await assertActive(decoded.sid, decoded.userId);
     return authUserFromSession(session);
   } catch {
@@ -87,6 +97,10 @@ async function authenticateTicket(req: Request): Promise<AuthUser | null> {
   return resolveSseTicketUser(ticket);
 }
 
+/**
+ * Auth order for /stream: Bearer access → session cookie → ?ticket=.
+ * SSE-purpose JWTs are rejected as Bearer/cookie so tickets stay query-only.
+ */
 async function authenticateStream(req: Request): Promise<AuthUser | null> {
   const viaBearer = await authenticateBearer(req);
   if (viaBearer) return viaBearer;
@@ -96,6 +110,7 @@ async function authenticateStream(req: Request): Promise<AuthUser | null> {
     typeof req.cookies?.session === "string" ? req.cookies.session : null;
   if (cookieToken) {
     try {
+      // Same SSE-ticket rejection as Bearer.
       const peek = jwt.decode(cookieToken);
       if (
         peek &&
@@ -113,11 +128,13 @@ async function authenticateStream(req: Request): Promise<AuthUser | null> {
   return authenticateTicket(req);
 }
 
+/** Write one SSE event frame (event name + JSON data). */
 function writeSse(res: Response, event: string, data: unknown) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+/** Map AuthSession (+ user) to the AuthUser shape used elsewhere. */
 function authUserFromSession(
   session: Awaited<ReturnType<AssertSessionActive>>,
 ): AuthUser {
@@ -130,6 +147,7 @@ function authUserFromSession(
   };
 }
 
+/** Thrown when heartbeat DataScope refresh fails (stream should revoke). */
 export class SseScopeRefreshError extends Error {
   constructor(message = "Failed to resolve data scope") {
     super(message);
@@ -151,9 +169,11 @@ export async function refreshSseSubscriberState(
 ): Promise<{ currentUser: AuthUser; scope: DataScope }> {
   const assertActive = deps.assertActive ?? assertSessionActive;
   const resolveScope = deps.resolveScope ?? resolveDataScope;
+  // Revoked/expired sessions throw and close the stream.
   const session = await assertActive(currentUser.sid, currentUser.userId);
   const next = authUserFromSession(session);
   try {
+    // Always re-resolve so sector membership changes apply live.
     const scope = await resolveScope(next);
     return { currentUser: next, scope };
   } catch (err) {
@@ -162,6 +182,7 @@ export async function refreshSseSubscriberState(
   }
 }
 
+/** Issue a short-lived JWT for EventSource clients that cannot send cookies/headers. */
 export function issueTicket(req: Request, res: Response) {
   const user = req.user!;
   const payload: SseTicketPayload = {
@@ -178,7 +199,12 @@ export function issueTicket(req: Request, res: Response) {
   res.json({ token, expiresIn: SSE_TICKET_EXPIRES_SEC });
 }
 
+/**
+ * Open an SSE connection. Auth order: Bearer access → session cookie → ?ticket=.
+ * SSE-purpose JWTs are rejected as Bearer/cookie so tickets stay query-only.
+ */
 export async function stream(req: Request, res: Response) {
+  // Authenticate without requireAuth middleware (EventSource limitations).
   const user = await authenticateStream(req);
   if (!user) {
     return res.status(401).json({
@@ -199,6 +225,7 @@ export async function stream(req: Request, res: Response) {
     });
   }
 
+  // SSE response headers (disable proxy buffering).
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -207,6 +234,7 @@ export async function stream(req: Request, res: Response) {
     res.flushHeaders();
   }
 
+  // Initial connected event so the client knows the stream is live.
   writeSse(res, "connected", {
     ok: true,
     userId: currentUser.userId,
@@ -214,6 +242,7 @@ export async function stream(req: Request, res: Response) {
   });
 
   let closed = false;
+  // Fan-in from the in-process live bus; filter by DataScope before write.
   const onLive = (event: LiveEvent) => {
     if (closed) return;
     void (async () => {
@@ -236,6 +265,7 @@ export async function stream(req: Request, res: Response) {
     unsubscribe();
   };
 
+  // Periodic ping + session/scope refresh.
   heartbeat = setInterval(() => {
     if (closed) return;
     void (async () => {
@@ -249,6 +279,7 @@ export async function stream(req: Request, res: Response) {
         res.write(`: ping ${Date.now()}\n\n`);
       } catch (err) {
         if (closed) return;
+        // Scope refresh failure vs session revoke — both end the stream.
         if (err instanceof SseScopeRefreshError) {
           writeSse(res, "revoked", {
             ok: false,
@@ -265,6 +296,7 @@ export async function stream(req: Request, res: Response) {
     })();
   }, SSE_HEARTBEAT_MS);
 
+  // Client disconnect / transport error → unsubscribe and stop heartbeat.
   req.on("close", cleanup);
   req.on("error", cleanup);
   return undefined;

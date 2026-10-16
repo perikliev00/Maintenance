@@ -1,3 +1,8 @@
+/**
+ * Attendance intervals list with CSV export and adjustment request/approve flow.
+ * Request vs approve are separately gated (`attendance.request_adjustment` /
+ * `attendance.approve_adjustment`).
+ */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   canPerformAction,
@@ -19,11 +24,13 @@ const SCOPES: Array<{ id: AttendanceScope; bg: string; en: string }> = [
   { id: "review", bg: "За преглед", en: "For review" },
 ];
 
+/** Current calendar month as YYYY-MM for the month-scope picker. */
 function currentMonth(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** Compact BG locale timestamp; em-dash when null (open interval). */
 function formatTs(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -35,6 +42,7 @@ function formatTs(iso: string | null): string {
   });
 }
 
+/** Worked minutes as H:MM; em-dash when null. */
 function formatHours(minutes: number | null): string {
   if (minutes == null) return "—";
   const h = Math.floor(minutes / 60);
@@ -49,30 +57,43 @@ const STATUS_LABEL: Record<string, string> = {
   adjusted: "коригиран",
 };
 
+/**
+ * Attendance intervals list with CSV export and adjustment request/approve.
+ * Request vs approve are separately gated.
+ */
 export function AttendancePage({ user }: Props) {
+  // Scope + month drive the primary list query.
   const [scope, setScope] = useState<AttendanceScope>("month");
   const [month, setMonth] = useState(currentMonth);
+  // Optional department and free-text name/number filters.
   const [department, setDepartment] = useState("");
   const [q, setQ] = useState("");
+  // Paginated intervals + total for the "shown X of Y" stamp.
   const [intervals, setIntervals] = useState<AttendanceInterval[]>([]);
   const [total, setTotal] = useState(0);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  // Terminal clock skew vs server (seconds); banner when large.
   const [maxSkew, setMaxSkew] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Busy id for adjustment request or approve/reject rows.
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Adjustment modal state (null = closed).
   const [adjustFor, setAdjustFor] = useState<AttendanceInterval | null>(null);
   const [adjReason, setAdjReason] = useState("");
   const [adjEnd, setAdjEnd] = useState("");
   const [adjBreak, setAdjBreak] = useState("30");
 
+  // Separate permission gates for request vs approve flows.
   const canRequest = canPerformAction(user, "attendance.request_adjustment");
   const canApprove = canPerformAction(user, "attendance.approve_adjustment");
 
+  /** Fetch first page of intervals for the current filters. */
   const refresh = useCallback(async () => {
     setError(null);
+    // Month is only sent when scope is "month"; other scopes use server defaults.
     const data = await fetchAttendanceIntervals({
       scope,
       month: scope === "month" ? month : undefined,
@@ -85,7 +106,9 @@ export function AttendancePage({ user }: Props) {
     setMaxSkew(data.maxClockSkewSeconds);
   }, [scope, month, department, q]);
 
+  /** Append the next cursor page onto the current list. */
   const loadMore = useCallback(async () => {
+    // Guard against double-clicks / missing cursor.
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
     setError(null);
@@ -97,6 +120,7 @@ export function AttendancePage({ user }: Props) {
         q: q.trim() || undefined,
         cursor: nextCursor,
       });
+      // Append rather than replace so prior rows stay visible.
       setIntervals((prev) => [...prev, ...data.intervals]);
       setTotal(data.total);
       setNextCursor(data.nextCursor);
@@ -110,6 +134,7 @@ export function AttendancePage({ user }: Props) {
     }
   }, [nextCursor, loadingMore, scope, month, department, q]);
 
+  // Re-fetch when filters change; ignore late responses after unmount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -131,6 +156,7 @@ export function AttendancePage({ user }: Props) {
     };
   }, [refresh]);
 
+  // Department filter options derived from currently loaded rows.
   const departments = useMemo(() => {
     const set = new Set<string>();
     for (const row of intervals) {
@@ -139,6 +165,7 @@ export function AttendancePage({ user }: Props) {
     return Array.from(set).sort();
   }, [intervals]);
 
+  /** Trigger CSV download; warn when the server truncated the export. */
   async function onExport() {
     try {
       const result = await downloadAttendanceCsv({
@@ -147,6 +174,7 @@ export function AttendancePage({ user }: Props) {
         department: department.trim() || undefined,
         q: q.trim() || undefined,
       });
+      // Truncation is surfaced as a banner so ops can narrow filters.
       if (result.truncated) {
         const totalLabel =
           result.total != null ? ` (общо ${result.total})` : "";
@@ -161,16 +189,23 @@ export function AttendancePage({ user }: Props) {
     }
   }
 
+  /**
+   * Submit an adjustment request for the interval open in the modal.
+   * Early-returns when the modal is closed or reason is empty.
+   */
   async function submitAdjustment() {
+    // Early return: modal closed or reason missing.
     if (!adjustFor || !adjReason.trim()) return;
     setBusyId(adjustFor.id);
     try {
+      // Optional proposed end/break; omit when fields are empty.
       await requestAttendanceAdjustment({
         intervalId: adjustFor.id,
         reason: adjReason.trim(),
         proposedEndedAt: adjEnd ? new Date(adjEnd).toISOString() : undefined,
         proposedBreakMinutes: adjBreak ? Number(adjBreak) : undefined,
       });
+      // Close modal and reload so pending adjustments appear.
       setAdjustFor(null);
       setAdjReason("");
       setAdjEnd("");
@@ -182,6 +217,10 @@ export function AttendancePage({ user }: Props) {
     }
   }
 
+  /**
+   * Approve or reject a pending adjustment by id.
+   * Reloads the list so status pills and pending buttons update.
+   */
   async function onReview(
     adjustmentId: string,
     decision: "approved" | "rejected",
@@ -209,6 +248,7 @@ export function AttendancePage({ user }: Props) {
         </button>
       </header>
 
+      {/* Warn when terminal clock skew vs server exceeds 30 minutes. */}
       {maxSkew != null && maxSkew >= 1800 && (
         <div className="banner warn" role="status">
           Разлика спрямо сървъра до {maxSkew} секунди — проверете часовника на
@@ -231,6 +271,7 @@ export function AttendancePage({ user }: Props) {
             </button>
           ))}
         </div>
+        {/* Month picker only relevant for month scope. */}
         {scope === "month" && (
           <label>
             Месец
@@ -253,6 +294,7 @@ export function AttendancePage({ user }: Props) {
                 {d}
               </option>
             ))}
+            {/* Always offer common departments even if absent from loaded rows. */}
             {!departments.includes("Housekeeping") && (
               <option value="Housekeeping">Housekeeping</option>
             )}
@@ -274,14 +316,17 @@ export function AttendancePage({ user }: Props) {
         </button>
       </div>
 
+      {/* Surface load/export/adjustment errors. */}
       {error && <div className="error banner">{error}</div>}
 
+      {/* Loading vs empty vs interval table. */}
       {loading ? (
         <p className="muted">Зареждане…</p>
       ) : intervals.length === 0 ? (
         <p className="muted">Няма записи за избрания филтър.</p>
       ) : (
         <>
+        {/* Pagination stamp: loaded rows vs server total. */}
         <p className="muted" style={{ marginBottom: "0.5rem" }}>
           Показани {intervals.length} от {total}
         </p>
@@ -301,6 +346,7 @@ export function AttendancePage({ user }: Props) {
             </thead>
             <tbody>
               {intervals.map((row) => {
+                // First pending adjustment drives approve/reject buttons.
                 const pending = row.adjustments.find(
                   (a) => a.status === "pending",
                 );
@@ -324,6 +370,7 @@ export function AttendancePage({ user }: Props) {
                       <span className={`pill status-${row.status}`}>
                         {STATUS_LABEL[row.status] ?? row.status}
                       </span>
+                      {/* Anomaly flag chips under the status pill. */}
                       {row.anomalyFlags.length > 0 && (
                         <div className="muted" style={{ fontSize: "0.8rem" }}>
                           {row.anomalyFlags.join(", ")}
@@ -332,6 +379,7 @@ export function AttendancePage({ user }: Props) {
                     </td>
                     <td>
                       <div className="row-actions">
+                        {/* Request gate — opens modal with prefilled end/break. */}
                         {canRequest && (
                           <button
                             type="button"
@@ -351,6 +399,7 @@ export function AttendancePage({ user }: Props) {
                             Корекция
                           </button>
                         )}
+                        {/* Approve gate — only when a pending adjustment exists. */}
                         {canApprove && pending && (
                           <>
                             <button
@@ -383,6 +432,7 @@ export function AttendancePage({ user }: Props) {
             </tbody>
           </table>
         </div>
+        {/* Cursor pagination — hide when no next page. */}
         {nextCursor && (
           <div style={{ marginTop: "0.75rem" }}>
             <button
@@ -398,6 +448,7 @@ export function AttendancePage({ user }: Props) {
         </>
       )}
 
+      {/* Adjustment request modal — closed when adjustFor is null. */}
       {adjustFor && (
         <div className="modal-backdrop" role="presentation">
           <div className="modal" role="dialog" aria-labelledby="adj-title">

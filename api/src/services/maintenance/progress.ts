@@ -1,6 +1,13 @@
+/**
+ * Mid-lifecycle transitions: start work, wait (SLA pause), resume (SLA unpause).
+ * Each supports commandId idempotency; P2002 races fall back to replay.
+ */
 import { TicketStatus } from "@prisma/client";
+// Module dependency import.
 import { prisma } from "../../db";
+// Module dependency import.
 import { AppError } from "../../errors";
+// Module dependency import.
 import { claimTicketUpdate } from "./claims";
 import {
   replayLifecycleCommand,
@@ -13,41 +20,62 @@ import { notifyTicketEvent, publishTicketChanged } from "./notify";
 import { isP2002 } from "./prismaConflicts";
 import { pauseFieldsOnWait, unpauseFields } from "./slaPause";
 
+/**
+ * assigned → in_progress. Assignee must match actor unless bypassAssigneeCheck.
+ * On duplicate commandId unique violation, replay the prior successful event.
+ *
+ * @param input.ticketId - Ticket primary key.
+ * @param input.actorEmployeeId - Must match assignee unless bypassAssigneeCheck.
+ * @param input.bypassAssigneeCheck - Dispatch/supervisor override for assignee gate.
+ * @param input.commandId - Offline idempotency key (optional).
+ */
 export async function startMaintenanceTicket(input: {
   ticketId: string;
   actorEmployeeId: string;
   bypassAssigneeCheck?: boolean;
   commandId?: string;
 }) {
+  // Idempotency key for offline / retryable start commands.
   const commandKey: LifecycleCommandKey = {
     kind: "start",
     ticketId: input.ticketId,
     actorEmployeeId: input.actorEmployeeId,
   };
+  // Replay prior successful start with the same commandId.
   const replayed = await replayLifecycleCommand(input.commandId, commandKey);
+  // Idempotent offline retry — skip mutation when event already exists.
   if (replayed) return replayed.ticket;
 
   try {
+    // Serialize start against concurrent lifecycle mutations.
     const updated = await prisma.$transaction(async (tx) => {
+      // Row lock + load for status/assignee checks.
       const ticket = await loadLockedTicket(tx, input.ticketId);
+      // Only assigned tickets may start.
       if (ticket.status !== TicketStatus.assigned) {
+        // Start only valid from assigned (not new or in_progress).
         throw new AppError(
           409,
           "invalid_state",
           `Cannot start ticket in status ${ticket.status}`,
         );
       }
+      // Unassigned tickets cannot be started.
       if (!ticket.assigneeId) {
+        // assigned status without assigneeId is treated as invalid.
         throw new AppError(409, "invalid_state", "Ticket has no assignee");
       }
+      // Non-owners cannot start someone else's assignment.
       if (
         !input.bypassAssigneeCheck &&
         ticket.assigneeId !== input.actorEmployeeId
       ) {
+        // Supervisor may pass bypassAssigneeCheck for dispatch overrides.
         throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
       }
 
       const fromStatus = ticket.status;
+      // Conditional claim: assigned → in_progress.
       const row = await claimTicketUpdate(
         tx,
         ticket.id,
@@ -56,6 +84,7 @@ export async function startMaintenanceTicket(input: {
         (status) => `Cannot start ticket in status ${status}`,
       );
 
+      // Persist lifecycle event (and commandId for replay).
       await writeTicketEvent(tx, {
         ticketId: ticket.id,
         locationId: ticket.locationId,
@@ -66,10 +95,13 @@ export async function startMaintenanceTicket(input: {
         commandKey,
       });
 
+      // Row includes ticketInclude joins for formatMaintenanceTicket.
       return row;
     });
 
+    // Notify live boards of the status change.
     publishTicketChanged(updated);
+    // Notify the assignee that work started.
     if (updated.assigneeId) {
       await notifyTicketEvent({
         type: "ticket.started",
@@ -83,14 +115,25 @@ export async function startMaintenanceTicket(input: {
     }
     return formatMaintenanceTicket(updated);
   } catch (err) {
+    // Concurrent first-writes of the same commandId: treat as idempotent replay.
     if (input.commandId && isP2002(err)) {
       const again = await replayLifecycleCommand(input.commandId, commandKey);
       if (again) return again.ticket;
     }
+    // Unique commandId race lost — bubble non-idempotent errors.
     throw err;
   }
 }
 
+/**
+ * in_progress → waiting. Pauses SLA (`slaPausedAt`) so wait time does not burn dueAt.
+ *
+ * @param input.ticketId - Ticket primary key.
+ * @param input.actorEmployeeId - Assignee or supervisor actor.
+ * @param input.reason - Optional wait reason on the TicketEvent.
+ * @param input.bypassAssigneeCheck - Supervisors may wait non-owned assignments.
+ * @param input.commandId - Offline idempotency key (optional).
+ */
 export async function waitMaintenanceTicket(input: {
   ticketId: string;
   actorEmployeeId: string;
@@ -98,26 +141,34 @@ export async function waitMaintenanceTicket(input: {
   bypassAssigneeCheck?: boolean;
   commandId?: string;
 }) {
+  // Trim empty wait reason to null for storage.
   const reason = input.reason?.trim() || null;
+  // Idempotency key for offline / retryable wait commands.
   const commandKey: LifecycleCommandKey = {
     kind: "wait",
     ticketId: input.ticketId,
     actorEmployeeId: input.actorEmployeeId,
     reason,
   };
+  // Replay prior successful wait with the same commandId.
   const replayed = await replayLifecycleCommand(input.commandId, commandKey);
+  // Idempotent offline retry — skip mutation when event already exists.
   if (replayed) return replayed.ticket;
 
   try {
+    // Serialize wait against concurrent lifecycle mutations.
     const updated = await prisma.$transaction(async (tx) => {
       const ticket = await loadLockedTicket(tx, input.ticketId);
+      // Only in_progress may enter waiting.
       if (ticket.status !== TicketStatus.in_progress) {
+        // assigned/new cannot pause — must start work first.
         throw new AppError(
           409,
           "invalid_state",
           `Cannot wait ticket in status ${ticket.status}`,
         );
       }
+      // Non-owners cannot put someone else's ticket on wait.
       if (
         !input.bypassAssigneeCheck &&
         ticket.assigneeId &&
@@ -127,17 +178,20 @@ export async function waitMaintenanceTicket(input: {
       }
 
       const fromStatus = ticket.status;
+      // Claim → waiting and stamp slaPausedAt via pauseFieldsOnWait.
       const row = await claimTicketUpdate(
         tx,
         ticket.id,
         [TicketStatus.in_progress],
         {
           status: TicketStatus.waiting,
+          // pauseFieldsOnWait sets slaPausedAt = now.
           ...pauseFieldsOnWait(),
         },
         (status) => `Cannot wait ticket in status ${status}`,
       );
 
+      // Persist lifecycle event (and commandId for replay).
       await writeTicketEvent(tx, {
         ticketId: ticket.id,
         locationId: ticket.locationId,
@@ -153,7 +207,9 @@ export async function waitMaintenanceTicket(input: {
     });
 
     publishTicketChanged(updated);
+    // Notify the assignee that work is paused.
     if (updated.assigneeId) {
+      // DedupeKey includes updatedAt so repeated waits notify separately.
       await notifyTicketEvent({
         type: "ticket.waiting",
         title: "Ticket waiting",
@@ -166,38 +222,55 @@ export async function waitMaintenanceTicket(input: {
     }
     return formatMaintenanceTicket(updated);
   } catch (err) {
+    // Concurrent first-writes of the same commandId: treat as idempotent replay.
     if (input.commandId && isP2002(err)) {
       const again = await replayLifecycleCommand(input.commandId, commandKey);
       if (again) return again.ticket;
     }
+    // Wait transition failed — propagate to HTTP layer.
     throw err;
   }
 }
 
+/**
+ * waiting → in_progress. Unpauses SLA and extends dueAt by the paused duration.
+ *
+ * @param input.ticketId - Ticket primary key.
+ * @param input.actorEmployeeId - Assignee or supervisor actor.
+ * @param input.bypassAssigneeCheck - Supervisors may resume non-owned assignments.
+ * @param input.commandId - Offline idempotency key (optional).
+ */
 export async function resumeMaintenanceTicket(input: {
   ticketId: string;
   actorEmployeeId: string;
   bypassAssigneeCheck?: boolean;
   commandId?: string;
 }) {
+  // Idempotency key for offline / retryable resume commands.
   const commandKey: LifecycleCommandKey = {
     kind: "resume",
     ticketId: input.ticketId,
     actorEmployeeId: input.actorEmployeeId,
   };
+  // Replay prior successful resume with the same commandId.
   const replayed = await replayLifecycleCommand(input.commandId, commandKey);
+  // Idempotent offline retry — skip mutation when event already exists.
   if (replayed) return replayed.ticket;
 
   try {
+    // Serialize resume against concurrent lifecycle mutations.
     const updated = await prisma.$transaction(async (tx) => {
       const ticket = await loadLockedTicket(tx, input.ticketId);
+      // Only waiting may resume.
       if (ticket.status !== TicketStatus.waiting) {
+        // in_progress resume is a no-op at the API layer (409).
         throw new AppError(
           409,
           "invalid_state",
           `Cannot resume ticket in status ${ticket.status}`,
         );
       }
+      // Non-owners cannot resume someone else's ticket.
       if (
         !input.bypassAssigneeCheck &&
         ticket.assigneeId &&
@@ -207,7 +280,9 @@ export async function resumeMaintenanceTicket(input: {
       }
 
       const fromStatus = ticket.status;
+      // Compute dueAt extension / pause-clear fields from current pause state.
       const unpaused = unpauseFields(ticket);
+      // Claim → in_progress with unpaused SLA fields.
       const row = await claimTicketUpdate(
         tx,
         ticket.id,
@@ -219,6 +294,7 @@ export async function resumeMaintenanceTicket(input: {
         (status) => `Cannot resume ticket in status ${status}`,
       );
 
+      // Persist lifecycle event marked as a resume.
       await writeTicketEvent(tx, {
         ticketId: ticket.id,
         locationId: ticket.locationId,
@@ -234,7 +310,9 @@ export async function resumeMaintenanceTicket(input: {
     });
 
     publishTicketChanged(updated);
+    // Notify the assignee that work resumed.
     if (updated.assigneeId) {
+      // Resume notifies assignee only (same pattern as start/wait).
       await notifyTicketEvent({
         type: "ticket.resumed",
         title: "Ticket resumed",
@@ -247,10 +325,12 @@ export async function resumeMaintenanceTicket(input: {
     }
     return formatMaintenanceTicket(updated);
   } catch (err) {
+    // Concurrent first-writes of the same commandId: treat as idempotent replay.
     if (input.commandId && isP2002(err)) {
       const again = await replayLifecycleCommand(input.commandId, commandKey);
       if (again) return again.ticket;
     }
+    // Resume failure after P2002 miss — propagate to HTTP layer.
     throw err;
   }
 }

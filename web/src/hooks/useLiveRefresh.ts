@@ -1,3 +1,7 @@
+/**
+ * React hook: debounced refetch when shared SSE domain events fire.
+ * Skips while `busy` so a local mutation's own refresh is not doubled.
+ */
 import { useEffect, useRef, useState } from "react";
 import {
   subscribeLiveEvents,
@@ -5,6 +9,7 @@ import {
   type LiveEventType,
 } from "../api/client";
 
+/** Default event types that mean "domain data may have changed". */
 const DOMAIN_EVENTS: LiveEventType[] = [
   "location.changed",
   "cleaning.changed",
@@ -38,26 +43,34 @@ export function useLiveRefresh(
   } = options;
 
   const [lastAt, setLastAt] = useState<string | null>(null);
+  // Refs keep the subscription stable while props change every render.
   const refreshRef = useRef(refresh);
   const busyRef = useRef(busy);
   const typesRef = useRef(new Set(eventTypes));
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Sync latest callbacks/flags into refs (effect does not re-subscribe on these).
   refreshRef.current = refresh;
   busyRef.current = busy;
   typesRef.current = new Set(eventTypes);
 
   useEffect(() => {
+    // Disabled pages skip the shared SSE subscription entirely.
     if (!enabled) return;
 
     const unsubscribe = subscribeLiveEvents((event: LiveEvent) => {
+      // Handshake-only; not a domain change.
       if (event.type === "connected") return;
+      // Caller may narrow to a subset of domain events.
       if (!typesRef.current.has(event.type)) return;
+      // Local mutation already refreshing — avoid a duplicate fetch.
       if (busyRef.current) return;
 
+      // Debounce bursty SSE (many entities changing at once).
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         void (async () => {
+          // Re-check busy after the debounce window.
           if (busyRef.current) return;
           try {
             await refreshRef.current();
@@ -70,6 +83,7 @@ export function useLiveRefresh(
     });
 
     return () => {
+      // Clear pending debounce and leave the shared SSE fan-out.
       if (timerRef.current) clearTimeout(timerRef.current);
       unsubscribe();
     };

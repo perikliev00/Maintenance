@@ -1,3 +1,7 @@
+/**
+ * Notification channel toggles. `device_push` is always disabled in UI —
+ * no push adapter is configured yet.
+ */
 import type { LabelFn } from "./constants";
 
 type Props = {
@@ -10,6 +14,10 @@ type Props = {
   label: LabelFn;
 };
 
+/**
+ * Notification channel toggles for in_app / device_push / email.
+ * `device_push` stays disabled — no push adapter is configured yet.
+ */
 export function NotificationsTab({ draft, setNestedChannel, label }: Props) {
   return (
     <div className="settings-form">
@@ -18,6 +26,7 @@ export function NotificationsTab({ draft, setNestedChannel, label }: Props) {
           enabled?: boolean;
           status?: string;
         };
+        // Push has no adapter — keep checkbox disabled and visually off.
         const isPush = ch === "device_push";
         return (
           <div key={ch} className="settings-channel">

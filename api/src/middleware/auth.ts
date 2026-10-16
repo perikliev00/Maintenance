@@ -1,17 +1,18 @@
+/**
+ * Request authentication and action-gate middleware.
+ * Attaches req.user (DB-backed) and req.authVia (bearer vs cookie).
+ */
 import { Request, Response, NextFunction } from "express";
-import { Role } from "@prisma/client";
-import { Action, isOwner } from "../permissions";
+import { Action } from "../permissions";
 import { canPerform } from "../services/roleGrants";
 import { assertSessionActive } from "../services/authSessions";
 import {
-  signAccessToken,
   verifyAccessToken,
   type AuthUser,
 } from "../auth/tokens";
 import { extractAccessToken, type AuthVia } from "./session";
 
 export type { AuthUser };
-export { signAccessToken, verifyAccessToken };
 
 declare global {
   namespace Express {
@@ -22,15 +23,16 @@ declare global {
   }
 }
 
-/** @deprecated Prefer createSession() which issues access+refresh. */
-export function signToken(payload: AuthUser): string {
-  return signAccessToken(payload);
-}
-
-/** Verify JWT + active AuthSession + active user; role/email from DB (not JWT). */
+/**
+ * Verify JWT + active AuthSession + active user; role/email from DB (not JWT).
+ * Used by requireAuth and any path that already holds a raw access token string.
+ */
 export async function authenticateToken(token: string): Promise<AuthUser> {
+  // Signature/expiry check; does not yet know if the session was revoked.
   const decoded = verifyAccessToken(token);
+  // Load AuthSession + user; throws if revoked, expired, or user inactive.
   const session = await assertSessionActive(decoded.sid, decoded.userId);
+  // Prefer DB fields over JWT claims so role/email changes take effect immediately.
   return {
     userId: session.user.id,
     employeeId: session.user.employeeId,
@@ -40,53 +42,50 @@ export async function authenticateToken(token: string): Promise<AuthUser> {
   };
 }
 
+/** Require a valid access token (Bearer preferred, else session cookie). */
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // Prefer Authorization Bearer; fall back to httpOnly session cookie.
   const extracted = extractAccessToken(req);
+  // No token at all → 401 before any DB work.
   if (!extracted) {
     return res.status(401).json({ error: "unauthorized", message: "Missing token" });
   }
 
   authenticateToken(extracted.token)
     .then((decoded) => {
+      // Attach DB-backed identity and how the token was presented.
       req.user = decoded;
       req.authVia = extracted.via;
       next();
     })
     .catch(() => {
+      // Invalid/expired/revoked — do not leak why to the client.
       res.status(401).json({ error: "unauthorized", message: "Invalid token" });
     });
 }
 
-/** Owner always passes. Otherwise role must be in the list. */
-export function requireRoles(...roles: Role[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return res.status(401).json({ error: "unauthorized", message: "Missing user" });
-    }
-    if (isOwner(req.user.role) || roles.includes(req.user.role)) {
-      return next();
-    }
-    return res.status(403).json({
-      error: "forbidden",
-      message: "Insufficient permissions",
-    });
-  };
-}
-
+/**
+ * Factory: after requireAuth, ensure the caller's role may perform `action`
+ * via RoleGrant (DB). Owners/admins follow canPerform rules there.
+ */
 export function requireAction(action: Action) {
   return async (req: Request, res: Response, next: NextFunction) => {
+    // requireAuth should have run first; guard if a route forgot it.
     if (!req.user) {
       return res.status(401).json({ error: "unauthorized", message: "Missing user" });
     }
     try {
+      // DB RoleGrant lookup (cached in roleGrants service).
       if (await canPerform(req.user.role, action)) {
         return next();
       }
+      // Authenticated but not granted this action.
       return res.status(403).json({
         error: "forbidden",
         message: "Insufficient permissions",
       });
     } catch (err) {
+      // Unexpected grant/DB failures go to the terminal error handler.
       return next(err);
     }
   };

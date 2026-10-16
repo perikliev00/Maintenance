@@ -1,3 +1,8 @@
+/**
+ * Apply category-specific room and cleaning-task effects when a plan entry
+ * is created (manual or import). Departure may defer vacant/dirty when stay
+ * evidence is ambiguous.
+ */
 import {
   CleaningStatus,
   DailyPlanCategory,
@@ -20,6 +25,11 @@ import {
 } from "./tasks";
 import type { LocationRow, PlanEffects, TaskEffect, Tx } from "./types";
 
+/**
+ * Mutate location/task state for a new plan entry inside `tx`.
+ * Returns what changed so the entry can store `cleaningTaskId` /
+ * `roomEffectsAppliedAt`.
+ */
 export async function applyPlanEntryEffects(
   tx: Tx,
   location: LocationRow,
@@ -29,12 +39,14 @@ export async function applyPlanEntryEffects(
   shiftId?: string | null,
   todayYmd?: string,
 ): Promise<PlanEffects> {
+  // Defaults: no occupancy/dirty change and no task until a branch sets them.
   let taskEffect: TaskEffect = "skipped";
   let cleaningTaskId: string | null = null;
   let occupancyEffect: "vacant" | null = null;
   let dirtyEffect = false;
   let roomEffectsApplied = false;
 
+  // Any active task for this room/date (reuse instead of creating a duplicate).
   const activeTask = await tx.cleaningTask.findFirst({
     where: {
       locationId: location.id,
@@ -44,6 +56,7 @@ export async function applyPlanEntryEffects(
   });
 
   if (category === DailyPlanCategory.departure) {
+    // Prefer caller-supplied todayYmd (import batch) to avoid N+1 settings reads.
     const today = todayYmd ?? (await todayHotelDateYmd());
     const planYmd = formatHotelDate(hotelDate);
     // Room state only on/after checkout day; future departures stay planned.
@@ -51,15 +64,18 @@ export async function applyPlanEntryEffects(
     // and no bound task that would bump cleaningCycle).
     let skipRoomAndBoundTask = false;
     if (planYmd <= today) {
+      // Fresh occupancy inside the transaction (may have changed since create).
       const live = await tx.location.findUniqueOrThrow({
         where: { id: location.id },
         select: { occupancy: true },
       });
+      // Audit-based proof of a newer stay after the plan day.
       const newerStayLocations = await locationsWithNewerStayEvidence(
         tx,
         [location.id],
         planYmd,
       );
+      // Decide apply / protect / defer (confirm always false at create time).
       const decision = classifyDepartureRoomEffects({
         occupancy: live.occupancy,
         planYmd,
@@ -68,6 +84,7 @@ export async function applyPlanEntryEffects(
         confirmed: false,
       });
       if (decision === "apply") {
+        // Vacate + dirty and rebind any active cleaning work to the new cycle.
         await bumpDirtyAndRebindWork(tx, location.id, {
           occupancy: Occupancy.vacant,
         });
@@ -75,6 +92,7 @@ export async function applyPlanEntryEffects(
         dirtyEffect = true;
         roomEffectsApplied = true;
       } else if (decision === "protect") {
+        // Stamp applied so we do not retry; do not vacate/dirty or bind a task.
         roomEffectsApplied = true;
         skipRoomAndBoundTask = true;
       } else {
@@ -83,8 +101,10 @@ export async function applyPlanEntryEffects(
       }
     }
 
+    // Create/link a high-priority departure task unless protect/defer skipped it.
     if (!skipRoomAndBoundTask) {
       if (activeTask) {
+        // Reuse the existing active task; bump priority to at least high.
         cleaningTaskId = activeTask.id;
         const data: Prisma.CleaningTaskUpdateInput = {};
         if (PRIORITY_RANK[activeTask.priority] < PRIORITY_RANK[Priority.high]) {
@@ -93,6 +113,7 @@ export async function applyPlanEntryEffects(
         } else {
           taskEffect = "linked";
         }
+        // Attach plan assignee/shift only when the task is unbound.
         connectAssigneeAndShift(data, activeTask, assignedEmployeeId, shiftId);
         if (Object.keys(data).length) {
           await tx.cleaningTask.update({
@@ -101,6 +122,7 @@ export async function applyPlanEntryEffects(
           });
         }
       } else {
+        // No active task — create a high-priority departure task.
         const created = await createTaskWithSectorSnapshot(tx, {
           locationId: location.id,
           hotelDate,
@@ -115,9 +137,11 @@ export async function applyPlanEntryEffects(
       }
     }
   } else if (category === DailyPlanCategory.priority) {
+    // Priority plan: urgent task (reuse active or create); dirty when creating.
     if (activeTask) {
       cleaningTaskId = activeTask.id;
       const data: Prisma.CleaningTaskUpdateInput = {};
+      // Bump to urgent if the existing priority is lower.
       if (PRIORITY_RANK[activeTask.priority] < PRIORITY_RANK[Priority.urgent]) {
         data.priority = Priority.urgent;
         taskEffect = "bumped";
@@ -132,6 +156,7 @@ export async function applyPlanEntryEffects(
         });
       }
     } else {
+      // Creating a new urgent task: mark dirty when room looked clean/inspecting.
       dirtyEffect =
         location.cleaningStatus === CleaningStatus.verified_clean ||
         location.cleaningStatus === CleaningStatus.pending_inspection;
@@ -151,6 +176,7 @@ export async function applyPlanEntryEffects(
     // arrival — no occupancy change; task only if not verified_clean
     if (location.cleaningStatus !== CleaningStatus.verified_clean) {
       if (activeTask) {
+        // Reuse active task; bump to at least high for arrival prep.
         cleaningTaskId = activeTask.id;
         const data: Prisma.CleaningTaskUpdateInput = {};
         if (PRIORITY_RANK[activeTask.priority] < PRIORITY_RANK[Priority.high]) {
@@ -167,6 +193,7 @@ export async function applyPlanEntryEffects(
           });
         }
       } else {
+        // Create a high-priority arrival cleaning task.
         const created = await createTaskWithSectorSnapshot(tx, {
           locationId: location.id,
           hotelDate,
@@ -180,10 +207,12 @@ export async function applyPlanEntryEffects(
         taskEffect = "created";
       }
     } else {
+      // Already verified_clean — no arrival cleaning work needed.
       taskEffect = "skipped";
     }
   }
 
+  // Summary for the plan entry to store cleaningTaskId / roomEffectsAppliedAt.
   return {
     occupancy: occupancyEffect,
     dirty: dirtyEffect,

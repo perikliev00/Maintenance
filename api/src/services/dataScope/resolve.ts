@@ -1,15 +1,25 @@
+/**
+ * Map an authenticated user to a {@link DataScope} based on role.
+ * Supervisors get active sectors they primarily supervise.
+ */
 import { Role } from "@prisma/client";
 import { prisma } from "../../db";
 import type { AuthUser } from "../../middleware/auth";
 import type { DataScope } from "./types";
 
+/**
+ * Resolve list/mutation scope for the current auth user.
+ * Unknown / future roles default to the narrowest task-scoped view.
+ */
 export async function resolveDataScope(user: AuthUser): Promise<DataScope> {
+  // Common identity fields shared by every scope kind.
   const base = {
     employeeId: user.employeeId,
     role: user.role,
   };
 
   switch (user.role) {
+    // Hotel-wide roles see every location; sectorIds unused.
     case Role.owner:
     case Role.manager:
     case Role.admin:
@@ -17,6 +27,7 @@ export async function resolveDataScope(user: AuthUser): Promise<DataScope> {
       return { ...base, kind: "all", sectorIds: [] };
 
     case Role.supervisor: {
+      // Only active sectors where this employee is the primary supervisor.
       const sectors = await prisma.sector.findMany({
         where: {
           primarySupervisorEmployeeId: user.employeeId,
@@ -24,6 +35,7 @@ export async function resolveDataScope(user: AuthUser): Promise<DataScope> {
         },
         select: { id: true },
       });
+      // Empty list is intentional — where-builders use a sentinel, not "all".
       return {
         ...base,
         kind: "sectors",
@@ -31,12 +43,15 @@ export async function resolveDataScope(user: AuthUser): Promise<DataScope> {
       };
     }
 
+    // Housekeepers only see cleaning work assigned to them.
     case Role.housekeeper:
       return { ...base, kind: "assigned_tasks", sectorIds: [] };
 
+    // Technicians only see maintenance tickets assigned to them.
     case Role.technician:
       return { ...base, kind: "assigned_tickets", sectorIds: [] };
 
+    // Unknown / future roles default to the narrowest task-scoped view.
     default:
       return { ...base, kind: "assigned_tasks", sectorIds: [] };
   }

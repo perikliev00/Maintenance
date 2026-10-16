@@ -1,3 +1,6 @@
+/**
+ * Manually create a daily plan entry and apply category-specific room/task effects.
+ */
 import { DailyPlanCategory, DailyPlanSource, LocationKind } from "@prisma/client";
 import { prisma } from "../../db";
 import { AppError } from "../../errors";
@@ -8,6 +11,10 @@ import { assertActiveShiftId } from "../shifts";
 import { mapEntry } from "./format";
 import { entryInclude } from "./types";
 
+/**
+ * Create a unique (hotelDate, location, category) plan entry for an active room.
+ * Runs {@link applyPlanEntryEffects} inside the same transaction.
+ */
 export async function createDailyPlanEntry(input: {
   hotelDate: string;
   locationId: string;
@@ -17,22 +24,29 @@ export async function createDailyPlanEntry(input: {
   shiftId?: string | null;
   createdByEmployeeId: string;
 }) {
+  // Normalize YYYY-MM-DD into the Date used as DailyPlanEntry.hotelDate.
   const hotelDate = parseHotelDate(input.hotelDate);
+  // null/undefined shift is ok; invalid ids throw.
   const shiftId = await assertActiveShiftId(input.shiftId);
 
+  // Load the room before uniqueness / effects checks.
   const location = await prisma.location.findUnique({
     where: { id: input.locationId },
   });
+  // Missing location → 404 (client may have stale id).
   if (!location) {
     throw new AppError(404, "not_found", "Room not found");
   }
+  // Daily plan is rooms-only (not common areas).
   if (location.kind !== LocationKind.room) {
     throw new AppError(400, "invalid_state", "Daily plan entries are for rooms only");
   }
+  // Archived rooms cannot receive new plan rows.
   if (location.catalogStatus !== "active") {
     throw new AppError(400, "invalid_state", "Room is archived");
   }
 
+  // Unique per (hotelDate, location, category).
   const existingEntry = await prisma.dailyPlanEntry.findUnique({
     where: {
       hotelDate_locationId_category: {
@@ -42,6 +56,7 @@ export async function createDailyPlanEntry(input: {
       },
     },
   });
+  // Duplicate category for the same room/day is a conflict.
   if (existingEntry) {
     throw new AppError(
       409,
@@ -50,12 +65,16 @@ export async function createDailyPlanEntry(input: {
     );
   }
 
+  // Optional assignee must be an active housekeeper.
   if (input.assignedEmployeeId) {
     await assertActiveCleaningAssignee(input.assignedEmployeeId);
   }
 
+  // Effects + entry insert must succeed together.
   const result = await prisma.$transaction(async (tx) => {
+    // Hotel-local "today" gates deferred departure room effects.
     const todayYmd = await todayHotelDateYmd();
+    // Category-specific occupancy/dirty/task side effects.
     const effects = await applyPlanEntryEffects(
       tx,
       location,
@@ -66,6 +85,7 @@ export async function createDailyPlanEntry(input: {
       todayYmd,
     );
 
+    // Persist the plan row with linked task id and optional room-effects stamp.
     const entry = await tx.dailyPlanEntry.create({
       data: {
         hotelDate,
@@ -83,6 +103,7 @@ export async function createDailyPlanEntry(input: {
       include: entryInclude,
     });
 
+    // API payload: mapped entry + effect summary for the UI toast.
     return {
       entry: mapEntry(entry),
       effects: {

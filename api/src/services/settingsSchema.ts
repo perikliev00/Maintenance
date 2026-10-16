@@ -1,5 +1,10 @@
+/**
+ * Zod schemas, defaults, and key union for AppSetting JSON values.
+ * Keep schemas and DEFAULT_SETTINGS in sync — getSetting falls back on parse failure.
+ */
 import { z } from "zod";
 
+/** Canonical AppSetting.key values — keep in sync with SETTING_SCHEMAS / defaults. */
 export const SETTING_KEYS = [
   "modules",
   "flags",
@@ -11,6 +16,7 @@ export const SETTING_KEYS = [
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
+/** Which product modules are visible in the web nav. */
 export const modulesSchema = z.object({
   rooms: z.boolean(),
   common: z.boolean(),
@@ -28,6 +34,7 @@ export const modulesSchema = z.object({
   audit: z.boolean().default(true),
 });
 
+/** Operational feature toggles (inspection, session limits, banners). */
 export const flagsSchema = z.object({
   require_inspection: z.boolean(),
   one_active_session_per_employee: z.boolean(),
@@ -36,6 +43,7 @@ export const flagsSchema = z.object({
   show_overdue_banner: z.boolean(),
 });
 
+/** Default UI theme / locale / density for new clients. */
 export const interfaceSchema = z.object({
   defaultTheme: z.enum(["dark", "light"]),
   locale: z.enum(["bg", "en"]),
@@ -48,11 +56,14 @@ export const interfaceSchema = z.object({
  * accept ids listed by supportedValuesOf when available.
  */
 export function isValidIanaTimeZone(timeZone: string): boolean {
+  // Empty / non-string → invalid without probing Intl.
   if (!timeZone || typeof timeZone !== "string") return false;
   try {
+    // Same Intl probe used by hotelTime helpers.
     new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
     return true;
   } catch {
+    // Optional fallback list when the engine supports supportedValuesOf.
     try {
       const supported = (
         Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
@@ -63,10 +74,12 @@ export function isValidIanaTimeZone(timeZone: string): boolean {
     } catch {
       /* ignore */
     }
+    // Neither probe nor supportedValuesOf accepted the id.
     return false;
   }
 }
 
+/** SLA / overdue / risk thresholds and hotel timezone. */
 export const operationsSchema = z.object({
   overdueSessionMinutes: z.number().int().min(15).max(24 * 60),
   defaultTaskDueHours: z.number().int().min(1).max(72),
@@ -81,23 +94,27 @@ export const operationsSchema = z.object({
     }),
 });
 
+/** Invitation TTL, session idle policy, inactive-user lock. */
 export const accessSchema = z.object({
   invitationTtlHours: z.number().int().min(1).max(168),
   sessionIdleDays: z.number().int().min(1).max(365),
   lockInactiveUsers: z.boolean(),
 });
 
+/** Per-channel enablement + operational status for notifications. */
 export const notificationChannelSchema = z.object({
   enabled: z.boolean(),
   status: z.enum(["active", "disabled", "not_configured"]),
 });
 
+/** In-app / push / email channel bundle. */
 export const notificationsSchema = z.object({
   in_app: notificationChannelSchema,
   device_push: notificationChannelSchema,
   email: notificationChannelSchema,
 });
 
+/** Map SettingKey → Zod schema used by getSetting / updateSetting. */
 export const SETTING_SCHEMAS = {
   modules: modulesSchema,
   flags: flagsSchema,
@@ -114,6 +131,7 @@ export type OperationsSettings = z.infer<typeof operationsSchema>;
 export type AccessSettings = z.infer<typeof accessSchema>;
 export type NotificationsSettings = z.infer<typeof notificationsSchema>;
 
+/** Seed + fallback values when a row is missing or fails schema parse. */
 export const DEFAULT_SETTINGS = {
   modules: {
     rooms: true,
@@ -163,6 +181,8 @@ export const DEFAULT_SETTINGS = {
   } satisfies NotificationsSettings,
 } as const;
 
+/** Type guard for unknown strings against the SETTING_KEYS catalog. */
 export function isSettingKey(key: string): key is SettingKey {
+  // Used by settings routes before looking up SETTING_SCHEMAS[key].
   return (SETTING_KEYS as readonly string[]).includes(key);
 }

@@ -1,3 +1,9 @@
+/**
+ * Outbox CRUD and My Work cache access scoped to the active offline user.
+ *
+ * Enqueue / retry / rebase refuse to run while `isOfflineSwitching` so a logout
+ * or A→B account switch cannot interleave writes with another user's rows.
+ */
 import {
   canRebaseConflict,
   rebaseBodyWithCurrentVersion,
@@ -20,10 +26,12 @@ import {
 } from "./storage";
 import { getOfflineUser, isOfflineSwitching } from "./userScope";
 
+/** Zeroed banner counters used when there is no bound user / mid-switch. */
 function emptyStats(): QueueStats {
   return { pending: 0, sending: 0, conflict: 0, failed: 0 };
 }
 
+/** Aggregate outbox rows into banner status counts. */
 function statsFromRows(rows: QueuedAction[]): QueueStats {
   return {
     pending: rows.filter((r) => r.status === "pending").length,
@@ -33,23 +41,32 @@ function statsFromRows(rows: QueuedAction[]): QueueStats {
   };
 }
 
+/** Counts by status for the connection banner; empty while switching users. */
 export async function getQueueStats(): Promise<QueueStats> {
+  // Avoid leaking another user's counts during logout / account switch.
   if (isOfflineSwitching() || !getOfflineUser()) return emptyStats();
   const rows = await listQueueForUser(getOfflineUser()!);
   return statsFromRows(rows);
 }
 
+/** Outbox rows for the active user, oldest first (drain order). */
 export async function listQueuedActions(
   statuses?: QueueActionStatus[],
 ): Promise<QueuedAction[]> {
   if (isOfflineSwitching() || !getOfflineUser()) return [];
   const rows = await listQueueForUser(getOfflineUser()!);
+  // Optional status filter (e.g. conflict-only for the issues panel).
   const filtered = statuses
     ? rows.filter((r) => statuses.includes(r.status))
     : rows;
+  // Oldest first so drain / UI match FIFO order.
   return filtered.sort((a, b) => a.createdAt - b.createdAt);
 }
 
+/**
+ * Persist a pending mutation and nudge the drain loop when the browser is online.
+ * Throws if there is no bound user (avoids orphaned unscoped queue rows).
+ */
 export async function enqueue(
   action: Omit<
     QueuedAction,
@@ -66,6 +83,7 @@ export async function enqueue(
   > & { id?: string },
 ): Promise<QueuedAction> {
   const activeUserId = getOfflineUser();
+  // Refuse orphaned rows — every outbox entry must be user-scoped.
   if (isOfflineSwitching() || !activeUserId) {
     throw new Error("Cannot enqueue offline action without an active user");
   }
@@ -88,6 +106,7 @@ export async function enqueue(
     retries: 0,
   };
   await putQueuedAction(row);
+  // Banner mode reflects why we queued (offline vs unreachable vs syncing).
   notify(
     !navigator.onLine
       ? "offline"
@@ -95,10 +114,12 @@ export async function enqueue(
         ? "unreachable"
         : "syncing",
   );
+  // Kick drain immediately when the browser already thinks it is online.
   if (navigator.onLine) triggerDrain();
   return row;
 }
 
+/** Snapshot My Work lists for offline display (keyed by active user). */
 export async function saveMyWorkCache(
   payload: MyWorkCachePayload,
 ): Promise<void> {
@@ -106,16 +127,17 @@ export async function saveMyWorkCache(
   await writeMyWorkCache(getOfflineUser()!, payload);
 }
 
+/**
+ * Load My Work cache; re-checks user identity after the async read so a
+ * mid-flight account switch cannot return another user's snapshot.
+ */
 export async function loadMyWorkCache(): Promise<MyWorkCachePayload | null> {
   if (isOfflineSwitching() || !getOfflineUser()) return null;
   const userId = getOfflineUser()!;
   const row = await readMyWorkCache(userId);
+  // Identity may have changed while IDB was reading — discard stale snapshot.
   if (isOfflineSwitching() || getOfflineUser() !== userId) return null;
   return row;
-}
-
-export async function dismissQueuedAction(id: string): Promise<void> {
-  await resolveQueuedAction(id, { mode: "dismiss" });
 }
 
 /**
@@ -127,7 +149,9 @@ export async function retryQueuedAction(id: string): Promise<void> {
   const rows = await listQueueForUser(getOfflineUser()!);
   const item = rows.find((r) => r.id === id);
   if (!item) return;
+  // Only conflict/failed rows are eligible for manual retry.
   if (item.status !== "conflict" && item.status !== "failed") return;
+  // Reset to pending with cleared conflict fields and retry counter.
   await putQueuedAction({
     ...item,
     status: "pending",
@@ -142,6 +166,11 @@ export async function retryQueuedAction(id: string): Promise<void> {
   if (navigator.onLine) triggerDrain();
 }
 
+/**
+ * Conflict recovery: `dismiss` drops the row; `rebase` advances `expectedVersion`
+ * from server conflict details so the next drain can succeed without replaying
+ * a stale optimistic version (ownership conflicts are non-rebaseable).
+ */
 export async function resolveQueuedAction(
   id: string,
   opts: { mode: "rebase" | "dismiss" },
@@ -152,12 +181,14 @@ export async function resolveQueuedAction(
   if (!item) return false;
   if (item.status !== "conflict" && item.status !== "failed") return false;
 
+  // User chose to drop the queued mutation.
   if (opts.mode === "dismiss") {
     await deleteQueuedAction(id);
     notify();
     return true;
   }
 
+  // Ownership / scope losses cannot be fixed by bumping expectedVersion.
   if (
     item.status !== "conflict" ||
     !canRebaseConflict(item.conflictCode, item.conflictDetails)
@@ -170,6 +201,7 @@ export async function resolveQueuedAction(
   );
   if (!nextBody) return false;
 
+  // Re-queue with advanced version so the next drain can succeed.
   await putQueuedAction({
     ...item,
     body: nextBody,

@@ -1,3 +1,4 @@
+/** Status / assignee / SLA / blocks filters for the ticket list query. */
 import type { Person } from "../../api/client";
 import { t } from "./helpers";
 
@@ -14,6 +15,10 @@ type FiltersProps = {
   people: Person[];
 };
 
+/**
+ * Controlled filter row for the Repairs ticket list query
+ * (status, assignee, SLA-only, blocking-only).
+ */
 export function Filters({
   locale,
   statusFilter,
@@ -28,12 +33,14 @@ export function Filters({
 }: FiltersProps) {
   return (
     <div className="toolbar filters-row">
+      {/* Status bucket / exact status for the tickets query. */}
       <label>
         {t(locale, "Статус", "Status")}
         <select
           value={statusFilter}
           onChange={(e) => onStatusFilterChange(e.target.value)}
         >
+          {/* "open" is a server-side bucket; raw statuses are exact matches. */}
           <option value="open">{t(locale, "Отворени", "Open")}</option>
           <option value="all">{t(locale, "Всички", "All")}</option>
           <option value="resolved">{t(locale, "Решени", "Resolved")}</option>
@@ -42,6 +49,7 @@ export function Filters({
           <option value="waiting">waiting</option>
         </select>
       </label>
+      {/* Assignee filter: all / mine / concrete employee. */}
       <label>
         {t(locale, "Изпълнител", "Assignee")}
         <select
@@ -49,6 +57,7 @@ export function Filters({
           onChange={(e) => onAssigneeFilterChange(e.target.value)}
         >
           <option value="all">{t(locale, "Всички", "All")}</option>
+          {/* "mine" is resolved to the current user on the parent page. */}
           <option value="mine">{t(locale, "Моите", "Mine")}</option>
           {people.map((p) => (
             <option key={p.employeeId} value={p.employeeId}>
@@ -57,6 +66,7 @@ export function Filters({
           ))}
         </select>
       </label>
+      {/* Restrict list to tickets with an active SLA breach/risk. */}
       <label className="check">
         <input
           type="checkbox"
@@ -65,6 +75,7 @@ export function Filters({
         />
         SLA
       </label>
+      {/* Restrict list to tickets that block room readiness. */}
       <label className="check">
         <input
           type="checkbox"

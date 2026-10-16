@@ -1,4 +1,9 @@
-/** Pure session/offline wipe policy (unit-testable). */
+/**
+ * Pure session / offline wipe policy (unit-testable, no I/O).
+ *
+ * Distinguishes hard auth loss from transient failures so bootstrap can keep
+ * the IndexedDB outbox when the network or refresh is merely unavailable.
+ */
 
 export type RefreshOutcome = "refreshed" | "rejected" | "transient";
 
@@ -15,6 +20,7 @@ export type BootstrapFailure = {
 
 /** HTTP statuses that mean temporary unavailability, not identity loss. */
 export function isTransientStatus(status: number): boolean {
+  // Timeout, rate-limit, and 5xx keep the outbox; 4xx auth does not.
   return status === 408 || status === 429 || status >= 500;
 }
 
@@ -22,8 +28,11 @@ export function isTransientStatus(status: number): boolean {
 export function classifyRefreshFailure(
   statusOrNetwork: number | "network",
 ): "rejected" | "transient" {
+  // Transport failure — do not wipe identity or offline queue.
   if (statusOrNetwork === "network") return "transient";
+  // Hard auth loss — session cookies invalid / forbidden.
   if (statusOrNetwork === 401 || statusOrNetwork === 403) return "rejected";
+  // Other HTTP failures (5xx, 429, …) — retry later.
   return "transient";
 }
 
@@ -35,7 +44,9 @@ export function shouldWipeOfflineOnBootstrap(input: {
   hasCachedUser: boolean;
   failure: BootstrapFailure;
 }): boolean {
+  // No cached identity → nothing private to preserve; wipe leftovers.
   if (!input.hasCachedUser) return true;
+  // Explicit auth rejection → wipe outbox so the next user cannot see it.
   if (input.failure.kind === "auth_rejected") return true;
   // network, transient_http, unverified_401: keep outbox + cached identity
   return false;
@@ -50,6 +61,7 @@ export function classifyBootstrapError(err: unknown): BootstrapFailure {
       authRejected?: boolean;
       refreshOutcome?: RefreshOutcome;
     };
+    // Prefer explicit authRejected / refreshOutcome from ApiRequestError.
     if (e.authRejected === true || e.refreshOutcome === "rejected") {
       return { kind: "auth_rejected", status: e.status };
     }

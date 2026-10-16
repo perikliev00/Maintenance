@@ -1,8 +1,19 @@
+/**
+ * Map a location (+ active task / tickets) to the live-board API DTO,
+ * including computed readiness and active-sector info.
+ */
 import { computeReadiness } from "../readiness";
 import type { LocationForMap } from "./types";
 
+/**
+ * Flatten hierarchy and derive readiness / running session for clients.
+ * Caller must pre-include cleaningTasks, sessions, inspections, and
+ * blocking maintenanceTickets in the expected order.
+ */
 export function mapLocation(location: LocationForMap) {
+  // Blocking open tickets feed readiness (caller pre-filters the include).
   const blockingTickets = location.maintenanceTickets ?? [];
+  // Derive ready / not_ready / needs_check from catalog + occupancy + cleaning.
   const { readiness, reasons } = computeReadiness({
     kind: location.kind,
     catalogStatus: location.catalogStatus as any,
@@ -11,12 +22,17 @@ export function mapLocation(location: LocationForMap) {
     serviceStatus: location.serviceStatus as any,
     hasBlockingTicket: blockingTickets.length > 0,
   });
+  // Active task is the first included cleaning task (query orders by status).
   const activeTask = location.cleaningTasks?.[0] ?? null;
+  // Prefer a running session over completed ones for the live timer.
   const runningSession =
     activeTask?.sessions.find((s) => s.status === "running") ?? null;
+  // Last completed session powers the "just finished" strip on the board.
   const lastCompletedSession =
     activeTask?.sessions.find((s) => s.status === "completed") ?? null;
+  // Newest inspection is first when the include orders inspectedAt desc.
   const lastInspection = activeTask?.inspections?.[0] ?? null;
+  // Only expose an active sector membership on the live board.
   const sector =
     location.sectorMembership?.sector &&
     location.sectorMembership.sector.isActive
@@ -28,6 +44,7 @@ export function mapLocation(location: LocationForMap) {
         }
       : null;
 
+  // Flatten floor/building joins and nest the active-task subtree for clients.
   return {
     id: location.id,
     floorId: location.floorId,
@@ -45,6 +62,7 @@ export function mapLocation(location: LocationForMap) {
     sector,
     readiness,
     readinessReasons: reasons,
+    // Compact ticket cards for the readiness / issue chips.
     blockingIssues: blockingTickets.map((t) => ({
       id: t.id,
       title: t.title,
@@ -53,6 +71,7 @@ export function mapLocation(location: LocationForMap) {
       priority: t.priority,
       status: t.status,
     })),
+    // Null when no active cleaning task; otherwise nest session/inspection DTOs.
     activeTask: activeTask
       ? {
           id: activeTask.id,
@@ -61,6 +80,7 @@ export function mapLocation(location: LocationForMap) {
           dueAt: activeTask.dueAt,
           version: activeTask.version,
           reassignReason: activeTask.reassignReason,
+          // Assignee may be null for unassigned / claimable tasks.
           assignee: activeTask.assignedEmployee
             ? {
                 id: activeTask.assignedEmployee.id,
@@ -68,6 +88,7 @@ export function mapLocation(location: LocationForMap) {
                 employeeNumber: activeTask.assignedEmployee.employeeNumber,
               }
             : null,
+          // Live timer payload when a housekeeper is currently cleaning.
           runningSession: runningSession
             ? {
                 id: runningSession.id,
@@ -75,6 +96,7 @@ export function mapLocation(location: LocationForMap) {
                 employeeId: runningSession.employeeId,
               }
             : null,
+          // Most recent completed session for the board's recent strip.
           lastCompletedSession: lastCompletedSession
             ? {
                 id: lastCompletedSession.id,
@@ -87,6 +109,7 @@ export function mapLocation(location: LocationForMap) {
                 },
               }
             : null,
+          // Latest inspection outcome (pass/fail + findings) when present.
           lastInspection: lastInspection
             ? {
                 id: lastInspection.id,
@@ -104,6 +127,3 @@ export function mapLocation(location: LocationForMap) {
       : null,
   };
 }
-
-/** Alias kept for existing imports. */
-export const mapRoom = mapLocation;

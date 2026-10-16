@@ -1,3 +1,7 @@
+/**
+ * Invitation issue/redeem/revoke and device list/revoke.
+ * Redeem is public (rate-limited on the route) and sets auth cookies on success.
+ */
 import type { NextFunction, Request, Response } from "express";
 import { Role } from "@prisma/client";
 import { z } from "zod";
@@ -11,6 +15,7 @@ import {
   revokeInvitation,
 } from "../services/invitations";
 
+/** Invite payload for creating a brand-new employee + user. */
 const newInviteSchema = z.object({
   kind: z.literal("new"),
   fullName: z.string().min(1).max(200),
@@ -20,6 +25,7 @@ const newInviteSchema = z.object({
   department: z.string().max(120).optional().nullable(),
 });
 
+/** Invite payload for an existing employee who needs a device/activation. */
 const existingInviteSchema = z.object({
   kind: z.literal("existing"),
   employeeId: z.string().min(1),
@@ -27,11 +33,16 @@ const existingInviteSchema = z.object({
   role: z.nativeEnum(Role).optional(),
 });
 
+/** Discriminated union on `kind` for issue body validation. */
 const issueSchema = z.discriminatedUnion("kind", [
   newInviteSchema,
   existingInviteSchema,
 ]);
 
+/**
+ * Activate an invite on a device; strips tokens from the JSON body after
+ * setting httpOnly cookies (same XSS posture as login).
+ */
 export async function redeem(req: Request, res: Response, next: NextFunction) {
   try {
     const schema = z.object({
@@ -47,7 +58,9 @@ export async function redeem(req: Request, res: Response, next: NextFunction) {
         details: parsed.error.flatten(),
       });
     }
+    // Redeem creates/activates user, device, and session tokens.
     const result = await redeemInvitation(parsed.data);
+    // Prefer cookies over returning raw tokens in JSON.
     issueAuthCookies(res, {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
@@ -67,6 +80,7 @@ export async function redeem(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST /invitations — issue a new or existing-employee invite. */
 export async function issue(req: Request, res: Response, next: NextFunction) {
   try {
     const parsed = issueSchema.safeParse(req.body);
@@ -76,6 +90,7 @@ export async function issue(req: Request, res: Response, next: NextFunction) {
         details: parsed.error.flatten(),
       });
     }
+    // Origin used when building invite links for email/UI copy.
     const origin =
       typeof req.headers.origin === "string" && req.headers.origin
         ? req.headers.origin
@@ -91,6 +106,7 @@ export async function issue(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET /invitations — list active (unredeemed/unrevoked) invites. */
 export async function list(_req: Request, res: Response, next: NextFunction) {
   try {
     const list = await listActiveInvitations();
@@ -100,6 +116,7 @@ export async function list(_req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST /invitations/:id/revoke — revoke an unused invitation. */
 export async function revoke(req: Request, res: Response, next: NextFunction) {
   try {
     const updated = await revokeInvitation(req.params.id);
@@ -109,6 +126,7 @@ export async function revoke(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET /devices — list activated devices (optional employeeId filter). */
 export async function listDevices(
   req: Request,
   res: Response,
@@ -126,6 +144,7 @@ export async function listDevices(
   }
 }
 
+/** POST /devices/:id/revoke — revoke a device activation. */
 export async function revokeDevice(
   req: Request,
   res: Response,

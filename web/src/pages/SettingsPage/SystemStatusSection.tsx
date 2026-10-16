@@ -1,3 +1,4 @@
+/** API/DB health and live entity counts from `fetchSystemStatus`. */
 import type { SystemStatus } from "../../api/client";
 import type { LabelFn } from "./constants";
 
@@ -6,14 +7,20 @@ type Props = {
   label: LabelFn;
 };
 
+/**
+ * Read-only API/DB health tiles and live entity counts from `fetchSystemStatus`.
+ */
 export function SystemStatusSection({ system, label }: Props) {
+  // Early / value return.
   return (
     <section className="panel settings-system">
       <h2>{label("Системно състояние", "System status")}</h2>
       <div className="settings-status-grid">
         <div className="stat-card">
           <span className="muted">API</span>
+          {/* Color token flips on ok/down for quick scanning. */}
           <strong className={system.api.ok ? "ok-text" : "err-text"}>
+            {/* Render branch: system.api.ok ? "OK" : "DOWN" */}
             {system.api.ok ? "OK" : "DOWN"}
           </strong>
         </div>

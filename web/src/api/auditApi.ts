@@ -1,3 +1,4 @@
+/** Audit event log fetch (display labels live in `../audit/labels`). */
 import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
 
 export type AuditEventRow = {
@@ -14,6 +15,10 @@ export type AuditEventRow = {
   actor: { id: string; fullName: string; employeeNumber: string } | null;
 };
 
+/**
+ * Fetch audit events with optional entity / location / actor / date filters.
+ * Labels for `action` codes are resolved client-side via `../audit/labels`.
+ */
 export async function fetchAuditEvents(params?: {
   entityType?: string;
   entityId?: string;
@@ -24,6 +29,7 @@ export async function fetchAuditEvents(params?: {
   to?: string;
   limit?: number;
 }): Promise<AuditEventRow[]> {
+  // Build optional query string; empty params → unfiltered list (server-capped).
   const search = new URLSearchParams();
   if (params?.entityType) search.set("entityType", params.entityType);
   if (params?.entityId) search.set("entityId", params.entityId);

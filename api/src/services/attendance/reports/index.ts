@@ -1,3 +1,4 @@
+/** Attendance interval list / export / CSV report surface. */
 export {
   LIST_DEFAULT_LIMIT,
   LIST_MAX_LIMIT,

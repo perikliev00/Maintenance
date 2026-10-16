@@ -1,8 +1,14 @@
+/**
+ * Maintenance tickets board: filter/list, assign/close/lifecycle, and report.
+ * New tickets enqueue via `reportTicketQueued` when offline; live refresh on
+ * ticket/location events. Assign/close/report/resolve are separately gated.
+ */
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   assignIssue,
   canAssignIssues,
   canCloseIssues,
+  // Permission / capability gate.
   canPerformAction,
   canResolveIssues,
   closeIssue,
@@ -28,6 +34,7 @@ import {
   subscribeOffline,
   type ConnMode,
   type QueueStats,
+// Offline / online path.
 } from "../../offline";
 import { Detail, type TicketEventRow } from "./detail";
 import { Filters } from "./filters";
@@ -39,6 +46,9 @@ type Props = {
   locale?: "bg" | "en";
 };
 
+/**
+ * RepairsPage React component / page.
+ */
 export function RepairsPage({ user, locale = "bg" }: Props) {
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
@@ -71,11 +81,16 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   const [blocksRoom, setBlocksRoom] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // Permission / capability gate.
   const canResolve = canResolveIssues(user.role);
+  // Permission / capability gate.
   const canAssign = canAssignIssues(user.role);
+  // Permission / capability gate.
   const canClose = canCloseIssues(user.role);
+  // Permission / capability gate.
   const canReport = canPerformAction(user, "tickets.report");
 
+  /** Ticket list + catalog; people for assign are loaded separately when allowed. */
   const refresh = useCallback(async () => {
     const params: Parameters<typeof fetchTickets>[0] = {
       limit: 100,
@@ -83,7 +98,9 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
       slaBreached: slaOnly || undefined,
       blocksRoom: blocksOnly || undefined,
     };
+    // Branch: conditional gate.
     if (assigneeFilter === "mine") params.mine = true;
+    // Else-if branch.
     else if (assigneeFilter !== "all") params.assigneeId = assigneeFilter;
 
     const [ticketData, roomData, catData, optData] = await Promise.all([
@@ -92,16 +109,27 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
       fetchMaintenanceCategories(),
       fetchIssueOptions(),
     ]);
+    // State transition.
     setTickets(ticketData);
+    // State transition.
     setRooms(roomData);
+    // State transition.
     setCategories(catData);
+    // State transition.
     setOptions(optData);
+    // Branch: conditional gate.
     if (!locationId && roomData[0]) setLocationId(roomData[0].id);
+    // Branch: conditional gate.
     if (!issueOptionId && optData[0]) {
+      // State transition.
       setIssueOptionId(optData[0].id);
+      // State transition.
       setTitle(optData[0].nameBg);
+      // Branch: conditional gate.
       if (optData[0].defaultPriority) setPriority(optData[0].defaultPriority);
+      // Branch: conditional gate.
       if (optData[0].defaultBlocksRoom != null) {
+        // State transition.
         setBlocksRoom(optData[0].defaultBlocksRoom);
       }
     }
@@ -115,14 +143,21 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   ]);
 
   const refreshInBackground = useCallback(() => {
+    // Branch: conditional gate.
     if (!navigator.onLine) return;
+    // Fire-and-forget async call.
     void refresh().catch(() => undefined);
   }, [refresh]);
 
+  // Effect: sync props/state to side effects.
   useEffect(() => {
+    // Early / value return.
     return subscribeOffline((next) => {
+      // State transition.
       setConn(next.conn);
+      // State transition.
       setQueueStats(next.stats);
+      // Branch: conditional gate.
       if (
         next.conn === "online" &&
         next.stats.pending === 0 &&
@@ -133,14 +168,21 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     });
   }, [refreshInBackground]);
 
+  // Effect: sync props/state to side effects.
   useEffect(() => {
+    // Fire-and-forget async call.
     void getQueueStats().then(setQueueStats);
   }, []);
 
+  // Effect: sync props/state to side effects.
   useEffect(() => {
+    // Branch: conditional gate.
     if (!canAssign) return;
+    // Fire-and-forget async call.
     void fetchPeople()
+      // Promise then handler.
       .then((rows) =>
+        // State transition.
         setPeople(
           rows.filter(
             (p) =>
@@ -150,13 +192,17 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
           ),
         ),
       )
+      // Promise catch handler.
       .catch(() => undefined);
   }, [canAssign]);
 
   const liveAt = useLiveRefresh(
     async () => {
+      // Try block for fallible work.
       try {
+        // Await async step.
         await refresh();
+        // State transition.
         setError(null);
       } catch {
         /* ignore */
@@ -169,31 +215,44 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     },
   );
 
+  // Effect: sync props/state to side effects.
   useEffect(() => {
     (async () => {
+      // Try block for fallible work.
       try {
+        // State transition.
         setLoading(true);
+        // Await async step.
         await refresh();
       } catch (err) {
+        // State transition.
         setError(err instanceof Error ? err.message : "Failed to load repairs");
       } finally {
+        // State transition.
         setLoading(false);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, assigneeFilter, slaOnly, blocksOnly]);
 
+  // Effect: sync props/state to side effects.
   useEffect(() => {
+    // Branch: conditional gate.
     if (!selectedId) {
+      // State transition.
       setEvents([]);
       return;
     }
+    // Fire-and-forget async call.
     void fetchTicketEvents(selectedId)
+      // Promise then handler.
       .then((rows) =>
+        // State transition.
         setEvents(
           rows as TicketEventRow[],
         ),
       )
+      // Promise catch handler.
       .catch(() => setEvents([]));
   }, [selectedId]);
 
@@ -202,12 +261,20 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     [tickets, selectedId],
   );
 
+  /**
+   * Handler `handleReport` for user or form events.
+   */
   async function handleReport(e: FormEvent) {
     e.preventDefault();
+    // Branch: conditional gate.
     if (!locationId || !issueOptionId) return;
+    // State transition.
     setSubmitting(true);
+    // State transition.
     setError(null);
+    // State transition.
     setMessage(null);
+    // Try block for fallible work.
     try {
       const room = rooms.find((r) => r.id === locationId);
       const result = await reportTicketQueued({
@@ -217,6 +284,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
         priority,
         blocksRoom,
       });
+      // Branch: conditional gate.
       if (result.queued) {
         const optimistic: MaintenanceTicket = {
           id: `local-${crypto.randomUUID()}`,
@@ -248,34 +316,50 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
           resolvedBy: null,
           slaBreached: false,
         };
+        // State transition.
         setTickets((prev) => [optimistic, ...prev]);
+        // State transition.
         setMessage(
           t(locale, "Докладът е в опашката", "Report queued for sync"),
         );
       } else {
+        // State transition.
         setMessage(t(locale, "Тикетът е докладван", "Ticket reported"));
         refreshInBackground();
       }
+      // State transition.
       setTitle("");
     } catch (err) {
+      // State transition.
       setError(err instanceof Error ? err.message : "Report failed");
     } finally {
+      // State transition.
       setSubmitting(false);
     }
   }
 
+  /**
+   * Handler `handleIssueOptionSelect` for user or form events.
+   */
   function handleIssueOptionSelect(optionId: string) {
     const opt = options.find((o) => o.id === optionId);
+    // State transition.
     setIssueOptionId(optionId);
+    // Branch: conditional gate.
     if (opt) {
+      // State transition.
       setTitle(opt.nameBg);
+      // Branch: conditional gate.
       if (opt.defaultPriority) setPriority(opt.defaultPriority);
+      // Branch: conditional gate.
       if (opt.defaultBlocksRoom != null) {
+        // State transition.
         setBlocksRoom(opt.defaultBlocksRoom);
       }
     }
   }
 
+  // Early / value return.
   return (
     <div className="page repairs-page">
       <header className="page-header">
@@ -300,7 +384,9 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
         />
       </header>
 
+      {/* Render branch: error && <div className="banner error">error</div> */}
       {error && <div className="banner error">{error}</div>}
+      {/* Render branch: message && <div className="banner ok">message</div> */}
       {message && <div className="banner ok">{message}</div>}
       <OutboxIssuesPanel
         locale={locale}
@@ -354,6 +440,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                       <td>{locLabel(ticket)}</td>
                       <td>
                         {ticket.title}
+                        {/* Render branch: ticket.blocksRoom ? " ⚠" : "" */}
                         {ticket.blocksRoom ? " ⚠" : ""}
                       </td>
                       <td>
@@ -376,10 +463,13 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                         <TicketLifecycleActions
                           ticket={ticket}
                           busy={busyId === ticket.id}
+                          // Permission / capability gate.
                           canResolve={canResolve}
                           onBusy={setBusyId}
                           onDone={(result) => {
+                            // State transition.
                             setMessage(result.message);
+                            // State transition.
                             setTickets((prev) =>
                               prev.map((row) =>
                                 row.id === ticket.id
@@ -387,10 +477,12 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                                   : row,
                               ),
                             );
+                            // Branch: conditional gate.
                             if (!result.queued) refreshInBackground();
                           }}
                           onError={setError}
                         />
+                        {/* Render branch: canAssign && */}
                         {canAssign &&
                           (ticket.status === "new" ||
                             ticket.status === "assigned") && (
@@ -399,16 +491,24 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                               disabled={busyId === ticket.id}
                               onChange={(e) => {
                                 const assigneeId = e.target.value;
+                                // Branch: conditional gate.
                                 if (!assigneeId) return;
+                                // State transition.
                                 setBusyId(ticket.id);
+                                // Fire-and-forget async call.
                                 void assignIssue(ticket.id, assigneeId)
+                                  // Promise then handler.
                                   .then(() => {
+                                    // State transition.
                                     setMessage(
                                       t(locale, "Назначен", "Assigned"),
                                     );
+                                    // Early / value return.
                                     return refresh();
                                   })
+                                  // Promise catch handler.
                                   .catch((err) =>
+                                    // State transition.
                                     setError(
                                       err instanceof Error
                                         ? err.message
@@ -428,19 +528,27 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                               ))}
                             </select>
                           )}
+                        {/* Render branch: canClose && ticket.status === "resolved" && ( */}
                         {canClose && ticket.status === "resolved" && (
                           <button
                             type="button"
                             className="subtle"
                             disabled={busyId === ticket.id}
                             onClick={() => {
+                              // State transition.
                               setBusyId(ticket.id);
+                              // Fire-and-forget async call.
                               void closeIssue(ticket.id)
+                                // Promise then handler.
                                 .then(() => {
+                                  // State transition.
                                   setMessage(t(locale, "Затворен", "Closed"));
+                                  // Early / value return.
                                   return refresh();
                                 })
+                                // Promise catch handler.
                                 .catch((err) =>
+                                  // State transition.
                                   setError(
                                     err instanceof Error
                                       ? err.message
@@ -463,6 +571,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
 
           <Detail
             locale={locale}
+            // Permission / capability gate.
             canReport={canReport}
             locationId={locationId}
             onLocationIdChange={setLocationId}

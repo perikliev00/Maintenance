@@ -1,3 +1,7 @@
+/**
+ * Repairs side panel: optional report form (`canReport`) plus selected ticket
+ * summary and event timeline.
+ */
 import type { FormEvent } from "react";
 import type {
   IssueOptionRow,
@@ -38,6 +42,10 @@ type DetailProps = {
   onIssueOptionSelect: (optionId: string) => void;
 };
 
+/**
+ * Repairs side panel: optional report form (`canReport`) plus selected ticket
+ * summary and event timeline.
+ */
 export function Detail({
   locale,
   canReport,
@@ -59,13 +67,20 @@ export function Detail({
   onReport,
   onIssueOptionSelect,
 }: DetailProps) {
+  // Render output.
+  // Side panel.
   return (
     <aside className="panel repairs-side">
+      {/* Report form — hidden without report permission. */}
+      {/* Editable form. */}
       {canReport && (
         <form className="stack" onSubmit={onReport}>
+          {/* Section heading. */}
           <h2>{t(locale, "Докладвай", "Report")}</h2>
+          {/* Room picker — locations already loaded by the parent page. */}
           <label>
             {t(locale, "Стая", "Room")}
+            {/* Select input. */}
             <select
               value={locationId}
               onChange={(e) => onLocationIdChange(e.target.value)}
@@ -77,8 +92,10 @@ export function Detail({
               ))}
             </select>
           </label>
+          {/* Catalog option — parent may fill title/priority defaults. */}
           <label>
             {t(locale, "Опция", "Option")}
+            {/* Select input. */}
             <select
               value={issueOptionId}
               onChange={(e) => onIssueOptionSelect(e.target.value)}
@@ -90,15 +107,19 @@ export function Detail({
               ))}
             </select>
           </label>
+          {/* Form field. */}
           <label>
             {t(locale, "Заглавие", "Title")}
+            {/* Text/checkbox input. */}
             <input
               value={title}
               onChange={(e) => onTitleChange(e.target.value)}
             />
           </label>
+          {/* Form field. */}
           <label>
             {t(locale, "Приоритет", "Priority")}
+            {/* Select input. */}
             <select
               value={priority}
               onChange={(e) => onPriorityChange(e.target.value)}
@@ -109,7 +130,9 @@ export function Detail({
               <option value="urgent">urgent</option>
             </select>
           </label>
+          {/* Whether the new ticket should block room readiness. */}
           <label className="check">
+            {/* Text/checkbox input. */}
             <input
               type="checkbox"
               checked={blocksRoom}
@@ -117,9 +140,11 @@ export function Detail({
             />
             {t(locale, "Блокира стая", "Blocks room")}
           </label>
+          {/* Submit disabled while the parent mutation/outbox write is in flight. */}
           <button type="submit" disabled={submitting}>
             {t(locale, "Докладвай", "Report")}
           </button>
+          {/* Soft warning when the issue catalog has no categories yet. */}
           {categories.length === 0 && (
             <p className="muted">
               {t(locale, "Няма категории", "No categories")}
@@ -128,16 +153,20 @@ export function Detail({
         </form>
       )}
 
+      {/* Timeline for the ticket currently selected in the list. */}
       {selected && (
         <div className="stack" style={{ marginTop: "1.5rem" }}>
+          {/* Section heading. */}
           <h2>{t(locale, "Хронология", "Timeline")}</h2>
           <p className="muted">
             {locLabel(selected)} · {selected.title}
           </p>
+          {/* List of items. */}
           <ul className="event-list">
             {events.map((ev) => (
               <li key={ev.id}>
                 <strong>
+                  {/* Show transition arrow only when fromStatus is present. */}
                   {ev.fromStatus ? `${ev.fromStatus} → ` : ""}
                   {ev.toStatus}
                 </strong>
@@ -146,6 +175,7 @@ export function Detail({
                   · {ev.actor?.fullName ?? "—"} ·{" "}
                   {new Date(ev.occurredAt).toLocaleString()}
                 </span>
+                {/* Optional free-text reason from the lifecycle action. */}
                 {ev.reason && <div>{ev.reason}</div>}
               </li>
             ))}

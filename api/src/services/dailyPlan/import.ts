@@ -1,3 +1,7 @@
+/**
+ * Bulk-import daily plan rows from an external source (e.g. clock/PMS export).
+ * Idempotent on `(source, externalId)` when provided; respects location scope.
+ */
 import {
   DailyPlanImportStatus,
   DailyPlanSource,
@@ -11,6 +15,7 @@ import { mapBatch } from "./format";
 import { getDailyPlan } from "./queries";
 import type { DailyPlanImportPayload, ImportError } from "./types";
 
+/** Resolve a room by building code + number; flag out-of-scope vs missing. */
 async function resolveRoomByBuildingAndNumber(
   buildingCode: string,
   roomNumber: string,
@@ -19,6 +24,7 @@ async function resolveRoomByBuildingAndNumber(
   | { location: NonNullable<Awaited<ReturnType<typeof prisma.location.findFirst>>>; outOfScope: false }
   | { location: null; outOfScope: boolean }
 > {
+  // Look up the room by building code + room number (rooms only).
   const location = await prisma.location.findFirst({
     where: {
       number: roomNumber,
@@ -26,14 +32,17 @@ async function resolveRoomByBuildingAndNumber(
       floor: { building: { code: buildingCode } },
     },
   });
+  // Unknown room — not an out-of-scope miss.
   if (!location) {
     return { location: null, outOfScope: false };
   }
+  // When the caller has a data-scope filter, re-check the room is inside it.
   if (locationFilter && Object.keys(locationFilter).length > 0) {
     const inScope = await prisma.location.findFirst({
       where: { id: location.id, ...locationFilter },
       select: { id: true },
     });
+    // Found globally but outside the caller's permitted locations.
     if (!inScope) {
       return { location: null, outOfScope: true };
     }
@@ -41,15 +50,22 @@ async function resolveRoomByBuildingAndNumber(
   return { location, outOfScope: false };
 }
 
+/**
+ * Import plan entries for one hotel date into a tracked batch.
+ * Skips duplicates / out-of-scope rooms; records per-row errors on the batch.
+ */
 export async function importDailyPlan(
   payload: DailyPlanImportPayload,
   createdByEmployeeId: string,
   locationFilter?: Prisma.LocationWhereInput,
 ) {
+  // Normalize YYYY-MM-DD into the Date used as DailyPlanEntry.hotelDate.
   const hotelDate = parseHotelDate(payload.hotelDate);
+  // Empty label falls back to "clock" (legacy PMS/clock export naming).
   const sourceLabel = payload.sourceLabel.trim() || "clock";
   const entries = payload.entries;
 
+  // Create the batch up-front as failed; finalize status after the loop.
   const batch = await prisma.dailyPlanImportBatch.create({
     data: {
       hotelDate,
@@ -65,13 +81,16 @@ export async function importDailyPlan(
   let skippedCount = 0;
   let errorCount = 0;
   const errors: ImportError[] = [];
+  // Hotel-local "today" gates deferred departure room effects per row.
   const todayYmd = await todayHotelDateYmd();
 
   for (let index = 0; index < entries.length; index++) {
     const item = entries[index];
+    // Human-readable room label for per-row error reporting.
     const roomLabel = `${item.buildingCode} ${item.roomNumber}`;
 
     try {
+      // Idempotent skip when the same external id was already imported.
       if (item.externalId) {
         const byExternal = await prisma.dailyPlanEntry.findUnique({
           where: {
@@ -87,11 +106,13 @@ export async function importDailyPlan(
         }
       }
 
+      // Resolve building+number; distinguish missing vs out-of-scope.
       const resolved = await resolveRoomByBuildingAndNumber(
         item.buildingCode,
         item.roomNumber,
         locationFilter,
       );
+      // Missing or out-of-scope → record error and continue the batch.
       if (!resolved.location) {
         errorCount += 1;
         errors.push({
@@ -104,6 +125,7 @@ export async function importDailyPlan(
         continue;
       }
       const location = resolved.location;
+      // Archived rooms cannot receive new plan rows.
       if (location.catalogStatus !== "active") {
         errorCount += 1;
         errors.push({
@@ -114,6 +136,7 @@ export async function importDailyPlan(
         continue;
       }
 
+      // Unique per (hotelDate, location, category) — skip if already present.
       const existing = await prisma.dailyPlanEntry.findUnique({
         where: {
           hotelDate_locationId_category: {
@@ -130,7 +153,9 @@ export async function importDailyPlan(
         continue;
       }
 
+      // Effects + entry insert must succeed together for this row.
       await prisma.$transaction(async (tx) => {
+        // Category-specific occupancy/dirty/task side effects (no assignee on import).
         const effects = await applyPlanEntryEffects(
           tx,
           location,
@@ -141,6 +166,7 @@ export async function importDailyPlan(
           todayYmd,
         );
 
+        // Persist the imported plan row linked to this batch.
         await tx.dailyPlanEntry.create({
           data: {
             hotelDate,
@@ -159,6 +185,7 @@ export async function importDailyPlan(
 
       createdCount += 1;
     } catch (err) {
+      // Unexpected throws become per-row errors; the batch continues.
       errorCount += 1;
       const reason =
         err instanceof Error ? err.message : "Unexpected import error";
@@ -166,6 +193,7 @@ export async function importDailyPlan(
     }
   }
 
+  // Derive batch status from created vs error counts.
   let status: DailyPlanImportStatus;
   if (createdCount === 0 && errorCount > 0) {
     status = DailyPlanImportStatus.failed;
@@ -175,6 +203,7 @@ export async function importDailyPlan(
     status = DailyPlanImportStatus.completed;
   }
 
+  // Persist final counters + errors onto the batch row.
   const updated = await prisma.dailyPlanImportBatch.update({
     where: { id: batch.id },
     data: {
@@ -186,6 +215,7 @@ export async function importDailyPlan(
     },
   });
 
+  // Return the refreshed plan for the same date/scope so the UI can re-render.
   const plan = await getDailyPlan(payload.hotelDate, locationFilter);
 
   return {

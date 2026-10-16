@@ -1,5 +1,13 @@
 import bcrypt from "bcryptjs";
-import { PrismaClient, Role } from "@prisma/client";
+import {
+  DailyPlanCategory,
+  DailyPlanImportStatus,
+  DailyPlanSource,
+  PrismaClient,
+  Role,
+  SessionStatus,
+  TaskStatus,
+} from "@prisma/client";
 
 export const UNRELATED_CONTROL_EMAIL = "t03-unrelated-control@test.local";
 export const UNRELATED_CONTROL_EMPLOYEE_NUMBER = "T03-CTRL";
@@ -396,6 +404,124 @@ export async function createScopeSmokeFixture(
   };
 }
 
+export type AggregateSeedIds = {
+  entryAId: string;
+  entryBId: string;
+  importBatchId: string;
+  sessionAId: string;
+  sessionBId: string;
+  fromIso: string;
+  toIso: string;
+  hotelDateYmd: string;
+};
+
+/** Plan entries + completed sessions for P1-08 aggregate scope tests. */
+export async function seedScopeAggregateExtras(
+  prisma: PrismaClient,
+  fx: ScopeSmokeFixture,
+): Promise<AggregateSeedIds> {
+  const completedAt = new Date(fx.hotelDate);
+  completedAt.setUTCHours(12, 0, 0, 0);
+  const startedAt = new Date(completedAt.getTime() - 45 * 60 * 1000);
+  const hotelDateYmd = fx.hotelDate.toISOString().slice(0, 10);
+
+  const importBatch = await prisma.dailyPlanImportBatch.create({
+    data: {
+      hotelDate: fx.hotelDate,
+      sourceLabel: "t04-agg-seed",
+      status: DailyPlanImportStatus.completed,
+      totalCount: 2,
+      createdCount: 2,
+      createdByEmployeeId: fx.manager.employeeId,
+    },
+  });
+
+  const entryA = await prisma.dailyPlanEntry.create({
+    data: {
+      hotelDate: fx.hotelDate,
+      locationId: fx.locAId,
+      category: DailyPlanCategory.departure,
+      source: DailyPlanSource.manual,
+      importBatchId: importBatch.id,
+      createdByEmployeeId: fx.manager.employeeId,
+    },
+  });
+  const entryB = await prisma.dailyPlanEntry.create({
+    data: {
+      hotelDate: fx.hotelDate,
+      locationId: fx.locBId,
+      category: DailyPlanCategory.departure,
+      source: DailyPlanSource.manual,
+      importBatchId: importBatch.id,
+      createdByEmployeeId: fx.manager.employeeId,
+    },
+  });
+
+  await prisma.cleaningTask.update({
+    where: { id: fx.taskAId },
+    data: {
+      status: TaskStatus.completed,
+      completedAt,
+    },
+  });
+  await prisma.cleaningTask.update({
+    where: { id: fx.taskBId },
+    data: {
+      status: TaskStatus.completed,
+      completedAt,
+    },
+  });
+
+  const sessionA = await prisma.cleaningSession.create({
+    data: {
+      taskId: fx.taskAId,
+      employeeId: fx.housekeeper.employeeId,
+      startedAt,
+      finishedAt: completedAt,
+      status: SessionStatus.completed,
+      startCommandId: `t04-agg-start-a-${fx.taskAId}`,
+      completeCommandId: `t04-agg-complete-a-${fx.taskAId}`,
+    },
+  });
+  const sessionB = await prisma.cleaningSession.create({
+    data: {
+      taskId: fx.taskBId,
+      employeeId: fx.otherHk.employeeId,
+      startedAt,
+      finishedAt: completedAt,
+      status: SessionStatus.completed,
+      startCommandId: `t04-agg-start-b-${fx.taskBId}`,
+      completeCommandId: `t04-agg-complete-b-${fx.taskBId}`,
+    },
+  });
+
+  return {
+    entryAId: entryA.id,
+    entryBId: entryB.id,
+    importBatchId: importBatch.id,
+    sessionAId: sessionA.id,
+    sessionBId: sessionB.id,
+    fromIso: hotelDateYmd,
+    toIso: hotelDateYmd,
+    hotelDateYmd,
+  };
+}
+
+export async function cleanupAggregateSeed(
+  prisma: PrismaClient,
+  seed: AggregateSeedIds,
+): Promise<void> {
+  await prisma.cleaningSession.deleteMany({
+    where: { id: { in: [seed.sessionAId, seed.sessionBId] } },
+  });
+  await prisma.dailyPlanEntry.deleteMany({
+    where: { id: { in: [seed.entryAId, seed.entryBId] } },
+  });
+  await prisma.dailyPlanImportBatch.deleteMany({
+    where: { id: seed.importBatchId },
+  });
+}
+
 export async function cleanupScopeSmokeFixture(
   prisma: PrismaClient,
   fx: ScopeSmokeFixture,
@@ -414,6 +540,12 @@ export async function cleanupScopeSmokeFixture(
   });
   await prisma.maintenanceTicket.deleteMany({
     where: { id: { in: [fx.ticketAId, fx.ticketBId] } },
+  });
+  await prisma.dailyPlanEntry.deleteMany({
+    where: { locationId: { in: [fx.locAId, fx.locBId] } },
+  });
+  await prisma.dailyPlanImportBatch.deleteMany({
+    where: { createdByEmployeeId: { in: employeeIds } },
   });
   await prisma.cleaningSession.deleteMany({
     where: {

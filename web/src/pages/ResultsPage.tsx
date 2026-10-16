@@ -1,3 +1,6 @@
+/**
+ * Cleaning results report: date range, service-type filters, and paginated rows.
+ */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchCleaningResults,
@@ -15,39 +18,68 @@ const SERVICE_TYPE_OPTIONS: Array<{
   { value: "common_area", label: "Обща част" },
 ];
 
+/**
+ * Format a Date as YYYY-MM-DD (UTC date portion).
+ */
 function isoDate(d: Date): string {
+  // Early / value return.
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * YYYY-MM-DD for today minus `n` UTC calendar days.
+ */
 function daysAgo(n: number): string {
   const d = new Date();
+  // Mutate a copy's UTC day so presets stay timezone-stable.
   d.setUTCDate(d.getUTCDate() - n);
+  // Early / value return.
   return isoDate(d);
 }
 
+/**
+ * Percentage with one decimal, or a Bulgarian "no data" placeholder.
+ */
 function formatPct(value: number | null): string {
+  // Null means the API could not compute a rate for the period.
   if (value === null) return "няма данни";
+  // Early / value return.
   return `${value.toFixed(1)}%`;
 }
 
+/**
+ * Number with optional suffix, or a Bulgarian "no data" placeholder.
+ */
 function formatNum(value: number | null, suffix = ""): string {
+  // Branch: conditional gate.
   if (value === null) return "няма данни";
+  // Early / value return.
   return `${value}${suffix}`;
 }
 
+/**
+ * Cleaning results report page: date range, service-type filters, KPIs, and pagination.
+ */
 export function ResultsPage() {
+  // Stable "today" so presets do not drift mid-session.
   const today = useMemo(() => isoDate(new Date()), []);
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [page, setPage] = useState(1);
   const pageSize = 25;
+  // Empty selection means "all service types" on the API.
   const [serviceTypes, setServiceTypes] = useState<CleaningServiceType[]>([]);
   const [data, setData] = useState<CleaningResultsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Fetch paginated results for the current filters.
+   */
   const refresh = useCallback(async () => {
+    // State transition.
     setError(null);
+    // Omit serviceType when none selected so the API returns all types.
     const result = await fetchCleaningResults({
       from,
       to,
@@ -55,54 +87,82 @@ export function ResultsPage() {
       pageSize,
       serviceType: serviceTypes.length ? serviceTypes : undefined,
     });
+    // State transition.
     setData(result);
   }, [from, to, page, serviceTypes]);
 
+  // Re-fetch when filters/page change; ignore late responses after unmount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Try block for fallible work.
       try {
+        // State transition.
         setLoading(true);
+        // Await async step.
         await refresh();
       } catch (err) {
+        // Only apply error/empty state if this effect is still current.
         if (!cancelled) {
+          // State transition.
           setError(err instanceof Error ? err.message : "Failed to load results");
+          // State transition.
           setData(null);
         }
       } finally {
+        // Branch: conditional gate.
         if (!cancelled) setLoading(false);
       }
     })();
+    // Early / value return.
     return () => {
       cancelled = true;
     };
   }, [refresh]);
 
+  /**
+   * Snap the date range to today or last 7 days and reset pagination.
+   */
   function applyPreset(kind: "today" | "7d") {
+    // Branch: conditional gate.
     if (kind === "today") {
+      // State transition.
       setFrom(today);
+      // State transition.
       setTo(today);
     } else {
+      // Inclusive 7-day window ending today (today + 6 prior UTC days).
       setFrom(daysAgo(6));
+      // State transition.
       setTo(today);
     }
+    // Filters change → return to the first page of rows.
     setPage(1);
   }
 
+  /**
+   * Toggle a service-type chip and reset to page 1.
+   */
   function toggleServiceType(value: CleaningServiceType) {
+    // State transition.
     setServiceTypes((prev) =>
       prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value],
     );
+    // State transition.
     setPage(1);
   }
 
+  // Scale factor for the sparkline bars (floor at 1 to avoid divide-by-zero).
   const maxBar = useMemo(() => {
+    // Branch: conditional gate.
     if (!data?.series.length) return 1;
+    // Early / value return.
     return Math.max(1, ...data.series.map((s) => s.completedSessions));
   }, [data]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
+  // Early / value return.
   return (
     <main className="content">
       <header className="page-header">
@@ -115,6 +175,7 @@ export function ResultsPage() {
         </div>
       </header>
 
+      {/* Date range + quick presets. */}
       <div className="toolbar">
         <label>
           От
@@ -122,7 +183,9 @@ export function ResultsPage() {
             type="date"
             value={from}
             onChange={(e) => {
+              // State transition.
               setFrom(e.target.value);
+              // State transition.
               setPage(1);
             }}
           />
@@ -133,7 +196,9 @@ export function ResultsPage() {
             type="date"
             value={to}
             onChange={(e) => {
+              // State transition.
               setTo(e.target.value);
+              // State transition.
               setPage(1);
             }}
           />
@@ -146,9 +211,11 @@ export function ResultsPage() {
         </button>
       </div>
 
+      {/* Service-type filter chips (multi-select). */}
       <div className="toolbar">
         {SERVICE_TYPE_OPTIONS.map((opt) => {
           const active = serviceTypes.includes(opt.value);
+          // Early / value return.
           return (
             <button
               key={opt.value}
@@ -161,12 +228,15 @@ export function ResultsPage() {
             </button>
           );
         })}
+        // Clear chips → all types (API omits serviceType).
         {serviceTypes.length > 0 && (
           <button
             type="button"
             className="ghost"
             onClick={() => {
+              // State transition.
               setServiceTypes([]);
+              // State transition.
               setPage(1);
             }}
           >
@@ -175,9 +245,12 @@ export function ResultsPage() {
         )}
       </div>
 
+      // Render branch: error && <p className="err-text">error</p>
       {error && <p className="err-text">{error}</p>}
+      // Initial load placeholder when we have no prior data to show.
       {loading && !data && <p className="muted">Зареждане…</p>}
 
+      // KPI / chart / table only after a successful fetch.
       {data && (
         <>
           <div className="results-kpi-grid">
@@ -233,12 +306,14 @@ export function ResultsPage() {
             </div>
           </div>
 
+          {/* Per-service-type breakdown chips when the API returns buckets. */}
           {data.summary.byServiceType.length > 0 && (
             <div className="toolbar">
               {data.summary.byServiceType.map((b) => {
                 const label =
                   SERVICE_TYPE_OPTIONS.find((o) => o.value === b.key)?.label ??
                   b.key;
+                // Early / value return.
                 return (
                   <span key={b.key} className="muted">
                     {label}: {b.count}
@@ -252,6 +327,7 @@ export function ResultsPage() {
             <div className="panel-header">
               <h2>Сесии / Часове</h2>
             </div>
+            // Empty chart vs hourly bar series.
             {data.summary.completedSessions === 0 ? (
               <p className="muted">Няма завършени сесии в периода.</p>
             ) : (
@@ -261,8 +337,10 @@ export function ResultsPage() {
                 aria-label="Completed sessions by hour"
               >
                 {data.series.map((point) => {
+                  // Normalize bar height against the busiest hour.
                   const heightPct = (point.completedSessions / maxBar) * 100;
                   const label = `${String(point.hour).padStart(2, "0")}:00`;
+                  // Early / value return.
                   return (
                     <div key={point.hour} className="results-chart-col">
                       <div className="results-chart-bar-wrap">
@@ -308,6 +386,7 @@ export function ResultsPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  // Empty period vs housekeeper rows.
                   {data.rows.length === 0 ? (
                     <tr>
                       <td colSpan={11} className="muted">
@@ -334,6 +413,7 @@ export function ResultsPage() {
                 </tbody>
               </table>
             </div>
+            // Pager only when total exceeds one page.
             {data.total > pageSize && (
               <div className="toolbar results-pager">
                 <button

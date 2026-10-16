@@ -1,3 +1,9 @@
+/**
+ * Pre-shell routing via location hash, plus panel switcher for the shell.
+ *
+ * Hash routes: `#/activate` (invite), `#/room-qr/:token` (scan deep-link).
+ * Until `authReady`, render nothing to avoid a login flash over a valid cookie.
+ */
 import { useEffect, useState, type ReactNode } from "react";
 import { LoginPage } from "../pages/LoginPage";
 import { ActivatePage } from "../pages/ActivatePage";
@@ -41,6 +47,7 @@ type AppRoutingProps = {
   children: ReactNode;
 };
 
+/** Gate login / activate / room-QR before rendering the authenticated shell. */
 export function AppRouting({
   authReady,
   signedIn,
@@ -53,27 +60,38 @@ export function AppRouting({
   setAuthEpoch,
   children,
 }: AppRoutingProps) {
+  // Local React state.
   const [hash, setHash] = useState(
     () => (typeof window !== "undefined" ? window.location.hash : ""),
   );
 
+  // Effect: sync props/state to side effects.
   useEffect(() => {
+    /**
+     * Handler `onHash` for UI or form events.
+     */
     const onHash = () => setHash(window.location.hash);
     window.addEventListener("hashchange", onHash);
+    // Return value / early exit.
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Hash deep-links checked before the authenticated shell.
   const isActivateRoute = hash.startsWith("#/activate");
   const roomQrMatch = hash.match(/^#\/room-qr\/([^/?#]+)/);
   const roomQrToken = roomQrMatch?.[1]
     ? decodeURIComponent(roomQrMatch[1])
     : null;
 
+  // Avoid login flash while bootstrap is still resolving cookies.
   if (!authReady) {
+    // Return value / early exit.
     return null;
   }
 
+  // Invite redeem — only when not already signed in.
   if (isActivateRoute && (!signedIn || !user)) {
+    // Return value / early exit.
     return (
       <ActivatePage
         theme={theme}
@@ -82,32 +100,45 @@ export function AppRouting({
           window.location.hash = "";
         }}
         onActivated={(nextUser) => {
+          // Clear hash, bind identity, land on role home, re-bootstrap.
           window.location.hash = "";
+          // State transition.
           setUser(nextUser);
+          // State transition.
           setSignedIn(true);
+          // State transition.
           setView(landingForUser(nextUser));
+          // State transition.
           setAuthEpoch((n) => n + 1);
         }}
       />
     );
   }
 
+  // Unauthenticated → login.
   if (!signedIn || !user) {
+    // Return value / early exit.
     return (
       <LoginPage
         theme={theme}
         onToggleTheme={onToggleTheme}
         onLogin={(nextUser) => {
+          // State transition.
           setUser(nextUser);
+          // State transition.
           setSignedIn(true);
+          // State transition.
           setView(landingForUser(nextUser));
+          // State transition.
           setAuthEpoch((n) => n + 1);
         }}
       />
     );
   }
 
+  // QR deep-link overlays the shell (signed-in scan flow).
   if (roomQrToken) {
+    // Return value / early exit.
     return (
       <div className={`app-shell theme-${theme}`}>
         <RoomQrPage
@@ -121,6 +152,7 @@ export function AppRouting({
     );
   }
 
+  // Authenticated shell (sidebar + ActivePanel) from App.tsx.
   return children;
 }
 
@@ -134,6 +166,7 @@ type ActivePanelProps = {
   setUser: (user: AuthUser) => void;
 };
 
+/** Mount the page component for the current nav panel. */
 export function ActivePanel({
   view,
   user,
@@ -143,6 +176,7 @@ export function ActivePanel({
   setView,
   setUser,
 }: ActivePanelProps) {
+  // Return value / early exit.
   return (
     <>
       {view === "mywork" && (
@@ -189,6 +223,7 @@ export function ActivePanel({
         <NotificationsPage
           locale={locale}
           onNavigate={(panel) => {
+            // Branch: conditional gate.
             if (panels.includes(panel)) setView(panel);
           }}
         />

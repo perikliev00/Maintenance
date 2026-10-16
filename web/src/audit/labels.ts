@@ -1,14 +1,22 @@
+/**
+ * Human-readable audit / job labels (BG + EN) for filters and detail panels.
+ * Falls back to a light humanize of unknown keys so new server actions still render.
+ */
 import type { AuditEventRow } from "../api/client";
 
 export type AuditLocale = "bg" | "en";
 
 type Labeled = { bg: string; en: string };
 
+/** Pick BG or EN from a bilingual label pair. */
 function pick(locale: AuditLocale, pair: Labeled): string {
+  // Return value / early exit.
   return locale === "en" ? pair.en : pair.bg;
 }
 
+/** Fallback display for unknown action keys (dots → spaces, capitalize). */
 function humanizeKey(key: string): string {
+  // Return value / early exit.
   return key
     .replace(/[._]/g, " ")
     .replace(/\s+/g, " ")
@@ -16,6 +24,7 @@ function humanizeKey(key: string): string {
     .replace(/^\w/, (c) => c.toUpperCase());
 }
 
+/** Bilingual / lookup table `ACTION_LABELS` (data only). */
 const ACTION_LABELS: Record<string, Labeled> = {
   "ticket.create": { bg: "Създадена повреда", en: "Ticket created" },
   "ticket.assign": { bg: "Назначена повреда", en: "Ticket assigned" },
@@ -128,6 +137,7 @@ const ACTION_LABELS: Record<string, Labeled> = {
   "invitation.revoke": { bg: "Отменена покана", en: "Invitation revoked" },
 };
 
+/** Bilingual / lookup table `ENTITY_TYPE_LABELS` (data only). */
 const ENTITY_TYPE_LABELS: Record<string, Labeled> = {
   ticket: { bg: "Повреда", en: "Ticket" },
   maintenance_ticket: { bg: "Повреда", en: "Ticket" },
@@ -156,6 +166,7 @@ const ENTITY_TYPE_LABELS: Record<string, Labeled> = {
   invitation: { bg: "Покана", en: "Invitation" },
 };
 
+/** Bilingual / lookup table `JOB_KEY_LABELS` (data only). */
 const JOB_KEY_LABELS: Record<string, Labeled> = {
   lock_inactive_users: {
     bg: "Заключване на неактивни потребители",
@@ -187,6 +198,7 @@ const JOB_KEY_LABELS: Record<string, Labeled> = {
   },
 };
 
+/** Bilingual / lookup table `STATUS_LABELS` (data only). */
 const STATUS_LABELS: Record<string, Labeled> = {
   new: { bg: "нова", en: "new" },
   assigned: { bg: "назначена", en: "assigned" },
@@ -289,75 +301,110 @@ export const AUDIT_ENTITY_FILTERS: { value: string; bg: string; en: string }[] =
     { value: "sync_run", ...ENTITY_TYPE_LABELS.sync_run },
   ];
 
+/** Localized action name for list rows and filters. */
 export function actionLabel(action: string, locale: AuditLocale): string {
   const known = ACTION_LABELS[action];
   if (known) return pick(locale, known);
   return humanizeKey(action);
 }
 
+/** Localized entity type for filters and chips. */
 export function entityTypeLabel(
   entityType: string,
   locale: AuditLocale,
 ): string {
   const known = ENTITY_TYPE_LABELS[entityType];
+  // Branch: conditional gate.
   if (known) return pick(locale, known);
+  // Return value / early exit.
   return humanizeKey(entityType);
 }
 
+/** Localized status chip (ticket / cleaning / etc.). */
 export function statusLabel(status: string, locale: AuditLocale): string {
   const known = STATUS_LABELS[status];
+  // Branch: conditional gate.
   if (known) return pick(locale, known);
+  // Return value / early exit.
   return humanizeKey(status);
 }
 
+/** Prefer server `summary` when present; else action label. */
 export function auditHeadline(
   row: Pick<AuditEventRow, "summary" | "action" | "entityType">,
   locale: AuditLocale,
 ): string {
+  // Server-authored summaries win when non-empty.
   const summary = row.summary?.trim();
+  // Branch: conditional gate.
   if (summary) return summary;
+  // Return value / early exit.
   return actionLabel(row.action, locale);
 }
 
+/** Localized background job key for Control / audit job lists. */
 export function jobKeyLabel(jobKey: string, locale: AuditLocale): string {
   const known = JOB_KEY_LABELS[jobKey];
+  // Branch: conditional gate.
   if (known) return pick(locale, known);
+  // Return value / early exit.
   return humanizeKey(jobKey);
 }
 
+/** Normalize job run status variants (ok/succeeded, error/failed). */
 export function jobStatusLabel(status: string, locale: AuditLocale): string {
   const normalized = status.toLowerCase();
+  // Branch: conditional gate.
   if (normalized === "ok" || normalized === "succeeded") {
+    // Return value / early exit.
     return pick(locale, { bg: "Успешно", en: "Succeeded" });
   }
+  // Branch: conditional gate.
   if (normalized === "error" || normalized === "failed") {
+    // Return value / early exit.
     return pick(locale, { bg: "Грешка", en: "Failed" });
   }
+  // Branch: conditional gate.
   if (normalized === "running") {
+    // Return value / early exit.
     return pick(locale, { bg: "Работи", en: "Running" });
   }
+  // Return value / early exit.
   return statusLabel(status, locale);
 }
 
+/** Narrow unknown JSON to a plain object (null for arrays / primitives). */
 function asRecord(value: unknown): Record<string, unknown> | null {
+  // Branch: conditional gate.
   if (value && typeof value === "object" && !Array.isArray(value)) {
+    // Return value / early exit.
     return value as Record<string, unknown>;
   }
+  // Return value / early exit.
   return null;
 }
 
+/** Format a single before/after field value for detail lines. */
 function formatScalar(value: unknown, locale: AuditLocale): string {
+  // Branch: conditional gate.
   if (value === null || value === undefined) return "—";
+  // Branch: conditional gate.
   if (typeof value === "boolean") {
+    // Return value / early exit.
     return value
       ? pick(locale, { bg: "да", en: "yes" })
       : pick(locale, { bg: "не", en: "no" });
   }
+  // Branch: conditional gate.
   if (typeof value === "number") return String(value);
+  // Branch: conditional gate.
   if (typeof value === "string") {
+    // Reuse status labels when the string is a known status key.
     if (STATUS_LABELS[value]) return statusLabel(value, locale);
+    // Return value / early exit.
     return value;
   }
+  // Return value / early exit.
   return String(value);
 }
 
@@ -371,6 +418,7 @@ export function formatAuditDetails(
   const afterObj = asRecord(after);
   const lines: string[] = [];
 
+  // Branch: conditional gate.
   if (beforeObj?.status !== undefined || afterObj?.status !== undefined) {
     const from =
       beforeObj?.status !== undefined
@@ -380,6 +428,7 @@ export function formatAuditDetails(
       afterObj?.status !== undefined
         ? formatScalar(afterObj.status, locale)
         : "—";
+    // Accumulate display line.
     lines.push(
       pick(locale, {
         bg: `Статус: ${from} → ${to}`,
@@ -388,26 +437,36 @@ export function formatAuditDetails(
     );
   }
 
+  // Build unique-key set.
   const keys = new Set([
+    // Enumerate object keys/entries.
     ...Object.keys(beforeObj ?? {}),
+    // Enumerate object keys/entries.
     ...Object.keys(afterObj ?? {}),
   ]);
   keys.delete("status");
 
+  // Loop over collection.
   for (const key of keys) {
     const fromVal = beforeObj?.[key];
     const toVal = afterObj?.[key];
+    // Branch: conditional gate.
     if (fromVal === undefined && toVal === undefined) continue;
+    // Branch: conditional gate.
     if (JSON.stringify(fromVal) === JSON.stringify(toVal)) continue;
 
     const label = humanizeKey(key);
+    // Branch: conditional gate.
     if (fromVal !== undefined && toVal !== undefined) {
+      // Accumulate display line.
       lines.push(
         `${label}: ${formatScalar(fromVal, locale)} → ${formatScalar(toVal, locale)}`,
       );
     } else if (toVal !== undefined) {
+      // Accumulate display line.
       lines.push(`${label}: ${formatScalar(toVal, locale)}`);
     } else {
+      // Accumulate display line.
       lines.push(
         pick(locale, {
           bg: `${label}: премахнато (${formatScalar(fromVal, locale)})`,
@@ -417,8 +476,11 @@ export function formatAuditDetails(
     }
   }
 
+  // Branch: conditional gate.
   if (lines.length === 0 && (before != null || after != null)) {
+    // Branch: conditional gate.
     if (before != null && after == null) {
+      // Accumulate display line.
       lines.push(
         pick(locale, {
           bg: "Има записана предишна стойност",
@@ -426,6 +488,7 @@ export function formatAuditDetails(
         }),
       );
     } else if (before == null && after != null) {
+      // Accumulate display line.
       lines.push(
         pick(locale, {
           bg: "Има записана нова стойност",
@@ -433,6 +496,7 @@ export function formatAuditDetails(
         }),
       );
     } else {
+      // Accumulate display line.
       lines.push(
         pick(locale, {
           bg: "Промяната е записана",
@@ -442,47 +506,65 @@ export function formatAuditDetails(
     }
   }
 
+  // Return value / early exit.
   return lines;
 }
 
+/**
+ * One-line job result for the runs table. Prefers `error`; otherwise formats
+ * known summary shapes (SLA, overdue scan, lock inactive) or key/value bits.
+ */
 export function formatJobSummary(
   jobKey: string,
   summary: unknown,
   error: string | null,
   locale: AuditLocale,
 ): string {
+  // Branch: conditional gate.
   if (error?.trim()) return error.trim();
 
+  // Normalize unknown to record.
   const obj = asRecord(summary);
+  // Branch: conditional gate.
   if (!obj) {
+    // Branch: conditional gate.
     if (summary == null) return "—";
+    // Branch: conditional gate.
     if (typeof summary === "string") return summary;
+    // Return value / early exit.
     return String(summary);
   }
 
+  // Branch: conditional gate.
   if (obj.skipped === true) {
     const reason =
       typeof obj.reason === "string" ? obj.reason : humanizeKey(String(obj.reason ?? ""));
+    // Return value / early exit.
     return pick(locale, {
       bg: `Пропуснато${reason ? ` (${reason === "disabled" ? "изключено" : reason})` : ""}`,
       en: `Skipped${reason ? ` (${reason})` : ""}`,
     });
   }
 
+  // Branch: conditional gate.
   if (jobKey === "ticket_sla_breach") {
     const breached = Number(obj.breached ?? 0);
     const notified = Number(obj.notified ?? 0);
+    // Return value / early exit.
     return pick(locale, {
       bg: `SLA нарушение: ${breached} тикета, уведомени ${notified}`,
       en: `SLA breach: ${breached} tickets, notified ${notified}`,
     });
   }
 
+  // Branch: conditional gate.
   if (jobKey === "overdue_sessions" || jobKey === "sessions.anomaly_scan") {
     const scanned = obj.scanned != null ? Number(obj.scanned) : null;
     const flagged = obj.flagged != null ? Number(obj.flagged) : null;
     const parts: string[] = [];
+    // Branch: conditional gate.
     if (scanned != null) {
+      // Accumulate part.
       parts.push(
         pick(locale, {
           bg: `проверени ${scanned}`,
@@ -490,7 +572,9 @@ export function formatJobSummary(
         }),
       );
     }
+    // Branch: conditional gate.
     if (flagged != null) {
+      // Accumulate part.
       parts.push(
         pick(locale, {
           bg: `маркирани ${flagged}`,
@@ -498,11 +582,14 @@ export function formatJobSummary(
         }),
       );
     }
+    // Branch: conditional gate.
     if (parts.length) return parts.join(", ");
   }
 
+  // Branch: conditional gate.
   if (jobKey === "lock_inactive_users") {
     const locked = Number(obj.locked ?? 0);
+    // Return value / early exit.
     return pick(locale, {
       bg: `Заключени потребители: ${locked}`,
       en: `Users locked: ${locked}`,
@@ -510,9 +597,13 @@ export function formatJobSummary(
   }
 
   const bits: string[] = [];
+  // Loop over collection.
   for (const [key, value] of Object.entries(obj)) {
+    // Branch: conditional gate.
     if (key === "cutoff") continue;
+    // Accumulate summary bit.
     bits.push(`${humanizeKey(key)}: ${formatScalar(value, locale)}`);
   }
+  // Return value / early exit.
   return bits.length ? bits.join(", ") : "—";
 }

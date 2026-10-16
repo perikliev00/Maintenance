@@ -370,8 +370,7 @@ sectors.transfer_cross
 ```
 
 Login and `GET /auth/me` return `panels[]`, `actions[]`, `landing`.  
-Middleware: `requireAction(action)` uses `canPerform` (owner → allow).  
-`requireRoles(...)` also always lets owner through.
+Middleware: `requireAction(action)` uses `canPerform` (owner → allow).
 
 ### Panel × role matrix
 

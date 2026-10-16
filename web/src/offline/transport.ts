@@ -1,25 +1,38 @@
+/**
+ * Offline drain transport: timed POSTs with cookie auth + CSRF.
+ * Shares `fetchWithAuthRetry` / `refreshAccessToken` with `api/http` so a 401
+ * during sync uses the same single-flight refresh as interactive API calls.
+ */
 import {
   fetchWithAuthRetry,
   refreshAccessToken,
 } from "../api/http";
 import { markReachable } from "./connState";
 
+/** Fail fast so drain can mark unreachable and backoff instead of hanging. */
 const REQUEST_TIMEOUT_MS = 8000;
 
+/** Read the double-submit CSRF cookie (same as api/http). */
 function getCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|; )csrf=([^;]*)/);
   return match ? decodeURIComponent(match[1]!) : null;
 }
 
+/** JSON + CSRF for outbox POSTs (always mutating, so CSRF is always attached when present). */
 export function authHeader(): HeadersInit {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   const csrf = getCsrfToken();
+  // Cookie may be missing briefly after login before Set-Cookie lands.
   if (csrf) headers["X-CSRF-Token"] = csrf;
   return headers;
 }
 
+/**
+ * `fetch` with AbortController timeout. Errors expose `status: undefined` so
+ * callers treat them as network/unreachable (queueable) rather than 4xx.
+ */
 export async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -32,6 +45,7 @@ export async function fetchWithTimeout(
       signal: controller.signal,
     });
   } catch (err) {
+    // Timeout abort → queueable network error (no HTTP status).
     if (err instanceof DOMException && err.name === "AbortError") {
       const timeoutErr = new Error("Request timed out") as Error & {
         status?: number;
@@ -39,6 +53,7 @@ export async function fetchWithTimeout(
       timeoutErr.status = undefined;
       throw timeoutErr;
     }
+    // Other fetch failures (DNS, offline) — also queueable.
     const networkErr = new Error(
       err instanceof Error ? err.message : "Network error",
     ) as Error & { status?: number };
@@ -65,10 +80,12 @@ export async function postJsonWithSessionRefresh(
     headersFn?: () => HeadersInit;
   } = {},
 ): Promise<unknown> {
+  // Injectable deps keep unit tests free of real network / cookie state.
   const fetchFn = deps.fetchFn ?? fetchWithTimeout;
   const headersFn = deps.headersFn ?? authHeader;
   const refreshFn = deps.refreshFn ?? refreshAccessToken;
 
+  // Rebuild headers on each attempt so post-refresh CSRF is current.
   const res = await fetchWithAuthRetry(
     () =>
       fetchFn(url, {
@@ -82,6 +99,7 @@ export async function postJsonWithSessionRefresh(
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // Attach status/code/details so drain can classify conflict vs failed.
     const message =
       (data as { message?: string; error?: string }).message ??
       (data as { error?: string }).error ??
@@ -96,10 +114,12 @@ export async function postJsonWithSessionRefresh(
     err.details = (data as { details?: unknown }).details;
     throw err;
   }
+  // Successful I/O clears the unreachable latch for the banner.
   markReachable();
   return data;
 }
 
+/** Convenience alias used by drain and run-or-enqueue paths. */
 export async function postJson(url: string, body: Record<string, unknown>) {
   return postJsonWithSessionRefresh(url, body);
 }

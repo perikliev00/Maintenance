@@ -10,14 +10,6 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
-export function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET?.trim();
-  if (!secret) {
-    throw new Error("JWT_SECRET is not set");
-  }
-  return secret;
-}
-
 /**
  * Fail fast on missing JWT_SECRET. In production, also reject denylisted
  * or short secrets so a copied .env.example cannot silently ship.

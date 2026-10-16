@@ -1,3 +1,8 @@
+/**
+ * Issue report dialog host and blocking-issues cell for the Locations board.
+ * Ticket lifecycle uses offline-aware queued actions; report submit always
+ * posts with priority "high".
+ */
 import {
   reportIssue,
   type IssueOptionRow,
@@ -29,6 +34,10 @@ type IssueDialogHostProps = {
   setIssueTitle: (title: string) => void;
 };
 
+/**
+ * Host that wires LocationsPage issue-dialog state into LocationIssueDialog
+ * and posts reports via `runAction` (always priority "high").
+ */
 export function IssueDialogHost({
   issueLocationId,
   unitLabel,
@@ -68,7 +77,9 @@ export function IssueDialogHost({
       onCancel={onCancel}
       onSubmit={() => {
         const locationId = issueLocationId;
+        // Wrap in runAction so the row shows busy + surfaces errors.
         runAction(locationId, async () => {
+          // Catalog option path vs free-text + category path.
           if (pickMode === "option" && optionId) {
             await reportIssue({
               locationId,
@@ -87,6 +98,7 @@ export function IssueDialogHost({
             });
           }
           setMessage("Issue reported");
+          // Close dialog and clear title for the next report.
           setIssueLocationId(null);
           setIssueTitle("");
         });
@@ -105,6 +117,10 @@ type IssuesCellProps = {
   refresh: () => Promise<void>;
 };
 
+/**
+ * Table cell listing blocking issues with inline lifecycle actions.
+ * Clicks stopPropagation so opening the row detail panel is not triggered.
+ */
 export function IssuesCell({
   location,
   busy,
@@ -123,6 +139,7 @@ export function IssuesCell({
           <div
             key={issue.id}
             className="issue-row"
+            // Prevent row-click from opening the location detail panel.
             onClick={(e) => e.stopPropagation()}
           >
             <div>
@@ -133,6 +150,7 @@ export function IssuesCell({
               busy={busy}
               canResolve={canResolve}
               onBusy={(id) => {
+                // Map ticket busy onto the location row busyId.
                 if (id) setBusyId(location.id);
                 else setBusyId(null);
               }}
@@ -157,6 +175,9 @@ type ReportIssueButtonProps = {
   setIssueBlocks: (blocks: boolean) => void;
 };
 
+/**
+ * Opens the issue dialog for a location, defaulting blocksRoom to true.
+ */
 export function ReportIssueButton({
   busy,
   locationId,
@@ -170,6 +191,7 @@ export function ReportIssueButton({
       className="ghost"
       disabled={busy}
       onClick={() => {
+        // Seed dialog state: clear title, default to blocking.
         setIssueLocationId(locationId);
         setIssueTitle("");
         setIssueBlocks(true);

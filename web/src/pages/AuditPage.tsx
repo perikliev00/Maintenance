@@ -1,3 +1,7 @@
+/**
+ * Audit event browser plus optional background job runs (`jobs.view`).
+ * Live-refreshes on ticket/cleaning/settings/people changes.
+ */
 import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   fetchAuditEvents,
@@ -24,40 +28,57 @@ type Props = {
   locale?: "bg" | "en";
 };
 
+/** Pick BG vs EN copy for this page. */
 function t(locale: "bg" | "en", bg: string, en: string) {
   return locale === "en" ? en : bg;
 }
 
+/**
+ * Audit event browser plus optional background job runs (`jobs.view`).
+ * Live-refreshes on ticket/cleaning/settings/people changes.
+ */
 export function AuditPage({ user, locale = "bg" }: Props) {
+  // Audit event rows for the current filters.
   const [rows, setRows] = useState<AuditEventRow[]>([]);
+  // Background job runs (only fetched when canJobs).
   const [jobs, setJobs] = useState<JobRunRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Filter drafts: action + entity type (empty = all).
   const [action, setAction] = useState("");
   const [entityType, setEntityType] = useState("");
+  // Expanded audit row id for before/after detail list.
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Job runs table is separately gated.
   const canJobs = canPerformAction(user, "jobs.view");
 
+  /**
+   * Fetch audit rows (filtered) and optionally recent job runs.
+   * Skips the job fetch entirely without `jobs.view`.
+   */
   const refresh = useCallback(async () => {
+    // Parallel: audit events always; job runs only when permitted.
     const [auditRows, jobRows] = await Promise.all([
       fetchAuditEvents({
         action: action.trim() || undefined,
         entityType: entityType.trim() || undefined,
         limit: 150,
       }),
+      // Skip job fetch entirely without jobs.view.
       canJobs ? fetchJobRuns(20) : Promise.resolve([] as JobRunRow[]),
     ]);
     setRows(auditRows);
     setJobs(jobRows);
   }, [action, entityType, canJobs]);
 
+  // Soft live refresh while not in the initial loading state.
   useLiveRefresh(
     async () => {
       try {
         await refresh();
       } catch {
-        /* ignore */
+        /* ignore soft-refresh failures */
       }
     },
     {
@@ -71,6 +92,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
     },
   );
 
+  // Re-fetch when filters or jobs permission change (via refresh deps).
   useEffect(() => {
     (async () => {
       try {
@@ -100,8 +122,10 @@ export function AuditPage({ user, locale = "bg" }: Props) {
         </div>
       </header>
 
+      {/* Surface load/refresh errors. */}
       {error && <div className="banner error">{error}</div>}
 
+      {/* Action + entity filters; empty option means all. */}
       <div className="toolbar filters-row">
         <label>
           {t(locale, "Действие", "Action")}
@@ -137,6 +161,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
         </button>
       </div>
 
+      {/* Loading gate vs events (+ optional jobs) panels. */}
       {loading ? (
         <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
       ) : (
@@ -160,6 +185,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Empty state vs event rows with optional expand. */}
                   {rows.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="muted">
@@ -168,6 +194,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                     </tr>
                   ) : (
                     rows.map((row) => {
+                      // Before/after detail lines; empty means no expand button.
                       const detailLines = formatAuditDetails(
                         row.before,
                         row.after,
@@ -182,6 +209,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                               {new Date(row.occurredAt).toLocaleString()}
                             </td>
                             <td>
+                              {/* System actor when no person linked. */}
                               {row.actor?.fullName ??
                                 t(locale, "Система", "System")}
                             </td>
@@ -191,6 +219,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                             </td>
                             <td>{row.reason ?? "—"}</td>
                             <td>
+                              {/* Toggle expand only when detail lines exist. */}
                               {hasDetails && (
                                 <button
                                   type="button"
@@ -208,6 +237,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                               )}
                             </td>
                           </tr>
+                          {/* Expanded detail row under the event. */}
                           {expanded === row.id && hasDetails && (
                             <tr>
                               <td colSpan={6}>
@@ -228,6 +258,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
             </div>
           </section>
 
+          // Background jobs panel — permission-gated.
           {canJobs && (
             <section className="panel" style={{ marginTop: "1rem" }}>
               <div className="panel-header">
@@ -245,6 +276,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                     </tr>
                   </thead>
                   <tbody>
+                    // Empty vs job-run rows.
                     {jobs.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="muted">
@@ -260,6 +292,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                             {new Date(job.startedAt).toLocaleString()}
                           </td>
                           <td>
+                            {/* Unfinished runs show an em dash. */}
                             {job.finishedAt
                               ? new Date(job.finishedAt).toLocaleString()
                               : "—"}

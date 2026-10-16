@@ -1,3 +1,4 @@
+/** Labels and sample JSON payload for the daily-plan UI. */
 import type { DailyPlanCategory } from "../../api/client";
 
 export const CATEGORY_LABELS: Record<DailyPlanCategory, string> = {

@@ -1,3 +1,6 @@
+/**
+ * Attendance service barrel: rules, ingest, rebuild, adjustments, and reports.
+ */
 export {
   OPEN_MISSING_END_HOURS,
   addDaysYmd,

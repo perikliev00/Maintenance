@@ -1,3 +1,9 @@
+/**
+ * Try a mutation online; on offline / unreachable / 5xx, enqueue instead.
+ *
+ * 4xx (except network-mapped undefined status) propagate so the UI can show
+ * validation errors immediately rather than hiding them in the outbox.
+ */
 import {
   completeCleaningQueued as completeCleaningCommand,
   reportTicketQueued as reportTicketCommand,
@@ -16,21 +22,31 @@ import { enqueue } from "./queueOps";
 import type { QueueCommandType } from "./storage";
 import { postJson } from "./transport";
 
+/** `queued: true` means the action is in IndexedDB; else `data` is the live response. */
 export type QueuedResult = { queued: boolean; data?: unknown };
 
+/** Network/timeouts and 5xx are safe to defer; client/auth errors are not. */
 function isQueueableError(err: unknown): boolean {
   const status = (err as { status?: number }).status;
+  // No status → treat as transport failure (safe to queue).
   if (status === undefined) return true;
+  // Only 5xx; 4xx must surface to the UI immediately.
   return status >= 500;
 }
 
+/**
+ * Shared online-or-enqueue path for cleaning/ticket POSTs.
+ * Ensures every body carries a stable `commandId` for idempotent sync push.
+ */
 async function runOrEnqueue(
   type: QueueCommandType,
   url: string,
   body: Record<string, unknown>,
 ): Promise<QueuedResult> {
+  // Stable idempotency key — reuse caller-supplied id when present.
   const commandId = String(body.commandId ?? crypto.randomUUID());
   const payload = { ...body, commandId };
+  // Already offline / marked unreachable — skip the round-trip and enqueue.
   if (!navigator.onLine || isApiUnreachable()) {
     await enqueue({
       commandId,
@@ -45,6 +61,7 @@ async function runOrEnqueue(
     const data = await postJson(url, payload);
     return { queued: false, data };
   } catch (err) {
+    // Transient failure → mark unreachable, backoff, and park in IndexedDB.
     if (isQueueableError(err)) {
       markUnreachable();
       scheduleBackoff();
@@ -57,10 +74,12 @@ async function runOrEnqueue(
       });
       return { queued: true };
     }
+    // Validation / auth / conflict — let the caller show the error.
     throw err;
   }
 }
 
+/** Start a cleaning task (online or queued). Optional optimistic concurrency token. */
 export async function startCleaningQueued(
   taskId: string,
   expectedVersion?: number,
@@ -68,6 +87,7 @@ export async function startCleaningQueued(
   return startCleaningCommand(taskId, expectedVersion, runOrEnqueue);
 }
 
+/** Complete an active cleaning session (online or queued). */
 export async function completeCleaningQueued(
   sessionId: string,
   notes?: string,
@@ -76,10 +96,12 @@ export async function completeCleaningQueued(
   return completeCleaningCommand(sessionId, notes, expectedVersion, runOrEnqueue);
 }
 
+/** Move a ticket into in-progress (online or queued). */
 export async function startTicketQueued(ticketId: string): Promise<QueuedResult> {
   return startTicketCommand(ticketId, runOrEnqueue);
 }
 
+/** Pause a ticket into waiting (online or queued); optional reason. */
 export async function waitTicketQueued(
   ticketId: string,
   reason?: string,
@@ -87,12 +109,14 @@ export async function waitTicketQueued(
   return waitTicketCommand(ticketId, reason, runOrEnqueue);
 }
 
+/** Resume a waiting ticket (online or queued). */
 export async function resumeTicketQueued(
   ticketId: string,
 ): Promise<QueuedResult> {
   return resumeTicketCommand(ticketId, runOrEnqueue);
 }
 
+/** Resolve a ticket with optional notes (online or queued). */
 export async function resolveTicketQueued(
   ticketId: string,
   resolutionNotes?: string,
@@ -100,6 +124,7 @@ export async function resolveTicketQueued(
   return resolveTicketCommand(ticketId, resolutionNotes, runOrEnqueue);
 }
 
+/** Report a new maintenance ticket from a location (online or queued). */
 export async function reportTicketQueued(input: {
   locationId: string;
   title?: string;

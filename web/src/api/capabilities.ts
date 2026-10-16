@@ -1,3 +1,9 @@
+/**
+ * Client-side role / panel / action helpers.
+ *
+ * Prefer server-provided `user.panels` and `user.actions` when present; role
+ * tables here are a fallback for stale sessions and offline UI gating.
+ */
 export type Role =
   | "reception"
   | "housekeeper"
@@ -7,6 +13,7 @@ export type Role =
   | "admin"
   | "owner";
 
+/** Display labels (Bulgarian) for role chips in the shell. */
 export const ROLE_LABELS: Record<Role, string> = {
   owner: "собственик",
   housekeeper: "камериер",
@@ -109,6 +116,7 @@ const ALL_PANELS: Panel[] = [
   "notifications",
 ];
 
+/** Bilingual / lookup table `PANEL_BY_ROLE` (data only). */
 const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {
   housekeeper: ["mywork", "home", "rooms", "common"],
   technician: ["mywork", "repairs", "home", "rooms", "common"],
@@ -163,6 +171,7 @@ const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {
   ],
 };
 
+/** Bilingual / lookup table `LANDING_BY_ROLE` (data only). */
 const LANDING_BY_ROLE: Record<Role, Panel> = {
   housekeeper: "mywork",
   technician: "mywork",
@@ -173,114 +182,185 @@ const LANDING_BY_ROLE: Record<Role, Panel> = {
   owner: "control",
 };
 
+/** Owner bypasses all client-side capability checks. */
 export function isOwner(role: Role): boolean {
+  // Return value / early exit.
   return role === "owner";
 }
 
 /** Client-side mirror of server registry (offline / stale session fallback). */
 export function panelsForRole(role: Role): Panel[] {
+  // Branch: conditional gate.
   if (isOwner(role)) return [...ALL_PANELS];
+  // Return value / early exit.
   return [...PANEL_BY_ROLE[role as Exclude<Role, "owner">]];
 }
 
+/** Default first panel after login when the user has no `landing` from the API. */
 export function landingForRole(role: Role): Panel {
+  // Return value / early exit.
   return LANDING_BY_ROLE[role];
 }
 
+/**
+ * Helper `canViewTeam`.
+ */
 export function canViewTeam(role: Role): boolean {
+  // Return value / early exit.
   return panelsForRole(role).includes("team");
 }
 
+/**
+ * Helper `canViewControl`.
+ */
 export function canViewControl(role: Role): boolean {
+  // Return value / early exit.
   return panelsForRole(role).includes("control");
 }
 
+/** Legacy ticket helpers used when `user.actions` is absent. */
 export function canResolveIssues(role: Role): boolean {
+  // Return value / early exit.
   return isOwner(role) || ["supervisor", "manager", "technician", "admin"].includes(role);
 }
 
+/**
+ * Helper `canAssignIssues`.
+ */
 export function canAssignIssues(role: Role): boolean {
+  // Return value / early exit.
   return (
     isOwner(role) ||
     ["reception", "supervisor", "manager", "admin"].includes(role)
   );
 }
 
+/**
+ * Helper `canCloseIssues`.
+ */
 export function canCloseIssues(role: Role): boolean {
+  // Return value / early exit.
   return isOwner(role) || ["supervisor", "manager", "admin"].includes(role);
 }
 
+/**
+ * Gate a UI action. Explicit `user.actions` (including empty) wins; otherwise
+ * fall back to role heuristics so older sessions still work offline.
+ */
 export function canPerformAction(user: AuthUser, action: Action): boolean {
+  // Branch: conditional gate.
   if (isOwner(user.role)) return true;
   // Explicit array (including []) is authoritative; legacy fallback only when missing.
   if (Array.isArray(user.actions)) return user.actions.includes(action);
   // Fallback mirrors when session predates capabilities
   if (action === "tickets.resolve") return canResolveIssues(user.role);
+  // Branch: conditional gate.
   if (action === "tickets.assign") return canAssignIssues(user.role);
+  // Branch: conditional gate.
   if (action === "tickets.close") return canCloseIssues(user.role);
+  // Branch: conditional gate.
   if (action === "people.view") return canViewTeam(user.role);
+  // Branch: conditional gate.
   if (action === "people.invite") {
+    // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "control.access" || action === "people.change_role") {
+    // Return value / early exit.
     return canViewControl(user.role);
   }
+  // Branch: conditional gate.
   if (action === "settings.manage") {
+    // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "permissions.manage") {
+    // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "operations.view_live") {
+    // Return value / early exit.
     return ["supervisor", "manager"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "cards.view" || action === "cards.issue") {
+    // Return value / early exit.
     return ["reception", "supervisor", "manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "cards.revoke") {
+    // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "plan.view" || action === "plan.manage") {
+    // Return value / early exit.
     return (
       ["reception", "supervisor", "manager"].includes(user.role) ||
       (action === "plan.view" && user.role === "admin")
     );
   }
+  // Branch: conditional gate.
   if (action === "analytics.view") {
+    // Return value / early exit.
     return ["supervisor", "manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "sectors.manage" || action === "shifts.manage") {
+    // Return value / early exit.
     return ["supervisor", "manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "sectors.transfer_cross") {
+    // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "rooms.manage") {
+    // Return value / early exit.
     return ["supervisor", "manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "rooms.set_occupancy") {
+    // Return value / early exit.
     return ["reception", "supervisor", "manager"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "rooms.set_service_status") {
+    // Return value / early exit.
     return ["supervisor", "manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "issue_options.manage") {
+    // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
   }
+  // Branch: conditional gate.
   if (action === "audit.view" || action === "jobs.view") {
+    // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
   }
+  // Return value / early exit.
   return false;
 }
 
+/**
+ * Panels the user may open. Always includes `notifications` so the inbox
+ * remains reachable even when the server matrix omits it.
+ */
 export function panelsForUser(user: AuthUser): Panel[] {
   // Explicit array (including []) is authoritative; legacy fallback only when missing.
   const base = Array.isArray(user.panels)
     ? [...user.panels]
     : [...panelsForRole(user.role)];
+  // Branch: conditional gate.
   if (!base.includes("notifications")) {
     base.push("notifications");
   }
+  // Return value / early exit.
   return base;
 }
 
@@ -306,49 +386,74 @@ export function filterPanelsByModules(
   panels: Panel[],
   modules?: ModuleToggles | null,
 ): Panel[] {
+  // Branch: conditional gate.
   if (!modules) return panels;
+  // Return value / early exit.
   return panels.filter((p) => {
+    // Branch: conditional gate.
     if (p === "rooms") return modules.rooms !== false;
+    // Branch: conditional gate.
     if (p === "common") return modules.common !== false;
+    // Branch: conditional gate.
     if (p === "team") return modules.team !== false;
+    // Branch: conditional gate.
     if (p === "live") return modules.live !== false;
+    // Branch: conditional gate.
     if (p === "plan") return modules.daily_plan !== false;
+    // Branch: conditional gate.
     if (p === "control") return modules.control !== false;
+    // Branch: conditional gate.
     if (p === "attendance") return modules.attendance !== false;
+    // Branch: conditional gate.
     if (p === "cards") return modules.access_cards !== false;
+    // Branch: conditional gate.
     if (p === "results") return modules.analytics !== false;
+    // Branch: conditional gate.
     if (p === "analytics") return modules.analytics !== false;
+    // Branch: conditional gate.
     if (p === "cleaning") return modules.cleaning !== false;
+    // Branch: conditional gate.
     if (p === "mywork") {
+      // Return value / early exit.
       return (
         modules.my_work !== false &&
         (modules.maintenance !== false || modules.cleaning !== false)
       );
     }
+    // Branch: conditional gate.
     if (p === "repairs") {
+      // Return value / early exit.
       return modules.repairs !== false && modules.maintenance !== false;
     }
+    // Branch: conditional gate.
     if (p === "audit") return modules.audit !== false;
     // permissions / settings follow role grants
     if (p === "home") {
+      // Return value / early exit.
       return modules.maintenance !== false || modules.cleaning !== false;
     }
+    // Return value / early exit.
     return true;
   });
 }
 
+/** Prefer server `landing`; else role default. */
 export function landingForUser(user: AuthUser): Panel {
+  // Branch: conditional gate.
   if (user.landing) return user.landing;
+  // Return value / early exit.
   return landingForRole(user.role);
 }
 
 /** Roles the actor may assign via Control (mirrors API policy). */
 export function assignableRolesFor(actor: Role): Role[] {
+  // Branch: conditional gate.
   if (actor === "owner") return [...ALL_ROLES];
   // Non-owners never assign owner/admin, even with people.change_role.
   return ALL_ROLES.filter((r) => r !== "owner" && r !== "admin");
 }
 
+/** Session identity + optional capability fields from `/auth/me`. */
 export type AuthUser = {
   id: string;
   email: string;

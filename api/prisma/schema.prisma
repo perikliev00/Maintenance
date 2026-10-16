@@ -1,3 +1,8 @@
+// Meridian Maintenance — PostgreSQL schema for hotel housekeeping & repairs.
+// Domain notes: readiness is composed (occupancy + cleaning + service + blocking tickets),
+// not a single stored enum. Partial unique indexes enforce one active cleaning task /
+// running session where migrations define them.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,6 +12,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Application roles. `owner` is a superuser (all panels/actions); grants for other roles are DB-driven.
 enum Role {
   reception
   housekeeper
@@ -22,6 +28,7 @@ enum LocationKind {
   common_area
 }
 
+/// Soft-archive for the location catalog (archived locations stay for history).
 enum CatalogStatus {
   active
   archived
@@ -33,6 +40,7 @@ enum Occupancy {
   unknown
 }
 
+/// Housekeeping cleanliness dimension of a location (independent of Occupancy/ServiceStatus).
 enum CleaningStatus {
   dirty
   in_progress
@@ -40,12 +48,14 @@ enum CleaningStatus {
   verified_clean
 }
 
+/// Whether the location can be sold / used (OOO vs in service).
 enum ServiceStatus {
   in_service
   out_of_service
   unknown
 }
 
+/// CleaningTask workflow states. Active set used by partial unique indexes and constants.
 enum TaskStatus {
   assigned
   in_progress
@@ -96,6 +106,7 @@ enum TicketStatus {
   closed
 }
 
+/// Top-level hotel/property. Sectors and buildings hang off this root.
 model Property {
   id        String     @id @default(cuid())
   name      String
@@ -128,6 +139,7 @@ model Floor {
   @@unique([buildingId, number])
 }
 
+/// Room or common area. Readiness is derived at read time from status fields + open tickets.
 model Location {
   id                 String              @id @default(cuid())
   floorId            String
@@ -154,6 +166,7 @@ model Location {
   @@index([kind, catalogStatus])
 }
 
+/// HR identity. May exist without a User (not onboarded) or with a pending/activated login.
 model Employee {
   id                      String                   @id @default(cuid())
   employeeNumber          String                   @unique
@@ -190,6 +203,7 @@ model Employee {
   createdAt               DateTime                 @default(now())
 }
 
+/// Login account bound 1:1 to an Employee. Role is authoritative in DB (JWT is re-checked against session).
 model User {
   id                 String        @id @default(cuid())
   employeeId         String        @unique
@@ -214,6 +228,7 @@ enum InvitationStatus {
   revoked
 }
 
+/// Onboarding invite: plaintext code is never stored (hash + hint only). Redeem creates User + Device.
 model Invitation {
   id               String           @id @default(cuid())
   codeHash         String           @unique
@@ -236,6 +251,7 @@ model Invitation {
   @@index([employeeId, status])
 }
 
+/// Client device bound at invite redeem / login. Used for sync scoping and inactivity signals.
 model Device {
   id           String        @id @default(cuid())
   userId       String
@@ -257,6 +273,7 @@ model Device {
   @@index([employeeId, revokedAt])
 }
 
+/// Refresh-token session. Access JWT carries `sid`; middleware loads role from User via this row.
 model AuthSession {
   id               String    @id @default(cuid())
   userId           String
@@ -343,6 +360,7 @@ model CleaningSession {
   @@index([employeeId, status])
 }
 
+/// Supervisor approve/reject of a completed cleaning session. `commandId` makes inspect idempotent.
 model Inspection {
   id                  String           @id @default(cuid())
   taskId              String
@@ -358,6 +376,7 @@ model Inspection {
   @@index([taskId])
 }
 
+/// Issue catalog parent (e.g. plumbing). Labels snapshotted onto tickets at create time.
 model MaintenanceCategory {
   id        String   @id @default(cuid())
   key       String   @unique
@@ -371,6 +390,7 @@ model MaintenanceCategory {
   updatedAt DateTime @updatedAt
 }
 
+/// Selectable issue under a category; may supply default priority / blocksRoom for new tickets.
 model IssueOption {
   id                     String              @id @default(cuid())
   maintenanceCategoryId  String
@@ -389,6 +409,7 @@ model IssueOption {
   @@index([maintenanceCategoryId, isActive, sortOrder])
 }
 
+/// Hours-to-due by priority. Snapshotted onto tickets so policy edits do not rewrite history.
 model SlaPolicy {
   id        String              @id @default(cuid())
   priority  Priority            @unique
@@ -399,6 +420,7 @@ model SlaPolicy {
   updatedAt DateTime            @updatedAt
 }
 
+/// Repair / maintenance work item. `blocksRoom` feeds readiness; SLA pause fields support waiting state.
 model MaintenanceTicket {
   id                     String               @id @default(cuid())
   locationId             String
@@ -446,6 +468,7 @@ model MaintenanceTicket {
   @@index([assigneeId, status])
 }
 
+/// Append-only ticket lifecycle log; unique `commandId` enables offline replay without double transitions.
 model TicketEvent {
   id              String            @id @default(cuid())
   ticketId        String
@@ -464,6 +487,7 @@ model TicketEvent {
   @@index([occurredAt])
 }
 
+/// Explicit reopen history (separate from TicketEvent for analytics / audit clarity).
 model TicketReopenEvent {
   id                    String            @id @default(cuid())
   ticketId              String
@@ -478,6 +502,7 @@ model TicketReopenEvent {
   @@index([reopenedAt])
 }
 
+/// Key/value app configuration (modules, flags, access policy). Validated by settingsSchema in code.
 model AppSetting {
   key                   String    @id
   value                 Json
@@ -505,6 +530,7 @@ enum AttendanceAdjustmentStatus {
   rejected
 }
 
+/// Raw punch from a terminal/source. Unique `(source, externalEventId)` makes ingest idempotent.
 model AttendanceEvent {
   id                String              @id @default(cuid())
   externalEventId   String
@@ -523,6 +549,7 @@ model AttendanceEvent {
   @@index([kind, normalizedTime])
 }
 
+/// Derived work interval rebuilt from events. Overnight spans keep hotelDate = start day.
 model AttendanceInterval {
   id              String                    @id @default(cuid())
   employeeId      String
@@ -545,6 +572,7 @@ model AttendanceInterval {
   @@index([hotelDate])
 }
 
+/// Staff-requested correction to an interval; approve applies proposed times via rebuild rules.
 model AttendanceAdjustment {
   id              String                      @id @default(cuid())
   intervalId      String
@@ -582,6 +610,7 @@ enum DailyPlanImportStatus {
   failed
 }
 
+/// Result of one JSON/CSV-style daily-plan import run (counts + per-row errors).
 model DailyPlanImportBatch {
   id                  String                 @id @default(cuid())
   hotelDate           DateTime               @db.Date
@@ -600,6 +629,7 @@ model DailyPlanImportBatch {
   @@index([hotelDate, createdAt])
 }
 
+/// Clock / daily plan row. Unique per (hotelDate, location, category); may drive departure room effects.
 model DailyPlanEntry {
   id                  String                 @id @default(cuid())
   hotelDate           DateTime               @db.Date
@@ -645,6 +675,7 @@ enum CardStatus {
   revoked
 }
 
+/// Physical/logical access card. `commandId` makes issue idempotent for offline clients.
 model AccessCard {
   id                  String       @id @default(cuid())
   cardType            CardType
@@ -663,6 +694,7 @@ model AccessCard {
   @@index([employeeId, status])
 }
 
+/// Time-bounded door/location entitlement attached to a card (null location = property-wide demo grant).
 model AccessGrant {
   id                  String     @id @default(cuid())
   cardId              String
@@ -685,6 +717,7 @@ enum GrantKind {
   action
 }
 
+/// Runtime permission matrix (role × panel|action). Seed defaults live in permissions.ts; owner bypasses in code.
 model RoleGrant {
   role      Role
   kind      GrantKind
@@ -702,6 +735,7 @@ model AppliedDataSeed {
   appliedAt DateTime @default(now())
 }
 
+/// Housekeeping sector (zone). Primary supervisor drives “my sectors” data scope for supervisors.
 model Sector {
   id                          String           @id @default(cuid())
   propertyId                  String
@@ -721,6 +755,7 @@ model Sector {
   @@index([propertyId, isActive])
 }
 
+/// Location ↔ sector membership. `locationId` unique so a room belongs to at most one sector.
 model SectorLocation {
   sectorId   String
   locationId String   @unique
@@ -731,6 +766,7 @@ model SectorLocation {
   @@index([sectorId])
 }
 
+/// Named work shift (e.g. morning). Times are hotel-local HH:mm strings, not absolute instants.
 model Shift {
   id        String                @id @default(cuid())
   code      String                @unique
@@ -765,6 +801,7 @@ model EmployeeShiftRoster {
   @@index([shiftId])
 }
 
+/// Unified audit trail for settings, permissions, ops mutations, and live feeds.
 model AuditEvent {
   id              String    @id @default(cuid())
   actorEmployeeId String?
@@ -800,6 +837,7 @@ enum NotificationDeliveryStatus {
   not_configured
 }
 
+/// In-app (and multi-channel) notification. `dedupeKey` prevents duplicate alerts per recipient.
 model Notification {
   id                  String                  @id @default(cuid())
   recipientEmployeeId String
@@ -825,6 +863,7 @@ model Notification {
   @@index([entityType, entityId])
 }
 
+/// Per-channel delivery attempt for a notification (in_app / email / push).
 model NotificationDelivery {
   id             String                      @id @default(cuid())
   notificationId String
@@ -839,6 +878,7 @@ model NotificationDelivery {
   @@index([channel, status])
 }
 
+/// Background job execution record (SLA breach, lock inactive, overdue sessions, etc.).
 model JobRun {
   id         String    @id @default(cuid())
   jobKey     String
@@ -852,6 +892,7 @@ model JobRun {
   @@index([startedAt])
 }
 
+/// Offline sync push/pull attempt for a user/device (accepted/rejected counts + conflict payload).
 model SyncRun {
   id          String    @id @default(cuid())
   deviceId    String?

@@ -1,3 +1,7 @@
+/**
+ * In-app notification create/list/read/dismiss plus recipient resolution by role grant.
+ * Email/push channels are stubbed until adapters exist; device_push stays not_configured.
+ */
 import {
   NotificationChannel,
   NotificationDeliveryStatus,
@@ -47,6 +51,10 @@ export type CreateNotificationInput = {
   payload?: NotificationPayload;
 };
 
+/**
+ * Map a Prisma notification (+ optional deliveries) to the API DTO.
+ * Derives `unread` from readAt/dismissedAt for the inbox badge.
+ */
 function formatNotification(row: {
   id: string;
   type: string;
@@ -68,6 +76,7 @@ function formatNotification(row: {
     error: string | null;
   }>;
 }) {
+  // ISO timestamps + derived unread flag for the inbox UI.
   return {
     id: row.id,
     type: row.type,
@@ -81,6 +90,7 @@ function formatNotification(row: {
     readAt: row.readAt?.toISOString() ?? null,
     dismissedAt: row.dismissedAt?.toISOString() ?? null,
     actorEmployeeId: row.actorEmployeeId,
+    // Unread means never read and not soft-dismissed.
     unread: !row.readAt && !row.dismissedAt,
     deliveries: (row.deliveries ?? []).map((d) => ({
       channel: d.channel,
@@ -94,15 +104,21 @@ function formatNotification(row: {
 
 export type FormattedNotification = ReturnType<typeof formatNotification>;
 
+/**
+ * Active users whose role grants include `action`. When locationId is set,
+ * supervisors are limited to those whose sector covers that location.
+ */
 async function employeesWithAction(
   action: Action,
   opts: { locationId?: string | null } = {},
 ): Promise<string[]> {
+  // All active users — role grants are checked in memory per role.
   const users = await prisma.user.findMany({
     where: { isActive: true },
     select: { employeeId: true, role: true },
   });
 
+  // When location-scoped, resolve which supervisors own active sectors for it.
   let sectorSupervisorIds: Set<string> | null = null;
   if (opts.locationId) {
     const memberships = await prisma.sectorLocation.findMany({
@@ -123,6 +139,7 @@ async function employeesWithAction(
 
   const allowed: string[] = [];
   for (const user of users) {
+    // Skip roles that cannot perform the action.
     if (!(await canPerform(user.role, action))) continue;
 
     // Supervisors only receive location-scoped ops alerts for their sectors.
@@ -140,25 +157,36 @@ async function employeesWithAction(
   return allowed;
 }
 
-/** Prefer sector primary supervisor; fall back to action holders in scope. */
+/**
+ * Prefer sector primary supervisor; fall back to action holders in scope.
+ * Deduplicates via Set so supervisor + grant overlap is returned once.
+ */
 export async function recipientsForLocationOps(
   locationId: string | null | undefined,
   action: Action,
 ): Promise<string[]> {
   const ids = new Set<string>();
+  // Prefer the snapshotted primary supervisor for this location's sector.
   if (locationId) {
     const snap = await sectorSnapshotForLocation(locationId);
+    // Only add when a primary supervisor is configured.
     if (snap.sectorSupervisorEmployeeId) {
       ids.add(snap.sectorSupervisorEmployeeId);
     }
   }
+  // Union with everyone whose role grant allows the action (scoped).
   for (const id of await employeesWithAction(action, { locationId })) {
     ids.add(id);
   }
   return [...ids];
 }
 
+/**
+ * All active employees whose role can perform `action` (no location filter).
+ * Thin wrapper over {@link employeesWithAction} for hotel-wide alerts.
+ */
 export async function recipientsWithAction(action: Action): Promise<string[]> {
+  // No locationId → supervisors are not sector-filtered.
   return employeesWithAction(action);
 }
 
@@ -169,11 +197,13 @@ export async function recipientsWithAction(action: Action): Promise<string[]> {
 export async function createNotifications(
   input: CreateNotificationInput,
 ): Promise<{ created: number; skipped: number }> {
+  // Feature flag: in-app channel must be enabled in settings.
   const settings = await getSetting("notifications");
   if (!settings.in_app.enabled) {
     return { created: 0, skipped: input.recipientEmployeeIds.length };
   }
 
+  // Never notify the actor; dedupe recipient list.
   const actorId = input.actorEmployeeId ?? null;
   const uniqueRecipients = [
     ...new Set(
@@ -182,10 +212,12 @@ export async function createNotifications(
       ),
     ),
   ];
+  // Nothing left after filtering actor / empties.
   if (uniqueRecipients.length === 0) {
     return { created: 0, skipped: 0 };
   }
 
+  // Email adapter not wired yet — stub status when the channel is "enabled".
   const emailStatus = settings.email.enabled
     ? NotificationDeliveryStatus.not_configured
     : NotificationDeliveryStatus.skipped;
@@ -196,8 +228,10 @@ export async function createNotifications(
   let skipped = 0;
   const notifiedRecipients: string[] = [];
 
+  // One notification (+ delivery stubs) per recipient.
   for (const recipientEmployeeId of uniqueRecipients) {
     try {
+      // Unique on (recipientEmployeeId, dedupeKey) for idempotent creates.
       const row = await prisma.notification.create({
         data: {
           recipientEmployeeId,
@@ -208,11 +242,13 @@ export async function createNotifications(
           entityType: input.entityType,
           entityId: input.entityId,
           locationId: input.locationId ?? null,
+          // Prisma.JsonNull when payload omitted (distinct from JSON null value).
           payload:
             input.payload === undefined
               ? Prisma.JsonNull
               : (input.payload as Prisma.InputJsonValue),
           dedupeKey: input.dedupeKey,
+          // Three delivery rows: in-app delivered now; email/push stubbed.
           deliveries: {
             create: [
               {
@@ -232,9 +268,11 @@ export async function createNotifications(
           },
         },
       });
+      // Count a successful create for this recipient.
       created += 1;
       notifiedRecipients.push(row.recipientEmployeeId);
     } catch (err) {
+      // Duplicate dedupeKey for this recipient — count as skipped, continue.
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === "P2002"
@@ -242,17 +280,21 @@ export async function createNotifications(
         skipped += 1;
         continue;
       }
+      // Non-unique errors propagate to the caller.
       throw err;
     }
   }
 
+  // Live inbox refresh per newly created recipient.
   for (const recipientEmployeeId of notifiedRecipients) {
     publish("notification.changed", { recipientEmployeeId });
   }
 
+  // Aggregate create/skip counts for the caller.
   return { created, skipped };
 }
 
+/** Cursor page (id desc) of notifications for one recipient. */
 export async function listNotificationsForEmployee(input: {
   employeeId: string;
   unreadOnly?: boolean;
@@ -260,21 +302,26 @@ export async function listNotificationsForEmployee(input: {
   cursor?: string;
   limit?: number;
 }) {
+  // Clamp page size to [1, 100]; default 30.
   const limit = Math.min(Math.max(input.limit ?? 30, 1), 100);
   const where: Prisma.NotificationWhereInput = {
     recipientEmployeeId: input.employeeId,
   };
+  // Default inbox hides dismissed rows.
   if (!input.includeDismissed) {
     where.dismissedAt = null;
   }
+  // Unread filter also excludes dismissed.
   if (input.unreadOnly) {
     where.readAt = null;
     where.dismissedAt = null;
   }
+  // Opaque cursor is the previous page's last notification id.
   if (input.cursor) {
     where.id = { lt: input.cursor };
   }
 
+  // Fetch one extra row to detect hasMore without a separate count.
   const rows = await prisma.notification.findMany({
     where,
     include: { deliveries: true },
@@ -290,7 +337,9 @@ export async function listNotificationsForEmployee(input: {
   };
 }
 
+/** Count of unread, non-dismissed notifications for badge UIs. */
 export async function unreadNotificationCount(employeeId: string) {
+  // Match the unread filter used by listNotificationsForEmployee.
   const count = await prisma.notification.count({
     where: {
       recipientEmployeeId: employeeId,
@@ -301,10 +350,12 @@ export async function unreadNotificationCount(employeeId: string) {
   return { count };
 }
 
+/** Idempotent mark-read for a single notification owned by the employee. */
 export async function markNotificationRead(input: {
   employeeId: string;
   notificationId: string;
 }) {
+  // Ownership check: only the recipient may mark read.
   const existing = await prisma.notification.findFirst({
     where: {
       id: input.notificationId,
@@ -315,9 +366,11 @@ export async function markNotificationRead(input: {
   if (!existing) {
     throw new AppError(404, "not_found", "Notification not found");
   }
+  // Already read — idempotent no-op return.
   if (existing.readAt) {
     return formatNotification(existing);
   }
+  // Stamp readAt and reload with deliveries.
   const updated = await prisma.notification.update({
     where: { id: existing.id },
     data: { readAt: new Date() },
@@ -329,7 +382,9 @@ export async function markNotificationRead(input: {
   return formatNotification(updated);
 }
 
+/** Bulk mark-read for all unread, non-dismissed notifications. */
 export async function markAllNotificationsRead(employeeId: string) {
+  // Stamp readAt on every unread, non-dismissed row for this recipient.
   const result = await prisma.notification.updateMany({
     where: {
       recipientEmployeeId: employeeId,
@@ -338,16 +393,22 @@ export async function markAllNotificationsRead(employeeId: string) {
     },
     data: { readAt: new Date() },
   });
+  // Only publish when something actually changed.
   if (result.count > 0) {
     publish("notification.changed", { recipientEmployeeId: employeeId });
   }
   return { updated: result.count };
 }
 
+/**
+ * Soft-hide a notification. Also sets readAt if still unread so dismiss
+ * does not leave a phantom unread count.
+ */
 export async function dismissNotification(input: {
   employeeId: string;
   notificationId: string;
 }) {
+  // Ownership check: only the recipient may dismiss.
   const existing = await prisma.notification.findFirst({
     where: {
       id: input.notificationId,
@@ -358,9 +419,11 @@ export async function dismissNotification(input: {
   if (!existing) {
     throw new AppError(404, "not_found", "Notification not found");
   }
+  // Already dismissed — idempotent no-op return.
   if (existing.dismissedAt) {
     return formatNotification(existing);
   }
+  // Soft-hide; keep existing readAt or set it now to clear unread badges.
   const updated = await prisma.notification.update({
     where: { id: existing.id },
     data: {

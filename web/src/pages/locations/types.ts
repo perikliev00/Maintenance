@@ -1,3 +1,4 @@
+/** Shared types for the Locations board (rooms vs common areas). */
 import type { AuthUser, PublicSettings } from "../../api/client";
 
 export type LocationKindFilter = "room" | "common_area";

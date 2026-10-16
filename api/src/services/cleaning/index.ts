@@ -1,3 +1,6 @@
+/**
+ * Cleaning domain barrel: task/session lifecycle, cycles, claims, and ops.
+ */
 import { AppError } from "../../errors";
 
 export { AppError };

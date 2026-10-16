@@ -1,3 +1,4 @@
+/** Read-only settings change timeline (diff truncated for display). */
 import type { SettingHistoryRow } from "../../api/client";
 import type { LabelFn } from "./constants";
 
@@ -6,7 +7,11 @@ type Props = {
   label: LabelFn;
 };
 
+/**
+ * Read-only settings change timeline. Diff column truncates JSON to 120 chars.
+ */
 export function HistoryTab({ history, label }: Props) {
+  // Early / value return.
   return (
     <div className="table-wrap">
       <table>
@@ -34,6 +39,7 @@ export function HistoryTab({ history, label }: Props) {
                 <td>{row.actor.fullName}</td>
                 <td>{row.reason ?? "—"}</td>
                 <td>
+                  {/* Truncate after-JSON for scannable table cells. */}
                   <code className="diff-mini">
                     {JSON.stringify(row.after).slice(0, 120)}
                     {JSON.stringify(row.after).length > 120 ? "…" : ""}

@@ -1,13 +1,22 @@
+/** Offline connection badge for the Repairs header (mirrors My Work chrome). */
 import type { ConnMode } from "../../offline";
 import { t } from "./helpers";
 
+/**
+ * Map connection mode + outbox counts to a CSS status token.
+ * Pending/sending work forces "syncing" even when transport looks online.
+ */
 export function connClass(conn: ConnMode, pending: number, sending: number): string {
   if (conn === "offline") return "offline";
   if (conn === "unreachable") return "unreachable";
+  // Treat non-empty outbox as syncing so the badge stays accurate mid-drain.
   if (conn === "syncing" || pending + sending > 0) return "syncing";
   return "online";
 }
 
+/**
+ * Localized connection badge text, including inflight outbox count when syncing.
+ */
 export function connLabel(
   locale: "bg" | "en",
   conn: ConnMode,
@@ -32,6 +41,7 @@ type OfflineConnBadgeProps = {
   sending: number;
 };
 
+/** Status pill showing offline/unreachable/syncing/online for Repairs. */
 export function OfflineConnBadge({
   locale,
   conn,

@@ -1,3 +1,7 @@
+/**
+ * Access-card issue wizard and staff card list/revoke.
+ * Issue and revoke are separately gated (`cards.issue` / `cards.revoke`).
+ */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   canPerformAction,
@@ -27,25 +31,30 @@ const CARD_TYPES: Array<{ id: CardType; bg: string; en: string }> = [
   { id: "master", bg: "Мастър", en: "Master" },
 ];
 
+/** Bulgarian label for a card type id. */
 function labelForType(type: CardType) {
   return CARD_TYPES.find((t) => t.id === type)?.bg ?? type;
 }
 
+/** Default validity window: now → +24h, formatted for datetime-local inputs. */
 function defaultValidity() {
   const from = new Date();
   const until = new Date(from.getTime() + 24 * 60 * 60 * 1000);
   return {
+    // slice(0, 16) matches `<input type="datetime-local">` value shape.
     validFrom: from.toISOString().slice(0, 16),
     validUntil: until.toISOString().slice(0, 16),
   };
 }
 
+/** Parse a datetime-local string into an ISO timestamp for the API. */
 function toIsoLocal(value: string) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) throw new Error("Невалидна дата");
   return d.toISOString();
 }
 
+/** Locale-formatted timestamp for review/list UI; falls back to raw ISO. */
 function formatWhen(iso: string) {
   try {
     return new Date(iso).toLocaleString("bg-BG");
@@ -54,30 +63,43 @@ function formatWhen(iso: string) {
   }
 }
 
+/**
+ * Access-card page: 3-step issue wizard and staff card list/revoke.
+ * Issue and revoke are separately gated (`cards.issue` / `cards.revoke`).
+ */
 export function CardsPage({ user }: Props) {
+  // Issue wizard vs staff-list tab.
   const [tab, setTab] = useState<Tab>("issue");
+  // Wizard step: 1 type → 2 fields → 3 review/success.
   const [step, setStep] = useState<Step>(1);
   const [cardType, setCardType] = useState<CardType | null>(null);
+  // Guest room and/or staff employee selection for the grant.
   const [locationId, setLocationId] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [label, setLabel] = useState("");
   const [validity, setValidity] = useState(defaultValidity);
+  // Lookups for the issue wizard selects.
   const [rooms, setRooms] = useState<Room[]>([]);
   const [employees, setEmployees] = useState<CardEmployeeOption[]>([]);
+  // Staff tab list + filters.
   const [staffCards, setStaffCards] = useState<AccessCard[]>([]);
   const [staffQ, setStaffQ] = useState("");
   const [staffStatus, setStaffStatus] = useState<"" | CardStatus>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Non-null after a successful issue (step 3 success branch).
   const [issued, setIssued] = useState<AccessCard | null>(null);
 
+  // Permission gates — buttons stay visible but submit/revoke no-op without them.
   const canIssue = canPerformAction(user, "cards.issue");
   const canRevoke = canPerformAction(user, "cards.revoke");
+  // Card-type branches drive which step-2 fields are required.
   const isGuest = cardType === "guest";
   const isMaster = cardType === "master";
   const isStaff = !!cardType && cardType !== "guest";
 
+  // Resolve selected room/employee for the step-3 review list.
   const selectedRoom = useMemo(
     () => rooms.find((r) => r.id === locationId) ?? null,
     [rooms, locationId],
@@ -87,15 +109,19 @@ export function CardsPage({ user }: Props) {
     [employees, employeeId],
   );
 
+  /** Load active rooms + employee options for the issue wizard. */
   const loadIssueLookups = useCallback(async () => {
+    // Skip employee fetch when the user cannot issue (no need for PII).
     const [roomList, empList] = await Promise.all([
       fetchRooms(),
       canIssue ? fetchCardEmployees() : Promise.resolve([]),
     ]);
+    // Only active catalog rooms are selectable for new grants.
     setRooms(roomList.filter((r) => r.catalogStatus === "active"));
     setEmployees(empList);
   }, [canIssue]);
 
+  /** Load staff-only cards filtered by search + status. */
   const loadStaffCards = useCallback(async () => {
     const cards = await fetchCards({
       staffOnly: true,
@@ -105,6 +131,7 @@ export function CardsPage({ user }: Props) {
     setStaffCards(cards);
   }, [staffQ, staffStatus]);
 
+  // Initial lookup load for the issue wizard.
   useEffect(() => {
     (async () => {
       try {
@@ -119,6 +146,7 @@ export function CardsPage({ user }: Props) {
     })();
   }, [loadIssueLookups]);
 
+  // Staff list loads only when that tab is active (and on filter changes).
   useEffect(() => {
     if (tab !== "staff") return;
     (async () => {
@@ -134,6 +162,7 @@ export function CardsPage({ user }: Props) {
     })();
   }, [tab, loadStaffCards]);
 
+  /** Clear wizard state back to step 1 for another issue. */
   function resetWizard() {
     setStep(1);
     setCardType(null);
@@ -146,10 +175,15 @@ export function CardsPage({ user }: Props) {
     setError(null);
   }
 
+  /**
+   * Validate step-2 fields; returns a Bulgarian error string or null if OK.
+   */
   function validateStep2() {
     if (!cardType) return "Изберете тип карта";
+    // Guest cards require a room; staff cards require an employee.
     if (isGuest && !locationId) return "Изберете стая";
     if (isStaff && !employeeId) return "Изберете служител";
+    // Master is property-wide — a location id would be contradictory.
     if (isMaster && locationId) return "Мастър картата е за целия имот";
     try {
       const from = new Date(toIsoLocal(validity.validFrom));
@@ -161,7 +195,9 @@ export function CardsPage({ user }: Props) {
     return null;
   }
 
+  /** Persist a new card via API and advance to the success view. */
   async function submitIssue() {
+    // Permission + type gate before any network call.
     if (!cardType || !canIssue) return;
     const problem = validateStep2();
     if (problem) {
@@ -171,6 +207,7 @@ export function CardsPage({ user }: Props) {
     try {
       setLoading(true);
       setError(null);
+      // Guest: employee null + location required. Master: no location.
       const card = await issueCard({
         cardType,
         employeeId: isGuest ? null : employeeId,
@@ -188,6 +225,7 @@ export function CardsPage({ user }: Props) {
     }
   }
 
+  /** Revoke an active staff card and refresh the list. */
   async function onRevoke(id: string) {
     if (!canRevoke) return;
     try {
@@ -212,6 +250,7 @@ export function CardsPage({ user }: Props) {
         </div>
       </header>
 
+      {/* Tab switcher: issue wizard vs staff card list. */}
       <div className="toolbar">
         <button
           type="button"
@@ -229,11 +268,14 @@ export function CardsPage({ user }: Props) {
         </button>
       </div>
 
+      {/* Error / success banners shared across tabs. */}
       {error && <p className="error-banner">{error}</p>}
       {message && <p className="ok-banner">{message}</p>}
 
+      {/* Issue wizard — three steps; step 3 shows review or success. */}
       {tab === "issue" && (
         <section className="cards-wizard">
+          {/* Step indicator strip. */}
           <div className="wizard-steps">
             <span className={step === 1 ? "wizard-step active" : "wizard-step"}>
               1. Тип карта
@@ -246,6 +288,7 @@ export function CardsPage({ user }: Props) {
             </span>
           </div>
 
+          {/* Step 1: pick card type (clears prior selections on change). */}
           {step === 1 && (
             <div className="wizard-panel">
               <h2>Тип карта</h2>
@@ -258,6 +301,7 @@ export function CardsPage({ user }: Props) {
                       cardType === t.id ? "card-type-btn active" : "card-type-btn"
                     }
                     onClick={() => {
+                      // Changing type clears prior room/employee selections.
                       setCardType(t.id);
                       setLocationId("");
                       setEmployeeId("");
@@ -279,10 +323,12 @@ export function CardsPage({ user }: Props) {
             </div>
           )}
 
+          {/* Step 2 fields depend on guest vs staff vs master. */}
           {step === 2 && cardType && (
             <div className="wizard-panel">
               <h2>Данни за достъп — {labelForType(cardType)}</h2>
               <div className="form-grid">
+                {/* Guest cards require a room grant. */}
                 {isGuest && (
                   <label>
                     Стая
@@ -300,6 +346,7 @@ export function CardsPage({ user }: Props) {
                   </label>
                 )}
 
+                {/* Staff cards require an employee assignee. */}
                 {isStaff && (
                   <label>
                     Служител
@@ -317,6 +364,7 @@ export function CardsPage({ user }: Props) {
                   </label>
                 )}
 
+                {/* Optional room for non-master staff; master is property-wide. */}
                 {isStaff && !isMaster && (
                   <label>
                     Локация (опционално)
@@ -334,12 +382,14 @@ export function CardsPage({ user }: Props) {
                   </label>
                 )}
 
+                {/* Master is property-wide — no room select. */}
                 {isMaster && (
                   <p className="muted">
                     Мастър картата е с обхват целия имот (без конкретна стая).
                   </p>
                 )}
 
+                {/* Validity window for the access grant. */}
                 <label>
                   Валидна от
                   <input
@@ -377,6 +427,7 @@ export function CardsPage({ user }: Props) {
                 <button
                   type="button"
                   onClick={() => {
+                    // Re-validate before leaving step 2.
                     const problem = validateStep2();
                     if (problem) {
                       setError(problem);
@@ -392,9 +443,11 @@ export function CardsPage({ user }: Props) {
             </div>
           )}
 
+          {/* Step 3: review summary or post-issue success. */}
           {step === 3 && cardType && (
             <div className="wizard-panel">
               <h2>Запис</h2>
+              {/* Review form until issue succeeds; then show confirmation. */}
               {!issued ? (
                 <>
                   <dl className="review-list">
@@ -402,6 +455,7 @@ export function CardsPage({ user }: Props) {
                       <dt>Тип</dt>
                       <dd>{labelForType(cardType)}</dd>
                     </div>
+                    {/* Staff review row when an employee was selected. */}
                     {selectedEmployee && (
                       <div>
                         <dt>Служител</dt>
@@ -411,6 +465,7 @@ export function CardsPage({ user }: Props) {
                         </dd>
                       </div>
                     )}
+                    {/* Room review row when a location was selected. */}
                     {selectedRoom && (
                       <div>
                         <dt>Стая</dt>
@@ -419,6 +474,7 @@ export function CardsPage({ user }: Props) {
                         </dd>
                       </div>
                     )}
+                    {/* Master scope callout instead of a room. */}
                     {isMaster && (
                       <div>
                         <dt>Обхват</dt>
@@ -432,6 +488,7 @@ export function CardsPage({ user }: Props) {
                         {formatWhen(toIsoLocal(validity.validUntil))}
                       </dd>
                     </div>
+                    {/* Optional free-text label on the card record. */}
                     {label.trim() && (
                       <div>
                         <dt>Етикет</dt>
@@ -479,6 +536,7 @@ export function CardsPage({ user }: Props) {
         </section>
       )}
 
+      {/* Staff cards list with search/status filters and revoke action. */}
       {tab === "staff" && (
         <section>
           <div className="toolbar">
@@ -505,6 +563,7 @@ export function CardsPage({ user }: Props) {
             </label>
           </div>
 
+          {/* Loading vs empty vs staff card table. */}
           {loading && staffCards.length === 0 ? (
             <p className="muted">Зареждане…</p>
           ) : staffCards.length === 0 ? (
@@ -523,6 +582,7 @@ export function CardsPage({ user }: Props) {
                 </thead>
                 <tbody>
                   {staffCards.map((card) => {
+                    // First grant drives the validity column display.
                     const grant = card.grants[0];
                     return (
                       <tr key={card.id}>
@@ -539,6 +599,7 @@ export function CardsPage({ user }: Props) {
                         </td>
                         <td>{card.status === "active" ? "активна" : "отменена"}</td>
                         <td>
+                          {/* Revoke only for active cards when permitted. */}
                           {canRevoke && card.status === "active" ? (
                             <button
                               type="button"

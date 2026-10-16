@@ -1,3 +1,9 @@
+/**
+ * Rooms / Common-areas operational board: cleaning workflow, blocking issues,
+ * overdue sessions, and detail audit. Live-refreshes on location/cleaning/
+ * ticket/settings events while idle; overdue list is filtered to locations
+ * currently on the board.
+ */
 import { useCallback, useEffect, useState } from "react";
 import {
   fetchCommonAreas,
@@ -21,11 +27,16 @@ import { makeOccupancyHandlers, OccupancyHeaderCell } from "./occupancy";
 import { locationPagePermissions } from "./permissions";
 import type { LocationsPageProps } from "./types";
 
+/**
+ * Rooms / Common-areas operational board: cleaning workflow, blocking issues,
+ * overdue sessions, and detail audit. Live-refreshes while idle.
+ */
 export function LocationsPage({
   user,
   kind,
   publicSettings,
 }: LocationsPageProps) {
+  // Kind drives labels, occupancy column visibility, and fetch endpoint.
   const isCommon = kind === "common_area";
   const unitLabel = isCommon ? "зона" : "стая";
   const unitLabelCap = isCommon ? "Зона" : "Room";
@@ -33,12 +44,15 @@ export function LocationsPage({
   const pageSubtitle = isCommon
     ? "Почистване, инспекция и проблеми по общи части (без заетост)"
     : "Readiness, cleaning workflow и blocking issues";
+  // Flag defaults to shown when unset.
   const showOverdueBanner =
     publicSettings?.flags.show_overdue_banner !== false;
   const dueHours = publicSettings?.operations.defaultTaskDueHours ?? 4;
 
+  // Board rows + overdue sessions scoped to those rows.
   const [locations, setLocations] = useState<Room[]>([]);
   const [overdue, setOverdue] = useState<OverdueSession[]>([]);
+  // Housekeeper assignee toolbar (managers only).
   const [housekeepers, setHousekeepers] = useState<
     Array<{ id: string; fullName: string; employeeNumber: string }>
   >([]);
@@ -46,7 +60,9 @@ export function LocationsPage({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Row busy id pauses live refresh during mutations.
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Issue report dialog target + catalog drafts.
   const [issueLocationId, setIssueLocationId] = useState<string | null>(null);
   const [issueCategories, setIssueCategories] = useState<
     MaintenanceCategoryRow[]
@@ -59,8 +75,10 @@ export function LocationsPage({
   const [issueCategoryId, setIssueCategoryId] = useState("");
   const [issueTitle, setIssueTitle] = useState("");
   const [issueBlocks, setIssueBlocks] = useState(true);
+  // Expanded detail panel location id.
   const [detailLocationId, setDetailLocationId] = useState<string | null>(null);
 
+  // Capability gates for manage / overdue / occupancy / service.
   const permissions = locationPagePermissions(user, isCommon);
   const {
     owner,
@@ -70,20 +88,29 @@ export function LocationsPage({
     canSetServiceStatus,
   } = permissions;
 
+  // Audit trail for the open detail panel.
   const { detailEvents, detailLoading, detailAuditError } =
     useLocationAudit(detailLocationId);
 
+  // Resolve detail location from the current board list.
   const detailLocation = detailLocationId
     ? (locations.find((l) => l.id === detailLocationId) ?? null)
     : null;
 
+  /**
+   * Soft refresh: reload locations and filter overdue sessions to board ids.
+   * Overdue fetch failures clear the overdue list without failing the board.
+   */
   const refresh = useCallback(async () => {
     setError(null);
+    // Kind selects rooms vs common-areas endpoint.
     const data = isCommon ? await fetchCommonAreas() : await fetchRooms();
     setLocations(data);
+    // Overdue panel only when actor can review overdue sessions.
     if (canReviewOverdue) {
       try {
         const sessions = await fetchOverdueSessions();
+        // Keep only sessions whose location is on this board.
         const ids = new Set(data.map((l) => l.id));
         setOverdue(sessions.filter((s) => ids.has(s.room.id)));
       } catch {
@@ -92,6 +119,7 @@ export function LocationsPage({
     }
   }, [canReviewOverdue, isCommon]);
 
+  // Pause live refresh while a row action is in flight to avoid races.
   const liveAt = useLiveRefresh(refresh, {
     enabled: !loading,
     busy: busyId !== null,
@@ -103,6 +131,7 @@ export function LocationsPage({
     ],
   });
 
+  // Mount / kind / permission change: abortable initial load of board + catalogs.
   useEffect(() => {
     const ac = new AbortController();
     const { signal } = ac;
@@ -110,11 +139,14 @@ export function LocationsPage({
       try {
         setLoading(true);
         setError(null);
+        // Primary board fetch (rooms or common areas).
         const data = isCommon
           ? await fetchCommonAreas({ signal })
           : await fetchRooms({ signal });
+        // Abort guard after each await.
         if (signal.aborted) return;
         setLocations(data);
+        // Optional overdue sessions scoped to board location ids.
         if (canReviewOverdue) {
           try {
             const sessions = await fetchOverdueSessions({ signal });
@@ -127,6 +159,7 @@ export function LocationsPage({
             setOverdue([]);
           }
         }
+        // Issue catalog for the report dialog.
         const [cats, opts] = await Promise.all([
           fetchMaintenanceCategories({ signal }),
           fetchIssueOptions({ signal }),
@@ -134,6 +167,7 @@ export function LocationsPage({
         if (signal.aborted) return;
         setIssueCategories(cats);
         setIssueOptions(opts);
+        // Seed option / title / blocks defaults from first catalog option.
         if (opts[0]) {
           setIssueOptionId(opts[0].id);
           setIssueTitle(opts[0].nameBg);
@@ -142,6 +176,7 @@ export function LocationsPage({
           }
         }
         if (cats[0]) setIssueCategoryId(cats[0].id);
+        // Managers also load housekeepers for the assignee toolbar.
         if (canManage) {
           const hk = await fetchHousekeepers({ signal });
           if (signal.aborted) return;
@@ -165,6 +200,10 @@ export function LocationsPage({
     };
   }, [canManage, canReviewOverdue, isCommon]);
 
+  /**
+   * Run a location-scoped mutation under busyId, then soft-refresh the board.
+   * Surfaces errors via the page error banner.
+   */
   async function runAction(locationId: string, action: () => Promise<void>) {
     setBusyId(locationId);
     setError(null);
@@ -179,6 +218,7 @@ export function LocationsPage({
     }
   }
 
+  // Occupancy/service handlers only when a detail location is open.
   const occupancyHandlers = detailLocation
     ? makeOccupancyHandlers({
         location: detailLocation,
@@ -197,12 +237,14 @@ export function LocationsPage({
         </div>
       </header>
 
+      {/* Owner full-access banner. */}
       {owner && (
         <div className="owner-banner">
           Собственик — пълен достъп до всички действия по{" "}
           {isCommon ? "общите части" : "стаите"}
         </div>
       )}
+      {/* Manager assignee toolbar + manual refresh. */}
       {canManage && (
         <AssigneeToolbar
           assigneeId={assigneeId}
@@ -213,6 +255,7 @@ export function LocationsPage({
         />
       )}
 
+      {/* Overdue sessions banner when permitted and flag enabled. */}
       {canReviewOverdue && showOverdueBanner && (
         <OverdueSessionsPanel
           overdueSessionMinutes={
@@ -229,9 +272,11 @@ export function LocationsPage({
         />
       )}
 
+      {/* Error / success feedback. */}
       {error && <div className="error banner">{error}</div>}
       {message && <div className="ok banner">{message}</div>}
 
+      {/* Issue report dialog host when a location was chosen. */}
       {issueLocationId && (
         <IssueDialogHost
           issueLocationId={issueLocationId}
@@ -245,6 +290,7 @@ export function LocationsPage({
           categories={issueCategories}
           onPickModeChange={setIssuePickMode}
           onOptionIdChange={(id, opt) => {
+            // Sync title + blocks defaults when catalog option changes.
             setIssueOptionId(id);
             if (opt) {
               setIssueTitle(opt.nameBg);
@@ -264,6 +310,7 @@ export function LocationsPage({
         />
       )}
 
+      {/* Loading gate vs locations table. */}
       {loading ? (
         <p className="muted">
           Loading {isCommon ? "common areas" : "rooms"}…
@@ -277,6 +324,7 @@ export function LocationsPage({
                 <th>Building</th>
                 <th>Floor</th>
                 <th>Sector</th>
+                {/* Occupancy header omitted for common areas. */}
                 <OccupancyHeaderCell isCommon={isCommon} />
                 <th>Service</th>
                 <th>Cleaning</th>
@@ -317,6 +365,7 @@ export function LocationsPage({
         </div>
       )}
 
+      {/* Detail side panel with occupancy/service + audit. */}
       {detailLocation && occupancyHandlers && (
         <LocationDetailPanel
           location={detailLocation}

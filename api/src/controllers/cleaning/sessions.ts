@@ -1,3 +1,7 @@
+/**
+ * Cleaning session complete/cancel and overdue review list.
+ * complete/cancel require commandId (idempotency) and session scope access.
+ */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { isOwner } from "../../permissions";
@@ -12,8 +16,10 @@ import {
   sessionTaskWhere,
 } from "../../services/dataScope";
 
+/** Complete a session; owners may bypass the session-owner check. */
 export async function complete(req: Request, res: Response, next: NextFunction) {
   try {
+    // commandId required for idempotent complete; notes/version optional.
     const schema = z.object({
       commandId: z.string().uuid(),
       notes: z.string().optional(),
@@ -24,6 +30,7 @@ export async function complete(req: Request, res: Response, next: NextFunction) 
       return res.status(400).json({ error: "validation", details: parsed.error.flatten() });
     }
 
+    // DataScope must include this session before mutation.
     const scope = await resolveDataScope(req.user!);
     await assertCanAccessSession(scope, req.params.id);
 
@@ -33,6 +40,7 @@ export async function complete(req: Request, res: Response, next: NextFunction) 
       commandId: parsed.data.commandId,
       notes: parsed.data.notes,
       expectedVersion: parsed.data.expectedVersion,
+      // Owners may complete sessions they did not start.
       bypassSessionOwnerCheck: isOwner(req.user!.role),
     });
 
@@ -42,6 +50,7 @@ export async function complete(req: Request, res: Response, next: NextFunction) 
   }
 }
 
+/** POST /sessions/:id/cancel — cancel overdue/stuck session (reviewers bypass owner). */
 export async function cancel(req: Request, res: Response, next: NextFunction) {
   try {
     const schema = z.object({
@@ -73,6 +82,7 @@ export async function cancel(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET /sessions/review — overdue sessions in the caller's scope. */
 export async function listReview(req: Request, res: Response, next: NextFunction) {
   try {
     const scope = await resolveDataScope(req.user!);

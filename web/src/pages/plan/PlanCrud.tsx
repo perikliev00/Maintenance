@@ -1,3 +1,8 @@
+/**
+ * Manual daily-plan entry create/list/delete, grouped by category.
+ * Add form is shown only when `canManage`; `children` slot preserves page order
+ * between the form and the entry tables.
+ */
 import { FormEvent, type ReactNode, useState } from "react";
 import {
   createDailyPlanEntry,
@@ -33,6 +38,7 @@ type Props = {
   children?: ReactNode;
 };
 
+/** One plan-entry table row with optional manage-gated remove. */
 function EntryRow({
   entry,
   canManage,
@@ -44,6 +50,7 @@ function EntryRow({
   onRemove: (id: string) => void;
   removing: boolean;
 }) {
+  // Early / value return.
   return (
     <tr>
       <td>
@@ -56,6 +63,7 @@ function EntryRow({
         </div>
       </td>
       <td>
+        {/* Linked cleaning task summary, or "no task" placeholder. */}
         {entry.task ? (
           <>
             <span>
@@ -63,10 +71,12 @@ function EntryRow({
             </span>
             <div className="muted small">
               {entry.task.priority}
+              {/* Render branch: entry.task.sector ? ` · $entry.task.sector.code` : "" */}
               {entry.task.sector ? ` · ${entry.task.sector.code}` : ""}
               {entry.task.assignedEmployee
                 ? ` · ${entry.task.assignedEmployee.fullName}`
                 : ""}
+              {/* Render branch: entry.task.shift ? ` · $entry.task.shift.code` : "" */}
               {entry.task.shift ? ` · ${entry.task.shift.code}` : ""}
             </div>
           </>
@@ -81,6 +91,7 @@ function EntryRow({
       </td>
       <td>{entry.notes ?? "—"}</td>
       <td>
+        {/* Render branch: canManage && ( */}
         {canManage && (
           <button
             type="button"
@@ -96,6 +107,7 @@ function EntryRow({
   );
 }
 
+/** Category panel wrapping a list of EntryRow tables. */
 function PlanSection({
   title,
   entries,
@@ -109,6 +121,7 @@ function PlanSection({
   onRemove: (id: string) => void;
   removingId: string | null;
 }) {
+  // Early / value return.
   return (
     <section className="panel">
       <div className="panel-header">
@@ -136,6 +149,7 @@ function PlanSection({
                 <EntryRow
                   key={entry.id}
                   entry={entry}
+                  // Permission / capability gate.
                   canManage={canManage}
                   onRemove={onRemove}
                   removing={removingId === entry.id}
@@ -149,6 +163,10 @@ function PlanSection({
   );
 }
 
+/**
+ * Manual daily-plan entry create/list/delete UI, grouped by category.
+ * Add form only when `canManage`; `children` slot sits between form and tables.
+ */
 export function PlanCrud({
   canManage,
   hotelDate,
@@ -171,12 +189,18 @@ export function PlanCrud({
   const [shiftId, setShiftId] = useState("");
   const [notes, setNotes] = useState("");
 
+  /** Create a plan entry and surface the linked task effect in the banner. */
   async function onAdd(e: FormEvent) {
     e.preventDefault();
+    // Branch: conditional gate.
     if (!locationId) return;
+    // State transition.
     setSaving(true);
+    // State transition.
     setError(null);
+    // State transition.
     setMessage(null);
+    // Try block for fallible work.
     try {
       const result = await createDailyPlanEntry({
         hotelDate,
@@ -186,7 +210,9 @@ export function PlanCrud({
         assignedEmployeeId: assigneeId || undefined,
         shiftId: shiftId || undefined,
       });
+      // effects.task tells whether a cleaning task was created/bumped/linked.
       const taskEffect = String(result.effects?.task ?? "");
+      // State transition.
       setMessage(
         taskEffect === "created"
           ? "Добавено — създадена задача за почистване"
@@ -196,32 +222,48 @@ export function PlanCrud({
               ? "Добавено — свързано със съществуваща задача"
               : "Добавено в дневния план",
       );
+      // State transition.
       setNotes("");
+      // Await async step.
       await refresh();
     } catch (err) {
+      // State transition.
       setError(err instanceof Error ? err.message : "Failed to add entry");
     } finally {
+      // State transition.
       setSaving(false);
     }
   }
 
+  /** Delete a plan entry (does not reverse room/task side effects). */
   async function onRemove(id: string) {
+    // State transition.
     setRemovingId(id);
+    // State transition.
     setError(null);
+    // State transition.
     setMessage(null);
+    // Try block for fallible work.
     try {
+      // Await async step.
       await deleteDailyPlanEntry(id);
+      // State transition.
       setMessage("Записът е премахнат (стаята/задачата не се връщат назад)");
+      // Await async step.
       await refresh();
     } catch (err) {
+      // State transition.
       setError(err instanceof Error ? err.message : "Failed to remove");
     } finally {
+      // State transition.
       setRemovingId(null);
     }
   }
 
+  // Early / value return.
   return (
     <>
+      {/* Add form — manage-gated. */}
       {canManage && (
         <section className="panel">
           <h2>Добави в плана</h2>
@@ -245,6 +287,7 @@ export function PlanCrud({
               <select
                 value={category}
                 onChange={(e) =>
+                  // State transition.
                   setCategory(e.target.value as DailyPlanCategory)
                 }
               >
@@ -295,6 +338,7 @@ export function PlanCrud({
               />
             </label>
             <button type="submit" disabled={saving || !locationId}>
+              {/* Render branch: saving ? "Запис…" : "Добави" */}
               {saving ? "Запис…" : "Добави"}
             </button>
           </form>
@@ -315,6 +359,7 @@ export function PlanCrud({
           <PlanSection
             title={CATEGORY_LABELS.departure}
             entries={plan.departures}
+            // Permission / capability gate.
             canManage={canManage}
             onRemove={onRemove}
             removingId={removingId}
@@ -322,6 +367,7 @@ export function PlanCrud({
           <PlanSection
             title={CATEGORY_LABELS.arrival}
             entries={plan.arrivals}
+            // Permission / capability gate.
             canManage={canManage}
             onRemove={onRemove}
             removingId={removingId}
@@ -329,6 +375,7 @@ export function PlanCrud({
           <PlanSection
             title={CATEGORY_LABELS.priority}
             entries={plan.priority}
+            // Permission / capability gate.
             canManage={canManage}
             onRemove={onRemove}
             removingId={removingId}

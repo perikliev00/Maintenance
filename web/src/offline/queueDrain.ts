@@ -1,3 +1,15 @@
+/**
+ * Drain the per-user outbox.
+ *
+ * Prefers batched `POST /sync/push` (one round-trip, per-command results). On
+ * batch failure, falls back to per-item POSTs to the original URLs. Only
+ * `pending` rows auto-drain — `conflict` / `failed` wait for explicit Retry so
+ * the UI can rebase versions or dismiss ownership losses. Leftover `sending`
+ * rows are reset to `pending` so a crashed tab cannot strand commands forever.
+ *
+ * Mid-drain account switch: re-check bound user before every network send so
+ * user A's commands never go out under user B's cookies.
+ */
 import {
   fetchWithAuthRetry,
   refreshAccessToken,
@@ -31,17 +43,44 @@ import {
 } from "./transport";
 import { getOfflineUser, isOfflineSwitching } from "./userScope";
 
+/** Transient errors retry until this count, then mark `failed`. */
 const MAX_RETRIES = 8;
 
 type RefreshFn = () => Promise<"refreshed" | "rejected" | "transient">;
 
+/** Injectable deps for unit tests (same pattern as transport.postJsonWithSessionRefresh). */
+export type DrainQueueDeps = {
+  fetchFn?: typeof fetchWithTimeout;
+  headersFn?: () => HeadersInit;
+  refreshFn?: RefreshFn;
+  /** Fallback per-item POST; default = transport postJson. */
+  postJsonFn?: (
+    url: string,
+    body: Record<string, unknown>,
+  ) => Promise<unknown>;
+  listQueueForUserFn?: typeof listQueueForUser;
+  putQueuedActionFn?: typeof putQueuedAction;
+  deleteQueuedActionFn?: typeof deleteQueuedAction;
+  /**
+   * Test-only hook: after markSending, before identity re-check + network.
+   * Production callers omit this.
+   */
+  afterClaim?: () => void | Promise<void>;
+};
+
+/**
+ * Build `/sync/push` payload: body plus entity ids derived from the REST URL
+ * so batch sync does not depend on those ids being duplicated in `body`.
+ */
 function commandPayload(item: QueuedAction): Record<string, unknown> {
+  // Start from the stored body; enrich with ids parsed from the REST URL.
   const payload: Record<string, unknown> = { ...item.body };
   if (item.type === "cleaning.start") {
     payload.taskId = item.url.split("/tasks/")[1]?.split("/")[0];
   } else if (item.type === "cleaning.complete") {
     payload.sessionId = item.url.split("/sessions/")[1]?.split("/")[0];
   } else if (item.type !== "ticket.report") {
+    // ticket.start/wait/resume/resolve — id lives in the path.
     const ticketId = item.url.split("/tickets/")[1]?.split("/")[0];
     if (ticketId) payload.ticketId = ticketId;
   }
@@ -69,6 +108,7 @@ async function pushSyncBatch(
     headersFn?: () => HeadersInit;
   } = {},
 ): Promise<{ ok: true; results: SyncPushResult[] } | { ok: false; status: number }> {
+  // Injectable deps for unit tests (same pattern as transport).
   const fetchFn = deps.fetchFn ?? fetchWithTimeout;
   const headersFn = deps.headersFn ?? authHeader;
   const refreshFn = deps.refreshFn ?? refreshAccessToken;
@@ -87,13 +127,23 @@ async function pushSyncBatch(
   const data = (await res.json().catch(() => ({}))) as {
     results?: SyncPushResult[];
   };
+  // Batch success requires an array of per-command results.
   if (res.ok && Array.isArray(data.results)) {
     return { ok: true, results: data.results };
   }
   return { ok: false, status: res.status };
 }
 
-async function markSending(items: QueuedAction[]): Promise<QueuedAction[]> {
+/** True when drain still owns the original user binding. */
+function stillBoundTo(userId: string): boolean {
+  return getOfflineUser() === userId && !isOfflineSwitching();
+}
+
+/** Flip pending rows to `sending` so a concurrent drain will not double-send. */
+async function markSending(
+  items: QueuedAction[],
+  putFn: typeof putQueuedAction,
+): Promise<QueuedAction[]> {
   const now = Date.now();
   const next: QueuedAction[] = [];
   for (const item of items) {
@@ -102,24 +152,32 @@ async function markSending(items: QueuedAction[]): Promise<QueuedAction[]> {
       status: "sending",
       updatedAt: now,
     };
-    await putQueuedAction(row);
+    await putFn(row);
     next.push(row);
   }
   notify("syncing");
   return next;
 }
 
+/** Apply one batch/per-item sync result to IndexedDB (delete or patch status). */
 async function applySyncResult(
   item: QueuedAction,
   result: SyncPushResult,
+  userId: string,
+  putFn: typeof putQueuedAction,
+  deleteFn: typeof deleteQueuedAction,
 ): Promise<void> {
+  // Do not rewrite another user's store after an account switch.
+  if (!stillBoundTo(userId)) return;
+
   const patch = decideSyncResult(result, item.retries, MAX_RETRIES);
   // Success is the only path that removes the outbox row.
   if (patch.status === "deleted") {
-    await deleteQueuedAction(item.id);
+    await deleteFn(item.id);
     return;
   }
-  await putQueuedAction({
+  // Preserve existing conflict fields when the patch omits them.
+  await putFn({
     ...item,
     status: patch.status,
     lastError: patch.lastError ?? item.lastError,
@@ -139,17 +197,28 @@ async function applySyncResult(
   });
 }
 
-export async function drainQueue(): Promise<void> {
+/**
+ * Single-flight drain for the bound user. No-ops when already draining,
+ * switching accounts, offline, or unbound.
+ */
+export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
   const activeUserId = getOfflineUser();
+  // Single-flight + online + bound-user gates.
   if (isDraining() || isOfflineSwitching() || !navigator.onLine || !activeUserId) {
     return;
   }
+  const listFn = deps.listQueueForUserFn ?? listQueueForUser;
+  const putFn = deps.putQueuedActionFn ?? putQueuedAction;
+  const deleteFn = deps.deleteQueuedActionFn ?? deleteQueuedAction;
+  const postJsonFn = deps.postJsonFn ?? postJson;
+
   setDraining(true);
   notify("syncing");
   let networkFailure = false;
   const userId = activeUserId;
   try {
-    let rows = await listQueueForUser(userId);
+    let rows = await listFn(userId);
+    // Crash recovery: stranded `sending` → `pending` before we claim work.
     const recovered = recoverOrphanedSending(rows);
     for (const row of recovered) {
       const original = rows.find((r) => r.id === row.id);
@@ -158,7 +227,8 @@ export async function drainQueue(): Promise<void> {
         original.status === "sending" &&
         row.status === "pending"
       ) {
-        await putQueuedAction(row);
+        if (!stillBoundTo(userId)) return;
+        await putFn(row);
       }
     }
     rows = recovered;
@@ -173,7 +243,17 @@ export async function drainQueue(): Promise<void> {
       return;
     }
 
-    const sending = await markSending(pending);
+    if (!stillBoundTo(userId)) return;
+    const sending = await markSending(pending, putFn);
+
+    if (deps.afterClaim) {
+      await deps.afterClaim();
+    }
+
+    // Abort before any network if the account switched mid-drain.
+    if (!stillBoundTo(userId)) {
+      return;
+    }
 
     // Prefer batch /sync/push when possible (refresh+retry on 401).
     try {
@@ -183,20 +263,32 @@ export async function drainQueue(): Promise<void> {
         payload: commandPayload(item),
         clientTime: new Date(item.createdAt).toISOString(),
       }));
-      const batch = await pushSyncBatch(commands);
+      const identitySafeRefresh: RefreshFn = async () => {
+        if (!stillBoundTo(userId)) return "rejected";
+        const refreshFn = deps.refreshFn ?? refreshAccessToken;
+        return refreshFn();
+      };
+      const batch = await pushSyncBatch(commands, {
+        fetchFn: deps.fetchFn,
+        headersFn: deps.headersFn,
+        refreshFn: identitySafeRefresh,
+      });
+      if (!stillBoundTo(userId)) return;
       if (batch.ok) {
+        // Apply each per-command result (delete / conflict / retry).
         for (const result of batch.results) {
           const item = sending.find((p) => p.commandId === result.commandId);
           if (!item) continue;
-          await applySyncResult(item, result);
+          await applySyncResult(item, result, userId, putFn, deleteFn);
         }
         markReachable();
         return;
       }
       if (batch.status === 401) {
         // Refresh failed — keep outbox pending until the user signs in again.
+        if (!stillBoundTo(userId)) return;
         for (const item of sending) {
-          await putQueuedAction({
+          await putFn({
             ...item,
             status: "pending",
             updatedAt: Date.now(),
@@ -210,22 +302,30 @@ export async function drainQueue(): Promise<void> {
       /* fall through to per-item */
     }
 
+    // Fallback: POST each original URL individually.
     for (const item of sending) {
+      if (!stillBoundTo(userId)) return;
+
       // Skip items already resolved by a partial batch (re-check store)
-      const currentRows = await listQueueForUser(userId);
+      const currentRows = await listFn(userId);
       const current = currentRows.find((r) => r.id === item.id);
       if (!current || current.status !== "sending") continue;
 
+      if (!stillBoundTo(userId)) return;
+
       try {
-        await postJson(item.url, item.body);
-        await deleteQueuedAction(item.id);
+        await postJsonFn(item.url, item.body);
+        if (!stillBoundTo(userId)) return;
+        await deleteFn(item.id);
       } catch (err) {
+        if (!stillBoundTo(userId)) return;
         const status = (err as { status?: number }).status;
         const message = err instanceof Error ? err.message : "Sync failed";
         const code = (err as { code?: string }).code;
         const details = (err as { details?: unknown }).details;
+        // Auth loss mid-drain — stop and wait for re-login.
         if (status === 401) {
-          await putQueuedAction({
+          await putFn({
             ...item,
             status: "pending",
             updatedAt: Date.now(),
@@ -233,10 +333,11 @@ export async function drainQueue(): Promise<void> {
           notify("offline");
           break;
         }
+        // Network/timeout — backoff; stop the loop to avoid stampede.
         if (status === undefined) {
           networkFailure = true;
           const retries = item.retries + 1;
-          await putQueuedAction({
+          await putFn({
             ...item,
             status: retries >= MAX_RETRIES ? "failed" : "pending",
             lastError: message,
@@ -251,7 +352,7 @@ export async function drainQueue(): Promise<void> {
           (status === 403 &&
             shouldTreatForbiddenAsConflict(code ?? null, message))
         ) {
-          await putQueuedAction({
+          await putFn({
             ...item,
             status: "conflict",
             lastError: message,
@@ -262,8 +363,9 @@ export async function drainQueue(): Promise<void> {
           });
           continue;
         }
+        // Other 4xx — permanent failed (validation / hard forbidden).
         if (status >= 400 && status < 500) {
-          await putQueuedAction({
+          await putFn({
             ...item,
             status: "failed",
             lastError: message,
@@ -275,8 +377,9 @@ export async function drainQueue(): Promise<void> {
           });
           continue;
         }
+        // 5xx — retry later; break so we do not hammer a sick API.
         const retries = item.retries + 1;
-        await putQueuedAction({
+        await putFn({
           ...item,
           status: retries >= MAX_RETRIES ? "failed" : "pending",
           lastError: message,
@@ -301,10 +404,12 @@ export async function drainQueue(): Promise<void> {
     // Revert any leftover sending rows (crash / early break) back to pending.
     if (getOfflineUser() === userId) {
       try {
-        const leftover = await listQueueForUser(userId);
+        const leftover = await (deps.listQueueForUserFn ?? listQueueForUser)(
+          userId,
+        );
         for (const row of leftover) {
           if (row.status === "sending") {
-            await putQueuedAction({
+            await (deps.putQueuedActionFn ?? putQueuedAction)({
               ...row,
               status: "pending",
               updatedAt: Date.now(),
@@ -316,6 +421,7 @@ export async function drainQueue(): Promise<void> {
       }
     }
     setDraining(false);
+    // Final banner mode from browser + unreachable latch.
     if (!navigator.onLine) {
       notify("offline");
     } else if (isApiUnreachable()) {

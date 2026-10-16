@@ -1,0 +1,161 @@
+/**
+ * Shared HTTP test helpers for createApp integration tests.
+ *
+ * Prefer Bearer Authorization (access token from the session cookie value).
+ * createApp() installs requireCsrf: Bearer without a Cookie session skips CSRF;
+ * cookie-authenticated browser flows need CSRF header + cookie.
+ */
+import assert from "node:assert/strict";
+import http from "node:http";
+import { GrantKind, PrismaClient, Role } from "@prisma/client";
+import { createApp } from "../src/app";
+import { invalidateGrantCache } from "../src/services/roleGrants";
+
+export type RoleGrantSnapshotRow = {
+  role: Role;
+  kind: GrantKind;
+  key: string;
+};
+
+export async function listenApp(): Promise<{
+  server: http.Server;
+  api: string;
+}> {
+  const app = createApp();
+  const server = http.createServer(app);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const addr = server.address();
+  assert.ok(addr && typeof addr === "object", "server address");
+  return { server, api: `http://127.0.0.1:${addr.port}` };
+}
+
+export async function closeServer(server: http.Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+}
+
+function sessionFromSetCookie(res: Response): string | null {
+  const getSetCookie = (
+    res.headers as Headers & { getSetCookie?: () => string[] }
+  ).getSetCookie;
+  const lines =
+    typeof getSetCookie === "function"
+      ? getSetCookie.call(res.headers)
+      : ([res.headers.get("set-cookie")].filter(Boolean) as string[]);
+  for (const line of lines) {
+    const m = /^session=([^;]+)/.exec(line);
+    if (m) return decodeURIComponent(m[1]!);
+  }
+  return null;
+}
+
+/** Login and return the access token from the session Set-Cookie (Bearer-ready). */
+export async function loginBearer(
+  api: string,
+  email: string,
+  password: string,
+): Promise<{ token: string; user: { id?: string; employeeId: string; role: Role } }> {
+  const res = await fetch(`${api}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  assert.equal(res.ok, true, `login ${email} → ${res.status}`);
+  const body = (await res.json()) as {
+    user: { id?: string; employeeId: string; role: Role };
+  };
+  const token = sessionFromSetCookie(res);
+  assert.ok(token, `login ${email}: missing session cookie`);
+  return { token, user: body.user };
+}
+
+export async function requestJson(
+  api: string,
+  token: string,
+  method: string,
+  pathName: string,
+  payload?: unknown,
+): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(`${api}${pathName}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(payload !== undefined
+        ? { "Content-Type": "application/json" }
+        : {}),
+    },
+    body: payload !== undefined ? JSON.stringify(payload) : undefined,
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+export async function getJson(
+  api: string,
+  token: string,
+  pathName: string,
+) {
+  return requestJson(api, token, "GET", pathName);
+}
+
+export async function postJson(
+  api: string,
+  token: string,
+  pathName: string,
+  payload: unknown,
+) {
+  return requestJson(api, token, "POST", pathName, payload);
+}
+
+export async function putJson(
+  api: string,
+  token: string,
+  pathName: string,
+  payload: unknown,
+) {
+  return requestJson(api, token, "PUT", pathName, payload);
+}
+
+export async function patchJson(
+  api: string,
+  token: string,
+  pathName: string,
+  payload: unknown,
+) {
+  return requestJson(api, token, "PATCH", pathName, payload);
+}
+
+/** Snapshot RoleGrant rows for the given roles (shared-DB isolation). */
+export async function snapshotRoleGrants(
+  prisma: PrismaClient,
+  roles: Role[],
+): Promise<RoleGrantSnapshotRow[]> {
+  const rows = await prisma.roleGrant.findMany({
+    where: { role: { in: roles } },
+    select: { role: true, kind: true, key: true },
+  });
+  return rows.map((r) => ({ role: r.role, kind: r.kind, key: r.key }));
+}
+
+/** Replace RoleGrant rows for roles with a prior snapshot; invalidate cache. */
+export async function restoreRoleGrants(
+  prisma: PrismaClient,
+  roles: Role[],
+  snapshot: RoleGrantSnapshotRow[],
+): Promise<void> {
+  await prisma.roleGrant.deleteMany({ where: { role: { in: roles } } });
+  if (snapshot.length) {
+    await prisma.roleGrant.createMany({
+      data: snapshot.map((r) => ({
+        role: r.role,
+        kind: r.kind,
+        key: r.key,
+      })),
+    });
+  }
+  invalidateGrantCache();
+}

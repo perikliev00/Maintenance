@@ -1,3 +1,7 @@
+/**
+ * Reception-style home: open tickets list + quick issue report form.
+ * Live-refreshes on ticket/location/cleaning events; resolve actions gated by role.
+ */
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   canResolveIssues,
@@ -17,15 +21,26 @@ import { useLiveRefresh } from "../hooks/useLiveRefresh";
 type Props = {
   user: AuthUser;
 };
+
+/** Localize an ISO timestamp for the open-tickets list. */
 function formatWhen(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString();
 }
+
+/** Prefer bilingual category label; fall back to legacy key fields. */
 function ticketCategoryLabel(ticket: MaintenanceTicket): string {
   return ticket.categoryLabelBg ?? ticket.category ?? ticket.categoryKey ?? "—";
 }
+
+/**
+ * Reception home: open tickets + quick report form.
+ * Seeds room/category/option selects on first successful refresh.
+ */
 export function HomePage({ user }: Props) {
+  // Open ticket feed for the left panel.
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
+  // Report-form selects and catalog.
   const [rooms, setRooms] = useState<Room[]>([]);
   const [categories, setCategories] = useState<MaintenanceCategoryRow[]>([]);
   const [issueOptions, setIssueOptions] = useState<IssueOptionRow[]>([]);
@@ -33,7 +48,9 @@ export function HomePage({ user }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Busy id for TicketLifecycleActions on a single ticket.
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  // Quick-report form drafts.
   const [locationId, setLocationId] = useState("");
   const [pickMode, setPickMode] = useState<"option" | "custom">("option");
   const [issueOptionId, setIssueOptionId] = useState("");
@@ -41,7 +58,10 @@ export function HomePage({ user }: Props) {
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState("normal");
   const [blocksRoom, setBlocksRoom] = useState(true);
+  // Permission gate for TicketLifecycleActions on each open ticket.
   const canResolve = canResolveIssues(user.role);
+
+  /** Apply catalog option defaults (priority / blocksRoom) into the form. */
   const applyOption = useCallback((opt: IssueOptionRow) => {
     setIssueOptionId(opt.id);
     setTitle(opt.nameBg);
@@ -50,6 +70,11 @@ export function HomePage({ user }: Props) {
       setBlocksRoom(opt.defaultBlocksRoom);
     }
   }, []);
+
+  /**
+   * Parallel fetch of tickets, rooms, and catalog for the form.
+   * Seeds empty selects once so the form is immediately usable.
+   */
   const refresh = useCallback(async () => {
     const [ticketData, roomData, catData, optData] = await Promise.all([
       fetchTickets({ limit: 20, status: "open" }),
@@ -61,6 +86,7 @@ export function HomePage({ user }: Props) {
     setRooms(roomData);
     setCategories(catData);
     setIssueOptions(optData);
+    // Seed selects once when empty so the form is immediately usable.
     if (!locationId && roomData[0]) {
       setLocationId(roomData[0].id);
     }
@@ -71,11 +97,15 @@ export function HomePage({ user }: Props) {
       applyOption(optData[0]);
     }
   }, [locationId, categoryId, issueOptionId, applyOption]);
+
+  // Skip live refresh while initial load or a local mutation is in flight.
   const liveAt = useLiveRefresh(refresh, {
     enabled: !loading,
     busy: submitting || resolvingId !== null,
     eventTypes: ["ticket.changed", "location.changed", "cleaning.changed"],
   });
+
+  // Mount-only initial load (refresh identity is intentionally omitted).
   useEffect(() => {
     (async () => {
       try {
@@ -90,14 +120,21 @@ export function HomePage({ user }: Props) {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Online reportIssue from the quick form (catalog or custom).
+   * Validates location and custom title before the network call.
+   */
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    // Validation gates before the network call.
     if (!locationId) return;
     if (pickMode === "custom" && !title.trim()) return;
     setSubmitting(true);
     setError(null);
     setMessage(null);
     try {
+      // Catalog path vs free-text custom with categoryId.
       if (pickMode === "option" && issueOptionId) {
         await reportIssue({
           locationId,
@@ -132,24 +169,29 @@ export function HomePage({ user }: Props) {
           <p>Отворени проблеми и бързо докладване</p>
         </div>
       </header>
+      {/* Error / success feedback. */}
       {error && <div className="error banner">{error}</div>}
       {message && <div className="ok banner">{message}</div>}
+      {/* Loading gate vs two-column home grid. */}
       {loading ? (
         <p className="muted">Loading…</p>
       ) : (
         <div className="home-grid">
+          {/* Open tickets feed with lifecycle actions. */}
           <section className="panel home-feed">
             <div className="panel-header">
               <h2>Последни проблеми</h2>
               <button type="button" className="ghost" onClick={() => refresh()}>
                 Refresh
               </button>
+              {/* Live stamp when soft refresh last succeeded. */}
               {liveAt && (
                 <span className="muted live-stamp" title={liveAt}>
                   live
                 </span>
               )}
             </div>
+            {/* Empty vs ticket cards. */}
             {tickets.length === 0 ? (
               <p className="muted">Няма отворени проблеми.</p>
             ) : (
@@ -166,6 +208,7 @@ export function HomePage({ user }: Props) {
                       <span className={`pill priority-${ticket.priority}`}>
                         {ticket.priority}
                       </span>
+                      {/* Blocking-readiness pill when ticket blocks the room. */}
                       {ticket.blocksRoom && (
                         <span className="pill ready-not_ready">blocks room</span>
                       )}
@@ -179,10 +222,12 @@ export function HomePage({ user }: Props) {
                       <span>
                         {ticketCategoryLabel(ticket)} · {ticket.status}
                       </span>
+                      {/* Assignee chip when present. */}
                       {ticket.assignee && (
                         <span>→ {ticket.assignee.fullName}</span>
                       )}
                     </div>
+                    {/* Resolve/start/hold gated by canResolve. */}
                     <TicketLifecycleActions
                       ticket={ticket}
                       busy={resolvingId === ticket.id}
@@ -200,6 +245,7 @@ export function HomePage({ user }: Props) {
               </ul>
             )}
           </section>
+          {/* Quick report form: catalog option or custom free text. */}
           <section className="panel home-form">
             <h2>Добави проблем</h2>
             <form className="report-form" onSubmit={handleSubmit}>
@@ -229,6 +275,7 @@ export function HomePage({ user }: Props) {
                   <option value="custom">Друго (свободен текст)</option>
                 </select>
               </label>
+              {/* Catalog option select vs custom title + category. */}
               {pickMode === "option" ? (
                 <label>
                   Опция
@@ -275,6 +322,7 @@ export function HomePage({ user }: Props) {
                   </label>
                 </>
               )}
+              {/* Optional clarification only in catalog pick mode. */}
               {pickMode === "option" && (
                 <label>
                   Уточнение (опционално)

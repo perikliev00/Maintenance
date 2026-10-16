@@ -1,3 +1,8 @@
+/**
+ * Worker home: mine cleaning tasks + repair tickets with offline cache and
+ * outbox. Falls back to IndexedDB cache when fetch fails; cleaning start/
+ * complete go through `*Queued` helpers. Sections are role/capability gated.
+ */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   canPerformAction,
@@ -34,14 +39,22 @@ type Props = {
   locale?: "bg" | "en";
 };
 
+/**
+ * Worker home: mine cleaning tasks + repair tickets with offline cache and
+ * outbox. Falls back to IndexedDB when fetch fails; start/complete go through queues.
+ */
 export function MyWorkPage({ user, locale = "bg" }: Props) {
+  // Mine cleaning tasks and open repair tickets.
   const [tasks, setTasks] = useState<CleaningTaskRow[]>([]);
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Per-row busy id for start/complete/ticket actions.
   const [busyId, setBusyId] = useState<string | null>(null);
+  // True when UI is serving IndexedDB snapshot after a failed fetch.
   const [fromCache, setFromCache] = useState(false);
+  // Task ids with a queued start still pending sync.
   const [pendingSyncTaskIds, setPendingSyncTaskIds] = useState<string[]>([]);
   const [conn, setConn] = useState<ConnMode>("online");
   const [queueStats, setQueueStats] = useState<QueueStats>({
@@ -51,15 +64,22 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     failed: 0,
   });
 
+  // Capability gates; role fallbacks keep HK/tech UIs visible if grants lag.
   const canClean = canPerformAction(user, "cleaning.start");
   const canResolve = canResolveIssues(user.role);
+  // Role fallbacks keep housekeeper/technician UIs visible even if grants lag.
   const showCleaning =
     canClean || user.role === "housekeeper" || user.role === "supervisor";
   const showTickets =
     canResolve || user.role === "technician" || user.role === "supervisor";
 
+  /**
+   * Fetch mine tasks/tickets and persist them to the offline cache.
+   * Skips either fetch when the corresponding section is hidden.
+   */
   const refresh = useCallback(async () => {
     const hotelDate = todayHotelDate();
+    // Parallel mine fetches gated by section visibility.
     const [taskData, ticketData] = await Promise.all([
       showCleaning
         ? fetchCleaningTasks({
@@ -74,8 +94,10 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     ]);
     setTasks(taskData);
     setTickets(ticketData);
+    // Fresh network data — clear cache/pending markers.
     setFromCache(false);
     setPendingSyncTaskIds([]);
+    // Write-through cache so offline reopen still has today's work.
     await saveMyWorkCache({
       tasks: taskData,
       tickets: ticketData,
@@ -84,15 +106,21 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     });
   }, [showCleaning, showTickets]);
 
+  /**
+   * Soft background refresh when online (used after outbox drain / live events).
+   * No-ops while the browser reports offline.
+   */
   const refreshInBackground = useCallback(() => {
     if (!navigator.onLine) return;
     void refresh().catch(() => undefined);
   }, [refresh]);
 
+  // Subscribe to offline/conn + queue stats updates.
   useEffect(() => {
     return subscribeOffline((next) => {
       setConn(next.conn);
       setQueueStats(next.stats);
+      // When back online with an empty outbox, pull fresh mine data.
       if (
         next.conn === "online" &&
         next.stats.pending === 0 &&
@@ -103,10 +131,12 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     });
   }, [refreshInBackground]);
 
+  // Initial queue stats snapshot for the status badge.
   useEffect(() => {
     void getQueueStats().then(setQueueStats);
   }, []);
 
+  // Soft live refresh; failures keep the current (possibly cached) lists.
   const liveAt = useLiveRefresh(
     async () => {
       try {
@@ -123,6 +153,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     },
   );
 
+  // Mount-only load: network first, IndexedDB fallback on failure.
   useEffect(() => {
     (async () => {
       try {
@@ -130,6 +161,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
         setError(null);
         await refresh();
       } catch (err) {
+        // Offline / network failure: serve last successful snapshot if present.
         const cached = await loadMyWorkCache();
         if (cached) {
           setTasks(cached.tasks as CleaningTaskRow[]);
@@ -154,6 +186,9 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Active (non-completed/cancelled) tasks sorted by workflow status priority.
+   */
   const activeTasks = useMemo(() => {
     const order = ["in_progress", "rework", "assigned", "awaiting_inspection"];
     return [...tasks]
@@ -161,10 +196,14 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
       .sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
   }, [tasks]);
 
+  // Task that currently has a running cleaning session (if any).
   const currentTask = activeTasks.find((task) =>
     task.sessions.some((s) => s.status === "running"),
   );
 
+  /**
+   * Run a mutation under busyId and refresh outbox queue stats afterward.
+   */
   async function runBusy(id: string, fn: () => Promise<void>) {
     setBusyId(id);
     setError(null);
@@ -186,6 +225,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
           <h1>{t(locale, "Моите задачи", "My Work")}</h1>
           <p className="muted">
             {user.fullName}
+            {/* Live stamp when soft refresh last succeeded. */}
             {liveAt
               ? ` · ${t(locale, "обновено", "updated")} ${new Date(liveAt).toLocaleTimeString()}`
               : ""}
@@ -194,6 +234,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
         <ConnStatusBadge locale={locale} conn={conn} queueStats={queueStats} />
       </header>
 
+      {/* Success / error / stale-cache banners. */}
       {message && <div className="banner ok">{message}</div>}
       {error && <div className="banner error">{error}</div>}
       {fromCache && (
@@ -201,16 +242,19 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
           {t(locale, "Данните може да са остарели", "Data may be stale")}
         </div>
       )}
+      {/* Outbox conflict/failed counts when present. */}
       <OutboxIssuesPanel
         locale={locale}
         conflictCount={queueStats.conflict}
         failedCount={queueStats.failed}
       />
 
+      {/* Loading gate vs work sections. */}
       {loading ? (
         <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
       ) : (
         <>
+          {/* Highlighted current running session, if any. */}
           {currentTask && (
             <CurrentTaskSection
               locale={locale}
@@ -219,15 +263,18 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
               pendingSync={pendingSyncTaskIds.includes(currentTask.id)}
               onComplete={(notes) =>
                 runBusy(currentTask.id, async () => {
+                  // Require a running session to complete.
                   const running = currentTask.sessions.find(
                     (s) => s.status === "running",
                   );
                   if (!running) throw new Error("No running session");
+                  // Queue-aware complete (may stay offline).
                   const result = await completeCleaningQueued(
                     running.id,
                     notes,
                     currentTask.version,
                   );
+                  // Optimistic local status update.
                   setTasks((prev) =>
                     prev.map((task) =>
                       task.id === currentTask.id
@@ -248,12 +295,14 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                       ? t(locale, "Приключване в опашката", "Complete queued")
                       : t(locale, "Сесията е приключена", "Session completed"),
                   );
+                  // Online success: soft refresh in background.
                   if (!result.queued) refreshInBackground();
                 })
               }
             />
           )}
 
+          {/* Cleaning task list — capability/role gated. */}
           {showCleaning && (
             <CleaningTasksSection
               locale={locale}
@@ -263,11 +312,13 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
               pendingSyncTaskIds={pendingSyncTaskIds}
               onStart={(task) =>
                 runBusy(task.id, async () => {
+                  // Queue-aware start; may only update local state when queued.
                   const result = await startCleaningQueued(
                     task.id,
                     task.version,
                   );
                   if (result.queued) {
+                    // Track pending sync and mark in_progress locally.
                     setPendingSyncTaskIds((ids) =>
                       ids.includes(task.id) ? ids : [...ids, task.id],
                     );
@@ -298,6 +349,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                     notes,
                     task.version,
                   );
+                  // Optimistic complete of the running session locally.
                   setTasks((prev) =>
                     prev.map((row) =>
                       row.id === task.id
@@ -327,6 +379,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
             />
           )}
 
+          {/* Repair tickets section — capability/role gated. */}
           {showTickets && (
             <TicketsSection
               locale={locale}
@@ -336,6 +389,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
               onBusy={setBusyId}
               onDone={(ticket, result) => {
                 setMessage(result.message);
+                // Drop resolved tickets from the open list; else patch status.
                 setTickets((prev) => {
                   if (result.nextStatus === "resolved") {
                     return prev.filter((row) => row.id !== ticket.id);

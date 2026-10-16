@@ -1,5 +1,9 @@
+/**
+ * Request/response types for the housekeeping cleaning-results report.
+ */
 import { CleaningServiceType, Prisma } from "@prisma/client";
 
+/** Inclusive YYYY-MM-DD range, pagination, optional service-type and scope filters. */
 export type CleaningResultsQuery = {
   from: string;
   to: string;
@@ -12,6 +16,7 @@ export type CleaningResultsQuery = {
   taskWhere?: Prisma.CleaningTaskWhereInput;
 };
 
+/** Aggregated counters for one housekeeper row or the period summary. */
 export type CleaningResultsCounters = {
   completedSessions: number;
   completedTasks: number;
@@ -25,12 +30,14 @@ export type CleaningResultsCounters = {
   totalExcludedSessionMinutes: number;
 };
 
+/** One housekeeper's counters in the paged results table. */
 export type CleaningResultsRow = {
   employeeId: string;
   fullName: string;
   employeeNumber: string;
 } & CleaningResultsCounters;
 
+/** Full report payload: summary KPIs, hourly series, and paged employee rows. */
 export type CleaningResultsResponse = {
   period: { from: string; to: string };
   summary: {

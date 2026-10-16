@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "icons.svg", "pwa-192.png", "pwa-512.png"],
+      includeAssets: ["favicon.svg", "pwa-192.png", "pwa-512.png"],
       manifest: {
         name: "Meridian Maintenance",
         short_name: "Meridian",

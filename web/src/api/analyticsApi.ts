@@ -1,15 +1,20 @@
+/** Analytics summary KPIs and series for maintenance / housekeeping dashboards. */
 import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
 
+// Module export.
 export type AnalyticsDomain = "maintenance" | "housekeeping";
 
+// Module export.
 export type AnalyticsMetricCompare = {
   current: number | null;
   previous: number | null;
   deltaPct: number | null;
 };
 
+// Module export.
 export type AnalyticsSeriesPoint = { date: string; count: number };
 
+// Module export.
 export type MaintenanceAnalyticsKpis = {
   signals: number;
   slaBreaches: { active: number; closed: number };
@@ -22,6 +27,7 @@ export type MaintenanceAnalyticsKpis = {
   durationSampleCount: number;
 };
 
+// Module export.
 export type HousekeepingAnalyticsKpis = {
   cleanedTasks: number;
   completedSessions: number;
@@ -43,6 +49,7 @@ export type HousekeepingAnalyticsKpis = {
   durationSampleCount: number;
 };
 
+// Module export.
 export type AnalyticsSummary =
   | {
       domain: "maintenance";
@@ -104,16 +111,25 @@ export type AnalyticsSummary =
       };
     };
 
+/**
+ * Load domain KPIs, comparison deltas, series, and risk rooms for a period.
+ * `from`/`to` are optional hotel-date bounds; omit for the server default window.
+ */
 export async function fetchAnalyticsSummary(params: {
   domain: AnalyticsDomain;
   from?: string;
   to?: string;
 }): Promise<AnalyticsSummary> {
+  // Domain is required; date bounds are optional query filters.
   const q = new URLSearchParams({ domain: params.domain });
+  // Optional hotel-date lower bound.
   if (params.from) q.set("from", params.from);
+  // Optional hotel-date upper bound.
   if (params.to) q.set("to", params.to);
+  // Authenticated GET of the analytics summary payload.
   const res = await apiFetch(`${API_BASE}/analytics/summary?${q}`, {
     headers: authHeaders(),
   });
+  // Decode typed summary (maintenance | housekeeping union).
   return parseJson(res);
 }

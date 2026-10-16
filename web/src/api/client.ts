@@ -1,22 +1,32 @@
+/**
+ * Public facade for the web API layer.
+ *
+ * UI code should import from here (or domain modules) rather than reaching into
+ * `http` / offline internals. Re-exports auth, capabilities, live SSE, and
+ * domain REST helpers; offline queue APIs live under `../offline`.
+ */
 export type { RefreshOutcome } from "./http";
+// HTTP session / auth primitives.
+// Re-export public API surface.
 export {
   ApiRequestError,
   clearSession,
-  clearToken,
   fetchMe,
   getStoredUser,
-  getToken,
   hasCachedSession,
   login,
   logout,
   logoutAll,
   refreshAccessToken,
 } from "./http";
+// Role / panel / action capabilities.
+// Re-export public API surface.
 export {
   ALL_ROLES,
   assignableRolesFor,
   canAssignIssues,
   canCloseIssues,
+  // Permission / capability gate.
   canPerformAction,
   canResolveIssues,
   canViewControl,
@@ -34,12 +44,15 @@ export {
   type Panel,
   type Role,
 } from "./capabilities";
+// Live SSE event subscription.
+// Re-export public API surface.
 export {
-  fetchSseTicket,
   subscribeLiveEvents,
   type LiveEvent,
   type LiveEventType,
 } from "./liveEvents";
+// Cleaning tasks & sessions API.
+// Re-export public API surface.
 export {
   cancelCleaningSession,
   completeCleaningSession,
@@ -56,6 +69,8 @@ export {
   type CleaningTaskRow,
   type OverdueSession,
 } from "./cleaningApi";
+// Maintenance tickets & catalog API.
+// Re-export public API surface.
 export {
   archiveIssueOption,
   archiveMaintenanceCategory,
@@ -71,25 +86,22 @@ export {
   reopenIssue,
   reorderIssueOptions,
   reportIssue,
-  resolveIssue,
-  resumeIssue,
-  startIssue,
   updateIssueOption,
   updateMaintenanceCategory,
   updateSlaPolicy,
-  waitIssue,
   type IssueOptionRow,
   type MaintenanceCategoryRow,
   type MaintenanceTicket,
   type SlaPolicyRow,
 } from "./maintenanceApi";
 
+// Rooms / locations / QR API.
+// Re-export public API surface.
 export {
   archiveLocation,
   createLocation,
   fetchCommonAreas,
   fetchLocationHierarchy,
-  fetchLocationQr,
   fetchLocationsCatalog,
   fetchRooms,
   markCommonAreaDirty,
@@ -109,6 +121,8 @@ export {
   type Room,
 } from "./locationsApi";
 
+// Operations live board API.
+// Re-export public API surface.
 export {
   fetchOperationsLive,
   type LiveActiveSession,
@@ -120,6 +134,8 @@ export {
   type OperationsLive,
 } from "./operationsLiveApi";
 
+// Analytics summary API.
+// Re-export public API surface.
 export {
   fetchAnalyticsSummary,
   type AnalyticsDomain,
@@ -130,23 +146,24 @@ export {
   type MaintenanceAnalyticsKpis,
 } from "./analyticsApi";
 
+// People & invitations API.
+// Re-export public API surface.
 export {
   deviceFingerprint,
-  fetchDevices,
   fetchHousekeepers,
   fetchInvitations,
   fetchPeople,
   issueInvitation,
   redeemInvitation,
-  revokeDevice,
   revokeInvitation,
   updatePersonRole,
-  type DeviceRow,
   type Invitation,
   type IssuedInvitation,
   type Person,
 } from "./peopleApi";
 
+// Daily plan API.
+// Re-export public API surface.
 export {
   applyDepartureRoomEffects,
   createDailyPlanEntry,
@@ -163,6 +180,8 @@ export {
   type DepartureRoomEffectsResult,
 } from "./planApi";
 
+// Settings & system status API.
+// Re-export public API surface.
 export {
   fetchAllSettings,
   fetchPublicSettings,
@@ -175,11 +194,15 @@ export {
   type SystemStatus,
 } from "./settingsApi";
 
+// Audit events API.
+// Re-export public API surface.
 export {
   fetchAuditEvents,
   type AuditEventRow,
 } from "./auditApi";
 
+// Permission matrix API.
+// Re-export public API surface.
 export {
   fetchPermissionHistory,
   fetchPermissionMatrix,
@@ -188,6 +211,8 @@ export {
   type PermissionMatrix,
 } from "./permissionsApi";
 
+// Attendance intervals API.
+// Re-export public API surface.
 export {
   downloadAttendanceCsv,
   fetchAttendanceIntervals,
@@ -197,6 +222,8 @@ export {
   type AttendanceScope,
 } from "./attendanceApi";
 
+// Access cards API.
+// Re-export public API surface.
 export {
   fetchCardEmployees,
   fetchCards,
@@ -209,6 +236,8 @@ export {
   type CardType,
 } from "./cardsApi";
 
+// Sectors API.
+// Re-export public API surface.
 export {
   createSector,
   fetchMySectors,
@@ -219,6 +248,8 @@ export {
   type SectorRow,
 } from "./sectorsApi";
 
+// Shifts & roster API.
+// Re-export public API surface.
 export {
   createShift,
   fetchShiftRoster,
@@ -230,15 +261,15 @@ export {
   type ShiftRow,
 } from "./shiftsApi";
 
+// Background job runs API.
+// Re-export public API surface.
 export {
   fetchJobRuns,
   type JobRunRow,
 } from "./jobsApi";
 
-export { fetchMyWork } from "./myWorkApi";
-
-export { syncPull, syncPush } from "./syncApi";
-
+// In-app notifications API.
+// Re-export public API surface.
 export {
   dismissNotification,
   fetchNotificationUnreadCount,

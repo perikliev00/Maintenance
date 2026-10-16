@@ -1,25 +1,37 @@
+/**
+ * Map daily plan entries and import batches to API response shapes.
+ */
 import { DailyPlanImportStatus, Prisma } from "@prisma/client";
 import { formatHotelDate } from "../dailyPlanEffects";
 import { entryInclude } from "./types";
 
+/**
+ * Map a Prisma entry (+ location/task) to the daily-plan list DTO.
+ * Flattens floor/building joins and nests the optional linked cleaning task.
+ */
 export function mapEntry(
   entry: Prisma.DailyPlanEntryGetPayload<{ include: typeof entryInclude }>,
 ) {
+  // Local aliases for the nested location / optional linked task.
   const loc = entry.location;
   const task = entry.cleaningTask;
+  // Flatten joins into the daily-plan list DTO (ISO dates, nested room/task).
   return {
     id: entry.id,
+    // Hotel calendar day as YYYY-MM-DD for clients.
     hotelDate: formatHotelDate(entry.hotelDate),
     category: entry.category,
     notes: entry.notes,
     source: entry.source,
     externalId: entry.externalId,
     createdAt: entry.createdAt.toISOString(),
+    // Who created the plan entry (manual / import actor).
     createdBy: {
       id: entry.createdBy.id,
       fullName: entry.createdBy.fullName,
       employeeNumber: entry.createdBy.employeeNumber,
     },
+    // Room card with building/floor + live occupancy/cleaning.
     room: {
       id: loc.id,
       number: loc.number,
@@ -29,11 +41,13 @@ export function mapEntry(
       occupancy: loc.occupancy,
       cleaningStatus: loc.cleaningStatus,
     },
+    // Null until a cleaning task is linked/created for this entry.
     task: task
       ? {
           id: task.id,
           status: task.status,
           priority: task.priority,
+          // Snapshotted sector at task create (may be null).
           sector: task.sector
             ? {
                 id: task.sector.id,
@@ -42,6 +56,7 @@ export function mapEntry(
                 nameEn: task.sector.nameEn,
               }
             : null,
+          // Snapshotted sector supervisor for display / notify.
           sectorSupervisor: task.sectorSupervisor
             ? {
                 id: task.sectorSupervisor.id,
@@ -49,6 +64,7 @@ export function mapEntry(
                 employeeNumber: task.sectorSupervisor.employeeNumber,
               }
             : null,
+          // Assignee may be null for unassigned plan-linked tasks.
           assignedEmployee: task.assignedEmployee
             ? {
                 id: task.assignedEmployee.id,
@@ -56,6 +72,7 @@ export function mapEntry(
                 employeeNumber: task.assignedEmployee.employeeNumber,
               }
             : null,
+          // Optional shift card for roster filtering.
           shift: task.shift
             ? {
                 id: task.shift.id,
@@ -71,6 +88,10 @@ export function mapEntry(
   };
 }
 
+/**
+ * Map an import batch row to the API DTO (ISO timestamps, YMD hotelDate).
+ * Counters + opaque errors JSON power the last-import banner.
+ */
 export function mapBatch(batch: {
   id: string;
   hotelDate: Date;
@@ -84,8 +105,10 @@ export function mapBatch(batch: {
   createdByEmployeeId: string;
   createdAt: Date;
 }) {
+  // Counters + opaque errors JSON for the last-import banner.
   return {
     id: batch.id,
+    // Normalize Prisma Date key to YYYY-MM-DD.
     hotelDate: formatHotelDate(batch.hotelDate),
     sourceLabel: batch.sourceLabel,
     status: batch.status,
@@ -93,6 +116,7 @@ export function mapBatch(batch: {
     createdCount: batch.createdCount,
     skippedCount: batch.skippedCount,
     errorCount: batch.errorCount,
+    // Opaque JSON array/object of per-row import errors.
     errors: batch.errors,
     createdByEmployeeId: batch.createdByEmployeeId,
     createdAt: batch.createdAt.toISOString(),

@@ -1,3 +1,8 @@
+/**
+ * Authenticated shell: sidebar / mobile nav, theme + logout controls, and the
+ * active panel. Pre-auth routes (login, activate, room QR) are handled by
+ * `AppRouting` before this shell renders.
+ */
 import { useEffect, useState } from "react";
 import { BrandMark } from "../components/BrandMark";
 import { NotificationInbox } from "../components/NotificationInbox";
@@ -11,6 +16,7 @@ import { NavIcon } from "./NavIcon";
 import { ActivePanel, AppRouting } from "./routing";
 import { useAuthBootstrap } from "./useAuthBootstrap";
 
+/** Bilingual / lookup table `PANEL_LABELS_BG` (data only). */
 const PANEL_LABELS_BG: Record<Panel, string> = {
   mywork: "Моите задачи",
   repairs: "Повреди",
@@ -32,6 +38,7 @@ const PANEL_LABELS_BG: Record<Panel, string> = {
   notifications: "Известия",
 };
 
+/** Bilingual / lookup table `PANEL_LABELS_EN` (data only). */
 const PANEL_LABELS_EN: Record<Panel, string> = {
   mywork: "My Work",
   repairs: "Repairs",
@@ -53,6 +60,7 @@ const PANEL_LABELS_EN: Record<Panel, string> = {
   notifications: "Notifications",
 };
 
+/** Root authenticated shell; pre-auth gates live in `AppRouting`. */
 export default function App() {
   const {
     user,
@@ -71,14 +79,20 @@ export default function App() {
     onToggleTheme,
   } = useAuthBootstrap();
 
+  // Local React state.
   const [navOpen, setNavOpen] = useState(false);
+  // Locale-driven sidebar labels (BG default, EN when settings say so).
   const panelLabels = locale === "en" ? PANEL_LABELS_EN : PANEL_LABELS_BG;
 
+  // Close the mobile drawer whenever the active panel changes.
   useEffect(() => {
+    // State transition.
     setNavOpen(false);
   }, [view]);
 
+  // Return value / early exit.
   return (
+    // Render UI node.
     <AppRouting
       authReady={authReady}
       signedIn={signedIn}
@@ -90,7 +104,9 @@ export default function App() {
       setView={setView}
       setAuthEpoch={setAuthEpoch}
     >
+      {/* Shell only mounts once bootstrap has a signed-in user. */}
       {user && (
+        // Render UI node.
         <div
           className={`app-shell${navOpen ? " nav-open" : ""}${
             publicSettings?.interface.density === "compact"
@@ -98,7 +114,9 @@ export default function App() {
               : ""
           }`}
         >
+          {/* Mobile overlay — tap outside to close the drawer. */}
           {navOpen && (
+            // Render UI node.
             <button
               type="button"
               className="sidebar-backdrop"
@@ -107,8 +125,11 @@ export default function App() {
             />
           )}
 
+          // Render UI node.
           <aside className="sidebar">
+            // Render UI node.
             <div className="sidebar-brand">
+              // Render UI node.
               <BrandMark size={34} />
               <div className="sidebar-brand-text">
                 <strong>Meridian</strong>
@@ -150,9 +171,13 @@ export default function App() {
                   type="button"
                   className="ghost"
                   onClick={() => {
+                    // Clear cookies + local cache, then re-bootstrap as logged out.
                     void logout().finally(() => {
+                      // State transition.
                       setSignedIn(false);
+                      // State transition.
                       setUser(null);
+                      // State transition.
                       setAuthEpoch((n) => n + 1);
                     });
                   }}
@@ -164,9 +189,13 @@ export default function App() {
                   className="ghost"
                   title="Revoke all sessions on all devices"
                   onClick={() => {
+                    // Revoke every device session, then same local wipe as logout.
                     void logoutAll().finally(() => {
+                      // State transition.
                       setSignedIn(false);
+                      // State transition.
                       setUser(null);
+                      // State transition.
                       setAuthEpoch((n) => n + 1);
                     });
                   }}
@@ -188,7 +217,9 @@ export default function App() {
                   locale={locale}
                   active={view === "notifications"}
                   onOpen={() => {
+                    // State transition.
                     setView("notifications");
+                    // State transition.
                     setNavOpen(false);
                   }}
                 />

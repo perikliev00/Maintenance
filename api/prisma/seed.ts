@@ -1,3 +1,13 @@
+/**
+ * Destructive demo database seed for local / CI demos.
+ *
+ * Wipes domain tables (order respects FKs), then rebuilds a full Meridian
+ * property with rooms, common areas, roles, cleaning/maintenance samples,
+ * sectors, daily plan, attendance, cards, audit, and job/sync demos.
+ *
+ * Shared password for activated users: `demo1234`.
+ * Run via the package seed script after migrations; not for production.
+ */
 import {
   PrismaClient,
   Role,
@@ -16,6 +26,7 @@ import { randomUUID } from "crypto";
 
 const prisma = new PrismaClient();
 
+/** Minimal employee + login shape used when creating Employee/User pairs. */
 type EmpDef = {
   employeeNumber: string;
   fullName: string;
@@ -24,11 +35,13 @@ type EmpDef = {
   role: Role;
 };
 
+/** Round-robin picker so status/occupancy demos stay evenly distributed. */
 function cycle<T>(arr: T[], i: number): T {
   return arr[i % arr.length];
 }
 
 async function main() {
+  // Wipe in dependency-safe order. `.catch` tolerates tables missing on older DBs.
   await prisma.inspection.deleteMany();
   await prisma.cleaningSession.deleteMany();
   await prisma.ticketEvent.deleteMany().catch(() => undefined);
@@ -65,6 +78,7 @@ async function main() {
   await prisma.building.deleteMany();
   await prisma.property.deleteMany();
 
+  // --- Property topology: MAIN + ANNEX (+ ROYAL later for volume) ---
   const property = await prisma.property.create({
     data: { name: "Meridian Resort" },
   });

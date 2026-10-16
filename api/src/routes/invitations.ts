@@ -1,3 +1,7 @@
+/**
+ * /invitations — issue/list/revoke invites; public redeem is rate-limited (no auth).
+ * /devices — list/revoke activated devices (mounted separately in app.ts).
+ */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { invitationRedeemLimiter } from "../middleware/security";
@@ -6,12 +10,14 @@ import * as invitationsController from "../controllers/invitations";
 export const invitationsRouter = Router();
 export const devicesRouter = Router();
 
+// POST /redeem — public: redeem an invite code on a new device (rate-limited).
 invitationsRouter.post(
   "/redeem",
   invitationRedeemLimiter,
   invitationsController.redeem,
 );
 
+// POST / — issue a new invitation for a role/email.
 invitationsRouter.post(
   "/",
   requireAuth,
@@ -19,6 +25,7 @@ invitationsRouter.post(
   invitationsController.issue,
 );
 
+// GET / — list outstanding invitations.
 invitationsRouter.get(
   "/",
   requireAuth,
@@ -26,6 +33,7 @@ invitationsRouter.get(
   invitationsController.list,
 );
 
+// POST /:id/revoke — revoke an unused invitation.
 invitationsRouter.post(
   "/:id/revoke",
   requireAuth,
@@ -33,6 +41,7 @@ invitationsRouter.post(
   invitationsController.revoke,
 );
 
+// GET /devices/ — list activated devices (people.invite gate).
 devicesRouter.get(
   "/",
   requireAuth,
@@ -40,6 +49,7 @@ devicesRouter.get(
   invitationsController.listDevices,
 );
 
+// POST /devices/:id/revoke — revoke a device activation.
 devicesRouter.post(
   "/:id/revoke",
   requireAuth,

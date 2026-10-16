@@ -1,5 +1,10 @@
+/**
+ * Daily plan (Clock): manual entries + JSON import — not a live PMS sync.
+ * Manage UI (import, CRUD, departure effects) requires `plan.manage`.
+ */
 import { useCallback, useEffect, useState } from "react";
 import {
+  // Permission / capability gate.
   canPerformAction,
   fetchDailyPlan,
   fetchHousekeepers,
@@ -20,7 +25,12 @@ type Props = {
   user: AuthUser;
 };
 
+/**
+ * Daily plan (Clock) page: date picker, departure effects, CRUD, JSON import.
+ * Manage UI requires `plan.manage`.
+ */
 export function PlanPage({ user }: Props) {
+  // Permission / capability gate.
   const canManage = canPerformAction(user, "plan.manage");
   const [hotelDate, setHotelDate] = useState(todayHotelDate);
   const [plan, setPlan] = useState<DailyPlan | null>(null);
@@ -34,40 +44,59 @@ export function PlanPage({ user }: Props) {
   const [locationId, setLocationId] = useState("");
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
 
+  /** Load plan + lookup lists for the selected hotel date. */
   const refresh = useCallback(async () => {
+    // Housekeepers/shifts soft-fail so the plan still loads without them.
     const [planData, roomData, hkData, shiftData] = await Promise.all([
       fetchDailyPlan(hotelDate),
       fetchRooms(),
+      // Promise catch handler.
       fetchHousekeepers().catch(() => []),
+      // Promise catch handler.
       fetchShifts(false).catch(() => [] as ShiftRow[]),
     ]);
+    // State transition.
     setPlan(planData);
+    // State transition.
     setRooms(roomData);
+    // State transition.
     setHousekeepers(hkData);
+    // Only active shifts are assignable on new plan entries.
     setShifts(shiftData.filter((s) => s.isActive));
+    // Default the create form to the first room when none selected yet.
     if (!locationId && roomData[0]) setLocationId(roomData[0].id);
   }, [hotelDate, locationId]);
 
+  // Re-fetch when hotelDate (via refresh deps) changes; ignore late responses.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Try block for fallible work.
       try {
+        // State transition.
         setLoading(true);
+        // State transition.
         setError(null);
+        // Await async step.
         await refresh();
       } catch (err) {
+        // Branch: conditional gate.
         if (!cancelled) {
+          // State transition.
           setError(err instanceof Error ? err.message : "Failed to load plan");
         }
       } finally {
+        // Branch: conditional gate.
         if (!cancelled) setLoading(false);
       }
     })();
+    // Early / value return.
     return () => {
       cancelled = true;
     };
   }, [refresh]);
 
+  // Early / value return.
   return (
     <main className="content">
       <header className="page-header">
@@ -88,10 +117,14 @@ export function PlanPage({ user }: Props) {
         </label>
       </header>
 
+      {/* Render branch: error && <div className="error banner">error</div> */}
       {error && <div className="error banner">{error}</div>}
+      {/* Render branch: message && <div className="ok banner">message</div> */}
       {message && <div className="ok banner">{message}</div>}
 
+      {/* Deferred vacant/dirty apply — gated inside the panel. */}
       <DepartureEffectsPanel
+        // Permission / capability gate.
         canManage={canManage}
         hotelDate={hotelDate}
         loading={loading}
@@ -102,7 +135,9 @@ export function PlanPage({ user }: Props) {
 
       <PlanLastImport plan={plan} />
 
+      {/* CRUD + import as children; both respect canManage. */}
       <PlanCrud
+        // Permission / capability gate.
         canManage={canManage}
         hotelDate={hotelDate}
         plan={plan}
@@ -117,6 +152,7 @@ export function PlanPage({ user }: Props) {
         setMessage={setMessage}
       >
         <ImportPanel
+          // Permission / capability gate.
           canManage={canManage}
           hotelDate={hotelDate}
           setHotelDate={setHotelDate}

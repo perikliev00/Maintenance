@@ -1,3 +1,9 @@
+/**
+ * Rebuild attendance intervals from punch events, and flag stale open shifts.
+ * Adjusted intervals are frozen (events in their time range are skipped);
+ * pending/rejected adjustments are rematched onto rebuilt intervals by start event.
+ */
+// Pairing rules, hotel-date keys, and stale-open constants.
 import {
   OPEN_MISSING_END_HOURS,
   addDaysYmd,
@@ -8,19 +14,23 @@ import {
   type AnomalyFlag,
   type FrozenRange,
 } from "../attendanceRules";
+// Module dependency import.
 import {
   AttendanceAdjustmentStatus,
   AttendanceIntervalStatus,
   Prisma,
 } from "@prisma/client";
+// Module dependency import.
 import { prisma } from "../../db";
+// Local-midnight bounds for punch fetch windows.
 import { zonedDayStartUtc } from "../hotelTime";
 
-/** Open intervals older than this become `missing_end` → `needs_review`. */
-/** Default page size for GET /attendance/intervals */
+/** Open intervals older than OPEN_MISSING_END_HOURS become `missing_end` → `needs_review`. */
 
+/** Prisma transaction client or root client for rebuild helpers. */
 type Tx = Prisma.TransactionClient;
 
+/** Minimal interval columns read before a stale-open claim attempt. */
 type StaleIntervalRow = {
   status: AttendanceIntervalStatus;
   endedAt: Date | null;
@@ -28,9 +38,14 @@ type StaleIntervalRow = {
   anomalyFlags: unknown;
 };
 
-/** DB surface needed to claim a single stale open interval. */
+/**
+ * DB surface needed to claim a single stale open interval.
+ * Kept narrow so unit tests can fake only attendanceInterval accessors.
+ */
 export type StaleOpenClaimDb = {
+  /** Interval table read/update used by claimStaleOpenInterval. */
   attendanceInterval: {
+    /** Load current flags/status before conditional updateMany. */
     findUnique: (args: {
       where: { id: string };
       select: {
@@ -40,6 +55,7 @@ export type StaleOpenClaimDb = {
         anomalyFlags: true;
       };
     }) => Promise<StaleIntervalRow | null>;
+    /** Conditional claim — returns count 0 when another worker won. */
     updateMany: (args: {
       where: {
         id: string;
@@ -62,10 +78,12 @@ export type StaleOpenClaimDb = {
  * @internal exported for unit tests with a fake DB
  */
 export async function claimStaleOpenInterval(
+  // Field `db`.
   db: StaleOpenClaimDb,
   id: string,
   cutoff: Date,
 ): Promise<boolean> {
+  // Fresh read so we merge flags from the current row, not a stale snapshot.
   const row = await db.attendanceInterval.findUnique({
     where: { id },
     select: {
@@ -75,16 +93,20 @@ export async function claimStaleOpenInterval(
       anomalyFlags: true,
     },
   });
+  // Already closed/adjusted/too recent — nothing to claim.
   if (
     !row ||
     row.status !== AttendanceIntervalStatus.open ||
     row.endedAt !== null ||
     row.startedAt.getTime() > cutoff.getTime()
   ) {
+    // Return result to caller.
     return false;
   }
 
+  // Append missing_end without duplicating existing flags.
   const nextFlags = uniqueFlags([...asFlags(row.anomalyFlags), "missing_end"]);
+  // Conditional update — only wins if still open/unended/old enough.
   const claimed = await db.attendanceInterval.updateMany({
     where: {
       id,
@@ -97,6 +119,7 @@ export async function claimStaleOpenInterval(
       anomalyFlags: nextFlags,
     },
   });
+  // true when this worker won the race.
   return claimed.count > 0;
 }
 
@@ -105,9 +128,11 @@ export async function claimStaleOpenInterval(
  * OPEN_MISSING_END_HOURS without a new ingest rebuild.
  */
 export async function markStaleOpenIntervals(now = new Date()) {
+  // Intervals that started at or before this instant are stale.
   const cutoff = new Date(
     now.getTime() - OPEN_MISSING_END_HOURS * 3600_000,
   );
+  // Candidate open intervals past the missing-end window.
   const candidates = await prisma.attendanceInterval.findMany({
     where: {
       status: AttendanceIntervalStatus.open,
@@ -117,9 +142,13 @@ export async function markStaleOpenIntervals(now = new Date()) {
     select: { id: true },
   });
 
+  // Local binding for this step.
   let flagged = 0;
+  // Claim each candidate individually to avoid stomping concurrent closes.
   for (const { id } of candidates) {
+    // Guard / branch on preconditions.
     if (
+      // Await async persistence or side effect.
       await claimStaleOpenInterval(
         prisma as unknown as StaleOpenClaimDb,
         id,
@@ -130,6 +159,8 @@ export async function markStaleOpenIntervals(now = new Date()) {
     }
   }
 
+  // Return result to caller.
+  // scanned = candidates considered; flagged = successful claims.
   return { scanned: candidates.length, flagged };
 }
 
@@ -144,20 +175,30 @@ export async function rebuildIntervalsForEmployee(
   timeZone: string,
   db: Tx | typeof prisma = prisma,
 ) {
+  // Center day + previous day (overnight clock-outs).
   const centerYmd = hotelDate.toISOString().slice(0, 10);
+  // Local binding for this step.
   const prevYmd = addDaysYmd(centerYmd, -1);
+  // Local binding for this step.
   const replaceYmds = [prevYmd, centerYmd];
+  // hotelDate column keys (UTC midnight Dates) for the two replace days.
   const replaceKeys = replaceYmds.map(hotelDateKey);
 
+  // Event window: prev local midnight → day after center (exclusive end).
   const from = zonedDayStartUtc(prevYmd, timeZone);
+  // Local binding for this step.
   const to = zonedDayStartUtc(addDaysYmd(centerYmd, 2), timeZone);
 
+  // Load punches, frozen adjusted intervals, and replaceable non-adjusted rows.
+  // Fetch punches + frozen/replaceable intervals in parallel.
   const [events, frozen, replaceable] = await Promise.all([
     db.attendanceEvent.findMany({
       where: {
         employeeId,
+        // Inclusive start, exclusive end — hotel-local window.
         normalizedTime: { gte: from, lt: to },
       },
+      // Stable ordering for deterministic pairing.
       orderBy: [
         { normalizedTime: "asc" },
         { createdAt: "asc" },
@@ -170,6 +211,7 @@ export async function rebuildIntervalsForEmployee(
         clockSkewSeconds: true,
       },
     }),
+    // Adjusted intervals are never deleted — they freeze event ranges.
     db.attendanceInterval.findMany({
       where: {
         employeeId,
@@ -178,6 +220,7 @@ export async function rebuildIntervalsForEmployee(
       },
       select: { id: true, startedAt: true, endedAt: true },
     }),
+    // Non-adjusted intervals will be deleted and rebuilt from punches.
     db.attendanceInterval.findMany({
       where: {
         employeeId,
@@ -201,6 +244,7 @@ export async function rebuildIntervalsForEmployee(
     }),
   ]);
 
+  // Snapshot adjustments to rematch onto new intervals by startEventId.
   const adjustmentsToRematch = replaceable.flatMap((iv) =>
     iv.adjustments
       .filter((a) => iv.startEventId)
@@ -218,38 +262,53 @@ export async function rebuildIntervalsForEmployee(
       })),
   );
 
+  // Delete replaceable intervals (and their adjustments) before recreating.
   const replaceIds = replaceable.map((r) => r.id);
+  // Guard / branch on preconditions.
   if (replaceIds.length) {
+    // Await async persistence or side effect.
     await db.attendanceAdjustment.deleteMany({
       where: { intervalId: { in: replaceIds } },
     });
+    // Await async persistence or side effect.
     await db.attendanceInterval.deleteMany({
       where: { id: { in: replaceIds } },
     });
   }
 
+  // Still-open adjusted rows get a 36h synthetic end so events inside stay frozen.
+  // Convert adjusted intervals into ms ranges skipped by pairing.
   const frozenRanges: FrozenRange[] = frozen.map((f) => ({
     startMs: f.startedAt.getTime(),
+    // Open adjusted rows use synthetic 36h end so in-range punches stay frozen.
     endMs: (f.endedAt ?? new Date(f.startedAt.getTime() + 36 * 3600_000)).getTime(),
   }));
 
+  // Pair punches into drafts; keep only the two replace hotel days.
+  // Pair punches into draft intervals, respecting frozen adjusted ranges.
   const drafts = pairEventsToIntervalDrafts({
     events,
     frozen: frozenRanges,
     timeZone,
   }).filter((d) => {
+    // Local binding for this step.
     const ymd = d.hotelDate.toISOString().slice(0, 10);
+    // Return result to caller.
     return replaceYmds.includes(ymd);
   });
 
+  // Create intervals and index by startEventId for adjustment rematch.
   const createdByStart = new Map<string, string>();
+  // Iterate for side effects.
   for (const draft of drafts) {
+    // Await async query or service call.
     const created = await db.attendanceInterval.create({
       data: {
         employeeId,
         hotelDate: draft.hotelDate,
         startedAt: draft.startedAt,
         endedAt: draft.endedAt,
+        // Link back to punch rows for adjustment rematch.
         startEventId: draft.startEventId,
         endEventId: draft.endEventId,
         breakMinutes: draft.breakMinutes,
@@ -258,14 +317,19 @@ export async function rebuildIntervalsForEmployee(
         status: draft.status,
       },
     });
+    // Guard / branch on preconditions.
     if (draft.startEventId) {
       createdByStart.set(draft.startEventId, created.id);
     }
   }
 
+  // Re-attach pending/rejected adjustments onto the new interval with same start.
   for (const adj of adjustmentsToRematch) {
+    // Local binding for this step.
     const intervalId = createdByStart.get(adj.startEventId);
+    // Start event no longer produced an interval — drop the orphaned rematch.
     if (!intervalId) continue;
+    // Await async persistence or side effect.
     await db.attendanceAdjustment.create({
       data: {
         intervalId,
@@ -280,7 +344,9 @@ export async function rebuildIntervalsForEmployee(
         reviewedAt: adj.reviewedAt,
       },
     });
+    // Pending adjustments keep the interval in needs_review.
     if (adj.status === AttendanceAdjustmentStatus.pending) {
+      // Await async persistence or side effect.
       await db.attendanceInterval.update({
         where: { id: intervalId },
         data: {

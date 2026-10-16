@@ -1,3 +1,7 @@
+/**
+ * Location detail audit hook + thin wrapper around LocationHistoryPanel.
+ * 403 responses become `forbidden` (soft deny) rather than a generic error.
+ */
 import { useEffect, useState } from "react";
 import {
   ApiRequestError,
@@ -10,6 +14,10 @@ import {
 import { LocationHistoryPanel } from "../../components/LocationHistoryPanel";
 import type { DetailAuditError } from "./types";
 
+/**
+ * Loads audit events for the open detail location; clears when id is null.
+ * 403 becomes `forbidden` (soft deny) rather than a generic error.
+ */
 export function useLocationAudit(detailLocationId: string | null): {
   detailEvents: AuditEventRow[];
   detailLoading: boolean;
@@ -21,6 +29,7 @@ export function useLocationAudit(detailLocationId: string | null): {
     useState<DetailAuditError | null>(null);
 
   useEffect(() => {
+    // Closed panel — reset audit state.
     if (!detailLocationId) {
       setDetailEvents([]);
       setDetailAuditError(null);
@@ -42,6 +51,7 @@ export function useLocationAudit(detailLocationId: string | null): {
       } catch (err) {
         if (!cancelled) {
           setDetailEvents([]);
+          // Soft-deny for missing audit.view rather than a hard error banner.
           if (err instanceof ApiRequestError && err.status === 403) {
             setDetailAuditError({
               kind: "forbidden",
@@ -83,6 +93,9 @@ type LocationDetailPanelProps = {
   onServiceStatusChange: (next: LocationServiceStatus) => void;
 };
 
+/**
+ * Thin adapter that wires LocationsPage detail state into LocationHistoryPanel.
+ */
 export function LocationDetailPanel({
   location,
   unitLabelCap,
@@ -96,6 +109,7 @@ export function LocationDetailPanel({
   onOccupancyChange,
   onServiceStatusChange,
 }: LocationDetailPanelProps) {
+  // Props are already shaped for the shared panel — pass through.
   return (
     <LocationHistoryPanel
       location={location}

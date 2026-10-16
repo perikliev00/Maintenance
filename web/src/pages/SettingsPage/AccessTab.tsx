@@ -1,3 +1,4 @@
+/** Invitation TTL and idle/lock settings draft editors. */
 import type { Dispatch, SetStateAction } from "react";
 import type { LabelFn } from "./constants";
 
@@ -7,7 +8,12 @@ type Props = {
   label: LabelFn;
 };
 
+/**
+ * Access settings editors: invitation TTL, idle-days info, lock-inactive flag.
+ * Bound to the parent settings draft via `setDraft`.
+ */
 export function AccessTab({ draft, setDraft, label }: Props) {
+  // Early / value return.
   return (
     <div className="settings-form">
       <p className="muted">
@@ -22,11 +28,13 @@ export function AccessTab({ draft, setDraft, label }: Props) {
           type="number"
           min={1}
           max={168}
+          // Default 2h when the draft key is missing.
           value={Number(
             (draft as { invitationTtlHours?: number }).invitationTtlHours ??
               2,
           )}
           onChange={(e) =>
+            // State transition.
             setDraft((p) => ({
               ...p,
               invitationTtlHours: Number(e.target.value),
@@ -40,10 +48,12 @@ export function AccessTab({ draft, setDraft, label }: Props) {
           type="number"
           min={1}
           max={365}
+          // Informational idle window — default 30 days.
           value={Number(
             (draft as { sessionIdleDays?: number }).sessionIdleDays ?? 30,
           )}
           onChange={(e) =>
+            // State transition.
             setDraft((p) => ({
               ...p,
               sessionIdleDays: Number(e.target.value),
@@ -58,6 +68,7 @@ export function AccessTab({ draft, setDraft, label }: Props) {
             (draft as { lockInactiveUsers?: boolean }).lockInactiveUsers,
           )}
           onChange={(e) =>
+            // State transition.
             setDraft((p) => ({
               ...p,
               lockInactiveUsers: e.target.checked,

@@ -1,3 +1,6 @@
+/**
+ * Staff invitation + device activation: issue codes, redeem, revoke devices.
+ */
 export { hashInviteCode, generateInviteCode } from "./codes";
 export { mapInvitation } from "./map";
 export type { IssueInvitationInput } from "./issue";

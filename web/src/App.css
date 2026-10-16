@@ -2303,18 +2303,6 @@ tbody tr:hover {
   border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.25));
 }
 
-.audit-json {
-  margin: 0;
-  padding: 0.75rem;
-  overflow: auto;
-  max-height: 240px;
-  font-size: 0.8rem;
-  color: inherit;
-  background: var(--surface-elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
 .audit-details-list {
   margin: 0.35rem 0 0.5rem;
   padding: 0.75rem 0.95rem 0.75rem 1.45rem;
