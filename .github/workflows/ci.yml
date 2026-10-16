@@ -134,3 +134,69 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx tsx scripts/smoke-legacy-audit-upgrade.ts
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: maintenance
+          POSTGRES_PASSWORD: maintenance
+          POSTGRES_DB: maintenance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maintenance -d maintenance"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://maintenance:maintenance@localhost:5432/maintenance?schema=public
+      JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
+      WEB_ORIGIN: http://127.0.0.1:5173
+      PORT: "4000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            api/package-lock.json
+            web/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install API
+        working-directory: api
+        run: |
+          npm ci
+          npx prisma generate
+          npx prisma migrate deploy
+          npm run db:seed
+
+      - name: Install Web
+        working-directory: web
+        run: npm ci
+
+      - name: Install E2E
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright
+        working-directory: e2e
+        run: npm test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7

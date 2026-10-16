@@ -250,6 +250,19 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
       await deps.afterClaim();
     }
 
+    // Dev/e2e only: pause after claim so Playwright can switch accounts before
+    // any network send (same seam as unit-test `afterClaim`).
+    if (import.meta.env.DEV && typeof window !== "undefined") {
+      const e2eHook = (
+        window as Window & {
+          __MERIDIAN_E2E_AFTER_DRAIN_CLAIM__?: () => void | Promise<void>;
+        }
+      ).__MERIDIAN_E2E_AFTER_DRAIN_CLAIM__;
+      if (typeof e2eHook === "function") {
+        await e2eHook();
+      }
+    }
+
     // Abort before any network if the account switched mid-drain.
     if (!stillBoundTo(userId)) {
       return;

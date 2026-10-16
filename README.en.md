@@ -91,6 +91,7 @@ Readiness is **not a single status** — it is composed from several independent
 |---|---|
 | `api/` | Node.js, Express, TypeScript, Prisma, JWT, Zod, bcrypt |
 | `web/` | Vite, React, TypeScript, PWA (vite-plugin-pwa) |
+| `e2e/` | Playwright (browser smoke / UI flows) |
 | DB | PostgreSQL 16 (Docker), host port **5433** |
 
 ```bash
@@ -111,6 +112,20 @@ npm run dev
 - Web: http://localhost:5173
 - `DATABASE_URL=postgresql://maintenance:maintenance@localhost:5433/maintenance`
 - Demo password for all users: **`demo1234`**
+
+### E2E (Playwright)
+
+Needs a seeded DB. Playwright starts API + web unless they are already running.
+
+```bash
+cd e2e
+npm install
+npm run install:browsers
+npm test
+```
+
+- `E2E_START_SERVERS=0` — do not start API/web (use already running instances)
+- CI job: `E2E` in `.github/workflows/ci.yml`
 
 ---
 

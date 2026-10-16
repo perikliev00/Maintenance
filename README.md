@@ -91,6 +91,7 @@ Readiness **не е един статус**, а композиция от няк
 |---|---|
 | `api/` | Node.js, Express, TypeScript, Prisma, JWT, Zod, bcrypt |
 | `web/` | Vite, React, TypeScript, PWA (vite-plugin-pwa) |
+| `e2e/` | Playwright (browser smoke / UI flows) |
 | DB | PostgreSQL 16 (Docker), хост порт **5433** |
 
 ```bash
@@ -111,6 +112,20 @@ npm run dev
 - Web: http://localhost:5173
 - `DATABASE_URL=postgresql://maintenance:maintenance@localhost:5433/maintenance`
 - Парола за демо потребители: **`demo1234`**
+
+### E2E (Playwright)
+
+Изисква seed-ната DB (и при нужда вече пуснати API/web — иначе Playwright ги стартира сам).
+
+```bash
+cd e2e
+npm install
+npm run install:browsers
+npm test
+```
+
+- `E2E_START_SERVERS=0` — не стартирай API/web (ползвай вече работещи инстанции)
+- CI job: `E2E` в `.github/workflows/ci.yml`
 
 ---
 
