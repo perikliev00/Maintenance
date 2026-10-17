@@ -247,7 +247,6 @@ export function AnalyticsTrendChart({
               filter={`url(#soft-${gradId})`}
             />
 
-            // Hover guide line + point marker.
             {hover && (
               <>
                 <line
@@ -266,7 +265,6 @@ export function AnalyticsTrendChart({
               </>
             )}
 
-            // Per-day hit targets + sparse x labels.
             {plot.coords.map((p, i) => {
               const showLabel =
                 i === 0 ||
@@ -299,7 +297,6 @@ export function AnalyticsTrendChart({
             })}
           </svg>
 
-          // HTML tooltip positioned from SVG viewBox fractions.
           {hover && (
             <div
               className="analytics-tooltip"

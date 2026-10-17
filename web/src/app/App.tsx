@@ -125,11 +125,8 @@ export default function App() {
             />
           )}
 
-          // Render UI node.
           <aside className="sidebar">
-            // Render UI node.
             <div className="sidebar-brand">
-              // Render UI node.
               <BrandMark size={34} />
               <div className="sidebar-brand-text">
                 <strong>Meridian</strong>

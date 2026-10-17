@@ -55,14 +55,39 @@ export function hotelDateAsUtcDate(instant: Date, timeZone: string): Date {
   return new Date(`${ymd}T00:00:00.000Z`);
 }
 
+/** Test-only override for "now"; production always uses wall clock. */
+let hotelNowOverride: Date | null = null;
+
+/** Current instant for hotel-date "today" (wall clock unless tests override). */
+export function getHotelNow(): Date {
+  return hotelNowOverride ?? new Date();
+}
+
+/**
+ * Temporarily freeze hotel "now" for tests that must prove start paths
+ * compute today via {@link todayHotelDateYmd} + operations.hotelTimezone.
+ */
+export async function withHotelNowForTests<T>(
+  instant: Date,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = hotelNowOverride;
+  hotelNowOverride = instant;
+  try {
+    return await fn();
+  } finally {
+    hotelNowOverride = previous;
+  }
+}
+
 /**
  * Today's hotel calendar date (YYYY-MM-DD) in configured operations.hotelTimezone.
- * Defaults `instant` to now for call sites that only need "today".
+ * Defaults `instant` to {@link getHotelNow} for call sites that only need "today".
  */
-export async function todayHotelDateYmd(instant: Date = new Date()): Promise<string> {
+export async function todayHotelDateYmd(instant?: Date): Promise<string> {
   // Load operations settings for the configured hotelTimezone.
   const ops = await getOperations();
-  return hotelDateString(instant, ops.hotelTimezone);
+  return hotelDateString(instant ?? getHotelNow(), ops.hotelTimezone);
 }
 
 /**

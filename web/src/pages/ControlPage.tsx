@@ -326,7 +326,6 @@ export function ControlPage({ user }: Props) {
             </div>
           </section>
 
-          // Create cleaning task form.
           <section className="panel">
             <h2>Създай задача за почистване</h2>
             <form className="report-form" onSubmit={onCreateTask}>
@@ -376,21 +375,18 @@ export function ControlPage({ user }: Props) {
             </form>
           </section>
 
-          // Open tickets: assign + lifecycle actions.
           <section className="panel control-issues">
             <div className="panel-header">
               <h2>Отворени проблеми</h2>
               <button type="button" className="ghost" onClick={() => refresh()}>
                 Refresh
               </button>
-              // Live stamp when soft refresh last succeeded.
               {liveAt && (
                 <span className="muted live-stamp" title={liveAt}>
                   live
                 </span>
               )}
             </div>
-            // Empty vs open-ticket feed.
             {tickets.length === 0 ? (
               <p className="muted">Няма отворени проблеми.</p>
             ) : (
@@ -506,12 +502,10 @@ export function ControlPage({ user }: Props) {
             )}
           </section>
 
-          // Recently resolved: close or reopen.
           <section className="panel control-issues">
             <div className="panel-header">
               <h2>Наскоро резолвнати</h2>
             </div>
-            // Empty vs resolved-ticket feed.
             {resolvedTickets.length === 0 ? (
               <p className="muted">Няма резолвнати проблеми.</p>
             ) : (

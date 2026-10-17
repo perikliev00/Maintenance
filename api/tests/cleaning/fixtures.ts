@@ -2,9 +2,11 @@
  * Shared world + helpers for cleaning lifecycle integration tests (P1-11…P1-30).
  * Lives under api/tests/cleaning/ so it is outside the parallel npm test glob.
  */
+import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
 import {
   CleaningStatus,
+  Prisma,
   PrismaClient,
   Role,
   SessionStatus,
@@ -17,7 +19,11 @@ import {
   createCleaningTask,
   startCleaningTask,
 } from "../../src/services/cleaning";
-import { todayHotelDateYmd } from "../../src/services/hotelTime";
+import {
+  hotelDateString,
+  todayHotelDateYmd,
+  withHotelNowForTests,
+} from "../../src/services/hotelTime";
 import {
   getFlags,
   getOperations,
@@ -27,7 +33,6 @@ import type {
   FlagsSettings,
   OperationsSettings,
 } from "../../src/services/settingsSchema";
-import { hotelDateString } from "../../src/services/hotelTime";
 import {
   cleanupEmployeeGraph,
   createEmployeeWithUser,
@@ -323,6 +328,91 @@ export async function withOperationsPatch<T>(
 /** Hotel calendar YMD for a fixed UTC instant in a given IANA zone. */
 export function hotelYmdAt(instant: Date, timeZone: string): string {
   return hotelDateString(instant, timeZone);
+}
+
+/** Re-export test clock freeze used by T-CLN-13b midnight-boundary starts. */
+export { withHotelNowForTests };
+
+type Tx = Prisma.TransactionClient;
+
+/**
+ * Poll until another backend is blocked on a Lock wait event.
+ * Row-level FOR UPDATE waiters show up here (often as transactionid), not as
+ * ungranted relation locks on the table name.
+ */
+export async function waitForLockWaiter(
+  prisma: PrismaClient,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const rows = await prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT count(*)::bigint AS n
+      FROM pg_stat_activity
+      WHERE wait_event_type = 'Lock'
+        AND pid <> pg_backend_pid()
+        AND datname = current_database()
+    `;
+    if (rows[0] && rows[0].n > 0n) return;
+    // Also catch ungranted lock entries (covers some drivers/pool timings).
+    const lockRows = await prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT count(*)::bigint AS n
+      FROM pg_locks
+      WHERE NOT granted
+    `;
+    if (lockRows[0] && lockRows[0].n > 0n) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.fail("timed out waiting for a backend blocked on Lock");
+}
+
+/**
+ * Hold a row lock, start a racing promise (past its outer checks), wait until
+ * that txn is blocked on FOR UPDATE, run `whileBlocked`, then release.
+ * Replaces timing heuristics like setTimeout(80).
+ */
+export async function runWhileRowLocked<T>(opts: {
+  prisma: PrismaClient;
+  acquireLock: (tx: Tx) => Promise<void>;
+  startRace: () => Promise<T>;
+  whileBlocked: () => Promise<void>;
+}): Promise<T> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let lockHeld = false;
+  const holder = opts.prisma.$transaction(
+    async (tx) => {
+      await opts.acquireLock(tx);
+      lockHeld = true;
+      await gate;
+    },
+    { timeout: 20_000, maxWait: 20_000 },
+  );
+
+  for (let i = 0; i < 50 && !lockHeld; i += 1) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  if (!lockHeld) {
+    release();
+    await holder.catch(() => undefined);
+    assert.fail("expected advisory holder to acquire row lock");
+  }
+
+  const raceP = opts.startRace();
+  try {
+    await waitForLockWaiter(opts.prisma);
+    await opts.whileBlocked();
+  } catch (err) {
+    release();
+    await holder.catch(() => undefined);
+    raceP.catch(() => undefined);
+    throw err;
+  }
+  release();
+  await holder;
+  return raceP;
 }
 
 export async function createOpenMaintenanceTicket(

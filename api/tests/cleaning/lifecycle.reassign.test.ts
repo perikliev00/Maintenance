@@ -1,5 +1,5 @@
 /**
- * T-CLN-15, T-CLN-27 — assignee eligibility + reassign constraints.
+ * T-CLN-15…15d, T-CLN-27 — assignee eligibility + reassign constraints.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -16,15 +16,18 @@ import {
   reassignCleaningTask,
   startCleaningTask,
 } from "../../src/services/cleaning";
-import { lockTask } from "../../src/services/cleaning/locks";
+import { lockLocation, lockTask } from "../../src/services/cleaning/locks";
 import { assignMaintenanceTicket } from "../../src/services/maintenance";
+import { lockTicket } from "../../src/services/maintenance/locks";
 import {
   cleanupCleaningWorld,
+  countActiveTasks,
   createCleaningWorld,
   createOpenMaintenanceTicket,
   hotelTodayYmd,
   isAppError,
   resetCleaningWork,
+  runWhileRowLocked,
   type CleaningWorld,
 } from "./fixtures";
 
@@ -35,7 +38,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("cleaning lifecycle reassign (T-CLN-15/27)", () => {
+describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
   let world: CleaningWorld;
 
   before(async () => {
@@ -149,45 +152,26 @@ describe("cleaning lifecycle reassign (T-CLN-15/27)", () => {
     });
 
     // Hold the task lock so reassign passes the outer eligibility check, then
-    // waits — deactivate/demote before the in-TX re-check runs.
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let lockHeld = false;
-    const holder = prisma.$transaction(
-      async (tx) => {
-        await lockTask(tx, task.id);
-        lockHeld = true;
-        await gate;
-      },
-      { timeout: 20_000, maxWait: 20_000 },
-    );
-
-    for (let i = 0; i < 50 && !lockHeld; i += 1) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    assert.ok(lockHeld, "expected advisory holder to lock the task");
-
-    const reassignP = reassignCleaningTask({
-      taskId: task.id,
-      assignedEmployeeId: world.hk2.employeeId,
-      reason: "race against block",
-      expectedVersion: task.version,
-      actorEmployeeId: world.manager.employeeId,
-    });
-    // Outer assertActiveCleaningAssignee already passed; wait on FOR UPDATE.
-    await new Promise((r) => setTimeout(r, 80));
-
-    await prisma.user.update({
-      where: { id: world.hk2.userId },
-      data: { isActive: false },
-    });
-    release();
-    await holder;
-
+    // waits — deactivate before the in-TX re-check runs.
     try {
-      await reassignP;
+      await runWhileRowLocked({
+        prisma,
+        acquireLock: (tx) => lockTask(tx, task.id),
+        startRace: () =>
+          reassignCleaningTask({
+            taskId: task.id,
+            assignedEmployeeId: world.hk2.employeeId,
+            reason: "race against block",
+            expectedVersion: task.version,
+            actorEmployeeId: world.manager.employeeId,
+          }),
+        whileBlocked: async () => {
+          await prisma.user.update({
+            where: { id: world.hk2.userId },
+            data: { isActive: false },
+          });
+        },
+      });
       assert.fail("expected validation after mid-flight deactivate");
     } catch (err) {
       assert.ok(isAppError(err));
@@ -206,41 +190,25 @@ describe("cleaning lifecycle reassign (T-CLN-15/27)", () => {
       data: { isActive: true, role: Role.housekeeper },
     });
 
-    let release2!: () => void;
-    const gate2 = new Promise<void>((resolve) => {
-      release2 = resolve;
-    });
-    let lockHeld2 = false;
-    const holder2 = prisma.$transaction(
-      async (tx) => {
-        await lockTask(tx, task.id);
-        lockHeld2 = true;
-        await gate2;
-      },
-      { timeout: 20_000, maxWait: 20_000 },
-    );
-    for (let i = 0; i < 50 && !lockHeld2; i += 1) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    assert.ok(lockHeld2);
-
-    const reassignRoleP = reassignCleaningTask({
-      taskId: task.id,
-      assignedEmployeeId: world.hk2.employeeId,
-      reason: "race against role change",
-      expectedVersion: afterBlock.version,
-      actorEmployeeId: world.manager.employeeId,
-    });
-    await new Promise((r) => setTimeout(r, 80));
-    await prisma.user.update({
-      where: { id: world.hk2.userId },
-      data: { role: Role.reception },
-    });
-    release2();
-    await holder2;
-
     try {
-      await reassignRoleP;
+      await runWhileRowLocked({
+        prisma,
+        acquireLock: (tx) => lockTask(tx, task.id),
+        startRace: () =>
+          reassignCleaningTask({
+            taskId: task.id,
+            assignedEmployeeId: world.hk2.employeeId,
+            reason: "race against role change",
+            expectedVersion: afterBlock.version,
+            actorEmployeeId: world.manager.employeeId,
+          }),
+        whileBlocked: async () => {
+          await prisma.user.update({
+            where: { id: world.hk2.userId },
+            data: { role: Role.reception },
+          });
+        },
+      });
       assert.fail("expected validation after mid-flight role demotion");
     } catch (err) {
       assert.ok(isAppError(err));
@@ -252,6 +220,138 @@ describe("cleaning lifecycle reassign (T-CLN-15/27)", () => {
       where: { id: task.id },
     });
     assert.equal(afterRole.assignedEmployeeId, world.hk1.employeeId);
+  });
+
+  it("T-CLN-15c: concurrent block/role-change vs createCleaningTask", async () => {
+    const today = await hotelTodayYmd();
+
+    try {
+      await runWhileRowLocked({
+        prisma,
+        acquireLock: (tx) => lockLocation(tx, world.locationAId),
+        startRace: () =>
+          createCleaningTask({
+            locationId: world.locationAId,
+            hotelDate: today,
+            assignedEmployeeId: world.hk2.employeeId,
+            actorEmployeeId: world.owner.employeeId,
+          }),
+        whileBlocked: async () => {
+          await prisma.user.update({
+            where: { id: world.hk2.userId },
+            data: { isActive: false },
+          });
+        },
+      });
+      assert.fail("expected validation after mid-flight deactivate on create");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "validation");
+      assert.equal(err.message, CLEANING_ASSIGNEE_MESSAGE);
+    }
+    assert.equal(await countActiveTasks(prisma, world.locationAId, today), 0);
+
+    await prisma.user.update({
+      where: { id: world.hk2.userId },
+      data: { isActive: true, role: Role.housekeeper },
+    });
+
+    try {
+      await runWhileRowLocked({
+        prisma,
+        acquireLock: (tx) => lockLocation(tx, world.locationAId),
+        startRace: () =>
+          createCleaningTask({
+            locationId: world.locationAId,
+            hotelDate: today,
+            assignedEmployeeId: world.hk2.employeeId,
+            actorEmployeeId: world.owner.employeeId,
+          }),
+        whileBlocked: async () => {
+          await prisma.user.update({
+            where: { id: world.hk2.userId },
+            data: { role: Role.reception },
+          });
+        },
+      });
+      assert.fail("expected validation after mid-flight role demotion on create");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "validation");
+      assert.equal(err.message, CLEANING_ASSIGNEE_MESSAGE);
+    }
+    assert.equal(await countActiveTasks(prisma, world.locationAId, today), 0);
+  });
+
+  it("T-CLN-15d: concurrent block/role-change vs assignMaintenanceTicket", async () => {
+    const ticket = await createOpenMaintenanceTicket(
+      prisma,
+      world,
+      world.locationAId,
+    );
+
+    try {
+      await runWhileRowLocked({
+        prisma,
+        acquireLock: (tx) => lockTicket(tx, ticket.id),
+        startRace: () =>
+          assignMaintenanceTicket({
+            ticketId: ticket.id,
+            assigneeId: world.technician.employeeId,
+            actorEmployeeId: world.manager.employeeId,
+          }),
+        whileBlocked: async () => {
+          await prisma.user.update({
+            where: { id: world.technician.userId },
+            data: { isActive: false },
+          });
+        },
+      });
+      assert.fail("expected validation after mid-flight deactivate on assign");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "validation");
+      assert.equal(err.message, MAINTENANCE_ASSIGNEE_MESSAGE);
+    }
+
+    const afterBlock = await prisma.maintenanceTicket.findUniqueOrThrow({
+      where: { id: ticket.id },
+    });
+    assert.equal(afterBlock.assigneeId, null);
+
+    await prisma.user.update({
+      where: { id: world.technician.userId },
+      data: { isActive: true, role: Role.technician },
+    });
+
+    try {
+      await runWhileRowLocked({
+        prisma,
+        acquireLock: (tx) => lockTicket(tx, ticket.id),
+        startRace: () =>
+          assignMaintenanceTicket({
+            ticketId: ticket.id,
+            assigneeId: world.technician.employeeId,
+            actorEmployeeId: world.manager.employeeId,
+          }),
+        whileBlocked: async () => {
+          await prisma.user.update({
+            where: { id: world.technician.userId },
+            data: { role: Role.reception },
+          });
+        },
+      });
+      assert.fail("expected validation after mid-flight role demotion on assign");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "validation");
+      assert.equal(err.message, MAINTENANCE_ASSIGNEE_MESSAGE);
+    }
+
+    const afterRole = await prisma.maintenanceTicket.findUniqueOrThrow({
+      where: { id: ticket.id },
+    });
+    assert.equal(afterRole.assigneeId, null);
   });
 
   it("T-CLN-27: reassign requires reason, blocks running, version conflict, success", async () => {

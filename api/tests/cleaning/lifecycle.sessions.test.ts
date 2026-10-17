@@ -21,8 +21,6 @@ import {
   startCleaningTask,
 } from "../../src/services/cleaning";
 import { getFlags } from "../../src/services/settings";
-import { ensureTaskCycleForStart } from "../../src/services/cleaning/cycles";
-import { prisma as appPrisma } from "../../src/db";
 import {
   cleanupCleaningWorld,
   createAndStartToday,
@@ -32,6 +30,7 @@ import {
   hotelYmdAt,
   isAppError,
   resetCleaningWork,
+  withHotelNowForTests,
   withOperationsPatch,
   ymdOffset,
   type CleaningWorld,
@@ -102,7 +101,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     assert.equal(locAfter.cleaningCycle, locBefore.cleaningCycle);
   });
 
-  it("T-CLN-13b: hotel TZ midnight — UTC today still hotel yesterday blocks start", async () => {
+  it("T-CLN-13b: hotel TZ midnight — startCleaningTask uses hotel today", async () => {
     // 2026-03-15 03:00 UTC = still 2026-03-14 in America/New_York.
     const instant = new Date("2026-03-15T03:00:00.000Z");
     const zone = "America/New_York";
@@ -116,71 +115,79 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
       world.owner.employeeId,
       { hotelTimezone: zone },
       async () => {
-        // Create unbound via real "today"+2, then rewrite hotelDate to the UTC YMD.
-        const realToday = await hotelTodayYmd();
-        const task = await createCleaningTask({
-          locationId: world.locationAId,
-          hotelDate: ymdOffset(realToday, 2),
-          assignedEmployeeId: world.hk1.employeeId,
-          actorEmployeeId: world.owner.employeeId,
-        });
-        assert.equal(task.cleaningCycle, 0);
-        await prisma.cleaningTask.update({
-          where: { id: task.id },
-          data: {
-            hotelDate: new Date(`${utcToday}T00:00:00.000Z`),
-            cleaningCycle: 0,
-          },
-        });
-
-        const locBefore = await prisma.location.findUniqueOrThrow({
-          where: { id: world.locationAId },
-        });
-
-        try {
-          await appPrisma.$transaction(async (tx) => {
-            await ensureTaskCycleForStart(
-              tx,
-              {
-                id: task.id,
-                locationId: task.locationId,
-                hotelDate: new Date(`${utcToday}T00:00:00.000Z`),
-                cleaningCycle: 0,
-              },
-              hotelToday,
-            );
+        await withHotelNowForTests(instant, async () => {
+          // hotelDate = UTC calendar today, still future in hotel TZ.
+          const task = await createCleaningTask({
+            locationId: world.locationAId,
+            hotelDate: utcToday,
+            assignedEmployeeId: world.hk1.employeeId,
+            actorEmployeeId: world.owner.employeeId,
           });
-          assert.fail("expected future hotel-date start to fail at NY midnight");
-        } catch (err) {
-          assert.ok(isAppError(err));
-          assert.equal(err.code, "invalid_state");
-          assert.match(err.message, /hotel date/i);
-        }
+          assert.equal(task.cleaningCycle, 0);
 
-        // Reverse boundary: Europe/Sofia evening UTC is already hotel next day.
-        const sofiaInstant = new Date("2026-03-14T22:30:00.000Z");
-        const sofiaToday = hotelYmdAt(sofiaInstant, "Europe/Sofia");
-        assert.equal(sofiaToday, "2026-03-15");
-        assert.equal(sofiaInstant.toISOString().slice(0, 10), "2026-03-14");
-        const allowed = await appPrisma.$transaction(async (tx) =>
-          ensureTaskCycleForStart(
-            tx,
-            {
-              id: task.id,
-              locationId: task.locationId,
-              hotelDate: new Date(`${sofiaToday}T00:00:00.000Z`),
-              cleaningCycle: 0,
-            },
-            sofiaToday,
-          ),
-        );
-        assert.ok(allowed > 0, "hotel-today task must start when TZ says today");
+          const locBefore = await prisma.location.findUniqueOrThrow({
+            where: { id: world.locationAId },
+          });
 
-        await resetCleaningWork(prisma, world);
-        const locAfter = await prisma.location.findUniqueOrThrow({
-          where: { id: world.locationAId },
+          try {
+            await startCleaningTask({
+              taskId: task.id,
+              employeeId: world.hk1.employeeId,
+              commandId: randomUUID(),
+              expectedVersion: task.version,
+            });
+            assert.fail("expected future hotel-date start to fail at NY midnight");
+          } catch (err) {
+            assert.ok(isAppError(err));
+            assert.equal(err.code, "invalid_state");
+            assert.match(err.message, /hotel date/i);
+          }
+
+          const sessions = await prisma.cleaningSession.count({
+            where: { taskId: task.id },
+          });
+          assert.equal(sessions, 0);
+
+          const locAfter = await prisma.location.findUniqueOrThrow({
+            where: { id: world.locationAId },
+          });
+          assert.equal(locAfter.cleaningStatus, locBefore.cleaningStatus);
+          assert.equal(locAfter.cleaningCycle, locBefore.cleaningCycle);
         });
-        assert.equal(locAfter.cleaningStatus, locBefore.cleaningStatus);
+      },
+    );
+
+    // Reverse boundary: Europe/Sofia evening UTC is already hotel next day.
+    await resetCleaningWork(prisma, world);
+    const sofiaInstant = new Date("2026-03-14T22:30:00.000Z");
+    const sofiaZone = "Europe/Sofia";
+    const sofiaToday = hotelYmdAt(sofiaInstant, sofiaZone);
+    assert.equal(sofiaToday, "2026-03-15");
+    assert.equal(sofiaInstant.toISOString().slice(0, 10), "2026-03-14");
+
+    await withOperationsPatch(
+      world.owner.employeeId,
+      { hotelTimezone: sofiaZone },
+      async () => {
+        await withHotelNowForTests(sofiaInstant, async () => {
+          const task = await createCleaningTask({
+            locationId: world.locationAId,
+            hotelDate: sofiaToday,
+            assignedEmployeeId: world.hk1.employeeId,
+            actorEmployeeId: world.owner.employeeId,
+          });
+          const started = await startCleaningTask({
+            taskId: task.id,
+            employeeId: world.hk1.employeeId,
+            commandId: randomUUID(),
+            expectedVersion: task.version,
+          });
+          assert.equal(started.task.status, TaskStatus.in_progress);
+          assert.ok(
+            started.task.cleaningCycle > 0,
+            "hotel-today task must bind cycle when TZ says today",
+          );
+        });
       },
     );
   });

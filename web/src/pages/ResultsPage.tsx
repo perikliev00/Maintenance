@@ -228,7 +228,6 @@ export function ResultsPage() {
             </button>
           );
         })}
-        // Clear chips → all types (API omits serviceType).
         {serviceTypes.length > 0 && (
           <button
             type="button"
@@ -245,12 +244,9 @@ export function ResultsPage() {
         )}
       </div>
 
-      // Render branch: error && <p className="err-text">error</p>
       {error && <p className="err-text">{error}</p>}
-      // Initial load placeholder when we have no prior data to show.
       {loading && !data && <p className="muted">Зареждане…</p>}
 
-      // KPI / chart / table only after a successful fetch.
       {data && (
         <>
           <div className="results-kpi-grid">
@@ -327,7 +323,6 @@ export function ResultsPage() {
             <div className="panel-header">
               <h2>Сесии / Часове</h2>
             </div>
-            // Empty chart vs hourly bar series.
             {data.summary.completedSessions === 0 ? (
               <p className="muted">Няма завършени сесии в периода.</p>
             ) : (
@@ -386,7 +381,6 @@ export function ResultsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  // Empty period vs housekeeper rows.
                   {data.rows.length === 0 ? (
                     <tr>
                       <td colSpan={11} className="muted">
@@ -413,7 +407,6 @@ export function ResultsPage() {
                 </tbody>
               </table>
             </div>
-            // Pager only when total exceeds one page.
             {data.total > pageSize && (
               <div className="toolbar results-pager">
                 <button

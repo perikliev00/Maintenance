@@ -319,7 +319,6 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                           </td>
                         );
                       })}
-                      // Owner column is always granted and non-editable.
                       <td className="perm-cell">
                         <input type="checkbox" checked disabled readOnly />
                       </td>
@@ -332,7 +331,6 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                   <td>Запис</td>
                   {roles.map((role) => (
                     <td key={role} className="perm-save-cell">
-                      // Save UI only for roles in editableRoles.
                       {editableSet.has(role) ? (
                         <div className="perm-save-col">
                           <input
@@ -371,7 +369,6 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
         </section>
       )}
 
-      // Audit history table (loaded when this tab is active).
       {tab === "history" && (
         <section className="panel">
           <div className="table-wrap">
@@ -388,7 +385,6 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                 </tr>
               </thead>
               <tbody>
-                // Empty vs populated history rows.
                 {history.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="muted">

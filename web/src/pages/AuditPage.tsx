@@ -258,7 +258,6 @@ export function AuditPage({ user, locale = "bg" }: Props) {
             </div>
           </section>
 
-          // Background jobs panel — permission-gated.
           {canJobs && (
             <section className="panel" style={{ marginTop: "1rem" }}>
               <div className="panel-header">
@@ -276,7 +275,6 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    // Empty vs job-run rows.
                     {jobs.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="muted">
