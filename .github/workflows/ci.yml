@@ -90,6 +90,8 @@ jobs:
       - run: npm run db:seed
       - run: npm test
       - run: npm run test:cleaning-lifecycle
+      - run: npm run test:readiness
+      - run: npm run test:tickets-lifecycle
       - run: npm run db:seed
       - run: npx tsx scripts/smoke-ticket-lifecycle-idempotency.ts
       - run: npx tsx scripts/smoke-cleaning-atomic.ts

@@ -11,9 +11,15 @@ import {
 } from "../issueCatalog";
 import { recipientsForLocationOps } from "../notifications";
 import { resolveSlaForPriority } from "../slaPolicies";
+import {
+  createPayloadFingerprint,
+  replayCreateCommand,
+  type CreateCommandKey,
+} from "./commands";
 import { writeTicketEvent } from "./events";
 import { formatMaintenanceTicket } from "./format";
 import { notifyTicketEvent, publishTicketChanged } from "./notify";
+import { isP2002 } from "./prismaConflicts";
 import { ticketInclude, type CreateMaintenanceTicketInput } from "./types";
 
 /**
@@ -25,44 +31,21 @@ import { ticketInclude, type CreateMaintenanceTicketInput } from "./types";
  * @param input.categoryId - Bare category when no issue option is selected.
  * @param input.commandId - Offline sync idempotency key (optional).
  * @param input.reportedByEmployeeId - Reporter stamped on the ticket row.
+ * @param input.now - Optional clock for deterministic dueAt (tests).
  */
 export async function createMaintenanceTicket(input: CreateMaintenanceTicketInput) {
-  // Offline sync: same commandId → same ticket (no double-create).
-  if (input.commandId) {
-    // Await async query or service call.
-    const existing = await prisma.maintenanceTicket.findUnique({
-      where: { commandId: input.commandId },
-      include: ticketInclude,
-    });
-    // Replay: prior successful create with this commandId.
-    if (existing) {
-      // Same offline commandId — return prior ticket without side effects.
-      return { ticket: formatMaintenanceTicket(existing), idempotent: true };
-    }
-  }
+  const now = input.now ?? new Date();
 
-  // Location must exist (archived rooms may still open tickets).
-  const location = await prisma.location.findUnique({
-    where: { id: input.locationId },
-  });
-  // Guard / branch on preconditions.
-  if (!location) {
-    // locationId must reference a catalog row (archived still allowed).
-    throw new AppError(404, "not_found", "Room not found");
-  }
-
-  // Exactly one of issueOptionId / categoryId is required.
+  // Exactly one of issueOptionId / categoryId is required (validated before replay
+  // so contradictory payloads still 400 even when commandId is present).
   if (input.issueOptionId && input.categoryId) {
-    // Mutually exclusive catalog selectors.
     throw new AppError(
       400,
       "validation",
       "Provide either issueOptionId or categoryId, not both",
     );
   }
-  // Guard / branch on preconditions.
   if (!input.issueOptionId && !input.categoryId) {
-    // At least one catalog anchor is required.
     throw new AppError(
       400,
       "validation",
@@ -72,129 +55,139 @@ export async function createMaintenanceTicket(input: CreateMaintenanceTicketInpu
 
   // Mutable defaults filled from issue option when present.
   let title = input.title?.trim() ?? "";
-  // Local binding for this step.
   let priority = input.priority ?? Priority.normal;
-  // Local binding for this step.
   const blocksRoom = input.blocksRoom;
-  // Local binding for this step.
   let issueOptionId: string | null = null;
-  // Category labels snapshotted onto the ticket row at create.
   let snapshot;
 
-  // Prefer issue option preset (title/priority defaults) over bare category.
   if (input.issueOptionId) {
-    // Await async query or service call.
     const option = await getActiveIssueOption(input.issueOptionId);
     issueOptionId = option.id;
-    // Snapshot category labels from the option's linked category row.
     snapshot = snapshotFromCategory(option.maintenanceCategory);
-    // Default title from the option's Bulgarian name when omitted.
     if (!title) {
       title = option.nameBg;
     }
-    // Default priority from the option when the caller did not override.
     if (input.priority === undefined && option.defaultPriority) {
       priority = option.defaultPriority;
     }
   } else {
-    // Bare category path — must resolve an active category snapshot.
     snapshot = await resolveCategorySnapshot(input.categoryId!, true);
   }
 
-  // Title is required after option defaults are applied.
   if (!title) {
-    // Option default may still leave title empty if nameBg missing.
     throw new AppError(400, "validation", "title is required");
   }
 
-  // Snapshot SLA hours/policy onto the ticket at create time.
-  const sla = await resolveSlaForPriority(priority);
-  // Local binding for this step.
-  let dueAt = input.dueAt ?? null;
-  // Compute dueAt from SLA hours when the caller did not supply one.
-  if (!dueAt) {
-    // Relative deadline from create time + snapshotted SLA hours.
-    dueAt = new Date(Date.now() + sla.hours * 60 * 60 * 1000);
-  }
+  const createKey: CreateCommandKey = {
+    kind: "create",
+    locationId: input.locationId,
+    reportedByEmployeeId: input.reportedByEmployeeId,
+    issueOptionId: input.issueOptionId ?? null,
+    categoryId: input.categoryId ?? null,
+    title,
+    priority,
+    blocksRoom,
+  };
 
-  // Ticket row + initial timeline event commit atomically.
-  const ticket = await prisma.$transaction(async (tx) => {
-    // Await async query or service call.
-    const created = await tx.maintenanceTicket.create({
-      data: {
-        locationId: input.locationId,
-        title,
-        issueOptionId,
-        maintenanceCategoryId: snapshot.maintenanceCategoryId,
-        categoryKey: snapshot.categoryKey,
-        categoryLabelBg: snapshot.categoryLabelBg,
-        categoryLabelEn: snapshot.categoryLabelEn,
-        priority,
-        blocksRoom,
-        status: TicketStatus.new,
-        reportedByEmployeeId: input.reportedByEmployeeId,
-        commandId: input.commandId,
-        dueAt,
-        slaPolicyId: sla.policyId,
-        slaHoursSnapshot: sla.hours,
-      },
-      include: ticketInclude,
-    });
+  // Offline sync: same commandId → same ticket (fingerprint must match).
+  const replayed = await replayCreateCommand(input.commandId, createKey);
+  if (replayed) return replayed;
 
-    // Initial timeline event (fromStatus null = created).
-    await writeTicketEvent(tx, {
-      ticketId: created.id,
-      locationId: created.locationId,
-      fromStatus: null,
-      toStatus: TicketStatus.new,
-      actorEmployeeId: input.reportedByEmployeeId,
-      payload: { priority, blocksRoom },
-    });
-
-    // Return result to caller.
-    return created;
+  // Location must exist (archived rooms may still open tickets).
+  const location = await prisma.location.findUnique({
+    where: { id: input.locationId },
   });
-
-  // SSE / live board subscribers refresh open-ticket views.
-  publishTicketChanged(ticket);
-  {
-    // Maintenance assignees for this location (permission tickets.assign).
-    const opsRecipients = await recipientsForLocationOps(
-      ticket.locationId,
-      "tickets.assign",
-    );
-    // Urgent / room-blocking also alerts live-ops viewers for the location.
-    const liveRecipients =
-      priority === Priority.urgent || blocksRoom
-        ? await recipientsForLocationOps(
-            ticket.locationId,
-            "operations.view_live",
-          )
-        : [];
-    // Dedupe when an employee has both caps.
-    const recipients = [...new Set([...opsRecipients, ...liveRecipients])];
-    // Local binding for this step.
-    const locNum = ticket.location?.number ?? "?";
-    // Title reflects urgency so the inbox sorts visually.
-    const urgency =
-      priority === Priority.urgent || blocksRoom
-        ? priority === Priority.urgent && blocksRoom
-          ? "Urgent blocking ticket"
-          : priority === Priority.urgent
-            ? "Urgent ticket"
-            : "Blocking ticket"
-        : "New ticket";
-    // In-app notification with dedupeKey so retries do not spam.
-    await notifyTicketEvent({
-      type: "ticket.created",
-      title: urgency,
-      body: `${locNum}: ${ticket.title}`,
-      ticket,
-      actorEmployeeId: input.reportedByEmployeeId,
-      recipientEmployeeIds: recipients,
-      dedupeKey: `ticket.created:${ticket.id}`,
-    });
+  if (!location) {
+    throw new AppError(404, "not_found", "Room not found");
   }
-  // Fresh create (not a commandId replay).
-  return { ticket: formatMaintenanceTicket(ticket), idempotent: false };
+
+  const sla = await resolveSlaForPriority(priority);
+  let dueAt = input.dueAt ?? null;
+  if (!dueAt) {
+    dueAt = new Date(now.getTime() + sla.hours * 60 * 60 * 1000);
+  }
+
+  try {
+    const ticket = await prisma.$transaction(async (tx) => {
+      const created = await tx.maintenanceTicket.create({
+        data: {
+          locationId: input.locationId,
+          title,
+          issueOptionId,
+          maintenanceCategoryId: snapshot.maintenanceCategoryId,
+          categoryKey: snapshot.categoryKey,
+          categoryLabelBg: snapshot.categoryLabelBg,
+          categoryLabelEn: snapshot.categoryLabelEn,
+          priority,
+          blocksRoom,
+          status: TicketStatus.new,
+          reportedByEmployeeId: input.reportedByEmployeeId,
+          commandId: input.commandId,
+          dueAt,
+          slaPolicyId: sla.policyId,
+          slaHoursSnapshot: sla.hours,
+        },
+        include: ticketInclude,
+      });
+
+      // Initial timeline event carries commandId + create fingerprint for P1-45/46.
+      await writeTicketEvent(tx, {
+        ticketId: created.id,
+        locationId: created.locationId,
+        fromStatus: null,
+        toStatus: TicketStatus.new,
+        actorEmployeeId: input.reportedByEmployeeId,
+        commandId: input.commandId,
+        payload: {
+          priority,
+          blocksRoom,
+          _commandFingerprint: createPayloadFingerprint(createKey),
+        },
+      });
+
+      return created;
+    });
+
+    publishTicketChanged(ticket);
+    {
+      const opsRecipients = await recipientsForLocationOps(
+        ticket.locationId,
+        "tickets.assign",
+      );
+      const liveRecipients =
+        priority === Priority.urgent || blocksRoom
+          ? await recipientsForLocationOps(
+              ticket.locationId,
+              "operations.view_live",
+            )
+          : [];
+      const recipients = [...new Set([...opsRecipients, ...liveRecipients])];
+      const locNum = ticket.location?.number ?? "?";
+      const urgency =
+        priority === Priority.urgent || blocksRoom
+          ? priority === Priority.urgent && blocksRoom
+            ? "Urgent blocking ticket"
+            : priority === Priority.urgent
+              ? "Urgent ticket"
+              : "Blocking ticket"
+          : "New ticket";
+      await notifyTicketEvent({
+        type: "ticket.created",
+        title: urgency,
+        body: `${locNum}: ${ticket.title}`,
+        ticket,
+        actorEmployeeId: input.reportedByEmployeeId,
+        recipientEmployeeIds: recipients,
+        dedupeKey: `ticket.created:${ticket.id}`,
+      });
+    }
+    return { ticket: formatMaintenanceTicket(ticket), idempotent: false };
+  } catch (err) {
+    // Concurrent first-writes of the same commandId: treat as idempotent replay.
+    if (input.commandId && isP2002(err)) {
+      const again = await replayCreateCommand(input.commandId, createKey);
+      if (again) return again;
+    }
+    throw err;
+  }
 }

@@ -41,6 +41,8 @@ export async function resolveMaintenanceTicket(input: {
   resolutionNotes?: string;
   bypassAssigneeCheck?: boolean;
   commandId?: string;
+  /** Testable clock for resolve-from-waiting unpause + resolvedAt. */
+  now?: Date;
 }) {
   // Trim empty resolution notes to null for storage.
   const notes = input.resolutionNotes?.trim() || null;
@@ -85,10 +87,11 @@ export async function resolveMaintenanceTicket(input: {
       }
 
       const fromStatus = ticket.status;
+      const now = input.now ?? new Date();
       // Resolve-from-waiting must clear pause the same way resume does.
       const unpaused =
         ticket.status === TicketStatus.waiting
-          ? unpauseFields(ticket)
+          ? unpauseFields(ticket, now)
           : {
               // in_progress resolve — SLA fields unchanged (not paused).
               slaPausedAt: null,
@@ -103,7 +106,7 @@ export async function resolveMaintenanceTicket(input: {
         [TicketStatus.in_progress, TicketStatus.waiting],
         {
           status: TicketStatus.resolved,
-          resolvedAt: new Date(),
+          resolvedAt: now,
           resolvedByEmployeeId: input.resolvedByEmployeeId,
           resolutionNotes: notes,
           ...unpaused,
@@ -149,9 +152,12 @@ export async function resolveMaintenanceTicket(input: {
     return formatMaintenanceTicket(updated);
   } catch (err) {
     // Concurrent first-writes of the same commandId: treat as idempotent replay.
-    if (input.commandId && isP2002(err)) {
-      const again = await replayLifecycleCommand(input.commandId, commandKey);
-      if (again) return again.ticket;
+    // Status-claim races surface as invalid_state after a peer committed the same commandId.
+    if (input.commandId) {
+      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
+        const again = await replayLifecycleCommand(input.commandId, commandKey);
+        if (again) return again.ticket;
+      }
     }
     // Non-P2002 or replay miss — propagate to the HTTP layer.
     throw err;

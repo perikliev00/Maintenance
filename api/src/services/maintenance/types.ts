@@ -31,6 +31,8 @@ export type CreateMaintenanceTicketInput = {
   /** Client command id for offline/idempotent create (unique on ticket). */
   commandId?: string;
   dueAt?: Date;
+  /** Testable clock; defaults to wall clock. */
+  now?: Date;
 };
 
 export type TicketEventPayload = Prisma.InputJsonValue | undefined;

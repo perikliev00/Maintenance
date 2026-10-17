@@ -34,6 +34,8 @@ export async function startMaintenanceTicket(input: {
   actorEmployeeId: string;
   bypassAssigneeCheck?: boolean;
   commandId?: string;
+  /** Unused on start; accepted for call-site symmetry with wait/resume. */
+  now?: Date;
 }) {
   // Idempotency key for offline / retryable start commands.
   const commandKey: LifecycleCommandKey = {
@@ -116,9 +118,13 @@ export async function startMaintenanceTicket(input: {
     return formatMaintenanceTicket(updated);
   } catch (err) {
     // Concurrent first-writes of the same commandId: treat as idempotent replay.
-    if (input.commandId && isP2002(err)) {
-      const again = await replayLifecycleCommand(input.commandId, commandKey);
-      if (again) return again.ticket;
+    // Also covers the status-claim race where the peer committed first (invalid_state)
+    // before this txn could hit the unique commandId constraint.
+    if (input.commandId) {
+      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
+        const again = await replayLifecycleCommand(input.commandId, commandKey);
+        if (again) return again.ticket;
+      }
     }
     // Unique commandId race lost — bubble non-idempotent errors.
     throw err;
@@ -140,6 +146,8 @@ export async function waitMaintenanceTicket(input: {
   reason?: string;
   bypassAssigneeCheck?: boolean;
   commandId?: string;
+  /** Testable clock for slaPausedAt (defaults to wall clock). */
+  now?: Date;
 }) {
   // Trim empty wait reason to null for storage.
   const reason = input.reason?.trim() || null;
@@ -186,7 +194,7 @@ export async function waitMaintenanceTicket(input: {
         {
           status: TicketStatus.waiting,
           // pauseFieldsOnWait sets slaPausedAt = now.
-          ...pauseFieldsOnWait(),
+          ...pauseFieldsOnWait(input.now ?? new Date()),
         },
         (status) => `Cannot wait ticket in status ${status}`,
       );
@@ -223,9 +231,11 @@ export async function waitMaintenanceTicket(input: {
     return formatMaintenanceTicket(updated);
   } catch (err) {
     // Concurrent first-writes of the same commandId: treat as idempotent replay.
-    if (input.commandId && isP2002(err)) {
-      const again = await replayLifecycleCommand(input.commandId, commandKey);
-      if (again) return again.ticket;
+    if (input.commandId) {
+      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
+        const again = await replayLifecycleCommand(input.commandId, commandKey);
+        if (again) return again.ticket;
+      }
     }
     // Wait transition failed — propagate to HTTP layer.
     throw err;
@@ -245,6 +255,8 @@ export async function resumeMaintenanceTicket(input: {
   actorEmployeeId: string;
   bypassAssigneeCheck?: boolean;
   commandId?: string;
+  /** Testable clock for unpause dueAt extension (defaults to wall clock). */
+  now?: Date;
 }) {
   // Idempotency key for offline / retryable resume commands.
   const commandKey: LifecycleCommandKey = {
@@ -281,7 +293,7 @@ export async function resumeMaintenanceTicket(input: {
 
       const fromStatus = ticket.status;
       // Compute dueAt extension / pause-clear fields from current pause state.
-      const unpaused = unpauseFields(ticket);
+      const unpaused = unpauseFields(ticket, input.now ?? new Date());
       // Claim → in_progress with unpaused SLA fields.
       const row = await claimTicketUpdate(
         tx,
@@ -326,9 +338,11 @@ export async function resumeMaintenanceTicket(input: {
     return formatMaintenanceTicket(updated);
   } catch (err) {
     // Concurrent first-writes of the same commandId: treat as idempotent replay.
-    if (input.commandId && isP2002(err)) {
-      const again = await replayLifecycleCommand(input.commandId, commandKey);
-      if (again) return again.ticket;
+    if (input.commandId) {
+      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
+        const again = await replayLifecycleCommand(input.commandId, commandKey);
+        if (again) return again.ticket;
+      }
     }
     // Resume failure after P2002 miss — propagate to HTTP layer.
     throw err;

@@ -6,7 +6,7 @@ import { CleaningStatus, Prisma, SessionStatus } from "@prisma/client";
 // Module dependency import.
 import { prisma } from "../../db";
 // Which task statuses count as active work on mark-dirty reload.
-import { ACTIVE_TASK_STATUSES } from "../../constants";
+import { ACTIVE_TASK_STATUSES, OPEN_TICKET_STATUSES } from "../../constants";
 // Module dependency import.
 import { AppError } from "../../errors";
 // Live room board refresh after intentional dirty bump.
@@ -127,7 +127,7 @@ export async function markRoomDirty(
         },
         maintenanceTickets: {
           where: {
-            status: { in: ["new", "in_progress"] },
+            status: { in: [...OPEN_TICKET_STATUSES] },
             blocksRoom: true,
           },
           take: 5,

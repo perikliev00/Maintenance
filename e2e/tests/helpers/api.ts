@@ -77,6 +77,14 @@ export async function apiPatch(
   return apiJson(token, "PATCH", pathName, payload);
 }
 
+export async function apiPost(
+  token: string,
+  pathName: string,
+  payload?: unknown,
+) {
+  return apiJson(token, "POST", pathName, payload ?? {});
+}
+
 export type RoleGrants = { panels: string[]; actions: string[] };
 
 /** Read one role's grants from the permissions matrix. */
