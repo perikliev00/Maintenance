@@ -36,6 +36,8 @@ import { applyLocationCleaningStatusIfCurrent } from "./locationStatus";
 // Module dependency import.
 import { lockSession, lockTask } from "./locks";
 // Module dependency import.
+import { assertCleaningCommandPayloadMatch } from "./idempotency";
+// Module dependency import.
 import { isP2002, mapStartUniqueConflict } from "./prismaConflicts";
 
 /**
@@ -58,6 +60,11 @@ export async function startCleaningTask(input: {
   });
   // Replay: prior successful start with this commandId — return as-is.
   if (existingByCommand) {
+    // Same commandId with a different task or employee is not a replay.
+    assertCleaningCommandPayloadMatch(
+      existingByCommand.taskId === input.taskId &&
+        existingByCommand.employeeId === input.employeeId,
+    );
     // Return result to caller.
     return { session: existingByCommand, task: existingByCommand.task, idempotent: true };
   }
@@ -207,6 +214,10 @@ export async function startCleaningTask(input: {
       });
       // Guard / branch on preconditions.
       if (again) {
+        // Concurrent winner must match this task/employee or it is a collision.
+        assertCleaningCommandPayloadMatch(
+          again.taskId === input.taskId && again.employeeId === input.employeeId,
+        );
         // Return result to caller.
         return { session: again, task: again.task, idempotent: true };
       }
@@ -238,6 +249,8 @@ export async function completeCleaningSession(input: {
   });
   // Replay: prior successful complete with this commandId.
   if (existingByCommand) {
+    // Actor is not stored on the session (owner may complete); match session only.
+    assertCleaningCommandPayloadMatch(existingByCommand.id === input.sessionId);
     // Return result to caller.
     return { session: existingByCommand, task: existingByCommand.task, idempotent: true };
   }
@@ -454,6 +467,8 @@ export async function completeCleaningSession(input: {
       });
       // Guard / branch on preconditions.
       if (again) {
+        // Concurrent winner must target the same session or it is a collision.
+        assertCleaningCommandPayloadMatch(again.id === input.sessionId);
         // Return result to caller.
         return { session: again, task: again.task, idempotent: true };
       }
@@ -484,6 +499,8 @@ export async function cancelCleaningSession(input: {
   });
   // Replay: prior successful cancel with this commandId.
   if (existingByCommand) {
+    // Actor is not stored on the session (reviewer may cancel); match session only.
+    assertCleaningCommandPayloadMatch(existingByCommand.id === input.sessionId);
     // Return result to caller.
     return { session: existingByCommand, task: existingByCommand.task, idempotent: true };
   }
@@ -638,6 +655,8 @@ export async function cancelCleaningSession(input: {
       });
       // Guard / branch on preconditions.
       if (again) {
+        // Concurrent winner must target the same session or it is a collision.
+        assertCleaningCommandPayloadMatch(again.id === input.sessionId);
         // Return result to caller.
         return { session: again, task: again.task, idempotent: true };
       }

@@ -1,5 +1,5 @@
 /**
- * T-CLN-13,14,22–25,30 — dates, cancel, stale soft-guard, idempotency, markDirty.
+ * T-CLN-13,14,22–26,30 — dates, cancel, stale soft-guard, idempotency, markDirty.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -40,7 +40,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("cleaning lifecycle sessions (T-CLN-13/14/22–25/30)", () => {
+describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
   let world: CleaningWorld;
 
   before(async () => {
@@ -316,6 +316,153 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–25/30)", () => {
       }),
       1,
     );
+  });
+
+  it("T-CLN-26: same commandId with different task/employee/decision conflicts", async () => {
+    const today = await hotelTodayYmd();
+    const taskA = await createCleaningTask({
+      locationId: world.locationAId,
+      hotelDate: today,
+      assignedEmployeeId: world.hk1.employeeId,
+      actorEmployeeId: world.owner.employeeId,
+    });
+    const taskB = await createCleaningTask({
+      locationId: world.locationBId,
+      hotelDate: today,
+      assignedEmployeeId: world.hk2.employeeId,
+      actorEmployeeId: world.owner.employeeId,
+    });
+
+    const startCmd = randomUUID();
+    const startedA = await startCleaningTask({
+      taskId: taskA.id,
+      employeeId: world.hk1.employeeId,
+      commandId: startCmd,
+      expectedVersion: taskA.version,
+    });
+
+    try {
+      await startCleaningTask({
+        taskId: taskB.id,
+        employeeId: world.hk2.employeeId,
+        commandId: startCmd,
+        expectedVersion: taskB.version,
+      });
+      assert.fail("expected conflict for start commandId on different task");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "conflict");
+      assert.match(err.message, /commandId reused/i);
+    }
+
+    try {
+      await startCleaningTask({
+        taskId: taskA.id,
+        employeeId: world.hk2.employeeId,
+        commandId: startCmd,
+        expectedVersion: startedA.task.version,
+        bypassAssigneeCheck: true,
+      });
+      assert.fail("expected conflict for start commandId with different employee");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "conflict");
+    }
+
+    const startedB = await startCleaningTask({
+      taskId: taskB.id,
+      employeeId: world.hk2.employeeId,
+      commandId: randomUUID(),
+      expectedVersion: taskB.version,
+    });
+
+    const completeCmd = randomUUID();
+    const completedA = await completeCleaningSession({
+      sessionId: startedA.session.id,
+      employeeId: world.hk1.employeeId,
+      commandId: completeCmd,
+      expectedVersion: startedA.task.version,
+    });
+
+    try {
+      await completeCleaningSession({
+        sessionId: startedB.session.id,
+        employeeId: world.hk2.employeeId,
+        commandId: completeCmd,
+        expectedVersion: startedB.task.version,
+      });
+      assert.fail("expected conflict for complete commandId on different session");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "conflict");
+    }
+
+    const inspectCmd = randomUUID();
+    await inspectCleaningTask({
+      taskId: completedA.task.id,
+      inspectorEmployeeId: world.manager.employeeId,
+      commandId: inspectCmd,
+      result: "approved",
+      expectedVersion: completedA.task.version,
+    });
+
+    try {
+      await inspectCleaningTask({
+        taskId: completedA.task.id,
+        inspectorEmployeeId: world.manager.employeeId,
+        commandId: inspectCmd,
+        result: "rejected",
+        findings: "should not flip decision",
+        expectedVersion: completedA.task.version,
+      });
+      assert.fail("expected conflict for inspect commandId with different decision");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "conflict");
+    }
+
+    try {
+      await inspectCleaningTask({
+        taskId: completedA.task.id,
+        inspectorEmployeeId: world.owner.employeeId,
+        commandId: inspectCmd,
+        result: "approved",
+        expectedVersion: completedA.task.version,
+      });
+      assert.fail("expected conflict for inspect commandId with different inspector");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "conflict");
+    }
+
+    // Original outcomes must remain unchanged after rejected collisions.
+    assert.equal(
+      await prisma.cleaningSession.count({
+        where: { startCommandId: startCmd },
+      }),
+      1,
+    );
+    assert.equal(
+      await prisma.cleaningSession.count({
+        where: { completeCommandId: completeCmd },
+      }),
+      1,
+    );
+    const inspection = await prisma.inspection.findUniqueOrThrow({
+      where: { commandId: inspectCmd },
+    });
+    assert.equal(inspection.result, "approved");
+    assert.equal(inspection.inspectorEmployeeId, world.manager.employeeId);
+
+    const taskAAfter = await prisma.cleaningTask.findUniqueOrThrow({
+      where: { id: taskA.id },
+    });
+    assert.equal(taskAAfter.status, TaskStatus.completed);
+
+    const sessionB = await prisma.cleaningSession.findUniqueOrThrow({
+      where: { id: startedB.session.id },
+    });
+    assert.equal(sessionB.status, SessionStatus.running);
   });
 
   it("T-CLN-30: markDirty during running rebinds and complete updates room", async () => {

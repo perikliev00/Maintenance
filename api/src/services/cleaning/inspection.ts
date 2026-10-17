@@ -25,6 +25,8 @@ import {
 import { applyLocationCleaningStatusIfCurrent } from "./locationStatus";
 // Row lock to serialize inspect vs reassign/start.
 import { lockTask } from "./locks";
+// Same commandId with different task/inspector/decision → conflict (P1-26).
+import { assertCleaningCommandPayloadMatch } from "./idempotency";
 // Map unique commandId races to idempotent replay.
 import { isP2002 } from "./prismaConflicts";
 
@@ -40,6 +42,12 @@ export async function inspectCleaningTask(input: {
   findings?: string;
   expectedVersion?: number;
 }) {
+  // Map API union to persisted enum for replay payload checks.
+  const expectedResult =
+    input.result === "approved"
+      ? InspectionResult.approved
+      : InspectionResult.rejected;
+
   // Idempotency: same commandId returns the existing inspection.
   const existing = await prisma.inspection.findUnique({
     // Idempotency key from offline/sync clients.
@@ -49,6 +57,12 @@ export async function inspectCleaningTask(input: {
   });
   // Replay: prior successful inspect with this commandId.
   if (existing) {
+    // Same commandId with different task, inspector, or decision is not a replay.
+    assertCleaningCommandPayloadMatch(
+      existing.taskId === input.taskId &&
+        existing.inspectorEmployeeId === input.inspectorEmployeeId &&
+        existing.result === expectedResult,
+    );
     return { inspection: existing, task: existing.task, idempotent: true };
   }
 
@@ -242,6 +256,12 @@ export async function inspectCleaningTask(input: {
         include: { task: { include: taskInclude } },
       });
       if (again) {
+        // Concurrent winner must match task/inspector/decision or it is a collision.
+        assertCleaningCommandPayloadMatch(
+          again.taskId === input.taskId &&
+            again.inspectorEmployeeId === input.inspectorEmployeeId &&
+            again.result === expectedResult,
+        );
         return { inspection: again, task: again.task, idempotent: true };
       }
     }
