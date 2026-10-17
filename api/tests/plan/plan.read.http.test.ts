@@ -4,7 +4,13 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { PrismaClient } from "@prisma/client";
+import {
+  CleaningStatus,
+  Occupancy,
+  Priority,
+  PrismaClient,
+  TaskStatus,
+} from "@prisma/client";
 import dotenv from "dotenv";
 import {
   PLAN_PASSWORD,
@@ -13,11 +19,15 @@ import {
   cleanupPlanArtifacts,
   cleanupPlanWorld,
   closeServer,
+  countActiveTasks,
+  createActiveTask,
   createPlanWorld,
   getJson,
   hotelTodayYmd,
   listenApp,
   loginBearer,
+  postJson,
+  prepareRoom,
   seedDeferredDeparture,
   snapshotEntry,
   snapshotLocation,
@@ -31,6 +41,37 @@ dotenv.config({
 });
 
 const prisma = new PrismaClient();
+
+const TASK_SNAP_SELECT = {
+  id: true,
+  status: true,
+  priority: true,
+  assignedEmployeeId: true,
+  shiftId: true,
+  cleaningCycle: true,
+} as const;
+
+type PlanBody = {
+  date: string;
+  departures: { id: string; category: string }[];
+};
+
+function assertEntryInDepartures(body: unknown, entryId: string, label: string) {
+  const plan = body as PlanBody;
+  const ids = (plan.departures ?? []).map((e) => e.id);
+  assert.ok(
+    ids.includes(entryId),
+    `${label}: entry ${entryId} missing from departures ${JSON.stringify(ids)}`,
+  );
+}
+
+async function snapshotTasks(locationId: string) {
+  return prisma.cleaningTask.findMany({
+    where: { locationId },
+    orderBy: { id: "asc" },
+    select: TASK_SNAP_SELECT,
+  });
+}
 
 describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
   let world: PlanWorld;
@@ -52,7 +93,7 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-PLAN-57: GET with pending deferred departures does not apply effects", async () => {
+  it("T-PLAN-57: GET with past deferred departure does not apply effects", async () => {
     const today = await hotelTodayYmd();
     const past = ymdOffset(today, -3);
     await cleanupPlanArtifacts(prisma, [
@@ -70,16 +111,7 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
     });
     const beforeLoc = await snapshotLocation(prisma, world.locationAId);
     const beforeEntry = await snapshotEntry(prisma, entry.id);
-    const beforeTasks = await prisma.cleaningTask.findMany({
-      where: { locationId: world.locationAId },
-      orderBy: { id: "asc" },
-      select: {
-        id: true,
-        status: true,
-        priority: true,
-        cleaningCycle: true,
-      },
-    });
+    const beforeTasks = await snapshotTasks(world.locationAId);
 
     const first = await getJson(
       api,
@@ -87,10 +119,13 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
       `/daily-plan?hotelDate=${past}`,
     );
     assert.equal(first.status, 200, JSON.stringify(first.body));
-    const midLoc = await snapshotLocation(prisma, world.locationAId);
-    const midEntry = await snapshotEntry(prisma, entry.id);
-    assertLocationSnapEqual(midLoc, beforeLoc, "after first GET");
-    assert.deepEqual(midEntry, beforeEntry);
+    assertEntryInDepartures(first.body, entry.id, "past GET#1");
+    assertLocationSnapEqual(
+      await snapshotLocation(prisma, world.locationAId),
+      beforeLoc,
+      "after first GET",
+    );
+    assert.deepEqual(await snapshotEntry(prisma, entry.id), beforeEntry);
 
     const second = await getJson(
       api,
@@ -98,6 +133,7 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
       `/daily-plan?hotelDate=${past}`,
     );
     assert.equal(second.status, 200, JSON.stringify(second.body));
+    assertEntryInDepartures(second.body, entry.id, "past GET#2");
     assertLocationSnapEqual(
       await snapshotLocation(prisma, world.locationAId),
       beforeLoc,
@@ -108,16 +144,133 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
       (await snapshotEntry(prisma, entry.id)).roomEffectsAppliedAt,
       null,
     );
-    const afterTasks = await prisma.cleaningTask.findMany({
-      where: { locationId: world.locationAId },
-      orderBy: { id: "asc" },
-      select: {
-        id: true,
-        status: true,
-        priority: true,
-        cleaningCycle: true,
-      },
+    assert.deepEqual(await snapshotTasks(world.locationAId), beforeTasks);
+  });
+
+  it("T-PLAN-57b: GET today pending departure does not apply; apply endpoint does", async () => {
+    const today = await hotelTodayYmd();
+    await cleanupPlanArtifacts(
+      prisma,
+      [
+        world.locationAId,
+        world.locationBId,
+        world.locationCId,
+        world.archivedLocationId,
+      ],
+      world.employeeIds,
+    );
+    await cancelActiveTasks(prisma, world.locationAId, today);
+
+    const cycle = 42;
+    await prepareRoom(prisma, world.locationAId, {
+      occupancy: Occupancy.occupied,
+      cleaningStatus: CleaningStatus.dirty,
+      cleaningCycle: cycle,
     });
-    assert.deepEqual(afterTasks, beforeTasks);
+    const task = await createActiveTask(prisma, {
+      locationId: world.locationAId,
+      hotelDateYmd: today,
+      priority: Priority.normal,
+      assignedEmployeeId: world.hk1.employeeId,
+      shiftId: world.shiftId,
+      cleaningCycle: cycle,
+    });
+
+    // Direct pending fixture — not createDailyPlanEntry (which would apply today).
+    const entry = await seedDeferredDeparture(prisma, {
+      hotelDateYmd: today,
+      locationId: world.locationAId,
+      createdByEmployeeId: world.owner.employeeId,
+      assignedEmployeeId: world.hk1.employeeId,
+      shiftId: world.shiftId,
+      cleaningTaskId: null,
+      prepareOccupiedRoom: false,
+      notes: "t-plan-57b today pending",
+    });
+    // Re-assert room still occupied at known cycle after seed (audits cleared only).
+    const locCheck = await snapshotLocation(prisma, world.locationAId);
+    assert.equal(locCheck.occupancy, Occupancy.occupied);
+    assert.equal(locCheck.cleaningCycle, cycle);
+
+    const beforeLoc = await snapshotLocation(prisma, world.locationAId);
+    const beforeEntry = await snapshotEntry(prisma, entry.id);
+    const beforeTasks = await snapshotTasks(world.locationAId);
+    assert.equal(beforeTasks.length, 1);
+    assert.equal(beforeTasks[0]!.id, task.id);
+    assert.equal(beforeTasks[0]!.priority, Priority.normal);
+    assert.equal(beforeTasks[0]!.assignedEmployeeId, world.hk1.employeeId);
+    assert.equal(beforeTasks[0]!.shiftId, world.shiftId);
+    assert.equal(beforeTasks[0]!.cleaningCycle, cycle);
+    assert.equal(beforeEntry.roomEffectsAppliedAt, null);
+
+    const first = await getJson(
+      api,
+      ownerToken,
+      `/daily-plan?hotelDate=${today}`,
+    );
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    assertEntryInDepartures(first.body, entry.id, "today GET#1");
+    assertLocationSnapEqual(
+      await snapshotLocation(prisma, world.locationAId),
+      beforeLoc,
+      "today after GET#1",
+    );
+    assert.deepEqual(await snapshotEntry(prisma, entry.id), beforeEntry);
+    assert.deepEqual(await snapshotTasks(world.locationAId), beforeTasks);
+    assert.equal(await countActiveTasks(prisma, world.locationAId, today), 1);
+
+    const second = await getJson(
+      api,
+      ownerToken,
+      `/daily-plan?hotelDate=${today}`,
+    );
+    assert.equal(second.status, 200, JSON.stringify(second.body));
+    assertEntryInDepartures(second.body, entry.id, "today GET#2");
+    assertLocationSnapEqual(
+      await snapshotLocation(prisma, world.locationAId),
+      beforeLoc,
+      "today after GET#2",
+    );
+    const afterEntry = await snapshotEntry(prisma, entry.id);
+    assert.deepEqual(afterEntry, beforeEntry);
+    assert.equal(afterEntry.roomEffectsAppliedAt, null);
+    assert.deepEqual(await snapshotTasks(world.locationAId), beforeTasks);
+    assert.equal(await countActiveTasks(prisma, world.locationAId, today), 1);
+
+    // Positive control: same prep must be appliable via the real apply endpoint.
+    // Same-day occupied departure applies without confirmEntryIds.
+    const applyRes = await postJson(
+      api,
+      ownerToken,
+      "/daily-plan/apply-departure-effects",
+      { hotelDate: today },
+    );
+    assert.equal(applyRes.status, 200, JSON.stringify(applyRes.body));
+    const applied = applyRes.body as {
+      applied: number;
+      deferred: number;
+    };
+    assert.equal(applied.applied, 1, JSON.stringify(applyRes.body));
+    assert.equal(applied.deferred, 0);
+
+    const stamped = await prisma.dailyPlanEntry.findUniqueOrThrow({
+      where: { id: entry.id },
+    });
+    assert.ok(stamped.roomEffectsAppliedAt, "apply must stamp roomEffectsAppliedAt");
+    const afterLoc = await snapshotLocation(prisma, world.locationAId);
+    assert.equal(afterLoc.occupancy, Occupancy.vacant);
+    assert.equal(afterLoc.cleaningStatus, CleaningStatus.dirty);
+    assert.ok(
+      afterLoc.cleaningCycle > cycle,
+      `apply should bump cycle from ${cycle}, got ${afterLoc.cleaningCycle}`,
+    );
+    const linkedTask = await prisma.cleaningTask.findUniqueOrThrow({
+      where: { id: task.id },
+    });
+    assert.equal(linkedTask.status, TaskStatus.assigned);
+    assert.equal(linkedTask.priority, Priority.high);
+    assert.equal(linkedTask.assignedEmployeeId, world.hk1.employeeId);
+    assert.equal(linkedTask.shiftId, world.shiftId);
+    assert.equal(await countActiveTasks(prisma, world.locationAId, today), 1);
   });
 });

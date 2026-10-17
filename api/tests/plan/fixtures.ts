@@ -350,7 +350,12 @@ export async function prepareRoom(
   });
 }
 
-/** Past-day deferred departure: occupied, unstamped, no newer-stay evidence. */
+/**
+ * Pending departure fixture: occupied room, unstamped entry, no newer-stay
+ * evidence. Does not run createDailyPlanEntry (which would apply effects).
+ * For hotel-today occupied rooms, ensureDepartureRoomEffects would apply
+ * immediately — use that as a GET regression probe + positive control.
+ */
 export async function seedDeferredDeparture(
   prisma: PrismaClient,
   input: {
@@ -360,12 +365,20 @@ export async function seedDeferredDeparture(
     assignedEmployeeId?: string | null;
     shiftId?: string | null;
     notes?: string;
+    cleaningStatus?: CleaningStatus;
+    cleaningCycle?: number;
+    cleaningTaskId?: string | null;
+    /** When false, caller already prepared occupancy/cleaning (default true). */
+    prepareOccupiedRoom?: boolean;
   },
 ) {
-  await prepareRoom(prisma, input.locationId, {
-    occupancy: Occupancy.occupied,
-    cleaningStatus: CleaningStatus.dirty,
-  });
+  if (input.prepareOccupiedRoom !== false) {
+    await prepareRoom(prisma, input.locationId, {
+      occupancy: Occupancy.occupied,
+      cleaningStatus: input.cleaningStatus ?? CleaningStatus.dirty,
+      cleaningCycle: input.cleaningCycle,
+    });
+  }
   // Clear occupancy→occupied audits after plan day that would trigger protect.
   const after = new Date(
     `${ymdOffset(input.hotelDateYmd, 1)}T00:00:00.000Z`,
@@ -388,7 +401,7 @@ export async function seedDeferredDeparture(
       assignedEmployeeId: input.assignedEmployeeId ?? null,
       shiftId: input.shiftId ?? null,
       roomEffectsAppliedAt: null,
-      cleaningTaskId: null,
+      cleaningTaskId: input.cleaningTaskId ?? null,
       createdByEmployeeId: input.createdByEmployeeId,
     },
   });
