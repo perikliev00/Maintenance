@@ -228,6 +228,11 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–25/30)", () => {
     });
     assert.equal(secondStart.idempotent, true);
     assert.equal(secondStart.session.id, firstStart.session.id);
+    assert.equal(
+      await prisma.cleaningSession.count({ where: { taskId: task.id } }),
+      1,
+      "start replay must not create a second session",
+    );
 
     const completeCmd = randomUUID();
     const firstComplete = await completeCleaningSession({
@@ -245,6 +250,13 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–25/30)", () => {
     });
     assert.equal(secondComplete.idempotent, true);
     assert.equal(secondComplete.session.id, firstComplete.session.id);
+    assert.equal(
+      await prisma.cleaningSession.count({
+        where: { taskId: task.id, status: SessionStatus.completed },
+      }),
+      1,
+      "complete replay must not create a second completed session",
+    );
 
     const inspectCmd = randomUUID();
     const firstInspect = await inspectCleaningTask({
@@ -295,6 +307,15 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–25/30)", () => {
     });
     assert.equal(secondCancel.idempotent, true);
     assert.equal(secondCancel.session.id, firstCancel.session.id);
+    assert.equal(
+      await prisma.cleaningSession.count({
+        where: {
+          id: forCancel.session.id,
+          status: SessionStatus.cancelled,
+        },
+      }),
+      1,
+    );
   });
 
   it("T-CLN-30: markDirty during running rebinds and complete updates room", async () => {

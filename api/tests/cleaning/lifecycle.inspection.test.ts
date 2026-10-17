@@ -24,7 +24,6 @@ import {
   cleanupCleaningWorld,
   createAndStartToday,
   createCleaningWorld,
-  errCode,
   hotelTodayYmd,
   isAppError,
   resetCleaningWork,
