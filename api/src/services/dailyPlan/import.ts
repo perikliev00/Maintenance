@@ -12,6 +12,10 @@ import { prisma } from "../../db";
 import { applyPlanEntryEffects, parseHotelDate } from "../dailyPlanEffects";
 import { todayHotelDateYmd } from "../hotelTime";
 import { mapBatch } from "./format";
+import {
+  isDailyPlanEntryDateLocCategoryConflict,
+  isP2002,
+} from "./prismaConflicts";
 import { getDailyPlan } from "./queries";
 import type { DailyPlanImportPayload, ImportError } from "./types";
 
@@ -89,6 +93,7 @@ export async function importDailyPlan(
     // Human-readable room label for per-row error reporting.
     const roomLabel = `${item.buildingCode} ${item.roomNumber}`;
 
+    let resolvedLocationId: string | null = null;
     try {
       // Idempotent skip when the same external id was already imported.
       if (item.externalId) {
@@ -125,6 +130,7 @@ export async function importDailyPlan(
         continue;
       }
       const location = resolved.location;
+      resolvedLocationId = location.id;
       // Archived rooms cannot receive new plan rows.
       if (location.catalogStatus !== "active") {
         errorCount += 1;
@@ -185,6 +191,28 @@ export async function importDailyPlan(
 
       createdCount += 1;
     } catch (err) {
+      // Concurrent create won the (hotelDate, location, category) race:
+      // treat like the pre-insert existing-row skip (not an error).
+      if (isP2002(err) && isDailyPlanEntryDateLocCategoryConflict(err)) {
+        skippedCount += 1;
+        continue;
+      }
+      if (isP2002(err) && resolvedLocationId) {
+        const raced = await prisma.dailyPlanEntry.findUnique({
+          where: {
+            hotelDate_locationId_category: {
+              hotelDate,
+              locationId: resolvedLocationId,
+              category: item.category,
+            },
+          },
+          select: { id: true },
+        });
+        if (raced) {
+          skippedCount += 1;
+          continue;
+        }
+      }
       // Unexpected throws become per-row errors; the batch continues.
       errorCount += 1;
       const reason =

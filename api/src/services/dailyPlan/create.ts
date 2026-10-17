@@ -9,7 +9,14 @@ import { applyPlanEntryEffects, parseHotelDate } from "../dailyPlanEffects";
 import { todayHotelDateYmd } from "../hotelTime";
 import { assertActiveShiftId } from "../shifts";
 import { mapEntry } from "./format";
+import {
+  isDailyPlanEntryDateLocCategoryConflict,
+  isP2002,
+} from "./prismaConflicts";
 import { entryInclude } from "./types";
+
+const PLAN_ENTRY_EXISTS =
+  "Plan entry already exists for this room/date/category";
 
 /**
  * Create a unique (hotelDate, location, category) plan entry for an active room.
@@ -58,11 +65,7 @@ export async function createDailyPlanEntry(input: {
   });
   // Duplicate category for the same room/day is a conflict.
   if (existingEntry) {
-    throw new AppError(
-      409,
-      "conflict",
-      "Plan entry already exists for this room/date/category",
-    );
+    throw new AppError(409, "conflict", PLAN_ENTRY_EXISTS);
   }
 
   // Optional assignee must be an active housekeeper.
@@ -71,49 +74,74 @@ export async function createDailyPlanEntry(input: {
   }
 
   // Effects + entry insert must succeed together.
-  const result = await prisma.$transaction(async (tx) => {
-    // Hotel-local "today" gates deferred departure room effects.
-    const todayYmd = await todayHotelDateYmd();
-    // Category-specific occupancy/dirty/task side effects.
-    const effects = await applyPlanEntryEffects(
-      tx,
-      location,
-      hotelDate,
-      input.category,
-      input.assignedEmployeeId,
-      shiftId ?? undefined,
-      todayYmd,
-    );
-
-    // Persist the plan row with linked task id and optional room-effects stamp.
-    const entry = await tx.dailyPlanEntry.create({
-      data: {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // Hotel-local "today" gates deferred departure room effects.
+      const todayYmd = await todayHotelDateYmd();
+      // Category-specific occupancy/dirty/task side effects.
+      const effects = await applyPlanEntryEffects(
+        tx,
+        location,
         hotelDate,
-        locationId: location.id,
-        category: input.category,
-        notes: input.notes ?? null,
-        source: DailyPlanSource.manual,
-        cleaningTaskId: effects.cleaningTaskId,
-        // Preserve for deferred departure confirm (even when task was skipped).
-        assignedEmployeeId: input.assignedEmployeeId ?? null,
-        shiftId: shiftId ?? null,
-        roomEffectsAppliedAt: effects.roomEffectsApplied ? new Date() : null,
-        createdByEmployeeId: input.createdByEmployeeId,
-      },
-      include: entryInclude,
+        input.category,
+        input.assignedEmployeeId,
+        shiftId ?? undefined,
+        todayYmd,
+      );
+
+      // Persist the plan row with linked task id and optional room-effects stamp.
+      const entry = await tx.dailyPlanEntry.create({
+        data: {
+          hotelDate,
+          locationId: location.id,
+          category: input.category,
+          notes: input.notes ?? null,
+          source: DailyPlanSource.manual,
+          cleaningTaskId: effects.cleaningTaskId,
+          // Preserve for deferred departure confirm (even when task was skipped).
+          assignedEmployeeId: input.assignedEmployeeId ?? null,
+          shiftId: shiftId ?? null,
+          roomEffectsAppliedAt: effects.roomEffectsApplied ? new Date() : null,
+          createdByEmployeeId: input.createdByEmployeeId,
+        },
+        include: entryInclude,
+      });
+
+      // API payload: mapped entry + effect summary for the UI toast.
+      return {
+        entry: mapEntry(entry),
+        effects: {
+          occupancy: effects.occupancy,
+          dirty: effects.dirty,
+          task: effects.task,
+          cleaningTaskId: effects.cleaningTaskId,
+        },
+      };
     });
 
-    // API payload: mapped entry + effect summary for the UI toast.
-    return {
-      entry: mapEntry(entry),
-      effects: {
-        occupancy: effects.occupancy,
-        dirty: effects.dirty,
-        task: effects.task,
-        cleaningTaskId: effects.cleaningTaskId,
-      },
-    };
-  });
-
-  return result;
+    return result;
+  } catch (err) {
+    // Concurrent create/import: map only DailyPlanEntry (date,loc,cat) unique.
+    // CleaningTask P2002 must not become "plan entry exists".
+    if (isP2002(err) && isDailyPlanEntryDateLocCategoryConflict(err)) {
+      throw new AppError(409, "conflict", PLAN_ENTRY_EXISTS);
+    }
+    if (isP2002(err)) {
+      // After rollback: confirm the plan row won the race even if meta is opaque.
+      const raced = await prisma.dailyPlanEntry.findUnique({
+        where: {
+          hotelDate_locationId_category: {
+            hotelDate,
+            locationId: input.locationId,
+            category: input.category,
+          },
+        },
+        select: { id: true },
+      });
+      if (raced) {
+        throw new AppError(409, "conflict", PLAN_ENTRY_EXISTS);
+      }
+    }
+    throw err;
+  }
 }

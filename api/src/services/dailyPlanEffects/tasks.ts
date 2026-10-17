@@ -68,11 +68,23 @@ export async function createTaskWithSectorSnapshot(
     planCategory: data.planCategory,
   });
   // Bind task to the location's current cleaning cycle generation.
+  // resolveCycleForNewTask locks Location — re-check active task under that lock
+  // so a concurrent winner that already committed is visible before we insert.
   const cleaningCycle = await resolveCycleForNewTask(
     tx,
     data.locationId,
     data.hotelDate,
   );
+  const preexisting = await tx.cleaningTask.findFirst({
+    where: {
+      locationId: data.locationId,
+      hotelDate: data.hotelDate,
+      status: { in: [...ACTIVE_TASK_STATUSES] },
+    },
+  });
+  if (preexisting) {
+    return preexisting;
+  }
   try {
     return await tx.cleaningTask.create({
       data: {
@@ -90,11 +102,12 @@ export async function createTaskWithSectorSnapshot(
     });
   } catch (err) {
     // Concurrent create hit the partial unique (one active task per room/date).
+    // Prefer the under-lock re-check above; this path is belt-and-suspenders when
+    // the peer commit lands between findFirst and create (same lock holder).
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
-      // Return the winner of the race instead of failing the plan effect.
       const existing = await tx.cleaningTask.findFirst({
         where: {
           locationId: data.locationId,

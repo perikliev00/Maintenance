@@ -11,6 +11,7 @@
     "test:cleaning-lifecycle": "tsx --test --test-concurrency=1 \"tests/cleaning/**/*.test.ts\"",
     "test:readiness": "tsx --test --test-concurrency=1 \"tests/readiness/**/*.test.ts\"",
     "test:tickets-lifecycle": "tsx --test --test-concurrency=1 \"tests/tickets/**/*.test.ts\"",
+    "test:plan": "tsx --test --test-concurrency=1 \"tests/plan/**/*.test.ts\"",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
