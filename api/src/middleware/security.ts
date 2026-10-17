@@ -21,6 +21,11 @@ function rateLimitedHandler(_req: Request, res: Response): void {
   });
 }
 
+/** E2E / local suites issue many logins + mutations from one IP; skip when set. */
+function rateLimitsDisabled(): boolean {
+  return process.env.E2E_DISABLE_RATE_LIMIT === "1";
+}
+
 /** Enable when behind a reverse proxy so req.ip / rate limits use X-Forwarded-For. */
 export function configureTrustProxy(app: Application): void {
   // Opt-in only — enabling blindly would trust spoofed X-Forwarded-For.
@@ -39,6 +44,7 @@ export const authLoginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: rateLimitedHandler,
+  skip: () => rateLimitsDisabled(),
   keyGenerator: (req) => {
     // Bucket by normalized email when present so one IP cannot spray many accounts freely.
     const email =
@@ -57,6 +63,7 @@ export const invitationRedeemLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: rateLimitedHandler,
+  skip: () => rateLimitsDisabled(),
   keyGenerator: (req) => clientIpKey(req),
 });
 
@@ -68,6 +75,6 @@ export const globalApiLimiter = rateLimit({
   legacyHeaders: false,
   handler: rateLimitedHandler,
   keyGenerator: (req) => clientIpKey(req),
-  // Health checks must not consume the global budget.
-  skip: (req) => req.path === "/health",
+  // Health checks must not consume the global budget; E2E skips entirely.
+  skip: (req) => req.path === "/health" || rateLimitsDisabled(),
 });

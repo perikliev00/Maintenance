@@ -137,18 +137,26 @@ export function getStoredUser(): AuthUser | null {
 }
 
 /**
- * Drop local identity cache and private offline state.
- * Legacy `token` / `refreshToken` keys are removed for older installs; auth is cookie-based.
+ * Drop local identity cache and await private offline purge.
+ * Shared-device logout must finish wiping IndexedDB before the login screen is
+ * usable, otherwise the next profile can observe the prior user's outbox.
  */
-export function clearSession() {
+async function wipeLocalSession(): Promise<void> {
   localStorage.removeItem("token");
   localStorage.removeItem("refreshToken");
   localStorage.removeItem("user");
-  // Best-effort: drop private IndexedDB + leftover authenticated HTTP caches
-  // so a shared device cannot surface the previous user's offline data.
-  void import("../offline").then((m) => {
-    m.clearPrivateOfflineState();
-  });
+  const m = await import("../offline");
+  m.clearPrivateOfflineState();
+  await m.whenOfflineUserSettled();
+}
+
+/**
+ * Drop local identity cache and private offline state (fire-and-forget).
+ * Prefer {@link logout} / {@link logoutAll}, which await the wipe.
+ * Legacy `token` / `refreshToken` keys are removed for older installs; auth is cookie-based.
+ */
+export function clearSession() {
+  void wipeLocalSession();
 }
 
 /** Coalesce concurrent 401s into one refresh so the outbox does not stampede. */
@@ -251,7 +259,8 @@ export async function logout(): Promise<void> {
   } catch {
     /* best-effort */
   } finally {
-    clearSession();
+    // Await purge so the Sign-in screen is only shown after outbox wipe settles.
+    await wipeLocalSession();
   }
 }
 
@@ -263,7 +272,7 @@ export async function logoutAll(): Promise<void> {
   } catch {
     /* best-effort */
   } finally {
-    clearSession();
+    await wipeLocalSession();
   }
 }
 

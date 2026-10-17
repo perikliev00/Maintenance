@@ -42,6 +42,11 @@ export default defineConfig({
           url: apiHealthURL,
           reuseExistingServer: !process.env.CI,
           timeout: 120_000,
+          env: {
+            ...process.env,
+            // Suite logins + live polls exceed production IP budgets from one runner.
+            E2E_DISABLE_RATE_LIMIT: "1",
+          },
         },
         {
           command: "npm run dev -- --host 127.0.0.1 --port 5173",

@@ -7,8 +7,8 @@ import { openNav } from "./helpers/nav";
 import { apiGet, apiPost } from "./helpers/api";
 import {
   findTechnicianEmployeeId,
-  listRooms,
   ownerApi,
+  prepareVacantDirtyRoom,
 } from "./helpers/fixtures";
 
 test.describe("E2E-02 repairs lifecycle flow", () => {
@@ -20,19 +20,19 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     });
 
     const { token } = await ownerApi();
-    const rooms = await listRooms(token);
-    const room = rooms[0]!;
+    // Dedicated free room so seed tickets/tasks cannot collide with this stamp.
+    const room = await prepareVacantDirtyRoom(token);
     const techId = await findTechnicianEmployeeId(token);
     const stamp = `E2E-R-${Date.now()}`;
 
     await uiLogin(page, USERS.owner, DEMO_PASSWORD);
-    await openNav(page, /Ремонти|Repairs/);
+    // BG nav label is "Повреди", not "Ремонти".
+    await openNav(page, /Повреди|Repairs/);
     await expect(page.getByRole("heading", { name: /Докладвай|Report/i })).toBeVisible({
       timeout: 20_000,
     });
 
     await page.getByLabel(/Стая|Room/).selectOption({ value: room.id });
-    // Pick first real option (skip empty if any)
     const optionSelect = page.getByLabel(/Опция|Option/);
     const optionValues = await optionSelect.locator("option").evaluateAll((opts) =>
       opts.map((o) => (o as HTMLOptionElement).value).filter(Boolean),
@@ -41,9 +41,7 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     await optionSelect.selectOption(optionValues[0]!);
     await page.getByLabel(/Заглавие|Title/).fill(stamp);
     await page.getByRole("button", { name: /Докладвай|Report/i }).click();
-    await expect(page.getByText(/докладван|reported|Тикет/i).first()).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(page.getByText(stamp)).toBeVisible({ timeout: 15_000 });
 
     const list = await apiGet(token, "/maintenance/tickets?status=open&limit=50");
     expect(list.status).toBe(200);
@@ -56,49 +54,47 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     });
 
     await page.getByRole("button", { name: "Log out" }).click();
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
     await uiLogin(page, USERS.technician, DEMO_PASSWORD);
-    await openNav(page, /Ремонти|Repairs/);
+    await openNav(page, /Повреди|Repairs/);
 
-    // Select the ticket row if needed, then Start
-    await page.getByText(stamp).first().click().catch(() => undefined);
-    await expect(page.getByRole("button", { name: "Start" }).first()).toBeVisible({
-      timeout: 25_000,
-    });
-    await page.getByRole("button", { name: "Start" }).first().click();
-    await expect(page.getByRole("button", { name: "Wait" }).first()).toBeVisible({
+    const ticketRow = () => page.locator("tr").filter({ hasText: stamp });
+    await expect(ticketRow()).toBeVisible({ timeout: 25_000 });
+    await ticketRow().getByRole("button", { name: "Start" }).click();
+    await expect(ticketRow().getByRole("button", { name: "Wait" })).toBeVisible({
       timeout: 15_000,
     });
-    await page.getByRole("button", { name: "Wait" }).first().click();
-    await expect(page.getByRole("button", { name: "Resume" }).first()).toBeVisible({
+    await ticketRow().getByRole("button", { name: "Wait" }).click();
+    await expect(ticketRow().getByRole("button", { name: "Resume" })).toBeVisible({
       timeout: 15_000,
     });
-    await page.getByRole("button", { name: "Resume" }).first().click();
-    await expect(page.getByRole("button", { name: "Resolve" }).first()).toBeVisible({
+    await ticketRow().getByRole("button", { name: "Resume" }).click();
+    await expect(ticketRow().getByRole("button", { name: "Resolve" })).toBeVisible({
       timeout: 15_000,
     });
-    await page.getByRole("button", { name: "Resolve" }).first().click();
+    await ticketRow().getByRole("button", { name: "Resolve" }).click();
 
     await page.getByRole("button", { name: "Log out" }).click();
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
     await uiLogin(page, USERS.owner, DEMO_PASSWORD);
-    await openNav(page, /Ремонти|Repairs/);
+    await openNav(page, /Повреди|Repairs/);
 
-    const statusFilter = page.getByLabel(/Статус|Status/).or(
-      page.locator("select").filter({ has: page.locator("option[value=resolved]") }),
-    );
-    if (await statusFilter.count()) {
-      await statusFilter.first().selectOption("resolved").catch(() => undefined);
-    }
-    await page.getByText(stamp).first().click().catch(() => undefined);
-    await expect(page.getByRole("button", { name: "Close" }).first()).toBeVisible({
+    const statusFilter = page.getByLabel(/Статус|Status/);
+    await expect(statusFilter).toBeVisible();
+    await statusFilter.selectOption("resolved");
+    await expect(ticketRow()).toBeVisible({ timeout: 20_000 });
+    await expect(ticketRow().getByRole("button", { name: "Close" })).toBeVisible({
       timeout: 20_000,
     });
-    await page.getByRole("button", { name: "Close" }).first().click();
+    await ticketRow().getByRole("button", { name: "Close" }).click();
 
     await openNav(page, /Контрол|Control/);
-    await expect(page.getByRole("button", { name: /Reopen|Отвори/i }).first()).toBeVisible({
+    const controlCard = page.locator("li").filter({ hasText: stamp });
+    await expect(controlCard).toBeVisible({ timeout: 20_000 });
+    await expect(controlCard.getByRole("button", { name: "Reopen" })).toBeVisible({
       timeout: 20_000,
     });
-    await page.getByRole("button", { name: /Reopen|Отвори/i }).first().click();
+    await controlCard.getByRole("button", { name: "Reopen" }).click();
 
     const events = await apiGet(token, `/maintenance/tickets/${ticket!.id}/events`);
     expect(events.status).toBe(200);

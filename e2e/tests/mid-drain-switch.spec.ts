@@ -6,6 +6,8 @@ type E2eWindow = Window & {
   __e2eReleaseDrainClaim?: () => void;
   /** Set true only when drain actually enters the after-claim hook. */
   __e2eDrainClaimed?: boolean;
+  /** Set when drain resumes after the after-claim gate and finishes abort/send path. */
+  __e2eDrainResumed?: boolean;
 };
 
 type QueueHit = {
@@ -142,9 +144,14 @@ test.describe("mid-drain account switch", () => {
         release = resolve;
       });
       w.__e2eDrainClaimed = false;
-      w.__MERIDIAN_E2E_AFTER_DRAIN_CLAIM__ = () => {
+      w.__e2eDrainResumed = false;
+      w.__MERIDIAN_E2E_AFTER_DRAIN_CLAIM__ = async () => {
         w.__e2eDrainClaimed = true;
-        return gate;
+        try {
+          await gate;
+        } finally {
+          w.__e2eDrainResumed = true;
+        }
       };
       w.__e2eReleaseDrainClaim = () => {
         release();
@@ -169,6 +176,7 @@ test.describe("mid-drain account switch", () => {
     expect(claimed.status).toBe("sending");
 
     await page.getByRole("button", { name: "Log out" }).click();
+    // logout() awaits IndexedDB purge before showing Sign in.
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 
     // Logout wipes private offline stores — A's command must not linger for B.
@@ -187,11 +195,21 @@ test.describe("mid-drain account switch", () => {
       (window as E2eWindow).__e2eReleaseDrainClaim?.();
     });
 
-    // Give a drained abort a moment; push must never have fired with A's command.
-    await page.waitForTimeout(500);
+    // Deterministic: wait until drain resumes past the gate (abort path).
+    await expect
+      .poll(async () =>
+        page.evaluate(() => (window as E2eWindow).__e2eDrainResumed === true),
+      )
+      .toBe(true);
+
     expect(
       pushRequests.some((body) => body.includes(commandId)),
       "user A command must not reach /sync/push after account switch",
     ).toBe(false);
+
+    // Bound user B must not inherit A's commandId in the outbox either.
+    const userBId = await storedUserId(page);
+    const asB = await findQueueItem(page, userBId, commandId);
+    expect(asB.found, "user B must not hold user A command").toBe(false);
   });
 });

@@ -160,6 +160,8 @@ jobs:
       JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
       WEB_ORIGIN: http://127.0.0.1:5173
       PORT: "4000"
+      # Many UI logins + live polls from one runner exceed production IP budgets.
+      E2E_DISABLE_RATE_LIMIT: "1"
     steps:
       - uses: actions/checkout@v4
 

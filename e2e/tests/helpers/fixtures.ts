@@ -2,7 +2,7 @@
  * API-side fixtures for E2E flows (setup only; asserted actions stay in the UI).
  */
 import { expect } from "@playwright/test";
-import { apiGet, apiLogin, apiPatch, apiPost, API_ORIGIN } from "./api";
+import { apiGet, apiLogin, apiPatch, apiPost, apiPut, API_ORIGIN } from "./api";
 import { USERS } from "./auth";
 
 export type RoomRow = {
@@ -31,19 +31,101 @@ export async function getRoom(token: string, id: string): Promise<RoomRow> {
   return res.body as RoomRow;
 }
 
-/** Pick an active room and force vacant + dirty for a clean cleaning cycle. */
-export async function prepareVacantDirtyRoom(token: string): Promise<RoomRow> {
-  const rooms = await listRooms(token);
-  const room = rooms[0];
-  expect(room, "need at least one active room").toBeTruthy();
-  await apiPatch(token, `/locations/${room!.id}/occupancy`, {
+/** Hotel calendar "today" (YYYY-MM-DD) from operations settings when available. */
+export async function hotelToday(token: string): Promise<string> {
+  const settings = await apiGet(token, "/settings");
+  const ops = (
+    settings.body as { operations?: { value?: { hotelTimezone?: string } } }
+  ).operations?.value;
+  const tz = ops?.hotelTimezone ?? "Europe/Sofia";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+async function forceVacantDirty(token: string, roomId: string): Promise<RoomRow> {
+  await apiPatch(token, `/locations/${roomId}/occupancy`, {
     occupancy: "vacant",
   });
-  await apiPatch(token, `/locations/${room!.id}/service-status`, {
+  await apiPatch(token, `/locations/${roomId}/service-status`, {
     serviceStatus: "in_service",
   });
-  await apiPost(token, `/rooms/${room!.id}/mark-dirty`, {});
-  return getRoom(token, room!.id);
+  await apiPost(token, `/rooms/${roomId}/mark-dirty`, {});
+  return getRoom(token, roomId);
+}
+
+/**
+ * Attach a location to a sector supervised by the demo supervisor so
+ * supervisor-scoped Rooms UI can see it (without wiping other memberships).
+ */
+export async function ensureRoomInSupervisorSector(
+  token: string,
+  locationId: string,
+): Promise<void> {
+  const people = await apiGet(token, "/people");
+  expect(people.status).toBe(200);
+  const supervisor = (
+    people.body as Array<{ email?: string; employeeId?: string }>
+  ).find((p) => (p.email ?? "").toLowerCase() === USERS.supervisor.toLowerCase());
+  expect(supervisor?.employeeId, "supervisor employeeId").toBeTruthy();
+
+  const sectorsRes = await apiGet(token, "/sectors");
+  expect(sectorsRes.status).toBe(200);
+  const sectors = sectorsRes.body as Array<{
+    id: string;
+    isActive: boolean;
+    primarySupervisor: { id: string } | null;
+    locationIds: string[];
+  }>;
+  const sector = sectors.find(
+    (s) =>
+      s.isActive &&
+      s.primarySupervisor?.id === supervisor!.employeeId,
+  );
+  expect(sector, "need active sector for demo supervisor").toBeTruthy();
+
+  if (sector!.locationIds.includes(locationId)) return;
+
+  const put = await apiPut(token, `/sectors/${sector!.id}/locations`, {
+    locationIds: [...sector!.locationIds, locationId],
+  });
+  expect(
+    put.status,
+    `sector membership → ${put.status} ${JSON.stringify(put.body)}`,
+  ).toBe(200);
+}
+
+/**
+ * Create an isolated vacant+dirty room (unique number) with no active cleaning
+ * task, attached to the demo supervisor's sector so HK + supervisor scopes see it.
+ */
+export async function prepareVacantDirtyRoom(token: string): Promise<RoomRow> {
+  const hier = await apiGet(token, "/locations/hierarchy");
+  expect(hier.status).toBe(200);
+  const buildings = hier.body as Array<{
+    floors: Array<{ id: string }>;
+  }>;
+  const floorId = buildings[0]?.floors[0]?.id;
+  expect(floorId, "need a floor to create an isolated room").toBeTruthy();
+
+  const number = `E2E${Date.now().toString(36).slice(-5).toUpperCase()}`;
+  const created = await apiPost(token, "/locations", {
+    floorId,
+    number,
+    kind: "room",
+    occupancy: "vacant",
+    serviceStatus: "in_service",
+  });
+  expect(
+    created.status,
+    `create location → ${created.status} ${JSON.stringify(created.body)}`,
+  ).toBe(201);
+  const room = created.body as RoomRow;
+  await ensureRoomInSupervisorSector(token, room.id);
+  return forceVacantDirty(token, room.id);
 }
 
 export async function findActiveIssueOption(token: string): Promise<{
@@ -157,17 +239,7 @@ export async function createAndStartCleaningTask(
   locationId: string,
   housekeeperEmployeeId: string,
 ): Promise<{ taskId: string }> {
-  // Prefer hotel "today" from operations settings when available.
-  const settings = await apiGet(token, "/settings");
-  const ops = (settings.body as { operations?: { value?: { hotelTimezone?: string } } })
-    .operations?.value;
-  const tz = ops?.hotelTimezone ?? "Europe/Sofia";
-  const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+  const today = await hotelToday(token);
   const create = await apiPost(token, "/cleaning/tasks", {
     locationId,
     hotelDate: today,
@@ -183,10 +255,11 @@ export async function createAndStartCleaningTask(
     commandId: crypto.randomUUID(),
     expectedVersion: task.version,
   });
+  // First start returns 201; idempotent replay returns 200.
   expect(
     started.status,
     `HK start → ${started.status} ${JSON.stringify(started.body)}`,
-  ).toBe(200);
+  ).toBe(201);
   return { taskId: task.id };
 }
 

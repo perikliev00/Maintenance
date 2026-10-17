@@ -93,11 +93,13 @@ export function ControlPage({ user }: Props) {
    */
   const refresh = useCallback(async () => {
     // Parallel fetch: directory, ticket feeds, rooms, housekeepers.
-    const [peopleData, ticketData, resolvedData, roomData, hkData] =
+    const [peopleData, ticketData, resolvedData, closedData, roomData, hkData] =
       await Promise.all([
         fetchPeople({ q: q.trim() || undefined, includeInactive: true }),
         fetchTickets({ limit: 20, status: "open" }),
         fetchTickets({ limit: 20, status: "resolved" }),
+        // Closed tickets stay reopenable from this desk after Close.
+        fetchTickets({ limit: 20, status: "closed" }),
         fetchRooms(),
         fetchHousekeepers(),
       ]);
@@ -111,7 +113,11 @@ export function ControlPage({ user }: Props) {
       ) as Record<string, Role>,
     );
     setTickets(ticketData);
-    setResolvedTickets(resolvedData);
+    // Merge resolved + closed (dedupe by id); closed wins when both appear.
+    const recentById = new Map<string, MaintenanceTicket>();
+    for (const t of resolvedData) recentById.set(t.id, t);
+    for (const t of closedData) recentById.set(t.id, t);
+    setResolvedTickets([...recentById.values()]);
     setRooms(roomData);
     setHousekeepers(hkData);
     // Default first room / housekeeper into the create-task form once.
