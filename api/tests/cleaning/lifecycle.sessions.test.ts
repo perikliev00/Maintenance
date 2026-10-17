@@ -21,14 +21,18 @@ import {
   startCleaningTask,
 } from "../../src/services/cleaning";
 import { getFlags } from "../../src/services/settings";
+import { ensureTaskCycleForStart } from "../../src/services/cleaning/cycles";
+import { prisma as appPrisma } from "../../src/db";
 import {
   cleanupCleaningWorld,
   createAndStartToday,
   createCleaningWorld,
   createDualDayRunningSetup,
   hotelTodayYmd,
+  hotelYmdAt,
   isAppError,
   resetCleaningWork,
+  withOperationsPatch,
   ymdOffset,
   type CleaningWorld,
 } from "./fixtures";
@@ -96,6 +100,89 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     });
     assert.equal(locAfter.cleaningStatus, locBefore.cleaningStatus);
     assert.equal(locAfter.cleaningCycle, locBefore.cleaningCycle);
+  });
+
+  it("T-CLN-13b: hotel TZ midnight — UTC today still hotel yesterday blocks start", async () => {
+    // 2026-03-15 03:00 UTC = still 2026-03-14 in America/New_York.
+    const instant = new Date("2026-03-15T03:00:00.000Z");
+    const zone = "America/New_York";
+    const hotelToday = hotelYmdAt(instant, zone);
+    const utcToday = instant.toISOString().slice(0, 10);
+    assert.equal(hotelToday, "2026-03-14");
+    assert.equal(utcToday, "2026-03-15");
+    // A naive UTC-date check would treat utcToday as startable; hotel TZ must not.
+
+    await withOperationsPatch(
+      world.owner.employeeId,
+      { hotelTimezone: zone },
+      async () => {
+        // Create unbound via real "today"+2, then rewrite hotelDate to the UTC YMD.
+        const realToday = await hotelTodayYmd();
+        const task = await createCleaningTask({
+          locationId: world.locationAId,
+          hotelDate: ymdOffset(realToday, 2),
+          assignedEmployeeId: world.hk1.employeeId,
+          actorEmployeeId: world.owner.employeeId,
+        });
+        assert.equal(task.cleaningCycle, 0);
+        await prisma.cleaningTask.update({
+          where: { id: task.id },
+          data: {
+            hotelDate: new Date(`${utcToday}T00:00:00.000Z`),
+            cleaningCycle: 0,
+          },
+        });
+
+        const locBefore = await prisma.location.findUniqueOrThrow({
+          where: { id: world.locationAId },
+        });
+
+        try {
+          await appPrisma.$transaction(async (tx) => {
+            await ensureTaskCycleForStart(
+              tx,
+              {
+                id: task.id,
+                locationId: task.locationId,
+                hotelDate: new Date(`${utcToday}T00:00:00.000Z`),
+                cleaningCycle: 0,
+              },
+              hotelToday,
+            );
+          });
+          assert.fail("expected future hotel-date start to fail at NY midnight");
+        } catch (err) {
+          assert.ok(isAppError(err));
+          assert.equal(err.code, "invalid_state");
+          assert.match(err.message, /hotel date/i);
+        }
+
+        // Reverse boundary: Europe/Sofia evening UTC is already hotel next day.
+        const sofiaInstant = new Date("2026-03-14T22:30:00.000Z");
+        const sofiaToday = hotelYmdAt(sofiaInstant, "Europe/Sofia");
+        assert.equal(sofiaToday, "2026-03-15");
+        assert.equal(sofiaInstant.toISOString().slice(0, 10), "2026-03-14");
+        const allowed = await appPrisma.$transaction(async (tx) =>
+          ensureTaskCycleForStart(
+            tx,
+            {
+              id: task.id,
+              locationId: task.locationId,
+              hotelDate: new Date(`${sofiaToday}T00:00:00.000Z`),
+              cleaningCycle: 0,
+            },
+            sofiaToday,
+          ),
+        );
+        assert.ok(allowed > 0, "hotel-today task must start when TZ says today");
+
+        await resetCleaningWork(prisma, world);
+        const locAfter = await prisma.location.findUniqueOrThrow({
+          where: { id: world.locationAId },
+        });
+        assert.equal(locAfter.cleaningStatus, locBefore.cleaningStatus);
+      },
+    );
   });
 
   it("T-CLN-14: unbound cycle binds on start for today", async () => {
@@ -397,6 +484,63 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
       assert.equal(err.code, "conflict");
     }
 
+    try {
+      await completeCleaningSession({
+        sessionId: startedA.session.id,
+        employeeId: world.owner.employeeId,
+        commandId: completeCmd,
+        expectedVersion: completedA.task.version,
+        bypassSessionOwnerCheck: true,
+      });
+      assert.fail("expected conflict for complete commandId with different actor");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "conflict");
+    }
+
+    const cancelCmd = randomUUID();
+    const cancelledB = await cancelCleaningSession({
+      sessionId: startedB.session.id,
+      employeeId: world.hk2.employeeId,
+      commandId: cancelCmd,
+      expectedVersion: startedB.task.version,
+    });
+    assert.equal(cancelledB.session.status, SessionStatus.cancelled);
+
+    try {
+      await cancelCleaningSession({
+        sessionId: startedB.session.id,
+        employeeId: world.owner.employeeId,
+        commandId: cancelCmd,
+        expectedVersion: cancelledB.task.version,
+        bypassSessionOwnerCheck: true,
+      });
+      assert.fail("expected conflict for cancel commandId with different actor");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "conflict");
+    }
+
+    // Restart B and reuse cancelCmd against the new session → conflict.
+    const startedB2 = await startCleaningTask({
+      taskId: cancelledB.task.id,
+      employeeId: world.hk2.employeeId,
+      commandId: randomUUID(),
+      expectedVersion: cancelledB.task.version,
+    });
+    try {
+      await cancelCleaningSession({
+        sessionId: startedB2.session.id,
+        employeeId: world.hk2.employeeId,
+        commandId: cancelCmd,
+        expectedVersion: startedB2.task.version,
+      });
+      assert.fail("expected conflict for cancel commandId on different session");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "conflict");
+    }
+
     const inspectCmd = randomUUID();
     await inspectCleaningTask({
       taskId: completedA.task.id,
@@ -462,7 +606,18 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     const sessionB = await prisma.cleaningSession.findUniqueOrThrow({
       where: { id: startedB.session.id },
     });
-    assert.equal(sessionB.status, SessionStatus.running);
+    assert.equal(sessionB.status, SessionStatus.cancelled);
+    assert.equal(sessionB.cancelActorEmployeeId, world.hk2.employeeId);
+    const sessionB2 = await prisma.cleaningSession.findUniqueOrThrow({
+      where: { id: startedB2.session.id },
+    });
+    assert.equal(sessionB2.status, SessionStatus.running);
+    assert.equal(
+      await prisma.cleaningSession.count({
+        where: { cancelCommandId: cancelCmd },
+      }),
+      1,
+    );
   });
 
   it("T-CLN-30: markDirty during running rebinds and complete updates room", async () => {

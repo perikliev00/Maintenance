@@ -20,9 +20,14 @@ import {
 import { todayHotelDateYmd } from "../../src/services/hotelTime";
 import {
   getFlags,
+  getOperations,
   updateSetting,
 } from "../../src/services/settings";
-import type { FlagsSettings } from "../../src/services/settingsSchema";
+import type {
+  FlagsSettings,
+  OperationsSettings,
+} from "../../src/services/settingsSchema";
+import { hotelDateString } from "../../src/services/hotelTime";
 import {
   cleanupEmployeeGraph,
   createEmployeeWithUser,
@@ -284,6 +289,40 @@ export async function withFlagsPatch<T>(
       reason: "cln test flags restore",
     });
   }
+}
+
+/**
+ * Read-modify-write operations patch with restore in finally.
+ * Used for hotelTimezone midnight-boundary start tests.
+ */
+export async function withOperationsPatch<T>(
+  actorEmployeeId: string,
+  partial: Partial<OperationsSettings>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const original = await getOperations();
+  const next: OperationsSettings = { ...original, ...partial };
+  await updateSetting({
+    key: "operations",
+    value: next,
+    actorEmployeeId,
+    reason: "cln test operations patch",
+  });
+  try {
+    return await fn();
+  } finally {
+    await updateSetting({
+      key: "operations",
+      value: original,
+      actorEmployeeId,
+      reason: "cln test operations restore",
+    });
+  }
+}
+
+/** Hotel calendar YMD for a fixed UTC instant in a given IANA zone. */
+export function hotelYmdAt(instant: Date, timeZone: string): string {
+  return hotelDateString(instant, timeZone);
 }
 
 export async function createOpenMaintenanceTicket(

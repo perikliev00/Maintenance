@@ -89,13 +89,16 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
     const active = await countActiveTasks(prisma, world.locationAId, today);
     assert.equal(active, 1);
 
+    const winner = (ok[0] as PromiseFulfilledResult<{ id: string; cleaningCycle: number }>)
+      .value;
     const locAfter = await prisma.location.findUniqueOrThrow({
       where: { id: world.locationAId },
     });
-    assert.ok(
-      locAfter.cleaningCycle - locBefore.cleaningCycle <= 1,
-      `cycle delta must be ≤1, got ${locAfter.cleaningCycle - locBefore.cleaningCycle}`,
-    );
+    // Fixture rooms start dirty — loser must not bump cycle or flip status.
+    assert.equal(locAfter.cleaningCycle, locBefore.cleaningCycle + 1);
+    assert.equal(locAfter.cleaningStatus, locBefore.cleaningStatus);
+    assert.equal(locAfter.cleaningStatus, CleaningStatus.dirty);
+    assert.equal(winner.cleaningCycle, locAfter.cleaningCycle);
   });
 
   it("T-CLN-12: concurrent start two tasks same HK → one running session", async () => {

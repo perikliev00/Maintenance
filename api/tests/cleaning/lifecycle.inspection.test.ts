@@ -97,33 +97,44 @@ describe("cleaning lifecycle inspection (T-CLN-16…20)", () => {
       assert.equal(err.code, "assignee_conflict");
     }
 
-    await resetCleaningWork(prisma, world);
-    const task2 = await createCleaningTask({
-      locationId: world.locationAId,
-      hotelDate: today,
-      assignedEmployeeId: world.hk1.employeeId,
-      actorEmployeeId: world.owner.employeeId,
-    });
-    const ownerStart = await startCleaningTask({
-      taskId: task2.id,
+    // Owner completes HK1's session (true foreign-complete exception).
+    const ownerCompletesForeign = await completeCleaningSession({
+      sessionId: started.session.id,
       employeeId: world.owner.employeeId,
       commandId: randomUUID(),
-      expectedVersion: task2.version,
-      bypassAssigneeCheck: true,
-    });
-    assert.equal(ownerStart.session.employeeId, world.owner.employeeId);
-
-    const ownerComplete = await completeCleaningSession({
-      sessionId: ownerStart.session.id,
-      employeeId: world.owner.employeeId,
-      commandId: randomUUID(),
-      expectedVersion: ownerStart.task.version,
+      expectedVersion: started.task.version,
       bypassSessionOwnerCheck: true,
     });
-    assert.ok(
-      ownerComplete.task.status === TaskStatus.awaiting_inspection ||
-        ownerComplete.task.status === TaskStatus.completed,
+    assert.equal(ownerCompletesForeign.session.employeeId, world.hk1.employeeId);
+    assert.equal(
+      ownerCompletesForeign.session.completeActorEmployeeId,
+      world.owner.employeeId,
     );
+    assert.ok(
+      ownerCompletesForeign.task.status === TaskStatus.awaiting_inspection ||
+        ownerCompletesForeign.task.status === TaskStatus.completed,
+    );
+
+    // Manager without bypass cannot complete another employee's session.
+    await resetCleaningWork(prisma, world);
+    const { started: started2 } = await createAndStartToday(
+      world,
+      world.locationAId,
+      world.hk1.employeeId,
+    );
+    try {
+      await completeCleaningSession({
+        sessionId: started2.session.id,
+        employeeId: world.manager.employeeId,
+        commandId: randomUUID(),
+        expectedVersion: started2.task.version,
+        bypassSessionOwnerCheck: false,
+      });
+      assert.fail("expected assignee_conflict for manager foreign complete");
+    } catch (err) {
+      assert.ok(isAppError(err));
+      assert.equal(err.code, "assignee_conflict");
+    }
   });
 
   it("T-CLN-17: complete with require_inspection=true", async () => {

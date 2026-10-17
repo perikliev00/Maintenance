@@ -249,8 +249,14 @@ export async function completeCleaningSession(input: {
   });
   // Replay: prior successful complete with this commandId.
   if (existingByCommand) {
-    // Actor is not stored on the session (owner may complete); match session only.
-    assertCleaningCommandPayloadMatch(existingByCommand.id === input.sessionId);
+    // Same session + same completing actor (owner bypass is a distinct actor).
+    // Legacy rows without completeActorEmployeeId fall back to session starter.
+    const priorActor =
+      existingByCommand.completeActorEmployeeId ?? existingByCommand.employeeId;
+    assertCleaningCommandPayloadMatch(
+      existingByCommand.id === input.sessionId &&
+        priorActor === input.employeeId,
+    );
     // Return result to caller.
     return { session: existingByCommand, task: existingByCommand.task, idempotent: true };
   }
@@ -349,6 +355,7 @@ export async function completeCleaningSession(input: {
         finishedAt,
         notes: input.notes?.trim() || null,
         completeCommandId: input.commandId,
+        completeActorEmployeeId: input.employeeId,
         anomalyFlags,
       });
 
@@ -467,8 +474,12 @@ export async function completeCleaningSession(input: {
       });
       // Guard / branch on preconditions.
       if (again) {
-        // Concurrent winner must target the same session or it is a collision.
-        assertCleaningCommandPayloadMatch(again.id === input.sessionId);
+        // Concurrent winner must match session + completing actor.
+        const priorActor =
+          again.completeActorEmployeeId ?? again.employeeId;
+        assertCleaningCommandPayloadMatch(
+          again.id === input.sessionId && priorActor === input.employeeId,
+        );
         // Return result to caller.
         return { session: again, task: again.task, idempotent: true };
       }
@@ -499,8 +510,14 @@ export async function cancelCleaningSession(input: {
   });
   // Replay: prior successful cancel with this commandId.
   if (existingByCommand) {
-    // Actor is not stored on the session (reviewer may cancel); match session only.
-    assertCleaningCommandPayloadMatch(existingByCommand.id === input.sessionId);
+    // Same session + same cancelling actor (reviewer bypass is a distinct actor).
+    // Legacy rows without cancelActorEmployeeId fall back to session starter.
+    const priorActor =
+      existingByCommand.cancelActorEmployeeId ?? existingByCommand.employeeId;
+    assertCleaningCommandPayloadMatch(
+      existingByCommand.id === input.sessionId &&
+        priorActor === input.employeeId,
+    );
     // Return result to caller.
     return { session: existingByCommand, task: existingByCommand.task, idempotent: true };
   }
@@ -581,6 +598,7 @@ export async function cancelCleaningSession(input: {
         finishedAt,
         notes: input.notes?.trim() || null,
         cancelCommandId: input.commandId,
+        cancelActorEmployeeId: input.employeeId,
       });
 
       // Reload cancelled session row for the response.
@@ -655,8 +673,12 @@ export async function cancelCleaningSession(input: {
       });
       // Guard / branch on preconditions.
       if (again) {
-        // Concurrent winner must target the same session or it is a collision.
-        assertCleaningCommandPayloadMatch(again.id === input.sessionId);
+        // Concurrent winner must match session + cancelling actor.
+        const priorActor =
+          again.cancelActorEmployeeId ?? again.employeeId;
+        assertCleaningCommandPayloadMatch(
+          again.id === input.sessionId && priorActor === input.employeeId,
+        );
         // Return result to caller.
         return { session: again, task: again.task, idempotent: true };
       }

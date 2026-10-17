@@ -101,6 +101,11 @@ export async function createCleaningTask(input: {
         );
       }
 
+      // Re-check after location lock so a concurrent block/role change cannot slip in.
+      if (input.assignedEmployeeId) {
+        await assertActiveCleaningAssignee(input.assignedEmployeeId, tx);
+      }
+
       // Current cycle for today; future hotel dates stay unbound (cycle 0).
       const cleaningCycle = await resolveCycleForNewTask(
         tx,
@@ -262,6 +267,9 @@ export async function reassignCleaningTask(input: {
         "Cannot reassign while a session is running",
       );
     }
+
+    // Re-check after task lock so a concurrent block/role change cannot slip in.
+    await assertActiveCleaningAssignee(input.assignedEmployeeId, tx);
 
     // Build the claim payload: new assignee + trimmed reason.
     const data: Prisma.CleaningTaskUncheckedUpdateManyInput = {

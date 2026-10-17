@@ -2,9 +2,12 @@
  * Role-gated assignee validation for cleaning and maintenance work assignment.
  * Only active users whose role is in the domain allow-list may be assigned.
  */
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "../errors";
+
+/** Prisma client or interactive transaction client for assignee lookups. */
+type AssigneeDb = Prisma.TransactionClient | typeof prisma;
 
 /** Roles eligible to be assigned cleaning tasks. */
 export const CLEANING_ASSIGNEE_ROLES: readonly Role[] = [Role.housekeeper];
@@ -59,14 +62,16 @@ export function assertEmployeeIsEligibleAssignee(
 /**
  * Load employee + user and assert eligibility for the given roles.
  * Missing employees surface as validation (not 404) to avoid id enumeration.
+ * Pass `db` as a transaction client to re-check after row locks (TOCTOU).
  */
 export async function assertActiveAssignee(
   employeeId: string,
   allowedRoles: readonly Role[],
   message: string,
+  db: AssigneeDb = prisma,
 ): Promise<void> {
   // Missing employee → same validation error as wrong role (no 404 leak).
-  const employee = await prisma.employee.findUnique({
+  const employee = await db.employee.findUnique({
     where: { id: employeeId },
     include: { user: true },
   });
@@ -77,24 +82,28 @@ export async function assertActiveAssignee(
 /** Assert the employee can be assigned cleaning work. */
 export async function assertActiveCleaningAssignee(
   employeeId: string,
+  db: AssigneeDb = prisma,
 ): Promise<void> {
   // Thin wrapper: housekeeper-only allow-list + shared message.
   await assertActiveAssignee(
     employeeId,
     CLEANING_ASSIGNEE_ROLES,
     CLEANING_ASSIGNEE_MESSAGE,
+    db,
   );
 }
 
 /** Assert the employee can be assigned maintenance work. */
 export async function assertActiveMaintenanceAssignee(
   employeeId: string,
+  db: AssigneeDb = prisma,
 ): Promise<void> {
   // Thin wrapper: technician/supervisor/manager allow-list + shared message.
   await assertActiveAssignee(
     employeeId,
     MAINTENANCE_ASSIGNEE_ROLES,
     MAINTENANCE_ASSIGNEE_MESSAGE,
+    db,
   );
 }
 

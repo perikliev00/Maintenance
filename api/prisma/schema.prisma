@@ -340,21 +340,25 @@ model CleaningTask {
 
 /// Partial uniques (SQL migration): one running session per taskId and per employeeId.
 model CleaningSession {
-  id                String        @id @default(cuid())
-  taskId            String
-  task              CleaningTask  @relation(fields: [taskId], references: [id])
-  employeeId        String
-  employee          Employee      @relation(fields: [employeeId], references: [id])
-  startedAt         DateTime
-  finishedAt        DateTime?
-  notes             String?
-  status            SessionStatus @default(running)
-  startCommandId    String        @unique
-  completeCommandId String?       @unique
-  cancelCommandId   String?       @unique
-  anomalyFlags      Json          @default("[]")
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  id                     String        @id @default(cuid())
+  taskId                 String
+  task                   CleaningTask  @relation(fields: [taskId], references: [id])
+  employeeId             String
+  employee               Employee      @relation(fields: [employeeId], references: [id])
+  startedAt              DateTime
+  finishedAt             DateTime?
+  notes                  String?
+  status                 SessionStatus @default(running)
+  startCommandId         String        @unique
+  completeCommandId      String?       @unique
+  /** Who completed (may differ from employeeId when owner bypasses). */
+  completeActorEmployeeId String?
+  cancelCommandId        String?       @unique
+  /** Who cancelled (may differ from employeeId when reviewer bypasses). */
+  cancelActorEmployeeId  String?
+  anomalyFlags           Json          @default("[]")
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
   @@index([taskId, status])
   @@index([employeeId, status])

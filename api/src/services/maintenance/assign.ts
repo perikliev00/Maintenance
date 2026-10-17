@@ -39,6 +39,9 @@ export async function assignMaintenanceTicket(input: {
       );
     }
 
+    // Re-check after ticket lock so a concurrent block/role change cannot slip in.
+    await assertActiveMaintenanceAssignee(input.assigneeId, tx);
+
     // Capture fromStatus before the claim mutates the row.
     const fromStatus = ticket.status;
     // Conditional update — loses the race cleanly if status moved.
