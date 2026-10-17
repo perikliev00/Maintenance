@@ -45,8 +45,13 @@ function statsFromRows(rows: QueuedAction[]): QueueStats {
 export async function getQueueStats(): Promise<QueueStats> {
   // Avoid leaking another user's counts during logout / account switch.
   if (isOfflineSwitching() || !getOfflineUser()) return emptyStats();
-  const rows = await listQueueForUser(getOfflineUser()!);
-  return statsFromRows(rows);
+  try {
+    const rows = await listQueueForUser(getOfflineUser()!);
+    return statsFromRows(rows);
+  } catch {
+    // IndexedDB unavailable (Node unit tests) or transient IDB failure.
+    return emptyStats();
+  }
 }
 
 /** Outbox rows for the active user, oldest first (drain order). */

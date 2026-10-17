@@ -58,8 +58,13 @@ function cacheKeyFor(userId: string): string {
 
 /** Open (and upgrade) the offline IndexedDB; closes are owned by callers. */
 function openDb(): Promise<IDBDatabase> {
+  // Bare `indexedDB` throws ReferenceError in Node (tsx unit tests / SSR).
+  const idb = globalThis.indexedDB;
+  if (!idb) {
+    return Promise.reject(new Error("IndexedDB is not available"));
+  }
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = idb.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (event) => {
       const db = req.result;
       const oldVersion = event.oldVersion;

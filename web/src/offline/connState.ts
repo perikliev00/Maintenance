@@ -57,14 +57,17 @@ export function resolveConn(conn?: ConnMode, stats?: QueueStats): ConnMode {
 /** Push `{ conn, stats }` to subscribers (stats loaded asynchronously). */
 export function notify(conn?: ConnMode) {
   // Dynamic import breaks the queueOps ↔ connState cycle.
-  void import("./queueOps").then(({ getQueueStats }) => {
-    void getQueueStats().then((stats) => {
+  void import("./queueOps")
+    .then(({ getQueueStats }) => getQueueStats())
+    .then((stats) => {
       const mode = resolveConn(conn, stats);
       for (const listener of listeners) {
         listener({ conn: mode, stats });
       }
+    })
+    .catch(() => {
+      /* best-effort banner; IndexedDB may be missing in unit tests / SSR */
     });
-  });
 }
 
 /** Clear unreachable flag and cancel pending backoff (successful I/O). */
