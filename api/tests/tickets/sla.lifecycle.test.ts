@@ -22,6 +22,7 @@ import {
   loadTicket,
   reportTicket,
   withDefaultSlaHours,
+  withMissingSlaPolicy,
   withSlaPolicyPatch,
   type TicketsWorld,
 } from "./fixtures";
@@ -108,7 +109,40 @@ describe("ticket SLA lifecycle (T-TKT-05…07 / P1-41…43)", () => {
     );
   });
 
-  it("T-TKT-06: wait→resume extends dueAt exactly; repeat resume does not double-extend (P1-42)", async () => {
+  it("T-TKT-05c: missing SLA policy row falls back to defaultTicketSlaHours (P1-41)", async () => {
+    const T0 = new Date("2026-06-01T14:00:00.000Z");
+    await withMissingSlaPolicy(
+      prisma,
+      world.owner.employeeId,
+      Priority.high,
+      async () => {
+        await withDefaultSlaHours(world.owner.employeeId, 13, async () => {
+          const rowMissing = await prisma.slaPolicy.findUnique({
+            where: { priority: Priority.high },
+          });
+          assert.equal(rowMissing, null);
+
+          const expected = await resolveSlaForPriority(Priority.high);
+          assert.equal(expected.hours, 13);
+          assert.equal(expected.policyId, null);
+
+          const { ticket } = await reportTicket(prisma, world, {
+            priority: Priority.high,
+            now: T0,
+          });
+          const row = await loadTicket(prisma, ticket.id);
+          assert.equal(
+            row.dueAt?.toISOString(),
+            new Date(T0.getTime() + 13 * 3600_000).toISOString(),
+          );
+          assert.equal(row.slaHoursSnapshot, 13);
+          assert.equal(row.slaPolicyId, null);
+        });
+      },
+    );
+  });
+
+  it("T-TKT-06: wait→resume extends dueAt exactly; same-commandId replay does not double-extend (P1-42)", async () => {
     const T0 = new Date("2026-07-01T08:00:00.000Z");
     const T1 = new Date("2026-07-01T09:00:00.000Z");
     const T2 = new Date("2026-07-01T10:30:00.000Z");
@@ -133,39 +167,59 @@ describe("ticket SLA lifecycle (T-TKT-05…07 / P1-41…43)", () => {
     assert.equal(row.status, TicketStatus.waiting);
     assert.equal(row.slaPausedAt?.toISOString(), T1.toISOString());
 
+    const resumeCommandId = randomUUID();
     await resumeMaintenanceTicket({
       ticketId: ticket.id,
       actorEmployeeId: world.technician.employeeId,
-      commandId: randomUUID(),
+      commandId: resumeCommandId,
       now: T2,
     });
     row = await loadTicket(prisma, ticket.id);
     assert.equal(row.status, TicketStatus.in_progress);
     assert.equal(row.slaPausedAt, null);
     assert.equal(row.slaPausedMsTotal, pauseMs);
+    const expectedDue = new Date(dueAt0.getTime() + pauseMs).toISOString();
+    assert.equal(row.dueAt?.toISOString(), expectedDue);
+
+    const eventsAfterResume = await countTicketEvents(
+      prisma,
+      ticket.id,
+      resumeCommandId,
+    );
+    assert.equal(eventsAfterResume, 1);
+
+    // Same commandId replay must not extend dueAt / slaPausedMsTotal again
+    const replayed = await resumeMaintenanceTicket({
+      ticketId: ticket.id,
+      actorEmployeeId: world.technician.employeeId,
+      commandId: resumeCommandId,
+      now: new Date(T2.getTime() + 60_000),
+    });
+    assert.equal(replayed.status, TicketStatus.in_progress);
+    row = await loadTicket(prisma, ticket.id);
+    assert.equal(row.dueAt?.toISOString(), expectedDue);
+    assert.equal(row.slaPausedMsTotal, pauseMs);
+    assert.equal(row.slaPausedAt, null);
     assert.equal(
-      row.dueAt?.toISOString(),
-      new Date(dueAt0.getTime() + pauseMs).toISOString(),
+      await countTicketEvents(prisma, ticket.id, resumeCommandId),
+      1,
     );
 
-    const dueAfter = row.dueAt!.toISOString();
-    const totalAfter = row.slaPausedMsTotal;
-
-    // Repeat resume from in_progress → invalid_state; dueAt unchanged
+    // Different commandId from in_progress → invalid_state; SLA fields unchanged
     try {
       await resumeMaintenanceTicket({
         ticketId: ticket.id,
         actorEmployeeId: world.technician.employeeId,
         commandId: randomUUID(),
-        now: new Date(T2.getTime() + 60_000),
+        now: new Date(T2.getTime() + 120_000),
       });
       assert.fail("expected resume refuse when not waiting");
     } catch (err) {
       assert.equal(errCode(err), "invalid_state");
     }
     row = await loadTicket(prisma, ticket.id);
-    assert.equal(row.dueAt?.toISOString(), dueAfter);
-    assert.equal(row.slaPausedMsTotal, totalAfter);
+    assert.equal(row.dueAt?.toISOString(), expectedDue);
+    assert.equal(row.slaPausedMsTotal, pauseMs);
   });
 
   it("T-TKT-07: resolve-from-waiting closes pause and stamps resolver (P1-43)", async () => {

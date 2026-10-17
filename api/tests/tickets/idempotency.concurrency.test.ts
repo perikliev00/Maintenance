@@ -9,6 +9,8 @@ import { PrismaClient, TicketStatus } from "@prisma/client";
 import dotenv from "dotenv";
 import {
   createMaintenanceTicket,
+  resolveMaintenanceTicket,
+  resumeMaintenanceTicket,
   startMaintenanceTicket,
   waitMaintenanceTicket,
 } from "../../src/services/maintenance";
@@ -101,6 +103,135 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
       await countTicketEvents(prisma, ticket.id),
       eventsBefore + 1,
     );
+  });
+
+  it("T-TKT-08b: concurrent wait with same commandId → one event (P1-44)", async () => {
+    const { ticket } = await reportTicket(prisma, world);
+    await advanceTicketTo(world, ticket.id, "in_progress");
+    const commandId = randomUUID();
+    const eventsBefore = await countTicketEvents(prisma, ticket.id);
+    const before = await loadTicket(prisma, ticket.id);
+
+    const results = await Promise.allSettled([
+      waitMaintenanceTicket({
+        ticketId: ticket.id,
+        actorEmployeeId: world.technician.employeeId,
+        commandId,
+        reason: "parts",
+      }),
+      waitMaintenanceTicket({
+        ticketId: ticket.id,
+        actorEmployeeId: world.technician.employeeId,
+        commandId,
+        reason: "parts",
+      }),
+    ]);
+
+    for (const r of results) {
+      assert.equal(r.status, "fulfilled", String(r));
+      if (r.status === "fulfilled") {
+        assert.equal(r.value.status, TicketStatus.waiting);
+        assert.equal(r.value.id, ticket.id);
+      }
+    }
+
+    const row = await loadTicket(prisma, ticket.id);
+    assert.equal(row.status, TicketStatus.waiting);
+    assert.ok(row.slaPausedAt);
+    assert.equal(row.dueAt?.toISOString() ?? null, before.dueAt?.toISOString() ?? null);
+    assert.equal(await countTicketEvents(prisma, ticket.id, commandId), 1);
+    assert.equal(await countTicketEvents(prisma, ticket.id), eventsBefore + 1);
+  });
+
+  it("T-TKT-08c: concurrent resume with same commandId → one event, one unpause (P1-44)", async () => {
+    const T1 = new Date("2026-09-01T09:00:00.000Z");
+    const T2 = new Date("2026-09-01T10:00:00.000Z");
+    const pauseMs = T2.getTime() - T1.getTime();
+
+    const { ticket } = await reportTicket(prisma, world, {
+      now: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    await advanceTicketTo(world, ticket.id, "in_progress");
+    const dueAt0 = (await loadTicket(prisma, ticket.id)).dueAt!;
+    await waitMaintenanceTicket({
+      ticketId: ticket.id,
+      actorEmployeeId: world.technician.employeeId,
+      commandId: randomUUID(),
+      now: T1,
+    });
+
+    const commandId = randomUUID();
+    const eventsBefore = await countTicketEvents(prisma, ticket.id);
+
+    const results = await Promise.allSettled([
+      resumeMaintenanceTicket({
+        ticketId: ticket.id,
+        actorEmployeeId: world.technician.employeeId,
+        commandId,
+        now: T2,
+      }),
+      resumeMaintenanceTicket({
+        ticketId: ticket.id,
+        actorEmployeeId: world.technician.employeeId,
+        commandId,
+        now: T2,
+      }),
+    ]);
+
+    for (const r of results) {
+      assert.equal(r.status, "fulfilled", String(r));
+      if (r.status === "fulfilled") {
+        assert.equal(r.value.status, TicketStatus.in_progress);
+      }
+    }
+
+    const row = await loadTicket(prisma, ticket.id);
+    assert.equal(row.status, TicketStatus.in_progress);
+    assert.equal(row.slaPausedAt, null);
+    assert.equal(row.slaPausedMsTotal, pauseMs);
+    assert.equal(
+      row.dueAt?.toISOString(),
+      new Date(dueAt0.getTime() + pauseMs).toISOString(),
+    );
+    assert.equal(await countTicketEvents(prisma, ticket.id, commandId), 1);
+    assert.equal(await countTicketEvents(prisma, ticket.id), eventsBefore + 1);
+  });
+
+  it("T-TKT-08d: concurrent resolve with same commandId → one event (P1-44)", async () => {
+    const { ticket } = await reportTicket(prisma, world);
+    await advanceTicketTo(world, ticket.id, "in_progress");
+    const commandId = randomUUID();
+    const eventsBefore = await countTicketEvents(prisma, ticket.id);
+
+    const results = await Promise.allSettled([
+      resolveMaintenanceTicket({
+        ticketId: ticket.id,
+        resolvedByEmployeeId: world.technician.employeeId,
+        resolutionNotes: "done",
+        commandId,
+      }),
+      resolveMaintenanceTicket({
+        ticketId: ticket.id,
+        resolvedByEmployeeId: world.technician.employeeId,
+        resolutionNotes: "done",
+        commandId,
+      }),
+    ]);
+
+    for (const r of results) {
+      assert.equal(r.status, "fulfilled", String(r));
+      if (r.status === "fulfilled") {
+        assert.equal(r.value.status, TicketStatus.resolved);
+        assert.equal(r.value.id, ticket.id);
+      }
+    }
+
+    const row = await loadTicket(prisma, ticket.id);
+    assert.equal(row.status, TicketStatus.resolved);
+    assert.equal(row.resolvedByEmployeeId, world.technician.employeeId);
+    assert.equal(row.resolutionNotes, "done");
+    assert.equal(await countTicketEvents(prisma, ticket.id, commandId), 1);
+    assert.equal(await countTicketEvents(prisma, ticket.id), eventsBefore + 1);
   });
 
   it("T-TKT-09: commandId not reusable across action kinds or tickets (P1-45)", async () => {

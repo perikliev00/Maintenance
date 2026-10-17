@@ -90,6 +90,36 @@ export async function withSlaPolicyPatch<T>(
   }
 }
 
+/**
+ * Delete the SLA policy row for a priority (no DB record), run fn, then restore.
+ * Caller must ensure no tickets still reference slaPolicyId for that priority.
+ */
+export async function withMissingSlaPolicy<T>(
+  prisma: PrismaClient,
+  actorEmployeeId: string,
+  priority: Priority,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const existing = await prisma.slaPolicy.findUnique({ where: { priority } });
+  assert.ok(existing, `SLA policy missing for ${priority}`);
+  // Clear FK refs from any leftover tickets before delete.
+  await prisma.maintenanceTicket.updateMany({
+    where: { slaPolicyId: existing.id },
+    data: { slaPolicyId: null },
+  });
+  await prisma.slaPolicy.delete({ where: { priority } });
+  try {
+    return await fn();
+  } finally {
+    await upsertSlaPolicy({
+      priority,
+      hours: existing.hours,
+      isActive: existing.isActive,
+      actorEmployeeId,
+    });
+  }
+}
+
 /** Patch operations.defaultTicketSlaHours; restore in finally. */
 export async function withDefaultSlaHours<T>(
   actorEmployeeId: string,

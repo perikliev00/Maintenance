@@ -228,6 +228,117 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
     assert.deepEqual(await snapshotSla(ticket.id), before);
   });
 
+  it("T-TKT-04b: wait/resume/resolve/start refused from waiting/resolved/closed (P1-40)", async () => {
+    async function expectRefuse(
+      ticketId: string,
+      op: "start" | "wait" | "resume" | "resolve" | "close" | "reopen",
+      label: string,
+    ) {
+      const before = await snapshotSla(ticketId);
+      try {
+        if (op === "start") {
+          await startMaintenanceTicket({
+            ticketId,
+            actorEmployeeId: world.technician.employeeId,
+            bypassAssigneeCheck: true,
+            commandId: randomUUID(),
+          });
+        } else if (op === "wait") {
+          await waitMaintenanceTicket({
+            ticketId,
+            actorEmployeeId: world.technician.employeeId,
+            bypassAssigneeCheck: true,
+            commandId: randomUUID(),
+          });
+        } else if (op === "resume") {
+          await resumeMaintenanceTicket({
+            ticketId,
+            actorEmployeeId: world.technician.employeeId,
+            bypassAssigneeCheck: true,
+            commandId: randomUUID(),
+          });
+        } else if (op === "resolve") {
+          await resolveMaintenanceTicket({
+            ticketId,
+            resolvedByEmployeeId: world.technician.employeeId,
+            bypassAssigneeCheck: true,
+            commandId: randomUUID(),
+          });
+        } else if (op === "close") {
+          await closeMaintenanceTicket({
+            ticketId,
+            closedByEmployeeId: world.owner.employeeId,
+          });
+        } else {
+          await reopenMaintenanceTicket({
+            ticketId,
+            reopenedByEmployeeId: world.owner.employeeId,
+          });
+        }
+        assert.fail(`expected ${op} refuse ${label}`);
+      } catch (err) {
+        assert.ok(isAppError(err), `${op} ${label}: ${String(err)}`);
+        assert.equal(err.code, "invalid_state");
+      }
+      assert.deepEqual(await snapshotSla(ticketId), before);
+    }
+
+    // waiting: start/wait/close/reopen refused; resume+resolve allowed (tested elsewhere)
+    {
+      const { ticket } = await reportTicket(prisma, world);
+      await advanceTicketTo(world, ticket.id, "waiting");
+      await expectRefuse(ticket.id, "start", "from waiting");
+      await expectRefuse(ticket.id, "wait", "from waiting");
+      await expectRefuse(ticket.id, "close", "from waiting");
+      await expectRefuse(ticket.id, "reopen", "from waiting");
+    }
+
+    // resolved: wait/resume/resolve/start/close(ok)/reopen(ok) — refuse wait/resume/resolve/start
+    {
+      const { ticket } = await reportTicket(prisma, world);
+      await advanceTicketTo(world, ticket.id, "in_progress");
+      await resolveMaintenanceTicket({
+        ticketId: ticket.id,
+        resolvedByEmployeeId: world.technician.employeeId,
+        commandId: randomUUID(),
+      });
+      await expectRefuse(ticket.id, "start", "from resolved");
+      await expectRefuse(ticket.id, "wait", "from resolved");
+      await expectRefuse(ticket.id, "resume", "from resolved");
+      await expectRefuse(ticket.id, "resolve", "from resolved");
+    }
+
+    // closed: wait/resume/resolve/start/close refused
+    {
+      const { ticket } = await reportTicket(prisma, world);
+      await advanceTicketTo(world, ticket.id, "in_progress");
+      await resolveMaintenanceTicket({
+        ticketId: ticket.id,
+        resolvedByEmployeeId: world.technician.employeeId,
+        commandId: randomUUID(),
+      });
+      await closeMaintenanceTicket({
+        ticketId: ticket.id,
+        closedByEmployeeId: world.owner.employeeId,
+      });
+      await expectRefuse(ticket.id, "start", "from closed");
+      await expectRefuse(ticket.id, "wait", "from closed");
+      await expectRefuse(ticket.id, "resume", "from closed");
+      await expectRefuse(ticket.id, "resolve", "from closed");
+      await expectRefuse(ticket.id, "close", "from closed");
+    }
+
+    // assigned: resolve/resume/close/reopen refused (wait already covered in T-TKT-04)
+    {
+      const { ticket } = await reportTicket(prisma, world);
+      await advanceTicketTo(world, ticket.id, "assigned");
+      await expectRefuse(ticket.id, "resolve", "from assigned");
+      await expectRefuse(ticket.id, "resume", "from assigned");
+      await expectRefuse(ticket.id, "close", "from assigned");
+      await expectRefuse(ticket.id, "reopen", "from assigned");
+    }
+  });
+
   it("T-TKT-02c: positive allowed transitions", async () => {
     const { ticket } = await reportTicket(prisma, world);
     await assignMaintenanceTicket({
