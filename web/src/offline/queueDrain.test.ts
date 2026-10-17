@@ -93,15 +93,13 @@ describe("T-DRAIN-01 mid-drain account switch", () => {
     });
 
     assert.equal(networkCalls, 0);
+    // In-memory store: drain itself must not delete/reassign after abort.
+    // Real logout/account switch also purges IndexedDB (covered by e2e).
     const kept = store.get(row.id);
     assert.ok(kept, "user A row must remain in the outbox after abort");
     assert.equal(kept.userId, "A");
     assert.equal(kept.commandId, row.commandId);
-    assert.equal(
-      kept.status,
-      "sending",
-      "claimed row stays under A; must not be deleted or reassigned",
-    );
+    assert.equal(kept.status, "sending");
   });
 
   it("sends once when identity stays bound (deps wire control)", async () => {

@@ -8,6 +8,13 @@ type E2eWindow = Window & {
   __e2eDrainClaimed?: boolean;
 };
 
+type QueueHit = {
+  found: boolean;
+  userId?: string;
+  status?: string;
+  commandId?: string;
+};
+
 async function seedPendingQueue(page: Page, userId: string): Promise<string> {
   return page.evaluate(async (uid) => {
     const commandId = crypto.randomUUID();
@@ -58,9 +65,61 @@ async function seedPendingQueue(page: Page, userId: string): Promise<string> {
   }, userId);
 }
 
+async function findQueueItem(
+  page: Page,
+  userId: string,
+  commandId: string,
+): Promise<QueueHit> {
+  return page.evaluate(
+    async ({ uid, cmd }) => {
+      return new Promise<QueueHit>((resolve, reject) => {
+        const req = indexedDB.open("meridian-offline", 2);
+        req.onerror = () => reject(req.error ?? new Error("idb open failed"));
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("queue")) {
+            db.close();
+            resolve({ found: false });
+            return;
+          }
+          const tx = db.transaction("queue", "readonly");
+          const store = tx.objectStore("queue");
+          const index = store.index("userId");
+          const getAll = index.getAll(uid);
+          getAll.onsuccess = () => {
+            const rows = (getAll.result ?? []) as Array<{
+              userId: string;
+              status: string;
+              commandId: string;
+            }>;
+            const hit = rows.find((r) => r.commandId === cmd);
+            db.close();
+            resolve(
+              hit
+                ? {
+                    found: true,
+                    userId: hit.userId,
+                    status: hit.status,
+                    commandId: hit.commandId,
+                  }
+                : { found: false },
+            );
+          };
+          getAll.onerror = () =>
+            reject(getAll.error ?? new Error("idb getAll failed"));
+        };
+      });
+    },
+    { uid: userId, cmd: commandId },
+  );
+}
+
 /**
  * P0-10 / T-DRAIN-01 (browser): after outbox claim, logout+login as another
  * user must abort before /sync/push so user A's command never leaves the tab.
+ *
+ * Logout deliberately wipes the outbox (shared-device rule). Unit tests cover
+ * in-memory survival of a claimed row when identity flips without purge.
  */
 test.describe("mid-drain account switch", () => {
   test("aborts sync push when profile switches after drain claim", async ({
@@ -103,8 +162,21 @@ test.describe("mid-drain account switch", () => {
       )
       .toBe(true);
 
+    // Claimed row must be "sending" before logout (proves pre-send seam).
+    const claimed = await findQueueItem(page, userAId, commandId);
+    expect(claimed.found, "claimed outbox row before logout").toBe(true);
+    expect(claimed.userId).toBe(userAId);
+    expect(claimed.status).toBe("sending");
+
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+
+    // Logout wipes private offline stores — A's command must not linger for B.
+    const afterLogout = await findQueueItem(page, userAId, commandId);
+    expect(
+      afterLogout.found,
+      "logout must purge user A outbox (shared-device wipe)",
+    ).toBe(false);
 
     await page.getByLabel("Email").fill(USERS.manager);
     await page.getByLabel("Password").fill("demo1234");
@@ -121,58 +193,5 @@ test.describe("mid-drain account switch", () => {
       pushRequests.some((body) => body.includes(commandId)),
       "user A command must not reach /sync/push after account switch",
     ).toBe(false);
-
-    // Prove drain had claimed (row marked sending) and aborted without deleting A's outbox.
-    const queued = await page.evaluate(
-      async ({ uid, cmd }) => {
-        return new Promise<{
-          found: boolean;
-          userId?: string;
-          status?: string;
-          commandId?: string;
-        }>((resolve, reject) => {
-          const req = indexedDB.open("meridian-offline", 2);
-          req.onerror = () => reject(req.error ?? new Error("idb open failed"));
-          req.onsuccess = () => {
-            const db = req.result;
-            const tx = db.transaction("queue", "readonly");
-            const store = tx.objectStore("queue");
-            const index = store.index("userId");
-            const getAll = index.getAll(uid);
-            getAll.onsuccess = () => {
-              const rows = (getAll.result ?? []) as Array<{
-                userId: string;
-                status: string;
-                commandId: string;
-              }>;
-              const hit = rows.find((r) => r.commandId === cmd);
-              db.close();
-              resolve(
-                hit
-                  ? {
-                      found: true,
-                      userId: hit.userId,
-                      status: hit.status,
-                      commandId: hit.commandId,
-                    }
-                  : { found: false },
-              );
-            };
-            getAll.onerror = () =>
-              reject(getAll.error ?? new Error("idb getAll failed"));
-          };
-        });
-      },
-      { uid: userAId, cmd: commandId },
-    );
-    expect(queued.found, "user A outbox row must survive mid-drain abort").toBe(
-      true,
-    );
-    expect(queued.userId).toBe(userAId);
-    expect(queued.commandId).toBe(commandId);
-    expect(
-      queued.status,
-      "claim marks sending before hook; abort must not delete/reassign",
-    ).toBe("sending");
   });
 });

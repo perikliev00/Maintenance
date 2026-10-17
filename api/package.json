@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "test:db": "tsx --test src/services/attendance/rebuild.test.ts src/services/cards.filter.test.ts src/services/roleGrants/seed.test.ts src/services/audit.write.test.ts",
+    "test:cleaning-lifecycle": "tsx --test --test-concurrency=1 \"tests/cleaning/**/*.test.ts\"",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

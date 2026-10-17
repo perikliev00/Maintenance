@@ -342,7 +342,6 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
   it("T-SCOPE-AGG-01: plan/live/results/analytics scoped aggregates", async () => {
     let seed: AggregateSeedIds | null = null;
     try {
-      seed = await seedScopeAggregateExtras(prisma, fx);
       const { token: supTok } = await loginBearer(
         api,
         fx.supervisorA.email,
@@ -353,6 +352,65 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
         fx.manager.email,
         fx.password,
       );
+
+      // Shared DB may already hold seed tickets/tasks — assert deltas + fixture ids.
+      const hotelDateYmd = fx.hotelDate.toISOString().slice(0, 10);
+      type LiveBody = {
+        needsAttention?: Array<{
+          kind?: string;
+          id?: string;
+          location?: { id?: string };
+        }>;
+        counts?: { blockingTickets?: number };
+      };
+      type ResultsBody = {
+        summary?: {
+          completedTasks?: number;
+          distinctRooms?: number;
+          completedSessions?: number;
+        };
+        rows?: Array<{ employeeId?: string; completedTasks?: number }>;
+      };
+      type AnalyticsKpis = {
+        cleanedTasks?: number;
+        completedSessions?: number;
+        distinctRooms?: number;
+      };
+
+      const liveBeforeA = (await getJson(api, supTok, "/operations/live"))
+        .body as LiveBody;
+      const liveBeforeAll = (await getJson(api, mgrTok, "/operations/live"))
+        .body as LiveBody;
+      const resultsBeforeA = (
+        await getJson(
+          api,
+          supTok,
+          `/cleaning/results?from=${hotelDateYmd}&to=${hotelDateYmd}&pageSize=100`,
+        )
+      ).body as ResultsBody;
+      const resultsBeforeAll = (
+        await getJson(
+          api,
+          mgrTok,
+          `/cleaning/results?from=${hotelDateYmd}&to=${hotelDateYmd}&pageSize=100`,
+        )
+      ).body as ResultsBody;
+      const analyticsBeforeA = (
+        await getJson(
+          api,
+          supTok,
+          `/analytics/summary?domain=housekeeping&from=${hotelDateYmd}&to=${hotelDateYmd}`,
+        )
+      ).body as { kpis?: AnalyticsKpis };
+      const analyticsBeforeAll = (
+        await getJson(
+          api,
+          mgrTok,
+          `/analytics/summary?domain=housekeeping&from=${hotelDateYmd}&to=${hotelDateYmd}`,
+        )
+      ).body as { kpis?: AnalyticsKpis };
+
+      seed = await seedScopeAggregateExtras(prisma, fx);
 
       const planA = await getJson(
         api,
@@ -392,7 +450,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       );
       assert.ok(entriesA.length < entriesAll.length);
 
-      // Make tickets visible on the live board (blocking open tickets → needsAttention).
+      // Make fixture tickets visible on the live board.
       await prisma.maintenanceTicket.updateMany({
         where: { id: { in: [fx.ticketAId, fx.ticketBId] } },
         data: { blocksRoom: true },
@@ -402,43 +460,44 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       const liveAll = await getJson(api, mgrTok, "/operations/live");
       assert.equal(liveA.status, 200);
       assert.equal(liveAll.status, 200);
-      type LiveNeed = {
-        kind?: string;
-        id?: string;
-        location?: { id?: string };
-      };
-      const liveBodyA = liveA.body as {
-        needsAttention?: LiveNeed[];
-        counts?: { blockingTickets?: number };
-      };
-      const liveBodyAll = liveAll.body as {
-        needsAttention?: LiveNeed[];
-        counts?: { blockingTickets?: number };
-      };
+      const liveBodyA = liveA.body as LiveBody;
+      const liveBodyAll = liveAll.body as LiveBody;
       const attentionA = liveBodyA.needsAttention ?? [];
       const attentionAll = liveBodyAll.needsAttention ?? [];
       const idsA = attentionA.map((r) => r.id);
       const idsAll = attentionAll.map((r) => r.id);
 
-      // Positive control: supervisor A must see own blocking ticket by id.
       assert.ok(
         idsA.includes(fx.ticketAId),
         `live A missing ticketA ${fx.ticketAId}; ids=${idsA.join(",")}`,
       );
-      // Negative: foreign ticket B must not appear in A’s board.
       assert.equal(idsA.includes(fx.ticketBId), false);
       assert.equal(
         attentionA.some((r) => r.location?.id === fx.locBId),
         false,
         "live A must not list locB in needsAttention",
       );
-      // Manager all-scope must include both (positive control for B visibility).
       assert.ok(
         idsAll.includes(fx.ticketAId) && idsAll.includes(fx.ticketBId),
         `live all missing tickets; ids=${idsAll.join(",")}`,
       );
-      assert.equal(liveBodyA.counts?.blockingTickets, 1);
-      assert.equal(liveBodyAll.counts?.blockingTickets, 2);
+      // Deltas vs shared-DB baseline (not absolute totals).
+      assert.equal(
+        (liveBodyA.counts?.blockingTickets ?? 0) -
+          (liveBeforeA.counts?.blockingTickets ?? 0),
+        1,
+        "supervisor A blockingTickets delta",
+      );
+      assert.equal(
+        (liveBodyAll.counts?.blockingTickets ?? 0) -
+          (liveBeforeAll.counts?.blockingTickets ?? 0),
+        2,
+        "manager blockingTickets delta",
+      );
+      assert.ok(
+        (liveBodyA.counts?.blockingTickets ?? 0) <
+          (liveBodyAll.counts?.blockingTickets ?? 0),
+      );
 
       const resultsA = await getJson(
         api,
@@ -452,26 +511,43 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       );
       assert.equal(resultsA.status, 200);
       assert.equal(resultsAll.status, 200);
-      type ResultsBody = {
-        summary?: {
-          completedTasks?: number;
-          distinctRooms?: number;
-          completedSessions?: number;
-        };
-        rows?: Array<{ employeeId?: string; completedTasks?: number }>;
-      };
       const bodyA = resultsA.body as ResultsBody;
       const bodyAll = resultsAll.body as ResultsBody;
       const summaryA = bodyA.summary;
       const summaryAll = bodyAll.summary;
       assert.ok(summaryA && summaryAll);
-      // Seeded one completed task/session per sector — exact counters, not “less than”.
-      assert.equal(summaryA.completedTasks, 1);
-      assert.equal(summaryAll.completedTasks, 2);
-      assert.equal(summaryA.distinctRooms, 1);
-      assert.equal(summaryAll.distinctRooms, 2);
-      assert.equal(summaryA.completedSessions, 1);
-      assert.equal(summaryAll.completedSessions, 2);
+      assert.equal(
+        (summaryA.completedTasks ?? 0) -
+          (resultsBeforeA.summary?.completedTasks ?? 0),
+        1,
+        "results completedTasks delta A",
+      );
+      assert.equal(
+        (summaryAll.completedTasks ?? 0) -
+          (resultsBeforeAll.summary?.completedTasks ?? 0),
+        2,
+        "results completedTasks delta all",
+      );
+      assert.equal(
+        (summaryA.completedSessions ?? 0) -
+          (resultsBeforeA.summary?.completedSessions ?? 0),
+        1,
+      );
+      assert.equal(
+        (summaryAll.completedSessions ?? 0) -
+          (resultsBeforeAll.summary?.completedSessions ?? 0),
+        2,
+      );
+      assert.equal(
+        (summaryA.distinctRooms ?? 0) -
+          (resultsBeforeA.summary?.distinctRooms ?? 0),
+        1,
+      );
+      assert.equal(
+        (summaryAll.distinctRooms ?? 0) -
+          (resultsBeforeAll.summary?.distinctRooms ?? 0),
+        2,
+      );
       const rowEmpIdsA = (bodyA.rows ?? []).map((r) => r.employeeId);
       assert.ok(rowEmpIdsA.includes(fx.housekeeper.employeeId));
       assert.equal(rowEmpIdsA.includes(fx.otherHk.employeeId), false);
@@ -491,19 +567,38 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       );
       assert.equal(analyticsA.status, 200);
       assert.equal(analyticsAll.status, 200);
-      type AnalyticsKpis = {
-        cleanedTasks?: number;
-        completedSessions?: number;
-        distinctRooms?: number;
-      };
       const kpisA = (analyticsA.body as { kpis?: AnalyticsKpis }).kpis;
       const kpisAll = (analyticsAll.body as { kpis?: AnalyticsKpis }).kpis;
-      assert.equal(kpisA?.cleanedTasks, 1);
-      assert.equal(kpisAll?.cleanedTasks, 2);
-      assert.equal(kpisA?.completedSessions, 1);
-      assert.equal(kpisAll?.completedSessions, 2);
-      assert.equal(kpisA?.distinctRooms, 1);
-      assert.equal(kpisAll?.distinctRooms, 2);
+      assert.equal(
+        (kpisA?.cleanedTasks ?? 0) -
+          (analyticsBeforeA.kpis?.cleanedTasks ?? 0),
+        1,
+      );
+      assert.equal(
+        (kpisAll?.cleanedTasks ?? 0) -
+          (analyticsBeforeAll.kpis?.cleanedTasks ?? 0),
+        2,
+      );
+      assert.equal(
+        (kpisA?.completedSessions ?? 0) -
+          (analyticsBeforeA.kpis?.completedSessions ?? 0),
+        1,
+      );
+      assert.equal(
+        (kpisAll?.completedSessions ?? 0) -
+          (analyticsBeforeAll.kpis?.completedSessions ?? 0),
+        2,
+      );
+      assert.equal(
+        (kpisA?.distinctRooms ?? 0) -
+          (analyticsBeforeA.kpis?.distinctRooms ?? 0),
+        1,
+      );
+      assert.equal(
+        (kpisAll?.distinctRooms ?? 0) -
+          (analyticsBeforeAll.kpis?.distinctRooms ?? 0),
+        2,
+      );
     } finally {
       if (seed) await cleanupAggregateSeed(prisma, seed);
     }

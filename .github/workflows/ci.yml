@@ -89,6 +89,7 @@ jobs:
       - run: npx tsx scripts/assert-sql-invariants.ts
       - run: npm run db:seed
       - run: npm test
+      - run: npm run test:cleaning-lifecycle
       - run: npm run db:seed
       - run: npx tsx scripts/smoke-ticket-lifecycle-idempotency.ts
       - run: npx tsx scripts/smoke-cleaning-atomic.ts
