@@ -1,0 +1,35 @@
+### F. Coverage Assessment
+
+| Scenario | Requirement | Test ID | Implemented | Execution | Status |
+|---|---|---|---|---|---|
+| P0-09 | Grant edit outside editable | T-EDIT-01, T-PERM-HTTP-01 | Yes | Not run | Доказано покрито* (DB deny assert липсва — минор) |
+| P0-10 | Mid-sync no cross-user | T-DRAIN-01 | Yes | Not run | Доказано покрито* |
+| P1-01 | Revoked → API 403 | T-GRANT-HTTP-01 | Yes | Not run | Доказано покрито* |
+| P1-02 | Role change revokes sessions | T-ROLE-HTTP-01 | Yes | Not run | Доказано покрито* |
+| P1-03 | Last owner + concurrent | T-OWNER-HTTP-01/02 | Yes | Not run | Доказано покрито* |
+| P1-04 | Last manage + concurrent | T-PERM-LAST-01/02 | Yes | Not run | Доказано покрито* |
+| P1-05 | Effective grants after save | T-GRANT-HTTP-01 | Yes | Not run | Доказано покрито* |
+| P1-06 | OOS location mutations | T-SCOPE-LOC-01 | Yes | Not run | Доказано покрито* |
+| P1-07 | OOS ticket lifecycle | T-SCOPE-TKT-01 | Yes | Not run | Доказано покрито* |
+| P1-08 | Aggregates scoped | T-SCOPE-AGG-01 | Yes | Not run | Доказано покрито* |
+| P1-09 | Audit omit/swap | T-AUDIT-HTTP-01 | Yes | Not run | Доказано покрито* |
+| P1-10 | Sector refresh REST | T-SCOPE-SEC-01 | Yes | Not run | Доказано покрито* |
+
+\*По статичен анализ на path/asserts; без независимо изпълнение и без mutation.
+
+---
+
+### G. Findings
+
+**Няма блокиращи дефекти** спрямо одобрения план и бизнес гаранциите.
+
+#### N1 — T-PERM-HTTP-01: няма DB assert при deny (незадължително)
+- **P0-09 / T-PERM-HTTP-01 · P2**
+- Планът споменава непроменени grants при fail; тестът проверява само HTTP.
+- Production: deny е преди DB write в `replaceRoleGrants` — рискът е нисък.
+- **Минимална корекция (optional):** snapshot на manager/admin/owner grants преди deny PUTs → сравнение след.
+
+#### N2 — T-OWNER-HTTP-01: няма session assert при fail (незадължително)
+- **P1-03 / T-OWNER-HTTP-01 · P3**
+- `revokeAllForUser` е след успешен TX — при 409 не се вика.
+- **Минимална корекция (optional):** assert `revokedAt` остава n

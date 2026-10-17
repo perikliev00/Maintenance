@@ -252,7 +252,8 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
 
     // Dev/e2e only: pause after claim so Playwright can switch accounts before
     // any network send (same seam as unit-test `afterClaim`).
-    if (import.meta.env.DEV && typeof window !== "undefined") {
+    // Optional chain: plain `tsx --test` has no Vite `import.meta.env`.
+    if (import.meta.env?.DEV && typeof window !== "undefined") {
       const e2eHook = (
         window as Window & {
           __MERIDIAN_E2E_AFTER_DRAIN_CLAIM__?: () => void | Promise<void>;

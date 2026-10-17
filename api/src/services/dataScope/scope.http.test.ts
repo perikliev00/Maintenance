@@ -1,6 +1,6 @@
 /**
  * HTTP integration: T-SCOPE-LOC-01, T-SCOPE-TKT-01, T-AUDIT-HTTP-01,
- * T-SCOPE-SEC-01, T-SCOPE-AGG-01.
+ * T-SCOPE-SEC-01/02, T-SCOPE-AGG-01.
  */
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -135,6 +135,12 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       await postJson(api, token, `/locations/${fx.locBId}/archive`, {}),
       "archive",
     );
+    assertOutOfScope(
+      await patchJson(api, token, `/locations/${fx.locBId}`, {
+        number: "OOS-SHOULD-FAIL",
+      }),
+      "catalog update",
+    );
 
     const after = await prisma.location.findUniqueOrThrow({
       where: { id: fx.locBId },
@@ -143,6 +149,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     assert.equal(after.serviceStatus, loc.serviceStatus);
     assert.equal(after.catalogStatus, loc.catalogStatus);
     assert.equal(after.cleaningStatus, loc.cleaningStatus);
+    assert.equal(after.number, loc.number);
   });
 
   it("T-SCOPE-TKT-01: OOS ticket lifecycle denied", async () => {
@@ -289,6 +296,49 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     }
   });
 
+  it("T-SCOPE-SEC-02: primarySupervisor reassignment refreshes next read/action", async () => {
+    const { token: mgrTok } = await loginBearer(
+      api,
+      fx.manager.email,
+      fx.password,
+    );
+    const { token: supTok } = await loginBearer(
+      api,
+      fx.supervisorA.email,
+      fx.password,
+    );
+
+    const roomsBefore = await getJson(api, supTok, "/rooms");
+    assert.equal(roomsBefore.status, 200);
+    const idsBefore = (roomsBefore.body as Array<{ id: string }>).map(
+      (r) => r.id,
+    );
+    assert.ok(idsBefore.includes(fx.locAId));
+
+    const reassign = await patchJson(api, mgrTok, `/sectors/${fx.sectorAId}`, {
+      primarySupervisorEmployeeId: fx.supervisorB.employeeId,
+    });
+    assert.equal(reassign.status, 200, JSON.stringify(reassign.body));
+
+    try {
+      const roomsAfter = await getJson(api, supTok, "/rooms");
+      assert.equal(roomsAfter.status, 200);
+      const idsAfter = (roomsAfter.body as Array<{ id: string }>).map(
+        (r) => r.id,
+      );
+      assert.equal(idsAfter.includes(fx.locAId), false);
+
+      assertOutOfScope(
+        await postJson(api, supTok, `/rooms/${fx.locAId}/mark-dirty`, {}),
+        "mark-dirty after supervisor reassignment",
+      );
+    } finally {
+      await patchJson(api, mgrTok, `/sectors/${fx.sectorAId}`, {
+        primarySupervisorEmployeeId: fx.supervisorA.employeeId,
+      });
+    }
+  });
+
   it("T-SCOPE-AGG-01: plan/live/results/analytics scoped aggregates", async () => {
     let seed: AggregateSeedIds | null = null;
     try {
@@ -377,16 +427,18 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       );
       // Negative: foreign ticket B must not appear in A’s board.
       assert.equal(idsA.includes(fx.ticketBId), false);
+      assert.equal(
+        attentionA.some((r) => r.location?.id === fx.locBId),
+        false,
+        "live A must not list locB in needsAttention",
+      );
       // Manager all-scope must include both (positive control for B visibility).
       assert.ok(
         idsAll.includes(fx.ticketAId) && idsAll.includes(fx.ticketBId),
         `live all missing tickets; ids=${idsAll.join(",")}`,
       );
-      assert.ok(
-        (liveBodyA.counts?.blockingTickets ?? 0) <
-          (liveBodyAll.counts?.blockingTickets ?? 0),
-        `blockingTickets A=${liveBodyA.counts?.blockingTickets} all=${liveBodyAll.counts?.blockingTickets}`,
-      );
+      assert.equal(liveBodyA.counts?.blockingTickets, 1);
+      assert.equal(liveBodyAll.counts?.blockingTickets, 2);
 
       const resultsA = await getJson(
         api,
@@ -400,16 +452,32 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       );
       assert.equal(resultsA.status, 200);
       assert.equal(resultsAll.status, 200);
-      const summaryA = (resultsA.body as { summary?: { completedTasks?: number } })
-        .summary;
-      const summaryAll = (
-        resultsAll.body as { summary?: { completedTasks?: number } }
-      ).summary;
+      type ResultsBody = {
+        summary?: {
+          completedTasks?: number;
+          distinctRooms?: number;
+          completedSessions?: number;
+        };
+        rows?: Array<{ employeeId?: string; completedTasks?: number }>;
+      };
+      const bodyA = resultsA.body as ResultsBody;
+      const bodyAll = resultsAll.body as ResultsBody;
+      const summaryA = bodyA.summary;
+      const summaryAll = bodyAll.summary;
       assert.ok(summaryA && summaryAll);
-      assert.ok(
-        (summaryA.completedTasks ?? 0) < (summaryAll.completedTasks ?? 0),
-        `results completedTasks A=${summaryA.completedTasks} all=${summaryAll.completedTasks}`,
-      );
+      // Seeded one completed task/session per sector — exact counters, not “less than”.
+      assert.equal(summaryA.completedTasks, 1);
+      assert.equal(summaryAll.completedTasks, 2);
+      assert.equal(summaryA.distinctRooms, 1);
+      assert.equal(summaryAll.distinctRooms, 2);
+      assert.equal(summaryA.completedSessions, 1);
+      assert.equal(summaryAll.completedSessions, 2);
+      const rowEmpIdsA = (bodyA.rows ?? []).map((r) => r.employeeId);
+      assert.ok(rowEmpIdsA.includes(fx.housekeeper.employeeId));
+      assert.equal(rowEmpIdsA.includes(fx.otherHk.employeeId), false);
+      const rowEmpIdsAll = (bodyAll.rows ?? []).map((r) => r.employeeId);
+      assert.ok(rowEmpIdsAll.includes(fx.housekeeper.employeeId));
+      assert.ok(rowEmpIdsAll.includes(fx.otherHk.employeeId));
 
       const analyticsA = await getJson(
         api,
@@ -423,19 +491,19 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       );
       assert.equal(analyticsA.status, 200);
       assert.equal(analyticsAll.status, 200);
-      // Prefer completedTasks / roomsCleaned style metrics when present.
-      const cleanedA = (
-        analyticsA.body as { kpis?: { cleanedTasks?: number } }
-      ).kpis?.cleanedTasks;
-      const cleanedAll = (
-        analyticsAll.body as { kpis?: { cleanedTasks?: number } }
-      ).kpis?.cleanedTasks;
-      assert.equal(typeof cleanedA, "number");
-      assert.equal(typeof cleanedAll, "number");
-      assert.ok(
-        (cleanedA as number) < (cleanedAll as number),
-        `analytics cleanedTasks A=${cleanedA} all=${cleanedAll}`,
-      );
+      type AnalyticsKpis = {
+        cleanedTasks?: number;
+        completedSessions?: number;
+        distinctRooms?: number;
+      };
+      const kpisA = (analyticsA.body as { kpis?: AnalyticsKpis }).kpis;
+      const kpisAll = (analyticsAll.body as { kpis?: AnalyticsKpis }).kpis;
+      assert.equal(kpisA?.cleanedTasks, 1);
+      assert.equal(kpisAll?.cleanedTasks, 2);
+      assert.equal(kpisA?.completedSessions, 1);
+      assert.equal(kpisAll?.completedSessions, 2);
+      assert.equal(kpisA?.distinctRooms, 1);
+      assert.equal(kpisAll?.distinctRooms, 2);
     } finally {
       if (seed) await cleanupAggregateSeed(prisma, seed);
     }

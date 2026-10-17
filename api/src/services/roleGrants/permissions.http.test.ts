@@ -1,5 +1,5 @@
 /**
- * HTTP integration: T-PERM-HTTP-01, T-PERM-LAST-01/02, T-GRANT-HTTP-01.
+ * HTTP integration: T-PERM-HTTP-01/01b/01c, T-PERM-LAST-01/02, T-GRANT-HTTP-01.
  * Mutates shared RoleGrant rows — always snapshot/restore.
  */
 import assert from "node:assert/strict";
@@ -48,6 +48,8 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
   let api = "";
   let snapshot: RoleGrantSnapshotRow[] = [];
   let manager: EmployeeUserFixture;
+  let admin: EmployeeUserFixture;
+  let supervisor: EmployeeUserFixture;
   let owner: EmployeeUserFixture;
   let fixtureIds: string[] = [];
   let scopeFx: ScopeSmokeFixture | null = null;
@@ -65,13 +67,30 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
       role: Role.manager,
       fullName: "T Perm Manager",
     });
+    admin = await createEmployeeWithUser(prisma, {
+      employeeNumber: `T-PERM-ADM-${stamp}`,
+      email: `t-perm-adm-${stamp}@test.local`,
+      role: Role.admin,
+      fullName: "T Perm Admin",
+    });
+    supervisor = await createEmployeeWithUser(prisma, {
+      employeeNumber: `T-PERM-SUP-${stamp}`,
+      email: `t-perm-sup-${stamp}@test.local`,
+      role: Role.supervisor,
+      fullName: "T Perm Supervisor",
+    });
     owner = await createEmployeeWithUser(prisma, {
       employeeNumber: `T-PERM-OWN-${stamp}`,
       email: `t-perm-own-${stamp}@test.local`,
       role: Role.owner,
       fullName: "T Perm Owner",
     });
-    fixtureIds = [manager.employeeId, owner.employeeId];
+    fixtureIds = [
+      manager.employeeId,
+      admin.employeeId,
+      supervisor.employeeId,
+      owner.employeeId,
+    ];
 
     const listened = await listenApp();
     server = listened.server;
@@ -88,6 +107,59 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
     await prisma.$disconnect();
   });
 
+  function sortGrantSnap(rows: RoleGrantSnapshotRow[]) {
+    return [...rows].sort((a, b) =>
+      `${a.role}:${a.kind}:${a.key}`.localeCompare(
+        `${b.role}:${b.kind}:${b.key}`,
+      ),
+    );
+  }
+
+  async function assertPrivilegedRoleDenials(token: string) {
+    const privilegedSnap = sortGrantSnap(
+      await snapshotRoleGrants(prisma, [Role.manager, Role.admin, Role.owner]),
+    );
+
+    const denyMgr = await putJson(api, token, "/permissions/roles/manager", {
+      panels: ["home"],
+      actions: ["rooms.view"],
+    });
+    assert.equal(denyMgr.status, 403);
+    assert.equal(
+      (denyMgr.body as { message?: string }).message,
+      "You cannot edit grants for this role",
+    );
+
+    const denyAdmin = await putJson(api, token, "/permissions/roles/admin", {
+      panels: ["home"],
+      actions: ["rooms.view"],
+    });
+    assert.equal(denyAdmin.status, 403);
+    assert.equal(
+      (denyAdmin.body as { message?: string }).message,
+      "You cannot edit grants for this role",
+    );
+
+    const denyOwner = await putJson(api, token, "/permissions/roles/owner", {
+      panels: ["home"],
+      actions: ["rooms.view"],
+    });
+    assert.equal(denyOwner.status, 400);
+    assert.equal(
+      (denyOwner.body as { message?: string }).message,
+      "Owner grants cannot be edited",
+    );
+
+    const after = sortGrantSnap(
+      await snapshotRoleGrants(prisma, [Role.manager, Role.admin, Role.owner]),
+    );
+    assert.deepEqual(
+      after,
+      privilegedSnap,
+      "denied PUTs must leave manager/admin/owner grants unchanged",
+    );
+  }
+
   it("T-PERM-HTTP-01: manager may edit housekeeper; denied for manager/admin/owner", async () => {
     const localSnap = await snapshotRoleGrants(prisma, [Role.housekeeper]);
     try {
@@ -103,37 +175,70 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
       });
       assert.equal(ok.status, 200, `housekeeper put → ${ok.status}`);
 
-      const denyMgr = await putJson(api, token, "/permissions/roles/manager", {
-        panels: ["home"],
-        actions: ["rooms.view"],
-      });
-      assert.equal(denyMgr.status, 403);
-      assert.equal(
-        (denyMgr.body as { message?: string }).message,
-        "You cannot edit grants for this role",
-      );
-
-      const denyAdmin = await putJson(api, token, "/permissions/roles/admin", {
-        panels: ["home"],
-        actions: ["rooms.view"],
-      });
-      assert.equal(denyAdmin.status, 403);
-      assert.equal(
-        (denyAdmin.body as { message?: string }).message,
-        "You cannot edit grants for this role",
-      );
-
-      const denyOwner = await putJson(api, token, "/permissions/roles/owner", {
-        panels: ["home"],
-        actions: ["rooms.view"],
-      });
-      assert.equal(denyOwner.status, 400);
-      assert.equal(
-        (denyOwner.body as { message?: string }).message,
-        "Owner grants cannot be edited",
-      );
+      await assertPrivilegedRoleDenials(token);
     } finally {
       await restoreRoleGrants(prisma, [Role.housekeeper], localSnap);
+    }
+  });
+
+  it("T-PERM-HTTP-01b: admin denied for manager/admin/owner", async () => {
+    const { token } = await loginBearer(api, admin.email, "test-password-t03");
+    const hk = await getGrantsForRole(Role.housekeeper);
+    const ok = await putJson(api, token, "/permissions/roles/housekeeper", {
+      panels: hk.panels,
+      actions: hk.actions,
+    });
+    assert.equal(ok.status, 200, `admin housekeeper put → ${ok.status}`);
+    await assertPrivilegedRoleDenials(token);
+  });
+
+  it("T-PERM-HTTP-01c: delegated supervisor with permissions.manage cannot edit any role", async () => {
+    const localSnap = await snapshotRoleGrants(prisma, [
+      Role.supervisor,
+      Role.housekeeper,
+    ]);
+    try {
+      const { token: ownerTok } = await loginBearer(
+        api,
+        owner.email,
+        "test-password-t03",
+      );
+      const sup = await getGrantsForRole(Role.supervisor);
+      const panels = sup.panels.includes("permissions")
+        ? sup.panels
+        : [...sup.panels, "permissions"];
+      const actions = sup.actions.includes("permissions.manage")
+        ? sup.actions
+        : [...sup.actions, "permissions.manage"];
+      const grant = await putJson(api, ownerTok, "/permissions/roles/supervisor", {
+        panels,
+        actions,
+      });
+      assert.equal(grant.status, 200, `delegate put → ${grant.status}`);
+
+      const { token } = await loginBearer(
+        api,
+        supervisor.email,
+        "test-password-t03",
+      );
+
+      const denyHk = await putJson(api, token, "/permissions/roles/housekeeper", {
+        panels: ["home"],
+        actions: ["rooms.view"],
+      });
+      assert.equal(denyHk.status, 403);
+      assert.equal(
+        (denyHk.body as { message?: string }).message,
+        "You cannot edit grants for this role",
+      );
+
+      await assertPrivilegedRoleDenials(token);
+    } finally {
+      await restoreRoleGrants(
+        prisma,
+        [Role.supervisor, Role.housekeeper],
+        localSnap,
+      );
     }
   });
 

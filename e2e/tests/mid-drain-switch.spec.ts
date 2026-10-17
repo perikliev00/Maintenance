@@ -4,6 +4,8 @@ import { storedUserId, uiLogin, USERS } from "./helpers/auth";
 type E2eWindow = Window & {
   __MERIDIAN_E2E_AFTER_DRAIN_CLAIM__?: () => void | Promise<void>;
   __e2eReleaseDrainClaim?: () => void;
+  /** Set true only when drain actually enters the after-claim hook. */
+  __e2eDrainClaimed?: boolean;
 };
 
 async function seedPendingQueue(page: Page, userId: string): Promise<string> {
@@ -80,7 +82,11 @@ test.describe("mid-drain account switch", () => {
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
-      w.__MERIDIAN_E2E_AFTER_DRAIN_CLAIM__ = () => gate;
+      w.__e2eDrainClaimed = false;
+      w.__MERIDIAN_E2E_AFTER_DRAIN_CLAIM__ = () => {
+        w.__e2eDrainClaimed = true;
+        return gate;
+      };
       w.__e2eReleaseDrainClaim = () => {
         release();
         delete w.__MERIDIAN_E2E_AFTER_DRAIN_CLAIM__;
@@ -90,18 +96,12 @@ test.describe("mid-drain account switch", () => {
     // Kick drain while the after-claim gate is held.
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
 
-    // Wait until drain has claimed (hook installed and drain entered it).
+    // Wait until drain has entered the after-claim hook (claim completed).
     await expect
       .poll(async () =>
-        page.evaluate(
-          () =>
-            typeof (window as E2eWindow).__e2eReleaseDrainClaim === "function",
-        ),
+        page.evaluate(() => (window as E2eWindow).__e2eDrainClaimed === true),
       )
       .toBe(true);
-
-    // Small beat so drain is blocked inside the hook (not still listing IDB).
-    await page.waitForTimeout(200);
 
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
@@ -121,5 +121,58 @@ test.describe("mid-drain account switch", () => {
       pushRequests.some((body) => body.includes(commandId)),
       "user A command must not reach /sync/push after account switch",
     ).toBe(false);
+
+    // Prove drain had claimed (row marked sending) and aborted without deleting A's outbox.
+    const queued = await page.evaluate(
+      async ({ uid, cmd }) => {
+        return new Promise<{
+          found: boolean;
+          userId?: string;
+          status?: string;
+          commandId?: string;
+        }>((resolve, reject) => {
+          const req = indexedDB.open("meridian-offline", 2);
+          req.onerror = () => reject(req.error ?? new Error("idb open failed"));
+          req.onsuccess = () => {
+            const db = req.result;
+            const tx = db.transaction("queue", "readonly");
+            const store = tx.objectStore("queue");
+            const index = store.index("userId");
+            const getAll = index.getAll(uid);
+            getAll.onsuccess = () => {
+              const rows = (getAll.result ?? []) as Array<{
+                userId: string;
+                status: string;
+                commandId: string;
+              }>;
+              const hit = rows.find((r) => r.commandId === cmd);
+              db.close();
+              resolve(
+                hit
+                  ? {
+                      found: true,
+                      userId: hit.userId,
+                      status: hit.status,
+                      commandId: hit.commandId,
+                    }
+                  : { found: false },
+              );
+            };
+            getAll.onerror = () =>
+              reject(getAll.error ?? new Error("idb getAll failed"));
+          };
+        });
+      },
+      { uid: userAId, cmd: commandId },
+    );
+    expect(queued.found, "user A outbox row must survive mid-drain abort").toBe(
+      true,
+    );
+    expect(queued.userId).toBe(userAId);
+    expect(queued.commandId).toBe(commandId);
+    expect(
+      queued.status,
+      "claim marks sending before hook; abort must not delete/reassign",
+    ).toBe("sending");
   });
 });

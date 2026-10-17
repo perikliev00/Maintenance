@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import { setDraining } from "./connState";
 import { drainQueue } from "./queueDrain";
 import {
   getOfflineUser,
@@ -37,22 +38,32 @@ describe("T-DRAIN-01 mid-drain account switch", () => {
       configurable: true,
       value: originalOnline,
     });
+    setDraining(false);
     setOfflineUser(null);
     await whenOfflineUserSettled();
   });
 
-  it("aborts with zero network sends when user switches after claim", async () => {
+  /** Bind user while offline so setOfflineUser does not kick a real drain. */
+  async function bindUserOffline(userId: string) {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
+    setOfflineUser(userId);
+    await whenOfflineUserSettled();
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
       value: true,
     });
+    setDraining(false);
+  }
 
+  it("aborts with zero network sends when user switches after claim", async () => {
     const store = new Map<string, QueuedAction>();
     const row = pendingRow("A");
     store.set(row.id, row);
 
-    setOfflineUser("A");
-    await whenOfflineUserSettled();
+    await bindUserOffline("A");
     assert.equal(getOfflineUser(), "A");
 
     let networkCalls = 0;
@@ -82,20 +93,23 @@ describe("T-DRAIN-01 mid-drain account switch", () => {
     });
 
     assert.equal(networkCalls, 0);
+    const kept = store.get(row.id);
+    assert.ok(kept, "user A row must remain in the outbox after abort");
+    assert.equal(kept.userId, "A");
+    assert.equal(kept.commandId, row.commandId);
+    assert.equal(
+      kept.status,
+      "sending",
+      "claimed row stays under A; must not be deleted or reassigned",
+    );
   });
 
   it("sends once when identity stays bound (deps wire control)", async () => {
-    Object.defineProperty(navigator, "onLine", {
-      configurable: true,
-      value: true,
-    });
-
     const store = new Map<string, QueuedAction>();
     const row = pendingRow("A");
     store.set(row.id, row);
 
-    setOfflineUser("A");
-    await whenOfflineUserSettled();
+    await bindUserOffline("A");
 
     let networkCalls = 0;
 
