@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
+    "test:scenarios": "playwright test --config playwright.scenarios.config.ts tests/scenarios",
+    "typecheck:scenarios": "tsc --noEmit -p tsconfig.scenarios.json",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "report": "playwright show-report",

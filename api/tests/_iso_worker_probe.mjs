@@ -1,0 +1,10 @@
+﻿import path from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+const require = createRequire(import.meta.url);
+const dotenv = require("dotenv");
+const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+dotenv.config({ path: path.join(apiRoot, ".env"), override: true });
+const db = new URL(process.env.DATABASE_URL).pathname.split("/").filter(Boolean).pop();
+console.log("WORKER_DB=" + db);
+if (db !== "maintenance_p1_test") process.exitCode = 2;

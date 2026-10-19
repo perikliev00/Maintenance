@@ -348,7 +348,7 @@ export async function getCleaningResults(
         return b.completedSessions - a.completedSessions;
       }
       // Tertiary: Bulgarian locale name order.
-      return a.fullName.localeCompare(b.fullName, "bg");
+      return a.fullName.localeCompare(b.fullName, "bg") || a.employeeId.localeCompare(b.employeeId);
     });
 
   /** Employees with ≥1 completed session in the period. */

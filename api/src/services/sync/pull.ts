@@ -5,6 +5,7 @@
 import { prisma } from "../../db";
 import type { AuthUser } from "../../middleware/auth";
 import { getMyWork } from "../myWork";
+import { assertSyncDevice } from "./device";
 
 /**
  * Refresh device lastSyncedAt when deviceId is provided, then return myWork.
@@ -15,6 +16,7 @@ export async function pullSync(input: {
   hotelDate?: string;
   deviceId?: string;
 }) {
+  await assertSyncDevice(input.user.userId, input.deviceId);
   // Capture start before work so SyncRun duration reflects getMyWork cost.
   const startedAt = new Date();
   // Full assigned snapshot; `since` is echoed only (no server-side delta yet).
@@ -23,7 +25,7 @@ export async function pullSync(input: {
   // Touch device lastSyncedAt/lastSeenAt when the client identified itself.
   if (input.deviceId) {
     await prisma.device.updateMany({
-      where: { id: input.deviceId, userId: input.user.userId },
+      where: { id: input.deviceId, userId: input.user.userId, revokedAt: null },
       data: { lastSyncedAt: new Date(), lastSeenAt: new Date() },
     });
   }

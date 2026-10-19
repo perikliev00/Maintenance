@@ -2,7 +2,7 @@
  * People directory + onboarding invitations. Invite/revoke UI requires
  * `people.invite`; non-owners cannot invite owner/admin roles.
  */
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ALL_ROLES,
   ROLE_LABELS,
@@ -37,6 +37,7 @@ function qrImageUrl(payload: string) {
  * Invite/revoke requires `people.invite`; non-owners cannot invite owner/admin.
  */
 export function TeamPage({ user }: Props) {
+  const issueInFlight = useRef(false);
   // Gate for onboarding tab and issue/revoke actions.
   const canInvite = canPerformAction(user, "people.invite");
   const [tab, setTab] = useState<Tab>("directory");
@@ -130,7 +131,8 @@ export function TeamPage({ user }: Props) {
   async function onIssue(e: FormEvent) {
     e.preventDefault();
     // Branch: conditional gate.
-    if (!canInvite) return;
+    if (!canInvite || issueInFlight.current) return;
+    issueInFlight.current = true;
     // State transition.
     setIssuing(true);
     // State transition.
@@ -181,6 +183,7 @@ export function TeamPage({ user }: Props) {
     } finally {
       // State transition.
       setIssuing(false);
+      issueInFlight.current = false;
     }
   }
 

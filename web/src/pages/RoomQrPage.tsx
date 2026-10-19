@@ -36,6 +36,8 @@ export function RoomQrPage({ token, onClose }: Props) {
     setLoading(true);
     // State transition.
     setError(null);
+    setLocation(null);
+    setQr(null);
     // Fire-and-forget async call.
     void resolveLocationByQr(token)
       // Promise then handler.

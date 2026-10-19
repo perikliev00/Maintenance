@@ -53,6 +53,54 @@ function assertValidity(validFrom: Date, validUntil: Date) {
   }
 }
 
+/** Normalize nullable ids so undefined and null compare equal. */
+function nullNorm(id: string | null | undefined): string | null {
+  return id ?? null;
+}
+
+/**
+ * Chronologically first grant (initial issue grant). Used for commandId
+ * fingerprinting; grants include may be newest-first.
+ */
+function firstGrant(card: CardWithRelations) {
+  if (!card.grants.length) return null;
+  return [...card.grants].sort(
+    (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+  )[0]!;
+}
+
+/**
+ * P1-83: same commandId must replay the same cardType / holder / location /
+ * validity window; otherwise 409 conflict (not silent idempotent success).
+ */
+function assertIssueFingerprintMatch(
+  card: CardWithRelations,
+  input: {
+    cardType: CardType;
+    employeeId?: string | null;
+    locationId?: string | null;
+    validFrom: Date;
+    validUntil: Date;
+  },
+) {
+  const grant = firstGrant(card);
+  const locationId = grant?.locationId ?? null;
+  const matches =
+    card.cardType === input.cardType &&
+    nullNorm(card.employeeId) === nullNorm(input.employeeId) &&
+    nullNorm(locationId) === nullNorm(input.locationId) &&
+    grant != null &&
+    grant.validFrom.getTime() === input.validFrom.getTime() &&
+    grant.validUntil.getTime() === input.validUntil.getTime();
+  if (!matches) {
+    throw new AppError(
+      409,
+      "conflict",
+      "commandId reused with a different payload",
+    );
+  }
+}
+
 /** List access cards with optional filters; newest first. */
 export async function listCards(filters: {
   employeeId?: string;
@@ -155,13 +203,14 @@ export async function issueCard(input: {
   commandId: string;
   issuedByEmployeeId: string;
 }): Promise<{ card: CardWithRelations; idempotent: boolean }> {
-  // Idempotency: same commandId always returns the same card.
+  // Idempotency: same commandId returns the same card when fingerprint matches.
   const existing = await prisma.accessCard.findUnique({
     where: { commandId: input.commandId },
     include: cardInclude,
   });
-  // Retry of a prior successful issue — return without mutating.
+  // Retry of a prior successful issue — fingerprint must match (P1-83).
   if (existing) {
+    assertIssueFingerprintMatch(existing, input);
     return { card: existing, idempotent: true };
   }
 
@@ -287,7 +336,12 @@ export async function issueCard(input: {
         where: { commandId: input.commandId },
         include: cardInclude,
       });
-      if (raced) return { card: raced, idempotent: true };
+      // P2002 loser must fingerprint too — otherwise concurrent mismatched
+      // payloads with the same commandId would silently succeed (P1-83d).
+      if (raced) {
+        assertIssueFingerprintMatch(raced, input);
+        return { card: raced, idempotent: true };
+      }
     }
     // Non-unique errors (or unique without a recoverable row) propagate.
     throw err;
@@ -299,7 +353,7 @@ export async function revokeCard(input: {
   cardId: string;
   actorEmployeeId?: string;
 }): Promise<CardWithRelations> {
-  // Load current status before the CAS-style revoke.
+  // Load for 404 / audit summary; CAS below is the concurrency authority.
   const card = await prisma.accessCard.findUnique({
     where: { id: input.cardId },
   });
@@ -307,32 +361,34 @@ export async function revokeCard(input: {
   if (!card) {
     throw new AppError(404, "not_found", "Card not found");
   }
-  // Already revoked → conflict (no double-revoke audit spam).
-  if (card.status === CardStatus.revoked) {
-    throw new AppError(409, "invalid_state", "Card already revoked");
-  }
 
-  // Status flip + audit must succeed together.
+  // CAS status flip + at-most-one audit (P1-84).
   return prisma.$transaction(async (tx) => {
-    // Flip status to revoked and reload with standard includes.
-    const updated = await tx.accessCard.update({
-      where: { id: input.cardId },
+    const flipped = await tx.accessCard.updateMany({
+      where: { id: input.cardId, status: CardStatus.active },
       data: { status: CardStatus.revoked },
-      include: cardInclude,
     });
-    // Audit the revoke under the acting employee (may be undefined for system).
+    // Already revoked (or raced loser) → conflict; do not audit.
+    if (flipped.count === 0) {
+      throw new AppError(409, "invalid_state", "Card already revoked");
+    }
+    // Audit only the successful CAS winner.
     await recordAudit(
       {
         actorEmployeeId: input.actorEmployeeId,
         action: "card.revoke",
         entityType: "card",
         entityId: input.cardId,
-        before: { status: card.status },
+        before: { status: CardStatus.active },
         after: { status: CardStatus.revoked },
         summary: `Revoked ${card.cardType} card`,
       },
       tx,
     );
-    return updated;
+    // Reload with standard includes for the API payload.
+    return tx.accessCard.findUniqueOrThrow({
+      where: { id: input.cardId },
+      include: cardInclude,
+    });
   });
 }

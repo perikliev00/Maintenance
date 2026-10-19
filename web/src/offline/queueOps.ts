@@ -16,6 +16,7 @@ import {
 } from "./connState";
 import {
   deleteQueuedAction,
+  compareQueuedActions,
   listQueueForUser,
   putQueuedAction,
   readMyWorkCache,
@@ -65,7 +66,7 @@ export async function listQueuedActions(
     ? rows.filter((r) => statuses.includes(r.status))
     : rows;
   // Oldest first so drain / UI match FIFO order.
-  return filtered.sort((a, b) => a.createdAt - b.createdAt);
+  return filtered.sort(compareQueuedActions);
 }
 
 /**

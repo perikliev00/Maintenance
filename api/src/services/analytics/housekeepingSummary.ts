@@ -351,14 +351,14 @@ export async function getHousekeepingSummary(
   // Load labels only for locations that meet the ticket threshold.
   const locMeta = await prisma.location.findMany({
     where: {
+      AND: [{
       id: {
         // Keep only locations at/above the configured ticket risk threshold.
         in: ticketsInPeriod
           .filter((g) => g._count._all >= riskTicketThreshold)
           .map((g) => g.locationId),
       },
-      // Respect location data-scope for risk-room labels.
-      ...locW,
+      }, locW],
     },
     // Building/floor for display labels.
     include: { floor: { include: { building: true } } },

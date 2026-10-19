@@ -12,6 +12,7 @@ import {
   TaskStatus,
 } from "@prisma/client";
 import dotenv from "dotenv";
+import { withHotelNowForTests } from "../../src/services/hotelTime";
 import {
   PLAN_PASSWORD,
   assertLocationSnapEqual,
@@ -93,7 +94,7 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-PLAN-57: GET with past deferred departure does not apply effects", async () => {
+  it("T-PLAN-57: GET with past deferred departure does not apply effects", async () => withHotelNowForTests(new Date("2040-05-20T12:00:00Z"), async () => {
     const today = await hotelTodayYmd();
     const past = ymdOffset(today, -3);
     await cleanupPlanArtifacts(prisma, [
@@ -145,9 +146,9 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
       null,
     );
     assert.deepEqual(await snapshotTasks(world.locationAId), beforeTasks);
-  });
+  }));
 
-  it("T-PLAN-57b: GET today pending departure does not apply; apply endpoint does", async () => {
+  it("T-PLAN-57b: GET today pending departure does not apply; apply endpoint does", async () => withHotelNowForTests(new Date("2040-05-20T12:00:00Z"), async () => {
     const today = await hotelTodayYmd();
     await cleanupPlanArtifacts(
       prisma,
@@ -272,5 +273,5 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
     assert.equal(linkedTask.assignedEmployeeId, world.hk1.employeeId);
     assert.equal(linkedTask.shiftId, world.shiftId);
     assert.equal(await countActiveTasks(prisma, world.locationAId, today), 1);
-  });
+  }));
 });

@@ -294,7 +294,7 @@ export async function createNotifications(
   return { created, skipped };
 }
 
-/** Cursor page (id desc) of notifications for one recipient. */
+/** Cursor page ordered by createdAt, then id, for one recipient. */
 export async function listNotificationsForEmployee(input: {
   employeeId: string;
   unreadOnly?: boolean;
@@ -318,7 +318,15 @@ export async function listNotificationsForEmployee(input: {
   }
   // Opaque cursor is the previous page's last notification id.
   if (input.cursor) {
-    where.id = { lt: input.cursor };
+    const cursor = await prisma.notification.findFirst({
+      where: { id: input.cursor, recipientEmployeeId: input.employeeId },
+      select: { id: true, createdAt: true },
+    });
+    if (!cursor) throw new AppError(400, "validation", "Invalid notification cursor");
+    where.OR = [
+      { createdAt: { lt: cursor.createdAt } },
+      { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+    ];
   }
 
   // Fetch one extra row to detect hasMore without a separate count.

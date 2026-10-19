@@ -659,3 +659,55 @@ describe("uniqueFlags", () => {
     ]);
   });
 });
+
+describe("attendance pairing DST windows (P1-77)", () => {
+  it("spring-forward Sofia DST window yields workedMinutes 420", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "spr-in",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-03-28T20:00:00.000Z"),
+        }),
+        ev({
+          id: "spr-out",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-03-29T03:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "Europe/Sofia",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.workedMinutes, 420);
+    assert.equal(
+      drafts[0]!.hotelDate.toISOString().slice(0, 10),
+      "2026-03-28",
+    );
+  });
+
+  it("fall-back Sofia DST window yields workedMinutes 540", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({
+          id: "fall-in",
+          kind: AttendanceEventKind.clock_in,
+          normalizedTime: new Date("2026-10-24T19:00:00.000Z"),
+        }),
+        ev({
+          id: "fall-out",
+          kind: AttendanceEventKind.clock_out,
+          normalizedTime: new Date("2026-10-25T04:00:00.000Z"),
+        }),
+      ],
+      frozen: [],
+      timeZone: "Europe/Sofia",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.workedMinutes, 540);
+    assert.equal(
+      drafts[0]!.hotelDate.toISOString().slice(0, 10),
+      "2026-10-24",
+    );
+  });
+});

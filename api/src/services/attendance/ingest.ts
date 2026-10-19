@@ -190,6 +190,9 @@ export async function ingestEvent(input: {
   const receivedAt = input.receivedAt
     ? new Date(input.receivedAt)
     : new Date();
+  if (Number.isNaN(receivedAt.getTime())) {
+    throw new AppError(400, "validation", "Invalid receivedAt");
+  }
   // Normalized time currently equals deviceTime (no TZ rewrite here).
   const normalizedTime = deviceTime;
   // Skew seconds: explicit input or derived device−received delta.
@@ -204,6 +207,10 @@ export async function ingestEvent(input: {
   try {
     // Insert event + rebuild intervals atomically.
     const result = await prisma.$transaction(async (tx) => {
+      // Serialize per-employee rebuilds so concurrent punches cannot fork intervals.
+      await tx.$executeRaw`
+        SELECT id FROM "Employee" WHERE id = ${input.employeeId} FOR UPDATE
+      `;
       // Await async query or service call.
       const event = await tx.attendanceEvent.create({
         data: {

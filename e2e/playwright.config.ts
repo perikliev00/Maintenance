@@ -15,6 +15,7 @@ const startServers = process.env.E2E_START_SERVERS !== "0";
 
 export default defineConfig({
   testDir: "./tests",
+  testIgnore: "**/scenarios/**",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

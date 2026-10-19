@@ -3,7 +3,7 @@
  * First pass may leave protected rooms as deferred; confirm re-runs with
  * those entry ids. Reading the plan alone never mutates rooms.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { applyDepartureRoomEffects } from "../../api/client";
 
 type Props = {
@@ -31,6 +31,15 @@ export function DepartureEffectsPanel({
   const [confirmingDeferred, setConfirmingDeferred] = useState(false);
   // Entry ids deferred by the last apply — fed into confirm on the second pass.
   const [deferredEntryIds, setDeferredEntryIds] = useState<string[]>([]);
+  const dateRef = useRef(hotelDate);
+  dateRef.current = hotelDate;
+  useEffect(() => {
+    setDeferredEntryIds([]);
+    setApplyingEffects(false);
+    setConfirmingDeferred(false);
+    setMessage(null);
+    setError(null);
+  }, [hotelDate, setMessage, setError]);
 
   // Permission gate: non-managers never see this panel.
   if (!canManage) return null;
@@ -46,6 +55,7 @@ export function DepartureEffectsPanel({
     // Try block for fallible work.
     try {
       const result = await applyDepartureRoomEffects(hotelDate);
+      if (dateRef.current !== hotelDate) return;
       // State transition.
       setDeferredEntryIds(result.deferredEntryIds ?? []);
       // Summarize applied / protected / deferred counts for the banner.
@@ -57,6 +67,7 @@ export function DepartureEffectsPanel({
       // Await async step.
       await refresh();
     } catch (err) {
+      if (dateRef.current !== hotelDate) return;
       // State transition.
       setError(
         err instanceof Error
@@ -65,7 +76,7 @@ export function DepartureEffectsPanel({
       );
     } finally {
       // State transition.
-      setApplyingEffects(false);
+      if (dateRef.current === hotelDate) setApplyingEffects(false);
     }
   }
 
@@ -84,6 +95,7 @@ export function DepartureEffectsPanel({
       const result = await applyDepartureRoomEffects(hotelDate, {
         confirmEntryIds: deferredEntryIds,
       });
+      if (dateRef.current !== hotelDate) return;
       // Remaining deferred ids (if any) stay for another confirm cycle.
       setDeferredEntryIds(result.deferredEntryIds ?? []);
       // State transition.
@@ -93,6 +105,7 @@ export function DepartureEffectsPanel({
       // Await async step.
       await refresh();
     } catch (err) {
+      if (dateRef.current !== hotelDate) return;
       // State transition.
       setError(
         err instanceof Error
@@ -101,7 +114,7 @@ export function DepartureEffectsPanel({
       );
     } finally {
       // State transition.
-      setConfirmingDeferred(false);
+      if (dateRef.current === hotelDate) setConfirmingDeferred(false);
     }
   }
 

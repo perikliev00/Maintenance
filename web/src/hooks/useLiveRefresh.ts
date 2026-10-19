@@ -1,6 +1,6 @@
 /**
  * React hook: debounced refetch when shared SSE domain events fire.
- * Skips while `busy` so a local mutation's own refresh is not doubled.
+ * Defers events while `busy` and catches up whenever the stream reconnects.
  */
 import { useEffect, useRef, useState } from "react";
 import {
@@ -20,7 +20,7 @@ const DOMAIN_EVENTS: LiveEventType[] = [
 
 type Options = {
   enabled?: boolean;
-  /** Skip refetch while a local mutation refresh is in flight. */
+  /** Defer refetch while a local mutation refresh is in flight. */
   busy?: boolean;
   /** If set, only these event types trigger refresh. */
   eventTypes?: LiveEventType[];
@@ -48,6 +48,7 @@ export function useLiveRefresh(
   const busyRef = useRef(busy);
   const typesRef = useRef(new Set(eventTypes));
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushRef = useRef<(() => void) | null>(null);
 
   // Sync latest callbacks/flags into refs (effect does not re-subscribe on these).
   refreshRef.current = refresh;
@@ -58,36 +59,52 @@ export function useLiveRefresh(
     // Disabled pages skip the shared SSE subscription entirely.
     if (!enabled) return;
 
-    const unsubscribe = subscribeLiveEvents((event: LiveEvent) => {
-      // Handshake-only; not a domain change.
-      if (event.type === "connected") return;
-      // Caller may narrow to a subset of domain events.
-      if (!typesRef.current.has(event.type)) return;
-      // Local mutation already refreshing — avoid a duplicate fetch.
-      if (busyRef.current) return;
-
-      // Debounce bursty SSE (many entities changing at once).
+    let disposed = false;
+    let pending: LiveEvent | null = null;
+    let refreshing = false;
+    const schedule = () => {
+      if (disposed || !pending || busyRef.current || refreshing) return;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        if (disposed || busyRef.current || refreshing || !pending) return;
+        const applied = pending;
+        refreshing = true;
         void (async () => {
-          // Re-check busy after the debounce window.
-          if (busyRef.current) return;
           try {
             await refreshRef.current();
-            setLastAt(event.at ?? new Date().toISOString());
+            if (!disposed) {
+              if (pending === applied) pending = null;
+              setLastAt(applied.at ?? new Date().toISOString());
+            }
           } catch {
-            // keep previous data; next event or manual refresh will retry
+            // Keep dirty state for the next event, reconnect, or busy transition.
+          } finally {
+            refreshing = false;
+            if (pending && pending !== applied) schedule();
           }
         })();
       }, debounceMs);
+    };
+    flushRef.current = schedule;
+
+    const unsubscribe = subscribeLiveEvents((event: LiveEvent) => {
+      // Caller may narrow to a subset of domain events.
+      if (event.type !== "connected" && !typesRef.current.has(event.type)) return;
+      pending = event;
+      schedule();
     });
 
     return () => {
+      disposed = true;
+      flushRef.current = null;
       // Clear pending debounce and leave the shared SSE fan-out.
       if (timerRef.current) clearTimeout(timerRef.current);
       unsubscribe();
     };
   }, [enabled, debounceMs]);
+
+  useEffect(() => { if (!busy) flushRef.current?.(); }, [busy]);
 
   return lastAt;
 }

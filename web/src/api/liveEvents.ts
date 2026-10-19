@@ -45,7 +45,7 @@ function parseSseChunk(
   onEvent: (event: LiveEvent) => void,
 ): string {
   // SSE frames are separated by a blank line.
-  const parts = buffer.split("\n\n");
+  const parts = buffer.split(/\r?\n\r?\n/);
   // Last segment may be incomplete — keep it for the next chunk.
   const remainder = parts.pop() ?? "";
 

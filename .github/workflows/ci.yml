@@ -88,17 +88,54 @@ jobs:
       - run: npx prisma migrate deploy
       - run: npx tsx scripts/assert-sql-invariants.ts
       - run: npm run db:seed
+      # Isolated DB for sectors/shifts/my-work (preload rewrites DATABASE_URL by name).
+      - name: Prepare maintenance_p1_test
+        env:
+          PGPASSWORD: maintenance
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          set +e
+          OUT=$(psql -h localhost -U maintenance -d postgres -c "CREATE DATABASE maintenance_p1_test OWNER maintenance;" 2>&1)
+          EC=$?
+          set -e
+          if [ $EC -ne 0 ]; then
+            echo "$OUT" | grep -qi "already exists" || { echo "$OUT"; exit 1; }
+          fi
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10" \
+            npx prisma migrate deploy
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10" \
+            npm run db:seed
+          # Write .env.p1_test without heredoc indent leakage (YAML-safe).
+          printf '%s\n' \
+            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
+            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
+            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
+            'WEB_ORIGIN=http://127.0.0.1:5173' \
+            > .env.p1_test
+      - run: npm run prove:p1-isolation
+      - run: npm run test:scenarios
       - run: npm test
       - run: npm run test:cleaning-lifecycle
       - run: npm run test:readiness
       - run: npm run test:tickets-lifecycle
       - run: npm run test:plan
+      - run: npm run test:sectors
+        env:
+          EXPECTED_TEST_DATABASE: maintenance_p1_test
+      - run: npm run test:shifts
+        env:
+          EXPECTED_TEST_DATABASE: maintenance_p1_test
+      - run: npm run test:my-work
+        env:
+          EXPECTED_TEST_DATABASE: maintenance_p1_test
+      - run: npm run test:attendance
+      - run: npm run test:cards
       - run: npm run db:seed
       - run: npx tsx scripts/smoke-ticket-lifecycle-idempotency.ts
       - run: npx tsx scripts/smoke-cleaning-atomic.ts
       - run: npx tsx scripts/smoke-invitation-atomic.ts
       - run: npx tsx scripts/smoke-invitation-role.ts
-      - run: npx tsx scripts/smoke-attendance-atomic.ts
+      - run: npm run smoke:attendance:isolated
       - run: npx tsx scripts/smoke-maintenance-atomic.ts
       - run: npx tsx scripts/smoke-daily-plan-atomic.ts
       - run: npx tsx scripts/smoke-data-scope.ts
@@ -196,6 +233,29 @@ jobs:
       - name: Run Playwright
         working-directory: e2e
         run: npm test
+
+      - name: Prepare isolated scenario database
+        working-directory: api
+        env:
+          PGPASSWORD: maintenance
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h localhost -U maintenance -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE maintenance_p1_test OWNER maintenance;"
+          printf '%s\n' \
+            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
+            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
+            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
+            'WEB_ORIGIN=http://127.0.0.1:5185' \
+            > .env.p1_test
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" npx prisma migrate deploy
+          node --import ./tests/registerP1TestEnv.mjs --import tsx prisma/seed.ts
+          npm run prove:p1-isolation
+
+      - name: Run isolated browser integrations and workflows
+        working-directory: e2e
+        run: |
+          npm run typecheck:scenarios
+          npm run test:scenarios
 
       - name: Upload Playwright report
         if: failure()

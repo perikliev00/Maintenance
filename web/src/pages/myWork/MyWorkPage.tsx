@@ -7,8 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   canPerformAction,
   canResolveIssues,
-  fetchCleaningTasks,
-  fetchTickets,
+  fetchMyWork,
   todayHotelDate,
   type AuthUser,
   type CleaningTaskRow,
@@ -79,19 +78,12 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
    */
   const refresh = useCallback(async () => {
     const hotelDate = todayHotelDate();
-    // Parallel mine fetches gated by section visibility.
-    const [taskData, ticketData] = await Promise.all([
-      showCleaning
-        ? fetchCleaningTasks({
-            mine: true,
-            hotelDate,
-            status: "assigned,rework,in_progress,awaiting_inspection",
-          })
-        : Promise.resolve([] as CleaningTaskRow[]),
-      showTickets
-        ? fetchTickets({ mine: true, status: "open", limit: 50 })
-        : Promise.resolve([] as MaintenanceTicket[]),
-    ]);
+    // Single aggregate endpoint: roster/shift filter + tech empty cleaning queue.
+    const data = await fetchMyWork({ hotelDate });
+    const taskData = showCleaning ? data.tasks : ([] as CleaningTaskRow[]);
+    const ticketData = showTickets
+      ? data.tickets
+      : ([] as MaintenanceTicket[]);
     setTasks(taskData);
     setTickets(ticketData);
     // Fresh network data — clear cache/pending markers.
@@ -102,7 +94,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
       tasks: taskData,
       tickets: ticketData,
       savedAt: Date.now(),
-      hotelDate,
+      hotelDate: data.hotelDate || hotelDate,
     });
   }, [showCleaning, showTickets]);
 

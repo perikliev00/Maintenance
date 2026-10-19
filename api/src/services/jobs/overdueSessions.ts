@@ -62,14 +62,20 @@ export async function runOverdueSessions() {
       // Skip sessions already stamped with the overdue anomaly flag.
       if (flags.includes("overdue")) continue;
 
-      // Append "overdue" without dropping any prior anomaly flags.
-      await prisma.cleaningSession.update({
-        where: { id: session.id },
-        data: {
-          // Persist merged flags array (Prisma JSON column).
-          anomalyFlags: [...flags, "overdue"],
-        },
-      });
+      // Merge against the current row after acquiring its write lock. PostgreSQL
+      // rechecks status and flags after waiting for a concurrent completion.
+      const changed = await prisma.$queryRaw<{ id: string }[]>`
+        UPDATE "CleaningSession"
+        SET "anomalyFlags" =
+          (CASE WHEN jsonb_typeof("anomalyFlags") = 'array'
+            THEN "anomalyFlags" ELSE '[]'::jsonb END) || '["overdue"]'::jsonb,
+          "updatedAt" = CURRENT_TIMESTAMP
+        WHERE id = ${session.id} AND status = 'running'
+          AND "startedAt" <= ${cutoff}
+          AND NOT (COALESCE("anomalyFlags", '[]'::jsonb) @> '["overdue"]'::jsonb)
+        RETURNING id
+      `;
+      if (changed.length === 0) continue;
       // System audit (null actor) for the overdue detection.
       await recordAudit({
         actorEmployeeId: null,

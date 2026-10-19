@@ -36,6 +36,8 @@ export type QueuedAction = {
   conflictMessage: string | null;
   conflictDetails: unknown;
   retries: number;
+  /** Persisted insertion order, allocated atomically per user even for tied clocks. */
+  sequence?: number;
 };
 
 /** Last-known My Work lists for offline UI when live fetches fail. */
@@ -114,21 +116,53 @@ async function withStore<T>(
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, mode);
     const store = tx.objectStore(storeName);
-    const req = fn(store);
+    let req: IDBRequest<T> | void;
     tx.oncomplete = () => {
       resolve(req ? (req.result as T) : undefined);
       db.close();
     };
-    tx.onerror = () => {
+    tx.onerror = tx.onabort = () => {
       reject(tx.error ?? new Error("IndexedDB transaction failed"));
       db.close();
     };
+    try { req = fn(store); }
+    catch (error) { tx.abort(); db.close(); reject(error); }
   });
 }
 
 /** Upsert one outbox row (id is the primary key). */
 export async function putQueuedAction(row: QueuedAction): Promise<void> {
-  await withStore(QUEUE_STORE, "readwrite", (store) => store.put(row));
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(QUEUE_STORE, "readwrite");
+    const store = tx.objectStore(QUEUE_STORE);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = tx.onabort = () => { db.close(); reject(tx.error ?? new Error("IndexedDB transaction failed")); };
+    const fail = (error: unknown) => { tx.abort(); db.close(); reject(error); };
+    const existing = store.get(row.id);
+    existing.onsuccess = () => {
+      try {
+      const previous = existing.result as QueuedAction | undefined;
+      if (previous?.sequence !== undefined) {
+        store.put({ ...row, sequence: previous.sequence });
+        return;
+      }
+      const rows = store.index("userId").getAll(row.userId);
+      rows.onsuccess = () => {
+        try {
+        const max = (rows.result as QueuedAction[]).reduce((value, item) => Math.max(value, item.sequence ?? 0), 0);
+        store.put({ ...row, sequence: max + 1 });
+        } catch (error) { fail(error); }
+      };
+      } catch (error) { fail(error); }
+    };
+  });
+}
+
+/** Legacy rows retain chronological ordering; new rows also order tied clocks. */
+export function compareQueuedActions(a: QueuedAction, b: QueuedAction): number {
+  if (a.sequence !== undefined && b.sequence !== undefined) return a.sequence - b.sequence;
+  return a.createdAt - b.createdAt || a.id.localeCompare(b.id);
 }
 
 /** Remove one outbox row after successful sync or dismiss. */

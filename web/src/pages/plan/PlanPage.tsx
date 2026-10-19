@@ -2,7 +2,7 @@
  * Daily plan (Clock): manual entries + JSON import — not a live PMS sync.
  * Manage UI (import, CRUD, departure effects) requires `plan.manage`.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   // Permission / capability gate.
   canPerformAction,
@@ -43,9 +43,13 @@ export function PlanPage({ user }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [locationId, setLocationId] = useState("");
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
+  const dateRef = useRef(hotelDate);
+  const refreshRevision = useRef(0);
+  dateRef.current = hotelDate;
 
   /** Load plan + lookup lists for the selected hotel date. */
   const refresh = useCallback(async () => {
+    const revision = ++refreshRevision.current;
     // Housekeepers/shifts soft-fail so the plan still loads without them.
     const [planData, roomData, hkData, shiftData] = await Promise.all([
       fetchDailyPlan(hotelDate),
@@ -55,6 +59,7 @@ export function PlanPage({ user }: Props) {
       // Promise catch handler.
       fetchShifts(false).catch(() => [] as ShiftRow[]),
     ]);
+    if (dateRef.current !== hotelDate || refreshRevision.current !== revision) return;
     // State transition.
     setPlan(planData);
     // State transition.

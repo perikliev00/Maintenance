@@ -3,13 +3,14 @@
  * Request vs approve are separately gated (`attendance.request_adjustment` /
  * `attendance.approve_adjustment`).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   canPerformAction,
   downloadAttendanceCsv,
   fetchAttendanceIntervals,
   requestAttendanceAdjustment,
   reviewAttendanceAdjustment,
+  todayHotelDate,
   type AttendanceInterval,
   type AttendanceScope,
   type AuthUser,
@@ -26,8 +27,7 @@ const SCOPES: Array<{ id: AttendanceScope; bg: string; en: string }> = [
 
 /** Current calendar month as YYYY-MM for the month-scope picker. */
 function currentMonth(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return todayHotelDate().slice(0, 7);
 }
 
 /** Compact BG locale timestamp; em-dash when null (open interval). */
@@ -68,6 +68,9 @@ export function AttendancePage({ user }: Props) {
   // Optional department and free-text name/number filters.
   const [department, setDepartment] = useState("");
   const [q, setQ] = useState("");
+  const filterKey = JSON.stringify([scope, month, department, q]);
+  const filterRef = useRef(filterKey);
+  filterRef.current = filterKey;
   // Paginated intervals + total for the "shown X of Y" stamp.
   const [intervals, setIntervals] = useState<AttendanceInterval[]>([]);
   const [total, setTotal] = useState(0);
@@ -100,6 +103,7 @@ export function AttendancePage({ user }: Props) {
       department: department.trim() || undefined,
       q: q.trim() || undefined,
     });
+    if (filterRef.current !== filterKey) return;
     setIntervals(data.intervals);
     setTotal(data.total);
     setNextCursor(data.nextCursor);
@@ -120,6 +124,7 @@ export function AttendancePage({ user }: Props) {
         q: q.trim() || undefined,
         cursor: nextCursor,
       });
+      if (filterRef.current !== filterKey) return;
       // Append rather than replace so prior rows stay visible.
       setIntervals((prev) => [...prev, ...data.intervals]);
       setTotal(data.total);

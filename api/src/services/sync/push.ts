@@ -8,6 +8,7 @@ import type { AuthUser } from "../../middleware/auth";
 import { recordAudit } from "../audit";
 import { applyCommand } from "./applyCommand";
 import type { SyncCommand, SyncCommandResult } from "./types";
+import { assertSyncDevice } from "./device";
 
 /**
  * Run commands in order (no parallelism — later cmds may depend on earlier state).
@@ -18,6 +19,7 @@ export async function pushSync(input: {
   commands: SyncCommand[];
   deviceId?: string;
 }) {
+  await assertSyncDevice(input.user.userId, input.deviceId);
   // Capture start before apply so SyncRun duration covers the whole batch.
   const startedAt = new Date();
   // Sequential apply — later offline cmds may depend on earlier mutations.
@@ -51,7 +53,7 @@ export async function pushSync(input: {
   // Refresh device sync timestamps when the client sent a deviceId.
   if (input.deviceId) {
     await prisma.device.updateMany({
-      where: { id: input.deviceId, userId: input.user.userId },
+      where: { id: input.deviceId, userId: input.user.userId, revokedAt: null },
       data: { lastSyncedAt: new Date(), lastSeenAt: new Date() },
     });
   }

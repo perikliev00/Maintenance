@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "lib": ["ES2022", "DOM", "DOM.Iterable"], "strict": true, "types": ["node"], "skipLibCheck": true, "noEmit": true },
+  "include": ["playwright.scenarios.config.ts", "tests/scenarios/**/*.ts", "tests/helpers/**/*.ts"]
+}

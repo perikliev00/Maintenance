@@ -184,7 +184,7 @@ export async function refreshAccessToken(): Promise<RefreshOutcome> {
       const classified = classifyRefreshFailure(res.status);
       lastRefreshOutcome = classified;
       if (classified === "rejected") {
-        clearSession();
+        await wipeLocalSession();
       }
       return classified;
     } catch {
@@ -233,10 +233,13 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
   const method = (init.method ?? "GET").toUpperCase();
   // Closure rebuilds CSRF headers on each attempt (including post-refresh retry).
   const attempt = async () => {
-    const headers: Record<string, string> = {
-      ...buildAuthHeaders(method),
-      ...(init.headers as Record<string, string> | undefined),
-    };
+    const headers = new Headers(init.headers);
+    const rebuilt = buildAuthHeaders(method);
+    for (const [key, value] of Object.entries(rebuilt)) {
+      // A caller may have captured authHeaders before refresh. CSRF always
+      // comes from the current cookie; other explicit headers stay intact.
+      if (key === "X-CSRF-Token" || !headers.has(key)) headers.set(key, value);
+    }
     try {
       return await fetch(url, {
         ...init,

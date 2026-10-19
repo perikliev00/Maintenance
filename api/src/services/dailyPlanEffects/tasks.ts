@@ -60,8 +60,6 @@ export async function createTaskWithSectorSnapshot(
     planCategory: DailyPlanCategory;
   },
 ) {
-  // Snapshot sector + supervisor at create time (stable if room later moves).
-  const snap = await sectorSnapshotForLocation(data.locationId, tx);
   // Analytics/work-type from room kind + plan category (departure vs stayover, etc.).
   const serviceType = deriveCleaningServiceType({
     locationKind: data.locationKind,
@@ -75,6 +73,8 @@ export async function createTaskWithSectorSnapshot(
     data.locationId,
     data.hotelDate,
   );
+  // Snapshot after Location lock so concurrent membership moves are visible.
+  const snap = await sectorSnapshotForLocation(data.locationId, tx);
   const preexisting = await tx.cleaningTask.findFirst({
     where: {
       locationId: data.locationId,

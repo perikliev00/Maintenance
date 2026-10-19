@@ -7,6 +7,7 @@ import { prisma } from "../db";
 // Module dependency import.
 import { AppError } from "../errors";
 import { recordAudit } from "./audit";
+import { parseHotelDate } from "./dailyPlanEffects/hotelDate";
 
 const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -203,14 +204,6 @@ export async function assertActiveShiftId(
 }
 
 /** Parse YYYY-MM-DD into a UTC-midnight Date for Prisma Date columns. */
-function parseHotelDate(hotelDate: string): Date {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(hotelDate)) {
-    // Roster keys are hotel calendar dates, not timestamps.
-    throw new AppError(400, "validation", "hotelDate must be YYYY-MM-DD");
-  }
-  // UTC midnight — matches Prisma @db.Date storage.
-  return new Date(`${hotelDate}T00:00:00.000Z`);
-}
 
 /** Format a Prisma Date key back to YYYY-MM-DD. */
 function formatHotelDate(d: Date): string {

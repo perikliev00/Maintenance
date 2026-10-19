@@ -3,7 +3,7 @@
  * New tickets enqueue via `reportTicketQueued` when offline; live refresh on
  * ticket/location events. Assign/close/report/resolve are separately gated.
  */
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignIssue,
   canAssignIssues,
@@ -80,6 +80,11 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   const [priority, setPriority] = useState("normal");
   const [blocksRoom, setBlocksRoom] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const reportInFlight = useRef(false);
+  const locationRef = useRef(locationId);
+  const optionRef = useRef(issueOptionId);
+  locationRef.current = locationId;
+  optionRef.current = issueOptionId;
 
   // Permission / capability gate.
   const canResolve = canResolveIssues(user.role);
@@ -118,9 +123,13 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     // State transition.
     setOptions(optData);
     // Branch: conditional gate.
-    if (!locationId && roomData[0]) setLocationId(roomData[0].id);
+    if (!locationRef.current && roomData[0]) {
+      locationRef.current = roomData[0].id;
+      setLocationId(roomData[0].id);
+    }
     // Branch: conditional gate.
-    if (!issueOptionId && optData[0]) {
+    if (!optionRef.current && optData[0]) {
+      optionRef.current = optData[0].id;
       // State transition.
       setIssueOptionId(optData[0].id);
       // State transition.
@@ -243,17 +252,20 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
       setEvents([]);
       return;
     }
+    let cancelled = false;
+    setEvents([]);
     // Fire-and-forget async call.
     void fetchTicketEvents(selectedId)
       // Promise then handler.
-      .then((rows) =>
+      .then((rows) => !cancelled &&
         // State transition.
         setEvents(
           rows as TicketEventRow[],
         ),
       )
       // Promise catch handler.
-      .catch(() => setEvents([]));
+      .catch(() => { if (!cancelled) setEvents([]); });
+    return () => { cancelled = true; };
   }, [selectedId]);
 
   const selected = useMemo(
@@ -267,7 +279,8 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   async function handleReport(e: FormEvent) {
     e.preventDefault();
     // Branch: conditional gate.
-    if (!locationId || !issueOptionId) return;
+    if (!locationId || !issueOptionId || reportInFlight.current) return;
+    reportInFlight.current = true;
     // State transition.
     setSubmitting(true);
     // State transition.
@@ -335,6 +348,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     } finally {
       // State transition.
       setSubmitting(false);
+      reportInFlight.current = false;
     }
   }
 

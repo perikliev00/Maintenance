@@ -103,46 +103,49 @@ export async function createSector(input: {
   };
 
   try {
-    const sector = await prisma.$transaction(async (tx) => {
-      // Create metadata row first; membership follows when locationIds set.
-      const created = await tx.sector.create({
-        data: {
-          propertyId,
-          code,
-          nameBg: input.nameBg.trim(),
-          nameEn: input.nameEn.trim(),
-          primarySupervisorEmployeeId:
-            input.primarySupervisorEmployeeId ?? null,
-          isActive: input.isActive ?? true,
-        },
-      });
-      // Optional initial membership in the same transaction.
-      if (input.locationIds?.length) {
-        // Initial membership replace in the same TX as sector create.
-        await replaceMembership(tx, created.id, input.locationIds, auth);
-      }
-      // Reload with joins for mapSector.
-      const full = await tx.sector.findUniqueOrThrow({
-        where: { id: created.id },
-        include: sectorInclude,
-      });
-      await recordAudit(
-        {
-          actorEmployeeId: input.actorEmployeeId,
-          action: "sector.create",
-          entityType: "sector",
-          entityId: created.id,
-          after: {
-            code: created.code,
-            nameBg: created.nameBg,
-            locationIds: input.locationIds ?? [],
+    const sector = await prisma.$transaction(
+      async (tx) => {
+        // Create metadata row first; membership follows when locationIds set.
+        const created = await tx.sector.create({
+          data: {
+            propertyId,
+            code,
+            nameBg: input.nameBg.trim(),
+            nameEn: input.nameEn.trim(),
+            primarySupervisorEmployeeId:
+              input.primarySupervisorEmployeeId ?? null,
+            isActive: input.isActive ?? true,
           },
-          summary: `Created sector ${created.code}`,
-        },
-        tx,
-      );
-      return full;
-    });
+        });
+        // Optional initial membership in the same transaction.
+        if (input.locationIds?.length) {
+          // Initial membership replace in the same TX as sector create.
+          await replaceMembership(tx, created.id, input.locationIds, auth);
+        }
+        // Reload with joins for mapSector.
+        const full = await tx.sector.findUniqueOrThrow({
+          where: { id: created.id },
+          include: sectorInclude,
+        });
+        await recordAudit(
+          {
+            actorEmployeeId: input.actorEmployeeId,
+            action: "sector.create",
+            entityType: "sector",
+            entityId: created.id,
+            after: {
+              code: created.code,
+              nameBg: created.nameBg,
+              locationIds: input.locationIds ?? [],
+            },
+            summary: `Created sector ${created.code}`,
+          },
+          tx,
+        );
+        return full;
+      },
+      { timeout: 20_000, maxWait: 20_000 },
+    );
     // DTO includes locations/supervisor joins from sectorInclude.
     return mapSector(sector);
   } catch (err) {
@@ -272,7 +275,7 @@ export async function setSectorLocations(
     throw new AppError(404, "not_found", "Sector not found");
   }
   // Snapshot prior membership for the audit before/after.
-  // Read outside TX is OK — replaceMembership re-validates under lock.
+  // Read outside TX is OK — replaceMembership re-validates under row locks.
   const before = await prisma.sectorLocation.findMany({
     where: { sectorId: id },
     select: { locationId: true },
@@ -281,23 +284,41 @@ export async function setSectorLocations(
     scope: options.scope,
     allowCrossSectorTransfer: options.allowCrossSectorTransfer,
   };
-  // Membership replace + audit in one transaction (TOCTOU-safe).
-  await prisma.$transaction(async (tx) => {
-    // Authoritative membership replace under sector row lock (inside replaceMembership).
-    await replaceMembership(tx, id, locationIds, auth);
-    await recordAudit(
-      {
-        actorEmployeeId: options.actorEmployeeId,
-        action: "sector.locations.set",
-        entityType: "sector",
-        entityId: id,
-        before: { locationIds: before.map((b) => b.locationId) },
-        after: { locationIds },
-        summary: `Updated locations for sector ${existing.code}`,
+  // Membership replace + audit in one transaction (TOCTOU-safe under locks).
+  try {
+    // Allow waiting on Location/Sector row locks under contention (default 5s is too short).
+    await prisma.$transaction(
+      async (tx) => {
+        // Sector FOR NO KEY UPDATE + Location FOR UPDATE + re-read/retry inside.
+        await replaceMembership(tx, id, locationIds, auth);
+        await recordAudit(
+          {
+            actorEmployeeId: options.actorEmployeeId,
+            action: "sector.locations.set",
+            entityType: "sector",
+            entityId: id,
+            before: { locationIds: before.map((b) => b.locationId) },
+            after: { locationIds },
+            summary: `Updated locations for sector ${existing.code}`,
+          },
+          tx,
+        );
       },
-      tx,
+      { timeout: 20_000, maxWait: 20_000 },
     );
-  });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      throw new AppError(
+        409,
+        "conflict",
+        "Location already assigned to another sector",
+      );
+    }
+    throw err;
+  }
   // Reload sector DTO with fresh location membership joins.
   return getSector(id);
 }

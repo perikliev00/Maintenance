@@ -162,6 +162,10 @@ export function createApp() {
           details: err.details,
         });
       }
+      // Body-parser rejects malformed JSON before controllers can validate it.
+      if (err && typeof err === "object" && "type" in err && err.type === "entity.parse.failed") {
+        return res.status(400).json({ error: "validation", message: "Invalid JSON body" });
+      }
       // Unexpected failures — log server-side, hide internals from the client.
       console.error(err);
       return res.status(500).json({ error: "internal", message: "Internal server error" });

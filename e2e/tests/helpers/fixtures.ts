@@ -177,6 +177,52 @@ export async function findTechnicianEmployeeId(
   return tech!.employeeId!;
 }
 
+/**
+ * Create a dedicated technician (new employee+user) via invite+redeem.
+ * Does not mutate seed roles such as Elena.
+ */
+export async function createDedicatedTechnician(
+  ownerToken: string,
+): Promise<{ employeeId: string; email: string }> {
+  const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const email = `e2e-tech2-${stamp}@test.local`;
+  const employeeNumber = `E2E-T2-${stamp}`.slice(0, 32);
+  const issue = await apiPost(ownerToken, "/invitations", {
+    kind: "new",
+    fullName: `E2E Tech Two ${stamp}`,
+    employeeNumber,
+    email,
+    role: "technician",
+  });
+  expect(
+    issue.status,
+    `issue invite → ${issue.status} ${JSON.stringify(issue.body)}`,
+  ).toBe(201);
+  const code = (issue.body as { code?: string }).code;
+  const invitationEmployeeId = (
+    issue.body as { invitation?: { employeeId?: string } }
+  ).invitation?.employeeId;
+  expect(code, "invite code").toBeTruthy();
+  expect(invitationEmployeeId, "invite employeeId").toBeTruthy();
+
+  const redeem = await fetch(`${API_ORIGIN}/invitations/redeem`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      code,
+      password: "demo1234",
+      deviceLabel: `e2e-${stamp}`,
+      fingerprint: `fp-${stamp}`,
+    }),
+  });
+  expect(
+    redeem.ok,
+    `redeem invite → ${redeem.status} ${await redeem.text()}`,
+  ).toBeTruthy();
+
+  return { employeeId: invitationEmployeeId!, email };
+}
+
 export async function createBlockingTicket(
   token: string,
   locationId: string,

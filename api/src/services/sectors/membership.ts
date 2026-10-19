@@ -1,7 +1,17 @@
 /**
  * Sector location membership: scope checks and TOCTOU-safe replaceMembership.
+ *
+ * Lock protocol (Postgres):
+ * 1. Sector FOR NO KEY UPDATE — serializes writers to this sector without
+ *    conflicting with KEY SHARE taken by CleaningTask FK inserts.
+ * 2. Location FOR UPDATE (ORDER BY id) for requested + current members.
+ * 3. Re-read destination members; if any unlocked id appeared, expand locks
+ *    and retry until currentMembers ⊆ lockedSet (avoids deleteMany removing
+ *    a room whose Location was never locked).
+ * 4. Auth re-check + writes under those locks.
  */
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { Prisma as PrismaTypes } from "@prisma/client";
 import { AppError } from "../../errors";
 import type { DataScope } from "../dataScope";
 
@@ -51,16 +61,51 @@ export function assertLocationTransferAllowed(
   }
 }
 
+async function lockSectorNoKeyUpdate(
+  tx: PrismaTypes.TransactionClient,
+  sectorId: string,
+): Promise<void> {
+  await tx.$executeRaw`
+    SELECT id FROM "Sector" WHERE id = ${sectorId} FOR NO KEY UPDATE
+  `;
+}
+
+async function lockLocationsForUpdate(
+  tx: PrismaTypes.TransactionClient,
+  locationIds: string[],
+): Promise<void> {
+  if (!locationIds.length) return;
+  // Stable order avoids deadlocks between concurrent membership replaces.
+  const ordered = [...locationIds].sort();
+  await tx.$executeRaw`
+    SELECT id FROM "Location"
+    WHERE id IN (${Prisma.join(ordered)})
+    ORDER BY id
+    FOR UPDATE
+  `;
+}
+
+async function currentMemberIds(
+  tx: PrismaTypes.TransactionClient,
+  sectorId: string,
+): Promise<string[]> {
+  const rows = await tx.sectorLocation.findMany({
+    where: { sectorId },
+    select: { locationId: true },
+  });
+  return rows.map((r) => r.locationId);
+}
+
 /**
  * Authoritative membership replace: destination + per-location source checks
- * run inside the same transaction as the writes (TOCTOU-safe).
+ * run inside the same transaction as the writes (TOCTOU-safe under row locks).
  *
  * - Rebalance among own sectors (kind=sectors, source in sectorIds): allowed.
  * - Unassigned / foreign / any inter-sector move for kind=all: requires
  *   allowCrossSectorTransfer.
  */
 export async function replaceMembership(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   sectorId: string,
   locationIds: string[],
   auth: SectorMembershipAuth,
@@ -70,6 +115,10 @@ export async function replaceMembership(
 
   // Deduplicate so createMany does not hit unique constraints.
   const unique = [...new Set(locationIds)];
+
+  // Serialize writers targeting this sector (compatible with CleaningTask KEY SHARE).
+  await lockSectorNoKeyUpdate(tx, sectorId);
+
   if (unique.length) {
     // Reject unknown location ids before mutating membership.
     const found = await tx.location.findMany({
@@ -79,8 +128,45 @@ export async function replaceMembership(
     if (found.length !== unique.length) {
       throw new AppError(400, "validation", "One or more locations not found");
     }
+  }
 
-    // Current sector for each location (null = unassigned).
+  // Lock requested locations + current destination members; expand if re-read grows.
+  const locked = new Set<string>();
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const members = await currentMemberIds(tx, sectorId);
+    const needed = new Set<string>([...unique, ...members]);
+    const missing = [...needed].filter((id) => !locked.has(id));
+    if (missing.length) {
+      await lockLocationsForUpdate(tx, missing);
+      for (const id of missing) locked.add(id);
+      continue;
+    }
+    // Re-read after locks: another writer may have added a member while we waited.
+    const membersAfter = await currentMemberIds(tx, sectorId);
+    const stale = membersAfter.filter((id) => !locked.has(id));
+    if (stale.length) {
+      await lockLocationsForUpdate(tx, stale);
+      for (const id of stale) locked.add(id);
+      continue;
+    }
+    break;
+  }
+
+  // Final member coverage check.
+  {
+    const membersFinal = await currentMemberIds(tx, sectorId);
+    const uncovered = membersFinal.filter((id) => !locked.has(id));
+    if (uncovered.length) {
+      throw new AppError(
+        409,
+        "conflict",
+        "Sector membership changed concurrently; retry",
+      );
+    }
+  }
+
+  if (unique.length) {
+    // Current sector for each location (null = unassigned) — under Location locks.
     const memberships = await tx.sectorLocation.findMany({
       where: { locationId: { in: unique } },
       select: { locationId: true, sectorId: true },
@@ -103,6 +189,7 @@ export async function replaceMembership(
       },
     });
   }
+
   // Clear existing membership for this sector, then insert the new set.
   await tx.sectorLocation.deleteMany({ where: { sectorId } });
   if (unique.length) {

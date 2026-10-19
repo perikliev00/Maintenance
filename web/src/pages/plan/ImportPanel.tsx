@@ -74,11 +74,14 @@ export function ImportPanel({
         // Throw error path.
         throw new Error("JSON трябва да е обект");
       }
+      if (!Array.isArray(parsed.entries)) {
+        throw new Error("Невалиден импорт: entries трябва да е списък");
+      }
       // Fall back to the page hotelDate / "clock" when fields are omitted.
       const payload = {
         hotelDate: parsed.hotelDate || hotelDate,
         sourceLabel: parsed.sourceLabel || "clock",
-        entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+        entries: parsed.entries,
       };
       const result = await importDailyPlan(
         payload as Parameters<typeof importDailyPlan>[0],

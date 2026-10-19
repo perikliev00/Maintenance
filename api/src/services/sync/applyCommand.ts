@@ -3,6 +3,7 @@
  * 403 → forbidden, 409 → conflict; unknown types → error.
  */
 import { AppError } from "../../errors";
+import { z } from "zod";
 import type { AuthUser } from "../../middleware/auth";
 import { resolveDataScope } from "../dataScope";
 import {
@@ -18,6 +19,18 @@ import {
 } from "./commands/tickets";
 import type { SyncCommand, SyncCommandResult } from "./types";
 
+const id = z.string().min(1);
+const version = z.number().int().positive().optional();
+const payloadSchemas: Record<string, z.ZodTypeAny> = {
+  "cleaning.start": z.object({ taskId: id, expectedVersion: version }),
+  "cleaning.complete": z.object({ sessionId: id, expectedVersion: version, notes: z.string().optional() }),
+  "ticket.report": z.object({ locationId: id, issueOptionId: id.optional(), categoryId: id.optional(), title: z.string().optional(), priority: z.enum(["low", "normal", "high", "urgent"]).optional(), blocksRoom: z.boolean().optional() }),
+  "ticket.start": z.object({ ticketId: id }),
+  "ticket.wait": z.object({ ticketId: id, reason: z.string().optional() }),
+  "ticket.resume": z.object({ ticketId: id }),
+  "ticket.resolve": z.object({ ticketId: id, resolutionNotes: z.string().optional() }),
+};
+
 /**
  * Resolve the user's data scope once, then hand off to a typed handler.
  * Handlers may further remap access-loss 403s to conflict (see conflicts.ts).
@@ -27,25 +40,29 @@ export async function applyCommand(
   cmd: SyncCommand,
 ): Promise<SyncCommandResult> {
   try {
+    const schema = payloadSchemas[cmd.type];
+    if (schema && !schema.safeParse(cmd.payload).success) {
+      return { commandId: cmd.commandId, status: "error", code: "validation", message: "Invalid command payload" };
+    }
     // Scope once per command so handlers share the same sector/assignment view.
     const scope = await resolveDataScope(user);
 
     // Dispatch by offline command type; handlers own validation + mutations.
     switch (cmd.type) {
       case "cleaning.start":
-        return handleCleaningStart(user, scope, cmd);
+        return await handleCleaningStart(user, scope, cmd);
       case "cleaning.complete":
-        return handleCleaningComplete(user, scope, cmd);
+        return await handleCleaningComplete(user, scope, cmd);
       case "ticket.report":
-        return handleTicketReport(user, scope, cmd);
+        return await handleTicketReport(user, scope, cmd);
       case "ticket.start":
-        return handleTicketStart(user, scope, cmd);
+        return await handleTicketStart(user, scope, cmd);
       case "ticket.wait":
-        return handleTicketWait(user, scope, cmd);
+        return await handleTicketWait(user, scope, cmd);
       case "ticket.resume":
-        return handleTicketResume(user, scope, cmd);
+        return await handleTicketResume(user, scope, cmd);
       case "ticket.resolve":
-        return handleTicketResolve(user, scope, cmd);
+        return await handleTicketResolve(user, scope, cmd);
       default:
         // Forward-compat: unknown types fail soft so the batch can continue.
         return {

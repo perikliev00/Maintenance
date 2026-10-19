@@ -69,6 +69,7 @@ export {
   type CleaningTaskRow,
   type OverdueSession,
 } from "./cleaningApi";
+export { fetchMyWork, type MyWorkPayload } from "./myWorkApi";
 // Maintenance tickets & catalog API.
 // Re-export public API surface.
 export {

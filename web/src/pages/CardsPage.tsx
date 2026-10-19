@@ -2,7 +2,7 @@
  * Access-card issue wizard and staff card list/revoke.
  * Issue and revoke are separately gated (`cards.issue` / `cards.revoke`).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   canPerformAction,
   fetchCardEmployees,
@@ -68,6 +68,7 @@ function formatWhen(iso: string) {
  * Issue and revoke are separately gated (`cards.issue` / `cards.revoke`).
  */
 export function CardsPage({ user }: Props) {
+  const issueInFlight = useRef(false);
   // Issue wizard vs staff-list tab.
   const [tab, setTab] = useState<Tab>("issue");
   // Wizard step: 1 type → 2 fields → 3 review/success.
@@ -198,12 +199,13 @@ export function CardsPage({ user }: Props) {
   /** Persist a new card via API and advance to the success view. */
   async function submitIssue() {
     // Permission + type gate before any network call.
-    if (!cardType || !canIssue) return;
+    if (!cardType || !canIssue || issueInFlight.current) return;
     const problem = validateStep2();
     if (problem) {
       setError(problem);
       return;
     }
+    issueInFlight.current = true;
     try {
       setLoading(true);
       setError(null);
@@ -222,6 +224,7 @@ export function CardsPage({ user }: Props) {
       setError(err instanceof Error ? err.message : "Неуспешно издаване");
     } finally {
       setLoading(false);
+      issueInFlight.current = false;
     }
   }
 

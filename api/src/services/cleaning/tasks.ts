@@ -13,10 +13,7 @@ import { AppError } from "../../errors";
 // Module dependency import.
 import { publish } from "../../events/bus";
 // Module dependency import.
-import {
-  sectorSnapshotForLocation,
-  sectorSupervisorForSector,
-} from "../dataScope";
+import { sectorSnapshotForLocation } from "../dataScope";
 // Module dependency import.
 import { recordAudit } from "../audit";
 // Module dependency import.
@@ -33,6 +30,7 @@ import { resolveCycleForNewTask } from "./cycles";
 import { deriveCleaningServiceType } from "./deriveServiceType";
 import { lockTask, lockLocation } from "./locks";
 import { isP2002, mapCreateTaskUniqueConflict } from "./prismaConflicts";
+import { parseHotelDate } from "../dailyPlanEffects/hotelDate";
 
 /**
  * Create an assigned cleaning task for a room/date.
@@ -50,9 +48,7 @@ export async function createCleaningTask(input: {
   actorEmployeeId?: string;
 }) {
   // Parse YYYY-MM-DD as UTC midnight for the hotelDate column.
-  const hotelDate = new Date(`${input.hotelDate}T00:00:00.000Z`);
-  // Snapshot sector + supervisor at create time for historical data-scope.
-  const sectorSnap = await sectorSnapshotForLocation(input.locationId);
+  const hotelDate = parseHotelDate(input.hotelDate);
   // Null/undefined shift ok; reject inactive shift ids.
   const shiftId = await assertActiveShiftId(input.shiftId);
 
@@ -67,6 +63,9 @@ export async function createCleaningTask(input: {
     const task = await prisma.$transaction(async (tx) => {
       // Await async persistence or side effect.
       await lockLocation(tx, input.locationId);
+
+      // Snapshot after Location lock so concurrent membership moves are visible.
+      const sectorSnap = await sectorSnapshotForLocation(input.locationId, tx);
 
       // Load location after lock for catalog/kind checks.
       const location = await tx.location.findUnique({
@@ -282,26 +281,9 @@ export async function reassignCleaningTask(input: {
       data.shiftId = shiftId;
     }
 
-    // Backfill sector snapshot only when missing — do not overwrite history.
-    if (!task.sectorId) {
-      // Await async query or service call.
-      const snap = await sectorSnapshotForLocation(task.locationId, tx);
-      // Guard / branch on preconditions.
-      if (snap.sectorId) {
-        data.sectorId = snap.sectorId;
-        // Guard / branch on preconditions.
-        if (snap.sectorSupervisorEmployeeId) {
-          data.sectorSupervisorEmployeeId = snap.sectorSupervisorEmployeeId;
-        }
-      }
-    } else if (!task.sectorSupervisorEmployeeId) {
-      // Sector known but supervisor missing — fill supervisor only.
-      const supervisorId = await sectorSupervisorForSector(task.sectorId, tx);
-      // Guard / branch on preconditions.
-      if (supervisorId) {
-        data.sectorSupervisorEmployeeId = supervisorId;
-      }
-    }
+    // Historical snapshots are frozen at create time (P1-62). Do not backfill
+    // null sectorId / sectorSupervisorEmployeeId from live membership on reassign
+    // — null is a valid historical state (unassigned room or no primary).
 
     // Conditional claim bumps version and applies assignee/shift/reason.
     await claimTaskStatus(

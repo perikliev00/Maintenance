@@ -31,6 +31,7 @@ import {
 import { recoverOrphanedSending } from "./recoverOrphaned";
 import {
   deleteQueuedAction,
+  compareQueuedActions,
   listQueueForUser,
   putQueuedAction,
   type QueueCommandType,
@@ -236,15 +237,18 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
     // Auto-drain only pending; conflict/failed wait for explicit Retry.
     const pending = rows
       .filter((r) => r.status === "pending")
-      .sort((a, b) => a.createdAt - b.createdAt);
+      .sort(compareQueuedActions);
 
     if (pending.length === 0) {
       markReachable();
       return;
     }
 
+    // Keep each request within the API limit; leave later rows unclaimed until
+    // their turn so an interrupted batch cannot lose the remaining work.
+    for (let offset = 0; offset < pending.length; offset += 100) {
     if (!stillBoundTo(userId)) return;
-    const sending = await markSending(pending, putFn);
+    const sending = await markSending(pending.slice(offset, offset + 100), putFn);
 
     if (deps.afterClaim) {
       await deps.afterClaim();
@@ -296,9 +300,9 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
           await applySyncResult(item, result, userId, putFn, deleteFn);
         }
         markReachable();
-        return;
+        continue;
       }
-      if (batch.status === 401) {
+      if (batch.status === 401 || batch.status === 429) {
         // Refresh failed — keep outbox pending until the user signs in again.
         if (!stillBoundTo(userId)) return;
         for (const item of sending) {
@@ -308,7 +312,8 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
             updatedAt: Date.now(),
           });
         }
-        notify("offline");
+        if (batch.status === 429) scheduleBackoff();
+        notify(batch.status === 401 ? "offline" : "syncing");
         return;
       }
     } catch {
@@ -338,14 +343,15 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
         const code = (err as { code?: string }).code;
         const details = (err as { details?: unknown }).details;
         // Auth loss mid-drain — stop and wait for re-login.
-        if (status === 401) {
+        if (status === 401 || status === 429) {
           await putFn({
             ...item,
             status: "pending",
             updatedAt: Date.now(),
           });
-          notify("offline");
-          break;
+          if (status === 429) scheduleBackoff();
+          notify(status === 401 ? "offline" : "syncing");
+          return;
         }
         // Network/timeout — backoff; stop the loop to avoid stampede.
         if (status === undefined) {
@@ -400,15 +406,17 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
           retries,
           updatedAt: Date.now(),
         });
-        if (status >= 500) break;
+        if (status >= 500) { networkFailure = true; break; }
       }
     }
 
     if (networkFailure) {
       markUnreachable();
       scheduleBackoff();
+      return;
     } else {
       markReachable();
+    }
     }
   } catch {
     networkFailure = true;
