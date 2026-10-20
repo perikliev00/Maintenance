@@ -24,7 +24,7 @@ No production deployment, push, or working database mutation is authorized by th
 | P1-46 | VERIFIED | Both ticket inserts wait at real DB barrier; one ticket and initial event. |
 | P1-68 | VERIFIED | Keyset API+UI;>50, timestamp ties, removed cursor row, ownership, invalid parameters. Real browser55-ticket workflow passes. |
 | P1-110 | Final regression running | Real offline cleaning start+complete reconciles session/version/inspection/cache/reload; targeted workflow passed. |
-| P1-115 | Strengthening final review finding | Pre-delivery checks remove heartbeat cache window; independent review identified in-flight authorization TOCTOU. Adding authorization gate and controlled regression before declaring DONE. |
+| P1-115 | VERIFIED | User FOR SHARE + Sector FOR SHARE delivery gate; writers use User FOR UPDATE (session/role/supervisor/assignee) or Sector FOR NO KEY UPDATE (membership). Deterministic `runWhileRowLocked` tests prove revoke/expiry/sector/membership races; open-stream HTTP uses production writers. Post-fix audit closed membership deadlock and stale-supervisor lock gaps. |
 | P1-117 | Final regression running |8 real-page subscription cases and busy-action deferral; targeted run passed after harness binding correction. |
 | P1-127 | VERIFIED | Late SQL fault matrix extends cancel/reassign/reject and assign/wait/resume/resolve/close/reopen; exact graph rollback incl audit/notifications/reopen history;3/3 suite. |
 | P2-43 | VERIFIED |9 real-component A→B late success/error/loading cases across Analytics/Results/Repairs. |
@@ -43,3 +43,4 @@ Each scenario requires production review, meaningful assertions, executed tests,
 - Full serial isolated API suites:563/563 passed,111 suites,0 skipped (166.7s), before final optional identity-header hardening. Auth/sync15/15 and final sync7/7 passed afterward. Latest API build/test typecheck passed.
 - Browser first full run50/52 passed. Real cleaning reconciliation passed. Two failures exposed missing harness identity binding and login CSRF with existing session cookies; both corrected; full rerun in progress.
 - Separate independent review remains active for strict SSE authorization ordering before final verification.
+- P1-115 closed: `authorizeLiveDelivery` / heartbeat refresh hold User FOR SHARE (+ Sector FOR SHARE for sector scope) through `res.write`; revoke/rotate/role/supervisor/assignee writers take User FOR UPDATE; membership stays on Sector FOR NO KEY UPDATE to avoid Location-first deadlocks. Deterministic DB tests (`sse.authorization.db.test.ts`, `sse.http.test.ts`) plus scenarios 88/88 and related auth/role/membership suites passed on isolated `maintenance_p1_test`.

@@ -3,12 +3,17 @@
  *
  * Lock protocol (Postgres):
  * 1. Sector FOR NO KEY UPDATE — serializes writers to this sector without
- *    conflicting with KEY SHARE taken by CleaningTask FK inserts.
+ *    conflicting with KEY SHARE taken by CleaningTask FK inserts, and with
+ *    SSE delivery FOR SHARE on the subscriber's sectors.
  * 2. Location FOR UPDATE (ORDER BY id) for requested + current members.
  * 3. Re-read destination members; if any unlocked id appeared, expand locks
  *    and retry until currentMembers ⊆ lockedSet (avoids deleteMany removing
  *    a room whose Location was never locked).
  * 4. Auth re-check + writes under those locks.
+ *
+ * Supervisor User FOR UPDATE is intentionally not taken here: that lock order
+ * (User before Location) deadlocks Location-first holders. Live delivery
+ * instead takes Sector FOR SHARE after resolving scope (see liveAuthorization).
  */
 import { Prisma } from "@prisma/client";
 import type { Prisma as PrismaTypes } from "@prisma/client";

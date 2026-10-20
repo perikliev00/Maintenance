@@ -20,6 +20,8 @@ import {
 } from "./membership";
 // Module dependency import.
 import { getSector } from "./queries";
+// Module dependency import.
+import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
 
 /**
  * Prefer explicit propertyId; otherwise the oldest property (single-property hotels).
@@ -105,6 +107,10 @@ export async function createSector(input: {
   try {
     const sector = await prisma.$transaction(
       async (tx) => {
+        // Live-scope serialization before any sector/membership write.
+        await lockEmployeesForLiveAccess(tx, [
+          input.primarySupervisorEmployeeId,
+        ]);
         // Create metadata row first; membership follows when locationIds set.
         const created = await tx.sector.create({
           data: {
@@ -191,6 +197,38 @@ export async function updateSector(
   try {
     // Metadata patch + audit — membership is setSectorLocations.
     await prisma.$transaction(async (tx) => {
+      const accessChanging =
+        input.primarySupervisorEmployeeId !== undefined ||
+        input.isActive !== undefined;
+      let lockedPrimary = existing.primarySupervisorEmployeeId;
+      if (accessChanging) {
+        // Expand until the on-row primary is stable under User FOR UPDATE.
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          const row = await tx.sector.findUnique({ where: { id } });
+          if (!row) {
+            throw new AppError(404, "not_found", "Sector not found");
+          }
+          await lockEmployeesForLiveAccess(tx, [
+            row.primarySupervisorEmployeeId,
+            input.primarySupervisorEmployeeId,
+          ]);
+          const again = await tx.sector.findUnique({ where: { id } });
+          if (
+            again &&
+            again.primarySupervisorEmployeeId === row.primarySupervisorEmployeeId
+          ) {
+            lockedPrimary = row.primarySupervisorEmployeeId;
+            break;
+          }
+          if (attempt === 7) {
+            throw new AppError(
+              409,
+              "conflict",
+              "Sector supervisor changed concurrently; retry",
+            );
+          }
+        }
+      }
       // Partial metadata patch — membership is setSectorLocations.
       await tx.sector.update({
         where: { id },
@@ -219,7 +257,7 @@ export async function updateSector(
             code: existing.code,
             nameBg: existing.nameBg,
             nameEn: existing.nameEn,
-            primarySupervisorEmployeeId: existing.primarySupervisorEmployeeId,
+            primarySupervisorEmployeeId: lockedPrimary,
             isActive: existing.isActive,
           },
           after: {
@@ -229,7 +267,7 @@ export async function updateSector(
             primarySupervisorEmployeeId:
               input.primarySupervisorEmployeeId !== undefined
                 ? input.primarySupervisorEmployeeId
-                : existing.primarySupervisorEmployeeId,
+                : lockedPrimary,
             isActive: input.isActive ?? existing.isActive,
           },
           summary: `Updated sector ${existing.code}`,

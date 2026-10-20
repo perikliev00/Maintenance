@@ -10,6 +10,7 @@ import { writeTicketEvent } from "./events";
 import { formatMaintenanceTicket } from "./format";
 import { loadLockedTicket } from "./locks";
 import { notifyTicketEvent, publishTicketChanged } from "./notify";
+import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
 
 /**
  * Sets assignee and status=assigned. Allowed only from new or assigned
@@ -25,8 +26,31 @@ export async function assignMaintenanceTicket(input: {
 
   // Serialize assign against concurrent start/wait/resolve on the same ticket.
   const updated = await prisma.$transaction(async (tx) => {
+    // User locks before ticket lock (deadlock-safe vs SSE FOR SHARE).
+    const preview = await tx.maintenanceTicket.findUnique({
+      where: { id: input.ticketId },
+      select: { assigneeId: true },
+    });
+    if (!preview) {
+      throw new AppError(404, "not_found", "Ticket not found");
+    }
+    await lockEmployeesForLiveAccess(tx, [
+      preview.assigneeId,
+      input.assigneeId,
+    ]);
     // Serialize concurrent assign/start on this ticket.
     const ticket = await loadLockedTicket(tx, input.ticketId);
+    if (
+      ticket.assigneeId &&
+      ticket.assigneeId !== preview.assigneeId &&
+      ticket.assigneeId !== input.assigneeId
+    ) {
+      throw new AppError(
+        409,
+        "conflict",
+        "Ticket assignee changed concurrently; retry",
+      );
+    }
     // Only pre-work states may be (re)assigned.
     if (
       ticket.status !== TicketStatus.new &&

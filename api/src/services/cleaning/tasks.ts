@@ -31,6 +31,7 @@ import { deriveCleaningServiceType } from "./deriveServiceType";
 import { lockTask, lockLocation } from "./locks";
 import { isP2002, mapCreateTaskUniqueConflict } from "./prismaConflicts";
 import { parseHotelDate } from "../dailyPlanEffects/hotelDate";
+import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
 
 /**
  * Create an assigned cleaning task for a room/date.
@@ -225,7 +226,18 @@ export async function reassignCleaningTask(input: {
 
   // Serialize reassign against concurrent session/task mutations.
   const updated = await prisma.$transaction(async (tx) => {
-    // Await async persistence or side effect.
+    // User locks before task lock (deadlock-safe vs SSE FOR SHARE).
+    const preview = await tx.cleaningTask.findUnique({
+      where: { id: input.taskId },
+      select: { assignedEmployeeId: true },
+    });
+    if (!preview) {
+      throw new AppError(404, "not_found", "Task not found");
+    }
+    await lockEmployeesForLiveAccess(tx, [
+      preview.assignedEmployeeId,
+      input.assignedEmployeeId,
+    ]);
     await lockTask(tx, input.taskId);
 
     // Load task after lock for status/version checks.
@@ -236,6 +248,18 @@ export async function reassignCleaningTask(input: {
     if (!task) {
       // Fail closed with structured AppError.
       throw new AppError(404, "not_found", "Task not found");
+    }
+    // Assignee changed under us to someone we did not lock — fail closed.
+    if (
+      task.assignedEmployeeId &&
+      task.assignedEmployeeId !== preview.assignedEmployeeId &&
+      task.assignedEmployeeId !== input.assignedEmployeeId
+    ) {
+      throw new AppError(
+        409,
+        "conflict",
+        "Task assignee changed concurrently; retry",
+      );
     }
     // Only idle/review states may be reassigned (not in_progress).
     if (

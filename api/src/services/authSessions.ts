@@ -7,6 +7,7 @@ import type { Prisma, Role } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "../errors";
 import { signAccessToken, type AuthUser } from "../auth/tokens";
+import { lockUsersForLiveAccess } from "./liveAccessLocks";
 
 type DbClient = Prisma.TransactionClient | typeof prisma;
 
@@ -149,9 +150,12 @@ export async function rotateRefresh(
 
   // Expired sessions are soft-revoked then rejected.
   if (existing.expiresAt.getTime() <= Date.now()) {
-    await prisma.authSession.update({
-      where: { id: existing.id },
-      data: { revokedAt: new Date() },
+    await prisma.$transaction(async (tx) => {
+      await lockUsersForLiveAccess(tx, [existing.userId]);
+      await tx.authSession.updateMany({
+        where: { id: existing.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
     });
     throw new AppError(401, "unauthorized", "Refresh token expired");
   }
@@ -165,6 +169,8 @@ export async function rotateRefresh(
   // Mint the replacement refresh before opening the transaction.
   const newRefresh = generateRefreshToken();
   const newSession = await prisma.$transaction(async (tx) => {
+    // Serialize against open SSE deliveries for this user.
+    await lockUsersForLiveAccess(tx, [existing.userId]);
     // Conditional revoke: if another rotate already claimed this row, fail closed.
     const claimed = await tx.authSession.updateMany({
       where: { id: existing.id, revokedAt: null },
@@ -202,31 +208,41 @@ export async function rotateRefresh(
 
 /** Soft-revoke a single session if still active (idempotent). */
 export async function revokeSession(sessionId: string): Promise<void> {
-  // Only touch still-active rows (idempotent logout).
-  await prisma.authSession.updateMany({
-    where: { id: sessionId, revokedAt: null },
-    data: { revokedAt: new Date() },
+  await prisma.$transaction(async (tx) => {
+    const session = await tx.authSession.findUnique({ where: { id: sessionId }, select: { userId: true } });
+    if (!session) return;
+    await lockUsersForLiveAccess(tx, [session.userId]);
+    await tx.authSession.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date() } });
   });
 }
 
 /** Revoke every active session for a user; returns how many were revoked. */
 export async function revokeAllForUser(userId: string): Promise<number> {
-  // Used on password change, compromise, or inactive-user paths.
-  const result = await prisma.authSession.updateMany({
-    where: { userId, revokedAt: null },
-    data: { revokedAt: new Date() },
+  return prisma.$transaction(async (tx) => {
+    await lockUsersForLiveAccess(tx, [userId]);
+    const result = await tx.authSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    return result.count;
   });
-  return result.count;
 }
 
 /** Revoke every active session bound to a device id. */
 export async function revokeAllForDevice(deviceId: string): Promise<number> {
   // Device revoke cascades to all sessions sharing that deviceId.
-  const result = await prisma.authSession.updateMany({
-    where: { deviceId, revokedAt: null },
-    data: { revokedAt: new Date() },
+  return prisma.$transaction(async (tx) => {
+    const sessions = await tx.authSession.findMany({
+      where: { deviceId, revokedAt: null },
+      select: { userId: true },
+    });
+    await lockUsersForLiveAccess(
+      tx,
+      sessions.map((s) => s.userId),
+    );
+    const result = await tx.authSession.updateMany({
+      where: { deviceId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return result.count;
   });
-  return result.count;
 }
 
 /**

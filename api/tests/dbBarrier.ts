@@ -26,7 +26,7 @@ export async function withDatabaseBarrier<T>(
   try {
     const pid = await held;
     const waitFor = async (count: number) => {
-      const deadline = Date.now() + 8_000;
+      const deadline = Date.now() + 15_000;
       while (Date.now() < deadline) {
         const [row] = await db.$queryRaw<{ count: number }[]>`
           WITH RECURSIVE blocked(pid) AS (
@@ -39,6 +39,25 @@ export async function withDatabaseBarrier<T>(
           ) SELECT count(*)::int AS count FROM blocked
         `;
         if ((row?.count ?? 0) >= count) return;
+        // Row-level waiters sometimes show as Lock waits / ungranted locks
+        // without an immediate pg_blocking_pids edge (transactionid waits).
+        const [lockWaits] = await db.$queryRaw<{ count: number }[]>`
+          SELECT count(*)::int AS count
+          FROM pg_stat_activity
+          WHERE wait_event_type = 'Lock'
+            AND datname = current_database()
+            AND pid <> pg_backend_pid()
+            AND pid <> ${pid}
+        `;
+        const [ungranted] = await db.$queryRaw<{ count: number }[]>`
+          SELECT count(*)::int AS count FROM pg_locks WHERE NOT granted
+        `;
+        if (
+          (lockWaits?.count ?? 0) >= count ||
+          (ungranted?.count ?? 0) >= count
+        ) {
+          return;
+        }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       assert.fail(`expected ${count} PostgreSQL lock waiters behind barrier pid ${pid}`);

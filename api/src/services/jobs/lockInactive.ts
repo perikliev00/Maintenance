@@ -8,6 +8,7 @@ import { prisma } from "../../db";
 // Access settings: lockInactiveUsers flag and sessionIdleDays cutoff.
 import { getAccess } from "../settings";
 import { recordAudit } from "../audit";
+import { revokeAllForUser } from "../authSessions";
 import { startJobRun, finishJobRun } from "./runLifecycle";
 
 /**
@@ -280,6 +281,11 @@ export async function runLockInactiveUsers(deps: RunLockInactiveUsersDeps = {}) 
       // CAS path handles races with login, device sync, or activation.
       const claim = await claimLockInactiveUser(claimDb, user.id, cutoff);
       if (!claim.claimed) continue;
+
+      // Close open SSE / refresh sessions under the live-access User lock.
+      if (!deps.claimDb) {
+        await revokeAllForUser(user.id);
+      }
 
       // Audit only successful locks (system actor).
       await audit({

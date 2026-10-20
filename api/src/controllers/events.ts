@@ -11,9 +11,12 @@ import {
 } from "../middleware/auth";
 import { getJwtSecret } from "../auth/tokens";
 import { subscribe, type LiveEvent } from "../events/bus";
-import { canDeliverLiveEvent } from "../events/authorizeLiveEvent";
 import { resolveDataScope, type DataScope } from "../services/dataScope";
 import { assertSessionActive } from "../services/authSessions";
+import {
+  authorizeLiveDelivery,
+  refreshLiveSubscriberState,
+} from "../services/liveAuthorization";
 
 /** JWT purpose claim that marks an SSE ticket (not a session access token). */
 const SSE_TICKET_PURPOSE = "sse" as const;
@@ -156,9 +159,8 @@ export class SseScopeRefreshError extends Error {
 }
 
 /**
- * Heartbeat refresh: assert session still active, then always re-resolve
- * DataScope so sector grant/revoke takes effect without reconnect.
- * Exported for unit tests.
+ * Heartbeat refresh under the same User FOR SHARE serialization as delivery.
+ * Exported for unit tests; deps remain for legacy stubs that bypass the lock.
  */
 export async function refreshSseSubscriberState(
   currentUser: AuthUser,
@@ -167,6 +169,26 @@ export async function refreshSseSubscriberState(
     resolveScope?: typeof resolveDataScope;
   } = {},
 ): Promise<{ currentUser: AuthUser; scope: DataScope }> {
+  // Production path: share the live-authorization lock with writers.
+  if (!deps.assertActive && !deps.resolveScope) {
+    try {
+      const refreshed = await refreshLiveSubscriberState(currentUser);
+      return { currentUser: refreshed.user, scope: refreshed.scope };
+    } catch (err) {
+      if (err instanceof SseScopeRefreshError) throw err;
+      // assertSessionActive / resolve failures close the stream as revoked.
+      if (
+        err &&
+        typeof err === "object" &&
+        "status" in err &&
+        (err as { status?: number }).status === 401
+      ) {
+        throw err;
+      }
+      console.error("resolveDataScope failed on SSE heartbeat", err);
+      throw new SseScopeRefreshError();
+    }
+  }
   const assertActive = deps.assertActive ?? assertSessionActive;
   const resolveScope = deps.resolveScope ?? resolveDataScope;
   // Revoked/expired sessions throw and close the stream.
@@ -268,12 +290,12 @@ export async function stream(req: Request, res: Response) {
   const onLive = (event: LiveEvent) => {
     if (closed) return;
     enqueue(async () => {
-      const refreshed = await refreshSseSubscriberState(currentUser);
-      currentUser = refreshed.currentUser;
-      scope = refreshed.scope;
-      if (!(await canDeliverLiveEvent(scope, event))) return;
+      const authorized = await authorizeLiveDelivery(currentUser, event, (live) => {
+        if (!closed) writeSse(res, live.type, live);
+      });
+      currentUser = authorized.user;
+      scope = authorized.scope;
       if (closed) return;
-      writeSse(res, event.type, event);
     });
   };
   const unsubscribe = subscribe(onLive);

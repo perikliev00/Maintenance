@@ -8,7 +8,7 @@ import { z } from "zod";
 import { prisma } from "../db";
 import { canChangeUserRole } from "../permissions";
 import { AppError } from "../errors";
-import { revokeAllForUser } from "../services/authSessions";
+import { lockUsersForLiveAccess } from "../services/liveAccessLocks";
 import { publish } from "../events/bus";
 
 /** Map Employee (+ optional User) row to the people-directory DTO. */
@@ -209,10 +209,12 @@ export async function changeRole(
       );
     }
 
-    // Demote owner under row locks so concurrent demotions cannot leave zero owners.
+    // Role change + session revoke under the live-access User lock so an open
+    // SSE stream cannot deliver with a stale role after this transaction commits.
     const updated = await prisma.$transaction(async (tx) => {
       if (target.role === Role.owner && nextRole !== Role.owner) {
-        // Serialize all active-owner demotions against each other.
+        // Lock the full owner set first (ordered) to avoid deadlocks with
+        // concurrent demotions that would otherwise lock target then owners.
         await tx.$queryRaw<{ id: string }[]>`
           SELECT id FROM "User"
           WHERE role = CAST('owner' AS "Role") AND "isActive" = true
@@ -229,9 +231,11 @@ export async function changeRole(
             "Cannot demote the last active owner",
           );
         }
+      } else {
+        await lockUsersForLiveAccess(tx, [target.id]);
       }
 
-      return tx.user.update({
+      const row = await tx.user.update({
         where: { id: target.id },
         data: { role: nextRole },
         include: {
@@ -239,13 +243,15 @@ export async function changeRole(
           _count: { select: { devices: { where: { revokedAt: null } } } },
         },
       });
+      // Force re-login so JWT/session capabilities match the new role immediately.
+      if (target.role !== nextRole) {
+        await tx.authSession.updateMany({
+          where: { userId: target.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+      return row;
     });
-
-    // Force re-login so JWT/session capabilities match the new role immediately.
-    if (target.role !== nextRole) {
-      // Await async step.
-      await revokeAllForUser(target.id);
-    }
 
     // Invalidate people lists on live clients.
     publish("people.changed");

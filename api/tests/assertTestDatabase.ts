@@ -8,7 +8,8 @@ import type { PrismaClient } from "@prisma/client";
 /** Documented isolated DB name for sectors / shifts / my-work suites. */
 export const DEFAULT_EXPECTED_TEST_DATABASE = "maintenance_p1_test";
 
-const DEFAULT_CONNECTION_LIMIT = 10;
+/** High enough for SSE delivery txs + barrier holders + open stream fans. */
+const DEFAULT_CONNECTION_LIMIT = 20;
 
 export function expectedTestDatabaseName(): string {
   const fromEnv = process.env.EXPECTED_TEST_DATABASE?.trim();
