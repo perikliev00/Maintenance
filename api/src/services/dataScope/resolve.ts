@@ -2,7 +2,7 @@
  * Map an authenticated user to a {@link DataScope} based on role.
  * Supervisors get active sectors they primarily supervise.
  */
-import { Role } from "@prisma/client";
+import { Role, type Prisma } from "@prisma/client";
 import { prisma } from "../../db";
 import type { AuthUser } from "../../middleware/auth";
 import type { DataScope } from "./types";
@@ -11,7 +11,7 @@ import type { DataScope } from "./types";
  * Resolve list/mutation scope for the current auth user.
  * Unknown / future roles default to the narrowest task-scoped view.
  */
-export async function resolveDataScope(user: AuthUser): Promise<DataScope> {
+export async function resolveDataScope(user: AuthUser, db: Prisma.TransactionClient | typeof prisma = prisma): Promise<DataScope> {
   // Common identity fields shared by every scope kind.
   const base = {
     employeeId: user.employeeId,
@@ -28,7 +28,7 @@ export async function resolveDataScope(user: AuthUser): Promise<DataScope> {
 
     case Role.supervisor: {
       // Only active sectors where this employee is the primary supervisor.
-      const sectors = await prisma.sector.findMany({
+      const sectors = await db.sector.findMany({
         where: {
           primarySupervisorEmployeeId: user.employeeId,
           isActive: true,

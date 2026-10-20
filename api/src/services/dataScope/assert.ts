@@ -3,6 +3,7 @@
  * 404 when it does not exist (or is indistinguishable under restricted lists).
  */
 import { prisma } from "../../db";
+import type { Prisma } from "@prisma/client";
 import { AppError } from "../../errors";
 import type { DataScope } from "./types";
 import { locationWhere, ticketWhere } from "./where";
@@ -42,12 +43,13 @@ function taskInScope(
 export async function assertCanAccessTask(
   scope: DataScope,
   taskId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<void> {
   // Unrestricted scope skips the DB check.
   if (scope.kind === "all") return;
 
   // Load assignment + sector snapshot (+ location membership fallback).
-  const task = await prisma.cleaningTask.findUnique({
+  const task = await db.cleaningTask.findUnique({
     where: { id: taskId },
     select: {
       id: true,
@@ -80,18 +82,19 @@ export async function assertCanAccessTask(
 export async function assertCanAccessLocation(
   scope: DataScope,
   locationId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<void> {
   // Unrestricted scope skips the DB check.
   if (scope.kind === "all") return;
 
   // Scoped findFirst: in-scope hit → allow.
-  const location = await prisma.location.findFirst({
+  const location = await db.location.findFirst({
     where: { id: locationId, ...locationWhere(scope) },
     select: { id: true },
   });
   if (!location) {
     // Distinguish missing vs out-of-scope when the row exists.
-    const exists = await prisma.location.findUnique({
+    const exists = await db.location.findUnique({
       where: { id: locationId },
       select: { id: true },
     });
@@ -106,18 +109,19 @@ export async function assertCanAccessLocation(
 export async function assertCanAccessTicket(
   scope: DataScope,
   ticketId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<void> {
   // Unrestricted scope skips the DB check.
   if (scope.kind === "all") return;
 
   // Scoped findFirst using ticketWhere (assignee / sector / location).
-  const ticket = await prisma.maintenanceTicket.findFirst({
+  const ticket = await db.maintenanceTicket.findFirst({
     where: { id: ticketId, ...ticketWhere(scope) },
     select: { id: true },
   });
   if (!ticket) {
     // Same 404 vs 403 split as locations.
-    const exists = await prisma.maintenanceTicket.findUnique({
+    const exists = await db.maintenanceTicket.findUnique({
       where: { id: ticketId },
       select: { id: true },
     });

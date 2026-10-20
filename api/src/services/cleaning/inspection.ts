@@ -77,6 +77,19 @@ export async function inspectCleaningTask(input: {
       // Exclusive task row for inspect vs concurrent lifecycle ops.
       await lockTask(tx, input.taskId);
 
+      const replay = await tx.inspection.findUnique({
+        where: { commandId: input.commandId },
+        include: { task: { include: taskInclude } },
+      });
+      if (replay) {
+        assertCleaningCommandPayloadMatch(
+          replay.taskId === input.taskId &&
+          replay.inspectorEmployeeId === input.inspectorEmployeeId &&
+          replay.result === expectedResult,
+        );
+        return { inspection: replay, task: replay.task, idempotent: true };
+      }
+
       // Load task after lock for status/version checks.
       const task = await tx.cleaningTask.findUnique({
         where: { id: input.taskId },

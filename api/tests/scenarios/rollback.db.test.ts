@@ -5,8 +5,8 @@ import { after, before, it } from "node:test";
 import { prisma } from "../../src/db";
 import { assertTestDatabase } from "../assertTestDatabase";
 import { createCleaningWorld, cleanupCleaningWorld, resetCleaningWork, hotelTodayYmd, type CleaningWorld } from "../cleaning/fixtures";
-import { createCleaningTask, startCleaningTask, completeCleaningSession, inspectCleaningTask } from "../../src/services/cleaning";
-import { createMaintenanceTicket, startMaintenanceTicket } from "../../src/services/maintenance";
+import { createCleaningTask, startCleaningTask, completeCleaningSession, inspectCleaningTask, cancelCleaningSession, reassignCleaningTask } from "../../src/services/cleaning";
+import { createMaintenanceTicket, startMaintenanceTicket, assignMaintenanceTicket, waitMaintenanceTicket, resumeMaintenanceTicket, resolveMaintenanceTicket, closeMaintenanceTicket, reopenMaintenanceTicket } from "../../src/services/maintenance";
 import { getSetting, updateSetting } from "../../src/services/settings";
 let world: CleaningWorld;
 let flags: Awaited<ReturnType<typeof getSetting<"flags">>>;
@@ -19,7 +19,9 @@ async function snapshot() {
     inspections: await prisma.inspection.findMany({ where: { task: { locationId } }, orderBy: { id: "asc" } }),
     tickets: await prisma.maintenanceTicket.findMany({ where: { locationId }, orderBy: { id: "asc" } }),
     events: await prisma.ticketEvent.findMany({ where: { ticket: { locationId } }, orderBy: { id: "asc" } }),
+    reopens: await prisma.ticketReopenEvent.findMany({ where: { ticket: { locationId } }, orderBy: { id: "asc" } }),
     audit: await prisma.auditEvent.findMany({ where: { locationId }, orderBy: { id: "asc" } }),
+    notifications: await prisma.notification.findMany({ where: { locationId }, orderBy: { id: "asc" } }),
   };
 }
 async function failLate(action: string, proofSql: string, operation: () => Promise<unknown>) {
@@ -55,6 +57,38 @@ it("P1-127 real late audit failures roll back create/start/complete/inspect and 
   const created = await createMaintenanceTicket({ locationId: world.locationAId, issueOptionId: option.id, blocksRoom: true, reportedByEmployeeId: world.owner.employeeId, commandId: randomUUID() });
   await prisma.maintenanceTicket.update({ where: { id: created.ticket.id }, data: { status: "assigned", assigneeId: world.technician.employeeId } });
   await failLate("ticket.start", `EXISTS (SELECT 1 FROM "TicketEvent" WHERE "ticketId" = '${created.ticket.id}' AND "toStatus" = 'in_progress')`, () => startMaintenanceTicket({ ticketId: created.ticket.id, actorEmployeeId: world.technician.employeeId, commandId: randomUUID() }));
+});
+it("P1-127 late failure matrix preserves cancel/reassign/reject and every repair transition graph", async () => {
+  await resetCleaningWork(prisma, world);
+  const task = await createCleaningTask({ locationId: world.locationAId, hotelDate: await hotelTodayYmd(), assignedEmployeeId: world.hk1.employeeId });
+  await failLate("cleaning.task.reassign", `EXISTS (SELECT 1 FROM "CleaningTask" WHERE id = '${task.id}' AND "assignedEmployeeId" = '${world.hk2.employeeId}' AND version = ${task.version + 1})`, () => reassignCleaningTask({ taskId: task.id, assignedEmployeeId: world.hk2.employeeId, reason: "rollback", expectedVersion: task.version, actorEmployeeId: world.manager.employeeId }));
+  const started = await startCleaningTask({ taskId: task.id, employeeId: world.hk1.employeeId, commandId: randomUUID(), expectedVersion: task.version });
+  await failLate("cleaning.session.cancel", `EXISTS (SELECT 1 FROM "CleaningSession" WHERE id = '${started.session.id}' AND status = 'cancelled')`, () => cancelCleaningSession({ sessionId: started.session.id, employeeId: world.hk1.employeeId, commandId: randomUUID(), expectedVersion: started.task.version }));
+  const completed = await completeCleaningSession({ sessionId: started.session.id, employeeId: world.hk1.employeeId, commandId: randomUUID(), expectedVersion: started.task.version });
+  await failLate("cleaning.inspect", `EXISTS (SELECT 1 FROM "Inspection" WHERE id = NEW."entityId" AND result = 'rejected') AND EXISTS (SELECT 1 FROM "CleaningTask" WHERE id = '${task.id}' AND status = 'rework')`, () => inspectCleaningTask({ taskId: task.id, inspectorEmployeeId: world.manager.employeeId, commandId: randomUUID(), result: "rejected", findings: "rollback rejection", expectedVersion: completed.task.version }));
+
+  const option = await prisma.issueOption.findFirstOrThrow({ where: { isActive: true, maintenanceCategory: { isActive: true } } });
+  const created = await createMaintenanceTicket({ locationId: world.locationAId, issueOptionId: option.id, blocksRoom: true, reportedByEmployeeId: world.owner.employeeId, commandId: randomUUID() });
+  const ticketId = created.ticket.id;
+  const actorEmployeeId = world.technician.employeeId;
+  const assign = () => assignMaintenanceTicket({ ticketId, assigneeId: actorEmployeeId, actorEmployeeId: world.manager.employeeId });
+  const eventProof = (status: string) => `EXISTS (SELECT 1 FROM "TicketEvent" WHERE "ticketId" = '${ticketId}' AND "toStatus" = '${status}') AND EXISTS (SELECT 1 FROM "MaintenanceTicket" WHERE id = '${ticketId}' AND status = '${status}')`;
+  await failLate("ticket.assign", eventProof("assigned"), assign);
+  await assign();
+  await startMaintenanceTicket({ ticketId, actorEmployeeId, commandId: randomUUID() });
+  const wait = () => waitMaintenanceTicket({ ticketId, actorEmployeeId, commandId: randomUUID(), reason: "parts" });
+  await failLate("ticket.wait", eventProof("waiting"), wait);
+  await wait();
+  const resume = () => resumeMaintenanceTicket({ ticketId, actorEmployeeId, commandId: randomUUID() });
+  await failLate("ticket.resume", eventProof("in_progress"), resume);
+  await resume();
+  const resolve = () => resolveMaintenanceTicket({ ticketId, resolvedByEmployeeId: actorEmployeeId, commandId: randomUUID(), resolutionNotes: "fixed" });
+  await failLate("ticket.resolve", eventProof("resolved"), resolve);
+  await resolve();
+  const close = () => closeMaintenanceTicket({ ticketId, closedByEmployeeId: world.manager.employeeId });
+  await failLate("ticket.close", eventProof("closed"), close);
+  await close();
+  await failLate("ticket.reopen", `${eventProof("in_progress")} AND EXISTS (SELECT 1 FROM "TicketReopenEvent" WHERE "ticketId" = '${ticketId}')`, () => reopenMaintenanceTicket({ ticketId, reopenedByEmployeeId: world.manager.employeeId, reason: "again" }));
 });
 it("P1-96 notification failure occurs after committed domain graph; same command replay preserves it exactly", async () => {
   const option = await prisma.issueOption.findFirstOrThrow({ where: { isActive: true, maintenanceCategory: { isActive: true } } });

@@ -22,7 +22,7 @@ export async function getDailyPlan(
   const entries = await prisma.dailyPlanEntry.findMany({
     where: {
       hotelDate: date,
-      ...(locationFilter ? { location: locationFilter } : {}),
+      location: { AND: [locationFilter ?? {}, { catalogStatus: "active" }] },
     },
     include: entryInclude,
     orderBy: [{ category: "asc" }, { createdAt: "asc" }],

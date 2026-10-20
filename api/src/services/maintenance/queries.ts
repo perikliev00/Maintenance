@@ -37,6 +37,12 @@ export async function listMaintenanceTickets(filters: {
       AND: [
         // Data-scope clause from the controller (may be empty).
         filters.scopeWhere ?? {},
+        // Explicit location/history views retain archived records; operational queues hide them.
+        filters.locationId || filters.resolvedOnly ||
+          (filters.statuses?.length && filters.statuses.every((status) =>
+            status === TicketStatus.resolved || status === TicketStatus.closed))
+          ? {}
+          : { location: { catalogStatus: "active" } },
         {
           ...(filters.locationId ? { locationId: filters.locationId } : {}),
           ...(filters.assigneeId ? { assigneeId: filters.assigneeId } : {}),

@@ -3,7 +3,7 @@
  * outbox. Falls back to IndexedDB cache when fetch fails; cleaning start/
  * complete go through `*Queued` helpers. Sections are role/capability gated.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   canPerformAction,
   canResolveIssues,
@@ -46,6 +46,9 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
   // Mine cleaning tasks and open repair tickets.
   const [tasks, setTasks] = useState<CleaningTaskRow[]>([]);
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
+  const [ticketCursor, setTicketCursor] = useState<string | null>(null);
+  const [loadingTickets, setLoadingTickets] = useState(false);
+  const requestRevision = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -77,15 +80,19 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
    * Skips either fetch when the corresponding section is hidden.
    */
   const refresh = useCallback(async () => {
+    const revision = ++requestRevision.current;
+    setLoadingTickets(false);
     const hotelDate = todayHotelDate();
     // Single aggregate endpoint: roster/shift filter + tech empty cleaning queue.
     const data = await fetchMyWork({ hotelDate });
+    if (revision !== requestRevision.current) return;
     const taskData = showCleaning ? data.tasks : ([] as CleaningTaskRow[]);
     const ticketData = showTickets
       ? data.tickets
       : ([] as MaintenanceTicket[]);
     setTasks(taskData);
     setTickets(ticketData);
+    setTicketCursor(data.ticketNextCursor ?? null);
     // Fresh network data — clear cache/pending markers.
     setFromCache(false);
     setPendingSyncTaskIds([]);
@@ -97,6 +104,27 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
       hotelDate: data.hotelDate || hotelDate,
     });
   }, [showCleaning, showTickets]);
+
+  async function loadMoreTickets() {
+    if (!ticketCursor || loadingTickets) return;
+    const revision = ++requestRevision.current;
+    setLoadingTickets(true);
+    try {
+      const data = await fetchMyWork({ hotelDate: todayHotelDate(), ticketCursor });
+      if (revision !== requestRevision.current) return;
+      const seen = new Set(tickets.map((ticket) => ticket.id));
+      const merged = [...tickets, ...data.tickets.filter((ticket) => !seen.has(ticket.id))];
+      setTickets(merged);
+      setTicketCursor(data.ticketNextCursor ?? null);
+      await saveMyWorkCache({ tasks, tickets: merged, savedAt: Date.now(), hotelDate: data.hotelDate });
+    } catch (err) {
+      if (revision === requestRevision.current) {
+        setError(err instanceof Error ? err.message : "Failed to load more repairs");
+      }
+    } finally {
+      if (revision === requestRevision.current) setLoadingTickets(false);
+    }
+  }
 
   /**
    * Soft background refresh when online (used after outbox drain / live events).
@@ -373,6 +401,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
 
           {/* Repair tickets section — capability/role gated. */}
           {showTickets && (
+            <>
             <TicketsSection
               locale={locale}
               tickets={tickets}
@@ -396,6 +425,15 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
               }}
               onError={setError}
             />
+            {ticketCursor && !fromCache && (
+              <button type="button" className="btn" disabled={loadingTickets || busyId !== null}
+                onClick={() => void loadMoreTickets()}>
+                {loadingTickets
+                  ? t(locale, "Зареждане…", "Loading…")
+                  : t(locale, "Още ремонти", "Load more repairs")}
+              </button>
+            )}
+            </>
           )}
         </>
       )}

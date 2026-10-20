@@ -80,7 +80,7 @@ test("P2-43 attendance filter B cannot be replaced by delayed unfiltered results
 });
 test("P2-43 ticket B keeps its history after delayed A and current filter results remain visible", async ({ page }) => {
   const rows = await (await page.request.get("/api/maintenance/tickets?status=all&limit=2")).json(); expect(rows.length).toBeGreaterThan(1);
-  const tickets = rows.slice(0, 2).map((r: any, i: number) => ({ ...r, status: "new", title: `SELECT-TICKET-${i === 0 ? "A" : "B"}` }));
+  const tickets = rows.slice(0, 2).map((r: any, i: number) => ({ ...r, blocksRoom: false, status: "new", title: `SELECT-TICKET-${i === 0 ? "A" : "B"}` }));
   await page.route("**/api/maintenance/tickets?*", route => route.fulfill({ json: tickets }));
   let release!: () => void; const gate = new Promise<void>(r => { release = r; }); let captured = false;
   await page.route("**/api/maintenance/tickets/*/events", async route => { const a = route.request().url().includes(tickets[0].id); if (a) { captured = true; await gate; } await route.fulfill({ json: [{ id: a ? "event-a" : "event-b", toStatus: "assigned", fromStatus: "new", occurredAt: new Date().toISOString(), reason: a ? "HISTORY-A" : "HISTORY-B", actor: { fullName: "Actor" } }] }); });

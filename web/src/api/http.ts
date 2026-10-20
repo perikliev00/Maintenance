@@ -55,6 +55,14 @@ export class ApiRequestError extends Error {
 
 /** Last /auth/refresh outcome (for attaching to subsequent 401 parse errors). */
 let lastRefreshOutcome: RefreshOutcome | null = null;
+let sessionRevision = 0;
+let sessionChangesPending = 0;
+
+function beginSessionChange() {
+  sessionRevision++;
+  sessionChangesPending++;
+  lastRefreshOutcome = null;
+}
 
 /** Read the double-submit CSRF cookie set by the API (not HttpOnly so JS can send it). */
 function getCsrfToken(): string | null {
@@ -142,10 +150,12 @@ export function getStoredUser(): AuthUser | null {
  * usable, otherwise the next profile can observe the prior user's outbox.
  */
 async function wipeLocalSession(): Promise<void> {
+  const revision = sessionRevision;
   localStorage.removeItem("token");
   localStorage.removeItem("refreshToken");
   localStorage.removeItem("user");
   const m = await import("../offline");
+  if (revision !== sessionRevision) return;
   m.clearPrivateOfflineState();
   await m.whenOfflineUserSettled();
 }
@@ -156,7 +166,9 @@ async function wipeLocalSession(): Promise<void> {
  * Legacy `token` / `refreshToken` keys are removed for older installs; auth is cookie-based.
  */
 export function clearSession() {
-  void wipeLocalSession();
+  const previousRefresh = refreshInFlight;
+  beginSessionChange();
+  void Promise.all([wipeLocalSession(), previousRefresh]).finally(() => { sessionChangesPending--; });
 }
 
 /** Coalesce concurrent 401s into one refresh so the outbox does not stampede. */
@@ -167,15 +179,20 @@ let refreshInFlight: Promise<RefreshOutcome> | null = null;
  * Rejected → wipe session; network/5xx → `"transient"` so offline work is kept.
  */
 export async function refreshAccessToken(): Promise<RefreshOutcome> {
+  // Do not start another cookie rotation while login/logout waits for the
+  // preceding rotation; that would recreate the stale Set-Cookie race.
+  if (sessionChangesPending > 0) return "rejected";
   // Single-flight: concurrent 401s share one refresh promise.
   if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
+  const revision = sessionRevision;
+  const pending = (async (): Promise<RefreshOutcome> => {
     try {
       const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: "POST",
         credentials: "include",
         headers: buildAuthHeaders("POST"),
       });
+      if (revision !== sessionRevision) return "rejected";
       if (res.ok) {
         lastRefreshOutcome = "refreshed";
         return "refreshed";
@@ -188,6 +205,7 @@ export async function refreshAccessToken(): Promise<RefreshOutcome> {
       }
       return classified;
     } catch {
+      if (revision !== sessionRevision) return "rejected";
       lastRefreshOutcome = "transient";
       // Network/timeout — keep offline outbox; identity pending verification.
       return "transient";
@@ -195,7 +213,8 @@ export async function refreshAccessToken(): Promise<RefreshOutcome> {
       refreshInFlight = null;
     }
   })();
-  return refreshInFlight;
+  refreshInFlight = pending;
+  return pending;
 }
 
 /** Avoid refresh loops on auth endpoints that themselves establish or end the session. */
@@ -216,15 +235,20 @@ export async function fetchWithAuthRetry(
   options?: {
     refreshFn?: () => Promise<RefreshOutcome>;
     skipRefresh?: boolean;
+    /** Synchronous identity guard, checked before every send and refresh. */
+    beforeAttempt?: () => void;
   },
 ): Promise<Response> {
+  options?.beforeAttempt?.();
   const res = await attempt();
   // Auth endpoints and non-401 responses skip the refresh path.
   if (options?.skipRefresh || res.status !== 401) return res;
+  options?.beforeAttempt?.();
   const outcome = await (options?.refreshFn ?? refreshAccessToken)();
   // Only a successful rotation retries; rejected/transient return the original 401.
   if (outcome !== "refreshed") return res;
   // Rebuild headers inside `attempt` so CSRF is current after Set-Cookie.
+  options?.beforeAttempt?.();
   return attempt();
 }
 
@@ -256,6 +280,11 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
 
 /** End this browser's session; always clears local + offline state afterward. */
 export async function logout(): Promise<void> {
+  const previousRefresh = refreshInFlight;
+  beginSessionChange();
+  // A refresh response writes cookies in the browser before JS sees it.
+  // Finish it before issuing the request that establishes the next cookie state.
+  await previousRefresh;
   try {
     // Best-effort server revoke; local wipe always runs in finally.
     await apiFetch(`${API_BASE}/auth/logout`, { method: "POST" });
@@ -263,19 +292,22 @@ export async function logout(): Promise<void> {
     /* best-effort */
   } finally {
     // Await purge so the Sign-in screen is only shown after outbox wipe settles.
-    await wipeLocalSession();
+    try { await wipeLocalSession(); } finally { sessionChangesPending--; }
   }
 }
 
 /** Revoke all devices' sessions, then clear local + offline state. */
 export async function logoutAll(): Promise<void> {
+  const previousRefresh = refreshInFlight;
+  beginSessionChange();
+  await previousRefresh;
   try {
     // Best-effort server revoke-all; local wipe always runs in finally.
     await apiFetch(`${API_BASE}/auth/logout-all`, { method: "POST" });
   } catch {
     /* best-effort */
   } finally {
-    await wipeLocalSession();
+    try { await wipeLocalSession(); } finally { sessionChangesPending--; }
   }
 }
 
@@ -284,26 +316,37 @@ export async function logoutAll(): Promise<void> {
  * session cookies come from the response `Set-Cookie`.
  */
 export async function login(email: string, password: string) {
-  // Raw fetch (not apiFetch) — no prior CSRF; skip refresh loop on login.
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  const data = await parseJson<{
-    user: AuthUser;
-    expiresIn?: number;
-  }>(res);
-  // Non-secret UI cache; real session lives in HttpOnly cookies.
-  localStorage.setItem("user", JSON.stringify(data.user));
-  return data;
+  const previousRefresh = refreshInFlight;
+  beginSessionChange();
+  await previousRefresh;
+  try {
+    // Raw fetch (not apiFetch) — no prior CSRF; skip refresh loop on login.
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      credentials: "include",
+      headers: buildAuthHeaders("POST"),
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await parseJson<{
+      user: AuthUser;
+      expiresIn?: number;
+    }>(res);
+    // Non-secret UI cache; real session lives in HttpOnly cookies.
+    localStorage.setItem("user", JSON.stringify(data.user));
+    return data;
+  } finally {
+    sessionChangesPending--;
+  }
 }
 
 /** Refresh capabilities/panels from the server and update the local user cache. */
 export async function fetchMe(): Promise<AuthUser> {
+  const revision = sessionRevision;
   const res = await apiFetch(`${API_BASE}/auth/me`, { headers: authHeaders() });
   const user = await parseJson<AuthUser>(res);
+  if (revision !== sessionRevision || sessionChangesPending > 0) {
+    throw new ApiRequestError("Account changed while loading profile", { kind: "network", authRejected: false });
+  }
   // Keep local cache aligned with server capability grants.
   localStorage.setItem("user", JSON.stringify(user));
   return user;

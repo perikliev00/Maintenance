@@ -1,6 +1,6 @@
 /**
  * Live SSE: issue short-lived stream tickets and open /events/stream.
- * Delivery is filtered by DataScope; heartbeats re-check session and scope.
+ * Every delivery reloads session and scope; heartbeats close idle revoked streams.
  */
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
@@ -242,18 +242,39 @@ export async function stream(req: Request, res: Response) {
   });
 
   let closed = false;
-  // Fan-in from the in-process live bus; filter by DataScope before write.
+  // Serialize delivery and heartbeat checks. An older asynchronous refresh must
+  // never overwrite a newer authorization decision or write after revocation.
+  let pending: Promise<void> = Promise.resolve();
+  const enqueue = (action: () => Promise<void>) => {
+    pending = pending.then(async () => {
+      if (closed) return;
+      try {
+        await action();
+      } catch (err) {
+        if (closed) return;
+        writeSse(res, "revoked", {
+          ok: false,
+          reason: err instanceof SseScopeRefreshError
+            ? "scope_refresh_failed"
+            : "session_revoked",
+        });
+        cleanup();
+        res.end();
+      }
+    });
+  };
+  // Reload only on a live event or idle heartbeat; no polling at a shorter TTL
+  // and no authorization cache whose expiry could leak revoked-sector events.
   const onLive = (event: LiveEvent) => {
     if (closed) return;
-    void (async () => {
-      try {
-        if (!(await canDeliverLiveEvent(scope, event))) return;
-        if (closed) return;
-        writeSse(res, event.type, event);
-      } catch (err) {
-        console.error("SSE deliver filter failed", err);
-      }
-    })();
+    enqueue(async () => {
+      const refreshed = await refreshSseSubscriberState(currentUser);
+      currentUser = refreshed.currentUser;
+      scope = refreshed.scope;
+      if (!(await canDeliverLiveEvent(scope, event))) return;
+      if (closed) return;
+      writeSse(res, event.type, event);
+    });
   };
   const unsubscribe = subscribe(onLive);
 
@@ -268,32 +289,15 @@ export async function stream(req: Request, res: Response) {
   // Periodic ping + session/scope refresh.
   heartbeat = setInterval(() => {
     if (closed) return;
-    void (async () => {
-      try {
-        // Always re-resolve scope: sector membership can change without
-        // role/employeeId/email changing (revoked or newly granted sectors).
-        const refreshed = await refreshSseSubscriberState(currentUser);
-        currentUser = refreshed.currentUser;
-        scope = refreshed.scope;
-        if (closed) return;
-        res.write(`: ping ${Date.now()}\n\n`);
-      } catch (err) {
-        if (closed) return;
-        // Scope refresh failure vs session revoke — both end the stream.
-        if (err instanceof SseScopeRefreshError) {
-          writeSse(res, "revoked", {
-            ok: false,
-            reason: "scope_refresh_failed",
-          });
-          cleanup();
-          res.end();
-          return;
-        }
-        writeSse(res, "revoked", { ok: false, reason: "session_revoked" });
-        cleanup();
-        res.end();
-      }
-    })();
+    enqueue(async () => {
+      // Always re-resolve scope: sector membership can change without
+      // role/employeeId/email changing (revoked or newly granted sectors).
+      const refreshed = await refreshSseSubscriberState(currentUser);
+      currentUser = refreshed.currentUser;
+      scope = refreshed.scope;
+      if (closed) return;
+      res.write(`: ping ${Date.now()}\n\n`);
+    });
   }, SSE_HEARTBEAT_MS);
 
   // Client disconnect / transport error → unsubscribe and stop heartbeat.

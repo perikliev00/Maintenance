@@ -1,3 +1,4 @@
+import { withDatabaseBarrier } from "../dbBarrier";
 /**
  * T-TKT-08…10 — concurrent/idempotent commandId (P1-44…46).
  */
@@ -74,7 +75,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     const commandId = randomUUID();
     const eventsBefore = await countTicketEvents(prisma, ticket.id);
 
-    const results = await Promise.allSettled([
+    const results = await withDatabaseBarrier(prisma, tx => tx.$queryRaw`SELECT id FROM "MaintenanceTicket" WHERE id = ${ticket.id} FOR UPDATE`, () => Promise.allSettled([
       startMaintenanceTicket({
         ticketId: ticket.id,
         actorEmployeeId: world.technician.employeeId,
@@ -85,7 +86,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
         actorEmployeeId: world.technician.employeeId,
         commandId,
       }),
-    ]);
+    ]));
 
     for (const r of results) {
       assert.equal(r.status, "fulfilled", String(r));
@@ -112,7 +113,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     const eventsBefore = await countTicketEvents(prisma, ticket.id);
     const before = await loadTicket(prisma, ticket.id);
 
-    const results = await Promise.allSettled([
+    const results = await withDatabaseBarrier(prisma, tx => tx.$queryRaw`SELECT id FROM "MaintenanceTicket" WHERE id = ${ticket.id} FOR UPDATE`, () => Promise.allSettled([
       waitMaintenanceTicket({
         ticketId: ticket.id,
         actorEmployeeId: world.technician.employeeId,
@@ -125,7 +126,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
         commandId,
         reason: "parts",
       }),
-    ]);
+    ]));
 
     for (const r of results) {
       assert.equal(r.status, "fulfilled", String(r));
@@ -163,7 +164,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     const commandId = randomUUID();
     const eventsBefore = await countTicketEvents(prisma, ticket.id);
 
-    const results = await Promise.allSettled([
+    const results = await withDatabaseBarrier(prisma, tx => tx.$queryRaw`SELECT id FROM "MaintenanceTicket" WHERE id = ${ticket.id} FOR UPDATE`, () => Promise.allSettled([
       resumeMaintenanceTicket({
         ticketId: ticket.id,
         actorEmployeeId: world.technician.employeeId,
@@ -176,7 +177,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
         commandId,
         now: T2,
       }),
-    ]);
+    ]));
 
     for (const r of results) {
       assert.equal(r.status, "fulfilled", String(r));
@@ -203,7 +204,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     const commandId = randomUUID();
     const eventsBefore = await countTicketEvents(prisma, ticket.id);
 
-    const results = await Promise.allSettled([
+    const results = await withDatabaseBarrier(prisma, tx => tx.$queryRaw`SELECT id FROM "MaintenanceTicket" WHERE id = ${ticket.id} FOR UPDATE`, () => Promise.allSettled([
       resolveMaintenanceTicket({
         ticketId: ticket.id,
         resolvedByEmployeeId: world.technician.employeeId,
@@ -216,7 +217,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
         resolutionNotes: "done",
         commandId,
       }),
-    ]);
+    ]));
 
     for (const r of results) {
       assert.equal(r.status, "fulfilled", String(r));
@@ -326,10 +327,10 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
       commandId,
     };
 
-    const results = await Promise.allSettled([
+    const results = await withDatabaseBarrier(prisma, tx => tx.$executeRaw`LOCK TABLE "MaintenanceTicket" IN SHARE MODE`, () => Promise.allSettled([
       createMaintenanceTicket(payload),
       createMaintenanceTicket(payload),
-    ]);
+    ]));
 
     for (const r of results) {
       assert.equal(r.status, "fulfilled", String(r));

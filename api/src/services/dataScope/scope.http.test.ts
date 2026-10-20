@@ -3,6 +3,7 @@
  * T-SCOPE-SEC-01/02, T-SCOPE-AGG-01.
  */
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { PrismaClient, Role } from "@prisma/client";
@@ -601,6 +602,129 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       );
     } finally {
       if (seed) await cleanupAggregateSeed(prisma, seed);
+    }
+  });
+
+  it("P1-08: foreign maintenance history and live work cannot change any scoped counter", async () => {
+    const sup = await loginBearer(api, fx.supervisorA.email, fx.password);
+    const manager = await loginBearer(api, fx.manager.email, fx.password);
+    const url = "/analytics/summary?domain=maintenance&from=2099-07-10&to=2099-07-10";
+    const analytics = async (token: string) => {
+      const result = await getJson(api, token, url);
+      assert.equal(result.status, 200);
+      return result.body as {
+        kpis: { signals: number; slaBreaches: { active: number; closed: number }; reopened: number; durationSampleCount: number };
+        comparison: { signals: { previous: number }; reopened: { previous: number } };
+        series: Array<{ count: number }>;
+        breakdowns: { byCategory: Array<{ key: string; count: number }>; byPriority: Array<{ key: string; count: number }> };
+        riskRooms: Array<{ locationId: string; ticketCount: number; factors: string[] }>;
+        forecast: { dailyRate: number; formula: string };
+      };
+    };
+    const live = async (token: string) => {
+      const result = await getJson(api, token, "/operations/live");
+      assert.equal(result.status, 200);
+      const body = result.body as { updatedAt?: string; counts: { active: number; overdue: number;
+        anomalies: number; awaitingInspection: number; blockingTickets: number } };
+      delete body.updatedAt;
+      return body;
+    };
+    const beforeA = await analytics(sup.token);
+    const beforeAll = await analytics(manager.token);
+    const today = new Date().toISOString().slice(0, 10);
+    const housekeeping = async (token: string) => {
+      const response = await getJson(api, token, `/analytics/summary?domain=housekeeping&from=${today}&to=${today}`);
+      assert.equal(response.status, 200);
+      return response.body as { kpis: { cleanedTasks: number; completedSessions: number;
+        acceptedTasks: number; reworkEvents: number; anomalousSessions: number; durationSampleCount: number } };
+    };
+    const beforeHousekeepingA = await housekeeping(sup.token);
+    const beforeHousekeepingAll = await housekeeping(manager.token);
+    const beforeLiveA = await live(sup.token);
+    const beforeLiveAll = await live(manager.token);
+    const ticketIds: string[] = [];
+    const sessionIds: string[] = [];
+    const extraTaskIds: string[] = [];
+    try {
+      const period = new Date("2099-07-10T01:00:00.000Z");
+      const prior = new Date("2099-07-09T01:00:00.000Z");
+      for (const [index, status] of (["new", "waiting", "resolved", "closed", "closed", "closed", "closed"] as const).entries()) {
+        const current = index < 4;
+        const openedAt = current ? period : index < 6 ? prior : new Date(Date.now() - 60_000);
+        const terminal = status === "resolved" || status === "closed";
+        const row = await prisma.maintenanceTicket.create({ data: {
+          locationId: fx.locBId, title: `FOREIGN-AGG-${index}`, categoryKey: "foreign_scope_probe",
+          categoryLabelBg: "Чужд", categoryLabelEn: "Foreign", reportedByEmployeeId: fx.supervisorB.employeeId,
+          openedAt, status, priority: "urgent", dueAt: new Date("2000-01-01T00:00:00Z"),
+          blocksRoom: index === 0, resolvedAt: terminal ? new Date(openedAt.getTime() + 60 * 60_000) : null,
+        } });
+        ticketIds.push(row.id);
+      }
+      await prisma.ticketReopenEvent.createMany({ data: [
+        { ticketId: ticketIds[0], reopenedAt: period, reopenedByEmployeeId: fx.supervisorB.employeeId, previousStatus: "closed" },
+        { ticketId: ticketIds[4], reopenedAt: prior, reopenedByEmployeeId: fx.supervisorB.employeeId, previousStatus: "closed" },
+      ] });
+      const old = new Date(Date.now() - 24 * 60 * 60_000);
+      const running = await prisma.cleaningSession.create({ data: { taskId: fx.taskBId,
+        employeeId: fx.otherHk.employeeId, startCommandId: randomUUID(), startedAt: old, status: "running" } });
+      sessionIds.push(running.id);
+      const completedTask = await prisma.cleaningTask.create({ data: {
+        locationId: fx.locBId, sectorId: fx.sectorBId, hotelDate: new Date("2099-07-12"),
+        status: "completed", completedAt: new Date(), dueAt: old, priority: "urgent",
+        serviceType: "arrival", assignedEmployeeId: fx.otherHk.employeeId,
+      } });
+      extraTaskIds.push(completedTask.id);
+      const completed = await prisma.cleaningSession.create({ data: { taskId: completedTask.id,
+        employeeId: fx.otherHk.employeeId, startCommandId: randomUUID(), startedAt: old, finishedAt: new Date(), status: "completed" } });
+      sessionIds.push(completed.id);
+      const valid = await prisma.cleaningSession.create({ data: { taskId: completedTask.id,
+        employeeId: fx.otherHk.employeeId, startCommandId: randomUUID(),
+        startedAt: new Date(Date.now() - 20 * 60_000), finishedAt: new Date(), status: "completed" } });
+      sessionIds.push(valid.id);
+      await prisma.inspection.createMany({ data: (["approved", "rejected"] as const).map((result) => ({
+        taskId: completedTask.id, inspectorEmployeeId: fx.supervisorB.employeeId,
+        commandId: randomUUID(), result, findings: "foreign inspection", inspectedAt: new Date(),
+      })) });
+      const awaiting = await prisma.cleaningTask.create({ data: { locationId: fx.locBId,
+        sectorId: fx.sectorBId, hotelDate: new Date("2099-07-11"), status: "awaiting_inspection",
+        assignedEmployeeId: fx.otherHk.employeeId } });
+      extraTaskIds.push(awaiting.id);
+
+      const afterA = await analytics(sup.token);
+      assert.deepEqual(afterA, beforeA, "foreign rows cannot alter KPIs, comparisons, series, breakdowns, risks or forecast");
+      assert.deepEqual(await housekeeping(sup.token), beforeHousekeepingA,
+        "foreign task/session/inspection/risk rows cannot alter any housekeeping counter or chart");
+      const afterHousekeepingAll = await housekeeping(manager.token);
+      for (const counter of ["cleanedTasks", "acceptedTasks", "reworkEvents", "anomalousSessions", "durationSampleCount"] as const) {
+        assert.equal(afterHousekeepingAll.kpis[counter] - beforeHousekeepingAll.kpis[counter], 1, counter);
+      }
+      assert.equal(afterHousekeepingAll.kpis.completedSessions - beforeHousekeepingAll.kpis.completedSessions, 2);
+      assert.deepEqual(await live(sup.token), beforeLiveA, "foreign work cannot alter any live list or counter");
+      const afterAll = await analytics(manager.token);
+      assert.equal(afterAll.kpis.signals - beforeAll.kpis.signals, 4);
+      assert.equal(afterAll.kpis.slaBreaches.active - beforeAll.kpis.slaBreaches.active, 2);
+      assert.equal(afterAll.kpis.slaBreaches.closed - beforeAll.kpis.slaBreaches.closed, 2);
+      assert.equal(afterAll.kpis.reopened - beforeAll.kpis.reopened, 1);
+      assert.equal(afterAll.kpis.durationSampleCount - beforeAll.kpis.durationSampleCount, 2);
+      assert.equal(afterAll.comparison.signals.previous - beforeAll.comparison.signals.previous, 2);
+      assert.equal(afterAll.comparison.reopened.previous - beforeAll.comparison.reopened.previous, 1);
+      assert.equal(afterAll.series.reduce((sum, row) => sum + row.count, 0) - beforeAll.series.reduce((sum, row) => sum + row.count, 0), 4);
+      assert.equal(afterAll.breakdowns.byCategory.find((row) => row.key === "foreign_scope_probe")?.count, 4);
+      assert.equal(afterAll.breakdowns.byPriority.find((row) => row.key === "urgent")!.count - (beforeAll.breakdowns.byPriority.find((row) => row.key === "urgent")?.count ?? 0), 4);
+      const risk = afterAll.riskRooms.find((row) => row.locationId === fx.locBId);
+      assert.ok(risk?.factors.includes("blocking_past_sla"));
+      assert.equal(risk?.ticketCount, 4);
+      assert.notEqual(afterAll.forecast.formula, beforeAll.forecast.formula, "forecast positive control sees the current foreign ticket");
+      const afterLiveAll = await live(manager.token);
+      for (const counter of ["active", "overdue", "anomalies", "awaitingInspection", "blockingTickets"] as const) {
+        assert.equal(afterLiveAll.counts[counter] - beforeLiveAll.counts[counter], 1, counter);
+      }
+    } finally {
+      await prisma.cleaningSession.deleteMany({ where: { id: { in: sessionIds } } });
+      await prisma.inspection.deleteMany({ where: { taskId: { in: extraTaskIds } } });
+      await prisma.cleaningTask.deleteMany({ where: { id: { in: extraTaskIds } } });
+      await prisma.ticketReopenEvent.deleteMany({ where: { ticketId: { in: ticketIds } } });
+      await prisma.maintenanceTicket.deleteMany({ where: { id: { in: ticketIds } } });
     }
   });
 });

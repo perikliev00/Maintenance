@@ -78,6 +78,7 @@ export async function postJsonWithSessionRefresh(
     fetchFn?: typeof fetchWithTimeout;
     refreshFn?: RefreshFn;
     headersFn?: () => HeadersInit;
+    beforeAttempt?: () => void;
   } = {},
 ): Promise<unknown> {
   // Injectable deps keep unit tests free of real network / cookie state.
@@ -94,7 +95,7 @@ export async function postJsonWithSessionRefresh(
         headers: headersFn(),
         body: JSON.stringify(body),
       }),
-    { refreshFn },
+    { refreshFn, beforeAttempt: deps.beforeAttempt },
   );
 
   const data = await res.json().catch(() => ({}));

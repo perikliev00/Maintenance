@@ -2,7 +2,7 @@
  * Analytics dashboard: date-range summary with domain filters and bar/trend charts.
  * Metric deltas compare the selected period to the previous window of equal length.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchAnalyticsSummary,
   fetchMaintenanceCategories,
@@ -267,44 +267,27 @@ export function AnalyticsPage() {
   }, []);
 
   /** Fetch summary for the current domain + date range. */
+  const requestRevision = useRef(0);
   const refresh = useCallback(async () => {
-    // State transition.
+    const revision = ++requestRevision.current;
+    setLoading(true);
     setError(null);
-    // Capture service / command result.
-    const result = await fetchAnalyticsSummary({ domain, from, to });
-    // State transition.
-    setData(result);
+    try {
+      const result = await fetchAnalyticsSummary({ domain, from, to });
+      if (revision === requestRevision.current) setData(result);
+    } catch (err) {
+      if (revision === requestRevision.current) {
+        setError(err instanceof Error ? err.message : "Failed to load analytics");
+        setData(null);
+      }
+    } finally {
+      if (revision === requestRevision.current) setLoading(false);
+    }
   }, [domain, from, to]);
 
-  // Re-fetch whenever refresh deps change; ignore late responses after unmount.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      // Try block for fallible work.
-      try {
-        // State transition.
-        setLoading(true);
-        // Await async step.
-        await refresh();
-      } catch (err) {
-        // Only surface errors if this effect is still current.
-        if (!cancelled) {
-          // State transition.
-          setError(
-            err instanceof Error ? err.message : "Failed to load analytics",
-          );
-          // State transition.
-          setData(null);
-        }
-      } finally {
-        // Branch: conditional gate.
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    // Return value / early exit.
-    return () => {
-      cancelled = true;
-    };
+    void refresh();
+    return () => { requestRevision.current++; };
   }, [refresh]);
 
   /** Snap the date range to today / last 7 / last 30 UTC days. */

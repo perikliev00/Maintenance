@@ -14,7 +14,7 @@ async function until(check: () => boolean, reason: string) {
 }
 before(async () => { await assertTestDatabase(prisma); process.env.E2E_DISABLE_RATE_LIMIT = "1"; fx = await createScopeSmokeFixture(prisma); ({ api, server } = await listenApp()); });
 after(async () => { if (server) await closeServer(server); if (fx) await cleanupScopeSmokeFixture(prisma, fx); await prisma.$disconnect(); });
-it("P1-115 real open SSE reloads changed sectors and closes on DB revoke/expiry at heartbeat", async t => {
+it("P1-115 real open SSE authorizes sector changes and revoke/expiry before delivery, without waiting for heartbeat", async t => {
   t.mock.timers.enable({ apis: ["setInterval"] });
   const controllers: AbortController[] = []; const pumps: Promise<void>[] = [];
   try {
@@ -35,16 +35,55 @@ it("P1-115 real open SSE reloads changed sectors and closes on DB revoke/expiry 
           prisma.sector.update({ where: { id: fx.sectorAId }, data: { primarySupervisorEmployeeId: fx.supervisorB.employeeId } }),
           prisma.sector.update({ where: { id: fx.sectorBId }, data: { primarySupervisorEmployeeId: fx.supervisorA.employeeId } }),
         ]);
-        t.mock.timers.tick(25000); await until(() => text.includes(": ping"), "heartbeat scope reload");
         const index = text.length;
         publish("location.changed", { locationId: fx.locAId }); publish("location.changed", { locationId: fx.locBId });
         await until(() => text.slice(index).includes(fx.locBId), "new sector event must arrive");
         assert.equal(text.slice(index).includes(fx.locAId), false);
         await prisma.authSession.update({ where: { id: tokens.sessionId }, data: { revokedAt: new Date() } });
       } else await prisma.authSession.update({ where: { id: tokens.sessionId }, data: { expiresAt: new Date(Date.now() - 1) } });
-      t.mock.timers.tick(25000); await until(() => closed, "revoked/expired stream must reach EOF");
+      const beforeRevoke = text.length;
+      publish("people.changed");
+      publish("location.changed", { locationId: fx.locBId });
+      await until(() => closed, "revoked/expired stream must reach EOF before delivery");
       assert.match(text, /event: revoked/); assert.match(text, /session_revoked/);
+      assert.equal(text.slice(beforeRevoke).includes("event: people.changed"), false);
+      assert.equal(text.slice(beforeRevoke).includes("event: location.changed"), false);
+      assert.equal(text.includes(": ping"), false, "no heartbeat fired during pre-delivery checks");
       const end = text.length; publish("location.changed", { locationId: fx.locBId }); assert.equal(text.length, end);
     }
   } finally { for (const c of controllers) c.abort(); await Promise.allSettled(pumps); t.mock.timers.reset(); }
+});
+it("P1-115 idle revoked and expired streams still close at heartbeat", async t => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  try {
+    for (const invalidation of ["revoke", "expiry"] as const) {
+      const tokens = await createSession({ userId: fx.supervisorA.userId });
+      const controller = new AbortController();
+      const response = await fetch(`${api}/events/stream`, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` }, signal: controller.signal,
+      });
+      let text = ""; let closed = false;
+      const reader = response.body!.getReader();
+      const pump = (async () => {
+        try {
+          while (true) {
+            const result = await reader.read();
+            if (result.done) break;
+            text += new TextDecoder().decode(result.value);
+          }
+        } catch (err) { if (!controller.signal.aborted) throw err; }
+        finally { closed = true; reader.releaseLock(); }
+      })();
+      try {
+        await until(() => text.includes("event: connected"), "connected");
+        await prisma.authSession.update({
+          where: { id: tokens.sessionId },
+          data: invalidation === "revoke" ? { revokedAt: new Date() } : { expiresAt: new Date(Date.now() - 1) },
+        });
+        t.mock.timers.tick(25000);
+        await until(() => closed, "idle stream must close at heartbeat");
+        assert.match(text, /event: revoked/);
+      } finally { controller.abort(); await pump; }
+    }
+  } finally { t.mock.timers.reset(); }
 });

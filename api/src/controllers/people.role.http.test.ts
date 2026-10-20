@@ -1,3 +1,4 @@
+import { withDatabaseBarrier } from "../../tests/dbBarrier";
 /**
  * HTTP integration: T-ROLE-HTTP-01, T-OWNER-HTTP-01, T-OWNER-HTTP-02.
  */
@@ -259,19 +260,21 @@ describe("people role HTTP (P1-02 / P1-03)", () => {
         if (beforeRace !== 2) continue;
 
         // A demotes B while B demotes A — classic last-pair TOCTOU.
-        const [rAb, rBa] = await Promise.all([
+        const [rAb, rBa] = await withDatabaseBarrier(prisma, tx => tx.$queryRaw`SELECT id FROM "User" WHERE id IN (${a.userId}, ${b.userId}) ORDER BY id FOR UPDATE`, () => Promise.all([
           patchJson(api, tokA, `/people/${b.userId}/role`, {
             role: Role.manager,
           }),
           patchJson(api, tokB, `/people/${a.userId}/role`, {
             role: Role.manager,
           }),
-        ]);
+        ]));
 
         const remaining = await prisma.user.findMany({
           where: { role: Role.owner, isActive: true },
           select: { id: true },
         });
+        assert.deepEqual([rAb.status, rBa.status].sort(), [200, 409]);
+        assert.equal(remaining.length, 1);
         assert.ok(
           remaining.length >= 1,
           `owner count must stay ≥1, got ${remaining.length}; statuses ${rAb.status},${rBa.status}`,

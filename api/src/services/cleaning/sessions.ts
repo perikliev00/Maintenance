@@ -6,6 +6,7 @@
 import { CleaningStatus, SessionStatus, TaskStatus } from "@prisma/client";
 // Module dependency import.
 import { prisma } from "../../db";
+import { assertActiveWorkStarter } from "../assignees";
 // Module dependency import.
 import { AppError } from "../../errors";
 // Module dependency import.
@@ -75,6 +76,17 @@ export async function startCleaningTask(input: {
       // Row lock so parallel starts cannot both pass the running-session checks.
       await lockTask(tx, input.taskId);
 
+      // The preflight read can precede another transaction's commit. Recheck
+      // under the domain lock before validating the now-transitioned state.
+      const replay = await tx.cleaningSession.findUnique({
+        where: { startCommandId: input.commandId },
+        include: { task: { include: taskInclude } },
+      });
+      if (replay) {
+        assertCleaningCommandPayloadMatch(replay.taskId === input.taskId && replay.employeeId === input.employeeId);
+        return { session: replay, task: replay.task, idempotent: true };
+      }
+
       // Load the task after the lock for a consistent snapshot.
       const task = await tx.cleaningTask.findUnique({
         where: { id: input.taskId },
@@ -139,6 +151,9 @@ export async function startCleaningTask(input: {
       }
 
       // Insert the running session keyed by startCommandId for idempotency.
+      // Start also binds the task to the actor. Keep active status stable
+      // through that write, while preserving the controller's role/bypass policy.
+      await assertActiveWorkStarter(input.employeeId, tx);
       const session = await tx.cleaningSession.create({
         data: {
           taskId: task.id,
@@ -278,6 +293,16 @@ export async function completeCleaningSession(input: {
       await lockTask(tx, sessionPeek.taskId);
       // Await async persistence or side effect.
       await lockSession(tx, sessionPeek.id);
+
+      const replay = await tx.cleaningSession.findUnique({
+        where: { completeCommandId: input.commandId },
+        include: { task: { include: taskInclude } },
+      });
+      if (replay) {
+        const actor = replay.completeActorEmployeeId ?? replay.employeeId;
+        assertCleaningCommandPayloadMatch(replay.id === input.sessionId && actor === input.employeeId);
+        return { session: replay, task: replay.task, idempotent: true };
+      }
 
       // Re-read after locks for a consistent status/owner snapshot.
       const session = await tx.cleaningSession.findUniqueOrThrow({
@@ -539,6 +564,16 @@ export async function cancelCleaningSession(input: {
       await lockTask(tx, sessionPeek.taskId);
       // Await async persistence or side effect.
       await lockSession(tx, sessionPeek.id);
+
+      const replay = await tx.cleaningSession.findUnique({
+        where: { cancelCommandId: input.commandId },
+        include: { task: { include: taskInclude } },
+      });
+      if (replay) {
+        const actor = replay.cancelActorEmployeeId ?? replay.employeeId;
+        assertCleaningCommandPayloadMatch(replay.id === input.sessionId && actor === input.employeeId);
+        return { session: replay, task: replay.task, idempotent: true };
+      }
 
       // Re-read after locks for a consistent status/owner snapshot.
       const session = await tx.cleaningSession.findUniqueOrThrow({

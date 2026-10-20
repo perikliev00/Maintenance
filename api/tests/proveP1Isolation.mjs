@@ -5,15 +5,16 @@
  * Worker must still resolve to maintenance_p1_test after dotenv(.env) override
  * and confirm current_database().
  *
- * Negative control (safe): spawn the same worker WITHOUT the register preload
- * but with DATABASE_URL rewritten to a non-connectable marker host; assert the
- * process sees the working-db name from .env (or marker) and exits non-zero
- * before any Prisma connect when ISOLATION_NEG=1.
+ * Negative control (safe): without the preload, the same temporary .env must
+ * replace the non-connectable shell marker with maintenance_fixture. The
+ * negative worker makes no database connection. Neither worker needs api/.env.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, writeFileSync, rmSync, rmdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const apiRoot = path.resolve(__dirname, "..");
@@ -36,25 +37,36 @@ function run(args, envExtra = {}) {
   });
 }
 
-// --- Positive: register + tsx loader ---
-const pos = run(["--import", register, "--import", "tsx", worker]);
-assert.equal(
-  pos.status,
-  0,
-  `positive isolation worker failed:\n${pos.stdout}\n${pos.stderr}`,
-);
-assert.match(pos.stdout, /prove_p1_isolation_worker_ok maintenance_p1_test/);
+// Exercise the same override in both workers without reading or replacing a
+// developer's .env. CI needs no working-database configuration for this proof.
+const fixtureDir = mkdtempSync(path.join(tmpdir(), "maintenance-isolation-"));
+const fixture = path.join(fixtureDir, ".env");
+writeFileSync(fixture, 'DATABASE_URL="postgresql://probe:probe@fixture.invalid:1/maintenance_fixture?schema=public"\n');
+try {
+  // --- Positive: register + tsx loader ---
+  const pos = run(["--import", register, "--import", "tsx", worker, fixture]);
+  assert.equal(
+    pos.status,
+    0,
+    `positive isolation worker failed:\n${pos.stdout}\n${pos.stderr}`,
+  );
+  assert.match(pos.stdout, /prove_p1_isolation_worker_ok maintenance_p1_test/);
 
-// --- Negative (safe): no register; marker URL never connected ---
-const neg = run(["--import", "tsx", negWorker], {
-  DATABASE_URL:
-    "postgresql://isolation_probe:isolation_probe@127.0.0.1:1/maintenance_ISOLATION_MARKER?schema=public",
-});
-assert.equal(
-  neg.status,
-  0,
-  `negative isolation control failed:\n${neg.stdout}\n${neg.stderr}`,
-);
-assert.match(neg.stdout, /prove_p1_isolation_negative_ok/);
+  // --- Negative (safe): no register; marker URL never connected ---
+  const neg = run(["--import", "tsx", negWorker, fixture], {
+    DATABASE_URL:
+      "postgresql://isolation_probe:isolation_probe@127.0.0.1:1/maintenance_ISOLATION_MARKER?schema=public",
+  });
+  assert.equal(
+    neg.status,
+    0,
+    `negative isolation control failed:\n${neg.stdout}\n${neg.stderr}`,
+  );
+  assert.match(neg.stdout, /prove_p1_isolation_negative_ok/);
 
-console.log("prove_p1_isolation_ok maintenance_p1_test");
+  console.log("prove_p1_isolation_ok maintenance_p1_test");
+} finally {
+  rmSync(fixture, { force: true });
+  // Only the exact temporary directory created above is removed, non-recursively.
+  rmdirSync(fixtureDir);
+}

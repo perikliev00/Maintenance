@@ -5,6 +5,7 @@
 import { TicketStatus } from "@prisma/client";
 // Module dependency import.
 import { prisma } from "../../db";
+import { assertActiveWorkStarter } from "../assignees";
 // Module dependency import.
 import { AppError } from "../../errors";
 // Module dependency import.
@@ -78,6 +79,7 @@ export async function startMaintenanceTicket(input: {
 
       const fromStatus = ticket.status;
       // Conditional claim: assigned → in_progress.
+      await assertActiveWorkStarter(input.actorEmployeeId, tx);
       const row = await claimTicketUpdate(
         tx,
         ticket.id,

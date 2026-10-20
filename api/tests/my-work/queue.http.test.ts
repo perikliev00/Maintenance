@@ -23,6 +23,7 @@ const prisma = new PrismaClient();
 type MyWorkBody = {
   tasks: Array<{ id: string }>;
   tickets: Array<{ id: string }>;
+  ticketNextCursor: string | null;
   summary: { taskCount: number; ticketCount: number };
   filterShiftId: string | null;
   rosterShiftId: string | null;
@@ -291,5 +292,60 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     assert.ok(!ticketIds.includes(world.ticketForeignOpenId));
     assert.ok(!ticketIds.includes(world.ticketOwnResolvedId));
     assert.ok(!ticketIds.includes(world.ticketOwnClosedId));
+  });
+
+  it("P1-68: every assigned repair is reachable beyond 50 with stable equal-time ordering", async () => {
+    const tech = await loginBearer(api, world.technician.email, world.password);
+    const ids = Array.from({ length: 55 }, (_, i) => `mw-page-${world.stamp}-${String(i).padStart(3, "0")}`);
+    await prisma.maintenanceTicket.createMany({ data: ids.map((id) => ({
+      id,
+      locationId: world.locOwnId,
+      title: id,
+      categoryKey: "other",
+      categoryLabelBg: "Друго",
+      categoryLabelEn: "Other",
+      reportedByEmployeeId: world.manager.employeeId,
+      assigneeId: world.technician.employeeId,
+      status: "assigned" as const,
+      openedAt: new Date("2099-01-01T12:00:00.000Z"),
+    })) });
+    try {
+      const first = await getJson(api, tech.token, "/my-work");
+      assert.equal(first.status, 200);
+      const body = first.body as MyWorkBody;
+      assert.equal(body.tickets.length, 50);
+      assert.equal(body.summary.ticketCount, 59);
+      assert.deepEqual(body.tasks, []);
+      assert.deepEqual(body.tickets.map((t) => t.id), [...ids].sort().reverse().slice(0, 50));
+      assert.ok(body.ticketNextCursor);
+
+      // A resolved/deleted cursor row must not strand the next page (keyset, no row lookup).
+      await prisma.maintenanceTicket.update({
+        where: { id: body.tickets.at(-1)!.id }, data: { status: "resolved" },
+      });
+      const next = await getJson(api, tech.token, `/my-work?ticketCursor=${encodeURIComponent(body.ticketNextCursor)}`);
+      assert.equal(next.status, 200);
+      const nextBody = next.body as MyWorkBody;
+      assert.equal(nextBody.tickets.length, 9);
+      assert.equal(nextBody.ticketNextCursor, null);
+      assert.equal(nextBody.summary.ticketCount, 58);
+      const allIds = [...body.tickets, ...nextBody.tickets].map((t) => t.id);
+      assert.equal(new Set(allIds).size, 59, "no skipped or duplicated original rows");
+      assert.deepEqual([...allIds].sort(), [...ids, world.ticketOwnOpenId, world.ticketOwnAssignedId,
+        world.ticketOwnInProgressId, world.ticketOwnWaitingId].sort());
+      assert.ok(!allIds.includes(world.ticketForeignOpenId));
+      assert.ok(!allIds.includes(world.ticketOwnClosedId));
+
+      // A cursor conveys ordering, never another employee's authority.
+      const other = await loginBearer(api, world.otherTech.email, world.password);
+      const otherPage = await getJson(api, other.token, `/my-work?ticketCursor=${encodeURIComponent(body.ticketNextCursor)}`);
+      assert.equal(otherPage.status, 200);
+      assert.deepEqual((otherPage.body as MyWorkBody).tickets.map((t) => t.id), [world.ticketForeignOpenId]);
+      for (const query of ["ticketCursor=invalid", "ticketPageSize=0", "ticketPageSize=101", "ticketPageSize=1.5"]) {
+        assert.equal((await getJson(api, tech.token, `/my-work?${query}`)).status, 400, query);
+      }
+    } finally {
+      await prisma.maintenanceTicket.deleteMany({ where: { id: { in: ids } } });
+    }
   });
 });

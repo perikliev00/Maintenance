@@ -2,13 +2,29 @@
  * Employee "My Work" aggregate: active cleaning tasks for the hotel date plus
  * open tickets assigned to the current employee (used by UI and sync pull).
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { AppError } from "../errors";
 import { ACTIVE_TASK_STATUSES, OPEN_TICKET_STATUSES } from "../constants";
 import { hotelDateAsUtcDate } from "./hotelTime";
 import { formatMaintenanceTicket } from "./maintenance";
 import { resolveDataScope, taskWhere } from "./dataScope";
 import { getOperations } from "./settings";
 import type { AuthUser } from "../middleware/auth";
+
+type TicketPage = { ticketCursor?: string; ticketPageSize?: number };
+
+function parseTicketCursor(cursor: string): { openedAt: Date; id: string } {
+  try {
+    const value: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (!Array.isArray(value) || value.length !== 2 ||
+        typeof value[0] !== "string" || typeof value[1] !== "string" ||
+        !value[1] || Number.isNaN(new Date(value[0]).getTime())) throw new Error();
+    return { openedAt: new Date(value[0]), id: value[1] };
+  } catch {
+    throw new AppError(400, "validation", "Invalid ticket cursor");
+  }
+}
 
 /**
  * Resolve hotel-date midnight UTC from an ISO date or today's hotel timezone date.
@@ -32,7 +48,13 @@ export async function getMyWork(
   user: AuthUser,
   hotelDate?: string,
   shiftId?: string,
+  page: TicketPage = {},
 ) {
+  const pageSize = page.ticketPageSize ?? 50;
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+    throw new AppError(400, "validation", "ticketPageSize must be between 1 and 100");
+  }
+  const cursor = page.ticketCursor ? parseTicketCursor(page.ticketCursor) : null;
   // Data scope drives which cleaning tasks are visible to this user.
   const scope = await resolveDataScope(user);
   // Hotel-date midnight UTC for Prisma Date keys + response hotelDate.
@@ -80,6 +102,7 @@ export async function getMyWork(
               { hotelDate: date },
               // Only active workflow statuses (not done/cancelled).
               { status: { in: [...ACTIVE_TASK_STATUSES] } },
+              { location: { catalogStatus: "active" } },
               shiftFilter,
             ],
           },
@@ -103,11 +126,20 @@ export async function getMyWork(
           orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
         });
 
-  // Open tickets assigned to this employee (capped for mobile payload size).
+  // Keyset pagination keeps later work reachable even when a prior row is resolved.
+  const ticketWhere: Prisma.MaintenanceTicketWhereInput = {
+    assigneeId: user.employeeId,
+    status: { in: [...OPEN_TICKET_STATUSES] },
+    location: { catalogStatus: "active" },
+  };
   const ticketRows = await prisma.maintenanceTicket.findMany({
     where: {
-      assigneeId: user.employeeId,
-      status: { in: [...OPEN_TICKET_STATUSES] },
+      AND: [ticketWhere, cursor ? {
+        OR: [
+          { openedAt: { lt: cursor.openedAt } },
+          { openedAt: cursor.openedAt, id: { lt: cursor.id } },
+        ],
+      } : {}],
     },
     include: {
       location: { include: { floor: { include: { building: true } } } },
@@ -116,11 +148,18 @@ export async function getMyWork(
       resolvedBy: true,
       closedBy: true,
     },
-    orderBy: { openedAt: "desc" },
-    take: 50,
+    orderBy: [{ openedAt: "desc" }, { id: "desc" }],
+    take: pageSize + 1,
   });
+  const hasMore = ticketRows.length > pageSize;
+  const visibleTickets = ticketRows.slice(0, pageSize);
+  const last = visibleTickets.at(-1);
+  const ticketNextCursor = hasMore && last
+    ? Buffer.from(JSON.stringify([last.openedAt.toISOString(), last.id])).toString("base64url")
+    : null;
+  const ticketCount = await prisma.maintenanceTicket.count({ where: ticketWhere });
   // Shape Prisma ticket rows into the maintenance API DTO.
-  const tickets = ticketRows.map(formatMaintenanceTicket);
+  const tickets = visibleTickets.map(formatMaintenanceTicket);
 
   // Bundle tasks + tickets + header counts for My Work / sync pull.
   return {
@@ -129,10 +168,11 @@ export async function getMyWork(
     filterShiftId: effectiveShiftId,
     tasks,
     tickets,
+    ticketNextCursor,
     // Lightweight counts for the home-screen header.
     summary: {
       taskCount: tasks.length,
-      ticketCount: tickets.length,
+      ticketCount,
       // Count tasks that currently have a running cleaning session.
       runningSessions: tasks.filter((t) =>
         t.sessions.some((s) => s.status === "running"),

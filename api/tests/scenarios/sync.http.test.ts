@@ -40,6 +40,50 @@ describe("P1 sync HTTP and PostgreSQL", () => {
     }
     await prisma.$disconnect();
   });
+  it("P0-10 original offline owner is enforced against the actual cookie session before batch or fallback writes", async () => {
+    const command = commands();
+    const session = await loginBearer(api, world.owner.email, CLN_PASSWORD);
+    const csrf = "offline-identity-test";
+    const before = {
+      runs: await prisma.syncRun.count({ where: { userId: world.owner.userId } }),
+      audit: await prisma.auditEvent.count({ where: { locationId: world.locationAId } }),
+      notifications: await prisma.notification.count({ where: { locationId: world.locationAId } }),
+    };
+    for (const [url, body] of [
+      ["/sync/push", { commands: [command] }],
+      ["/maintenance/tickets", { ...command.payload, commandId: command.commandId }],
+    ] as const) {
+      const response = await fetch(`${api}${url}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: `session=${session.token}; csrf=${csrf}`, "X-CSRF-Token": csrf, "X-Offline-User": world.hk1.userId },
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 409);
+      assert.equal((await response.json() as { error: string }).error, "identity_changed");
+    }
+    assert.equal(await prisma.maintenanceTicket.count({ where: { commandId: command.commandId } }), 0);
+    assert.equal(await prisma.syncRun.count({ where: { userId: world.owner.userId } }), before.runs);
+    assert.equal(await prisma.auditEvent.count({ where: { locationId: world.locationAId } }), before.audit);
+    assert.equal(await prisma.notification.count({ where: { locationId: world.locationAId } }), before.notifications);
+    // Matching binding is a real positive control through cookie auth + CSRF.
+    const accepted = await fetch(`${api}/sync/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: `session=${session.token}; csrf=${csrf}`, "X-CSRF-Token": csrf, "X-Offline-User": world.owner.userId },
+      body: JSON.stringify({ commands: [command] }),
+    });
+    assert.equal(accepted.status, 200);
+    assert.equal((await accepted.json() as any).results[0].status, "ok");
+    const row = await prisma.maintenanceTicket.findUniqueOrThrow({ where: { commandId: command.commandId } });
+    assert.equal(row.reportedByEmployeeId, world.owner.employeeId);
+    const fallbackId = randomUUID();
+    const acceptedFallback = await fetch(`${api}/maintenance/tickets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: `session=${session.token}; csrf=${csrf}`, "X-CSRF-Token": csrf, "X-Offline-User": world.owner.userId },
+      body: JSON.stringify({ ...command.payload, commandId: fallbackId }),
+    });
+    assert.equal(acceptedFallback.status, 201);
+    assert.equal((await prisma.maintenanceTicket.findUniqueOrThrow({ where: { commandId: fallbackId } })).reportedByEmployeeId, world.owner.employeeId);
+  });
   it("P1-101 mixed batch preserves each result and continues after domain failure", async () => {
     const task = await createCleaningTask({ locationId: world.locationAId, hotelDate: await hotelTodayYmd(), assignedEmployeeId: world.hk1.employeeId });
     const batch = [

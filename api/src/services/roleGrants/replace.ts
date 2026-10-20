@@ -92,6 +92,7 @@ export async function replaceRoleGrants(input: {
         SELECT role FROM "RoleGrant"
         WHERE kind = CAST('action' AS "GrantKind")
           AND key = 'permissions.manage'
+        ORDER BY role
         FOR UPDATE
       `;
       const otherRoles = MATRIX_ROLES.filter((r) => r !== input.targetRole);

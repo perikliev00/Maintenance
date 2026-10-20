@@ -38,7 +38,7 @@ export async function listOverdueSessions(scopeWhere?: Prisma.CleaningSessionWhe
     where: {
       status: SessionStatus.running,
       startedAt: { lte: cutoff },
-      ...(scopeWhere ?? {}),
+      AND: [scopeWhere ?? {}, { task: { location: { catalogStatus: "active" } } }],
     },
     include: {
       // Assignee display for overdue banner.

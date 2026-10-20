@@ -11,6 +11,9 @@ import { LiveBoardPage } from "../src/pages/LiveBoardPage";
 import { RepairsPage } from "../src/pages/RepairsPage";
 import { useLocationAudit } from "../src/pages/locations/audit";
 import { AnalyticsPage } from "../src/pages/AnalyticsPage";
+import { ResultsPage } from "../src/pages/ResultsPage";
+import { RoomsPage } from "../src/pages/RoomsPage";
+import { MyWorkPage } from "../src/pages/myWork/MyWorkPage";
 
 export function mountScreen(name: string, user: any) {
   const root = createRoot(document.getElementById("root")!);
@@ -26,6 +29,9 @@ export function mountScreen(name: string, user: any) {
     else if (name === "live") content = <LiveBoardPage user={user} locale="en" />;
     else if (name === "repairs") content = <RepairsPage user={user} locale="en" />;
     else if (name === "analytics") content = <AnalyticsPage />;
+    else if (name === "results") content = <ResultsPage />;
+    else if (name === "rooms") content = <RoomsPage user={user} />;
+    else if (name === "mywork") content = <MyWorkPage user={user} locale="en" />;
     else if (name === "import") content = <ImportPanel canManage hotelDate={props.hotelDate} setHotelDate={() => {}} setPlan={() => {}} setError={setError} setMessage={setMessage} />;
     else if (name === "departures") content = <DepartureEffectsPanel canManage hotelDate={props.hotelDate} loading={false} refresh={async () => {}} setError={setError} setMessage={setMessage} />;
     else content = <LocationAudit locationId={props.locationId} />;

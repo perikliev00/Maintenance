@@ -233,9 +233,9 @@ export async function revokeAllForDevice(deviceId: string): Promise<number> {
  * Validate that `sessionId` belongs to `userId`, is not revoked/expired,
  * and the user is still active. Used on authenticated requests that carry `sid`.
  */
-export async function assertSessionActive(sessionId: string, userId: string) {
+export async function assertSessionActive(sessionId: string, userId: string, db: DbClient = prisma) {
   // Load session + user flags needed for auth checks.
-  const session = await prisma.authSession.findUnique({
+  const session = await db.authSession.findUnique({
     where: { id: sessionId },
     include: {
       user: {

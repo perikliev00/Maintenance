@@ -1,3 +1,4 @@
+import { withDatabaseBarrier } from "../../tests/dbBarrier";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { after, describe, it } from "node:test";
@@ -197,10 +198,10 @@ describe("rotateRefresh", () => {
     const refresh = tokens.refreshToken;
     const predecessorId = tokens.sessionId;
 
-    const results = await Promise.allSettled([
+    const results = await withDatabaseBarrier(prisma, tx => tx.$queryRaw`SELECT id FROM "AuthSession" WHERE id = ${predecessorId} FOR UPDATE`, () => Promise.allSettled([
       rotateRefresh(refresh),
       rotateRefresh(refresh),
-    ]);
+    ]));
 
     const fulfilled = results.filter((r) => r.status === "fulfilled");
     const rejected = results.filter((r) => r.status === "rejected");

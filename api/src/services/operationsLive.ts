@@ -89,9 +89,15 @@ export async function getOperationsLive(scopeWhere?: {
   const auditSince = new Date(now - AUDIT_HOURS * 60 * 60 * 1000);
 
   // Normalize optional data-scope fragments (empty object = hotel-wide).
-  const taskScope = scopeWhere?.task ?? {};
-  const ticketScope = scopeWhere?.ticket ?? {};
-  const sessionScope = scopeWhere?.session ?? {};
+  const taskScope: Prisma.CleaningTaskWhereInput = {
+    AND: [scopeWhere?.task ?? {}, { location: { catalogStatus: "active" } }],
+  };
+  const ticketScope: Prisma.MaintenanceTicketWhereInput = {
+    AND: [scopeWhere?.ticket ?? {}, { location: { catalogStatus: "active" } }],
+  };
+  const sessionScope: Prisma.CleaningSessionWhereInput = {
+    AND: [scopeWhere?.session ?? {}, { task: { location: { catalogStatus: "active" } } }],
+  };
   const locationScope = scopeWhere?.location ?? {};
   const hasLocationScope = Object.keys(locationScope).length > 0;
 

@@ -1,6 +1,7 @@
 /** Current employee's assigned cleaning/maintenance work for optional hotelDate/shift. */
 import type { NextFunction, Request, Response } from "express";
 import { getMyWork } from "../services/myWork";
+import { z } from "zod";
 
 /** GET /my-work — tasks/tickets for the authenticated employee. */
 export async function list(req: Request, res: Response, next: NextFunction) {
@@ -12,7 +13,14 @@ export async function list(req: Request, res: Response, next: NextFunction) {
     const shiftId =
       typeof req.query.shiftId === "string" ? req.query.shiftId : undefined;
     // Service uses req.user.employeeId as the assignee key.
-    const data = await getMyWork(req.user!, hotelDate, shiftId);
+    const parsed = z.object({
+      ticketCursor: z.string().min(1).max(1024).optional(),
+      ticketPageSize: z.coerce.number().int().min(1).max(100).optional(),
+    }).safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "validation", details: parsed.error.flatten() });
+    }
+    const data = await getMyWork(req.user!, hotelDate, shiftId, parsed.data);
     return res.json(data);
   } catch (err) {
     return next(err);

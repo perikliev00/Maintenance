@@ -95,61 +95,68 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   // Permission / capability gate.
   const canReport = canPerformAction(user, "tickets.report");
 
+  const requestRevision = useRef(0);
+
   /** Ticket list + catalog; people for assign are loaded separately when allowed. */
   const refresh = useCallback(async () => {
-    const params: Parameters<typeof fetchTickets>[0] = {
-      limit: 100,
-      status: statusFilter as "open" | "all" | "resolved",
-      slaBreached: slaOnly || undefined,
-      blocksRoom: blocksOnly || undefined,
-    };
-    // Branch: conditional gate.
-    if (assigneeFilter === "mine") params.mine = true;
-    // Else-if branch.
-    else if (assigneeFilter !== "all") params.assigneeId = assigneeFilter;
+    const revision = ++requestRevision.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const params: Parameters<typeof fetchTickets>[0] = {
+        limit: 100,
+        status: statusFilter as "open" | "all" | "resolved",
+        slaBreached: slaOnly || undefined,
+        blocksRoom: blocksOnly || undefined,
+      };
+      // Branch: conditional gate.
+      if (assigneeFilter === "mine") params.mine = true;
+      // Else-if branch.
+      else if (assigneeFilter !== "all") params.assigneeId = assigneeFilter;
 
-    const [ticketData, roomData, catData, optData] = await Promise.all([
-      fetchTickets(params),
-      fetchRooms(),
-      fetchMaintenanceCategories(),
-      fetchIssueOptions(),
-    ]);
-    // State transition.
-    setTickets(ticketData);
-    // State transition.
-    setRooms(roomData);
-    // State transition.
-    setCategories(catData);
-    // State transition.
-    setOptions(optData);
-    // Branch: conditional gate.
-    if (!locationRef.current && roomData[0]) {
-      locationRef.current = roomData[0].id;
-      setLocationId(roomData[0].id);
-    }
-    // Branch: conditional gate.
-    if (!optionRef.current && optData[0]) {
-      optionRef.current = optData[0].id;
+      const [ticketData, roomData, catData, optData] = await Promise.all([
+        fetchTickets(params),
+        fetchRooms(),
+        fetchMaintenanceCategories(),
+        fetchIssueOptions(),
+      ]);
+      if (revision !== requestRevision.current) return;
       // State transition.
-      setIssueOptionId(optData[0].id);
+      setTickets(ticketData);
       // State transition.
-      setTitle(optData[0].nameBg);
+      setRooms(roomData);
+      // State transition.
+      setCategories(catData);
+      // State transition.
+      setOptions(optData);
       // Branch: conditional gate.
-      if (optData[0].defaultPriority) setPriority(optData[0].defaultPriority);
-      // Branch: conditional gate.
-      if (optData[0].defaultBlocksRoom != null) {
-        // State transition.
-        setBlocksRoom(optData[0].defaultBlocksRoom);
+      if (!locationRef.current && roomData[0]) {
+        locationRef.current = roomData[0].id;
+        setLocationId(roomData[0].id);
       }
+      // Branch: conditional gate.
+      if (!optionRef.current && optData[0]) {
+        optionRef.current = optData[0].id;
+        // State transition.
+        setIssueOptionId(optData[0].id);
+        // State transition.
+        setTitle(optData[0].nameBg);
+        // Branch: conditional gate.
+        if (optData[0].defaultPriority) setPriority(optData[0].defaultPriority);
+        // Branch: conditional gate.
+        if (optData[0].defaultBlocksRoom != null) {
+          // State transition.
+          setBlocksRoom(optData[0].defaultBlocksRoom);
+        }
+      }
+    } catch (err) {
+      if (revision === requestRevision.current) {
+        setError(err instanceof Error ? err.message : "Failed to load repairs");
+      }
+    } finally {
+      if (revision === requestRevision.current) setLoading(false);
     }
-  }, [
-    statusFilter,
-    assigneeFilter,
-    slaOnly,
-    blocksOnly,
-    locationId,
-    issueOptionId,
-  ]);
+  }, [statusFilter, assigneeFilter, slaOnly, blocksOnly]);
 
   const refreshInBackground = useCallback(() => {
     // Branch: conditional gate.
@@ -206,43 +213,18 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   }, [canAssign]);
 
   const liveAt = useLiveRefresh(
-    async () => {
-      // Try block for fallible work.
-      try {
-        // Await async step.
-        await refresh();
-        // State transition.
-        setError(null);
-      } catch {
-        /* ignore */
-      }
-    },
+    refresh,
     {
-      enabled: !loading,
+      enabled: true,
       busy: busyId !== null || submitting,
       eventTypes: ["ticket.changed", "location.changed"],
     },
   );
 
-  // Effect: sync props/state to side effects.
   useEffect(() => {
-    (async () => {
-      // Try block for fallible work.
-      try {
-        // State transition.
-        setLoading(true);
-        // Await async step.
-        await refresh();
-      } catch (err) {
-        // State transition.
-        setError(err instanceof Error ? err.message : "Failed to load repairs");
-      } finally {
-        // State transition.
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, assigneeFilter, slaOnly, blocksOnly]);
+    void refresh();
+    return () => { requestRevision.current++; };
+  }, [refresh]);
 
   // Effect: sync props/state to side effects.
   useEffect(() => {

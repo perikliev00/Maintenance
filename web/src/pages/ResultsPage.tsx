@@ -1,7 +1,7 @@
 /**
  * Cleaning results report: date range, service-type filters, and paginated rows.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCleaningResults,
   type CleaningResultsResponse,
@@ -76,48 +76,30 @@ export function ResultsPage() {
   /**
    * Fetch paginated results for the current filters.
    */
+  const requestRevision = useRef(0);
   const refresh = useCallback(async () => {
-    // State transition.
+    const revision = ++requestRevision.current;
+    setLoading(true);
     setError(null);
-    // Omit serviceType when none selected so the API returns all types.
-    const result = await fetchCleaningResults({
-      from,
-      to,
-      page,
-      pageSize,
-      serviceType: serviceTypes.length ? serviceTypes : undefined,
-    });
-    // State transition.
-    setData(result);
+    try {
+      const result = await fetchCleaningResults({
+        from, to, page, pageSize,
+        serviceType: serviceTypes.length ? serviceTypes : undefined,
+      });
+      if (revision === requestRevision.current) setData(result);
+    } catch (err) {
+      if (revision === requestRevision.current) {
+        setError(err instanceof Error ? err.message : "Failed to load results");
+        setData(null);
+      }
+    } finally {
+      if (revision === requestRevision.current) setLoading(false);
+    }
   }, [from, to, page, serviceTypes]);
 
-  // Re-fetch when filters/page change; ignore late responses after unmount.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      // Try block for fallible work.
-      try {
-        // State transition.
-        setLoading(true);
-        // Await async step.
-        await refresh();
-      } catch (err) {
-        // Only apply error/empty state if this effect is still current.
-        if (!cancelled) {
-          // State transition.
-          setError(err instanceof Error ? err.message : "Failed to load results");
-          // State transition.
-          setData(null);
-        }
-      } finally {
-        // Branch: conditional gate.
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    // Early / value return.
-    return () => {
-      cancelled = true;
-    };
+    void refresh();
+    return () => { requestRevision.current++; };
   }, [refresh]);
 
   /**

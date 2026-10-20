@@ -13,7 +13,7 @@ const dotenv = require("dotenv");
 const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 dotenv.config({
-  path: path.join(apiRoot, ".env"),
+  path: process.argv[2] ?? path.join(apiRoot, ".env"),
   override: true,
 });
 

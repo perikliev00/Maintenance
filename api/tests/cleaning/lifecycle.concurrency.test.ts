@@ -1,3 +1,4 @@
+import { withDatabaseBarrier, orderedDatabaseRace } from "../dbBarrier";
 /**
  * T-CLN-11, T-CLN-12, T-CLN-21, T-CLN-29 — cleaning concurrency invariants.
  */
@@ -61,7 +62,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
       where: { id: world.locationAId },
     });
 
-    const settled = await Promise.allSettled([
+    const settled = await withDatabaseBarrier(prisma, tx => tx.$queryRaw`SELECT id FROM "Location" WHERE id = ${world.locationAId} FOR UPDATE`, () => Promise.allSettled([
       createCleaningTask({
         locationId: world.locationAId,
         hotelDate: today,
@@ -74,7 +75,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
         assignedEmployeeId: world.hk2.employeeId,
         actorEmployeeId: world.owner.employeeId,
       }),
-    ]);
+    ]));
 
     const ok = settled.filter((s) => s.status === "fulfilled");
     const fail = settled.filter((s) => s.status === "rejected");
@@ -115,8 +116,11 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
       assignedEmployeeId: world.hk1.employeeId,
       actorEmployeeId: world.owner.employeeId,
     });
+    const beforeTasks = await prisma.cleaningTask.findMany({ where: { id: { in: [taskA.id, taskB.id] } } });
+    const beforeLocations = await prisma.location.findMany({ where: { id: { in: [world.locationAId, world.locationBId] } } });
+    const beforeAudit = await prisma.auditEvent.findMany({ where: { locationId: { in: [world.locationAId, world.locationBId] } }, orderBy: { id: "asc" } });
 
-    const settled = await Promise.allSettled([
+    const settled = await withDatabaseBarrier(prisma, tx => tx.$executeRaw`LOCK TABLE "CleaningSession" IN SHARE MODE`, () => Promise.allSettled([
       startCleaningTask({
         taskId: taskA.id,
         employeeId: world.hk1.employeeId,
@@ -129,7 +133,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
         commandId: randomUUID(),
         expectedVersion: taskB.version,
       }),
-    ]);
+    ]));
 
     const ok = settled.filter((s) => s.status === "fulfilled");
     const fail = settled.filter((s) => s.status === "rejected");
@@ -144,9 +148,16 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
       },
     });
     assert.equal(running, 1);
+    const winner = await prisma.cleaningSession.findFirstOrThrow({ where: { employeeId: world.hk1.employeeId, status: SessionStatus.running } });
+    const loser = beforeTasks.find(t => t.id !== winner.taskId)!;
+    assert.deepEqual(await prisma.cleaningTask.findUniqueOrThrow({ where: { id: loser.id } }), loser);
+    assert.deepEqual(await prisma.location.findUniqueOrThrow({ where: { id: loser.locationId } }), beforeLocations.find(l => l.id === loser.locationId));
+    assert.deepEqual(await prisma.auditEvent.findMany({ where: { locationId: loser.locationId }, orderBy: { id: "asc" } }), beforeAudit.filter(a => a.locationId === loser.locationId));
+    assert.equal(await prisma.cleaningSession.count({ where: { taskId: loser.id } }), 0);
   });
 
-  it("T-CLN-21: concurrent approve vs reject → one decision", async () => {
+  for (const firstDecision of ["approved", "rejected"] as const) {
+  it(`T-CLN-21: ${firstDecision} wins observed inspection contention`, async () => {
     const { started } = await createAndStartToday(
       world,
       world.locationAId,
@@ -160,23 +171,25 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
     });
     assert.equal(completed.task.status, TaskStatus.awaiting_inspection);
 
-    const settled = await Promise.allSettled([
+    const settled = await orderedDatabaseRace(prisma, tx => tx.$queryRaw`SELECT id FROM "CleaningTask" WHERE id = ${completed.task.id} FOR UPDATE`,
+      () =>
       inspectCleaningTask({
         taskId: completed.task.id,
         inspectorEmployeeId: world.manager.employeeId,
         commandId: randomUUID(),
-        result: "approved",
+        result: firstDecision,
+        findings: "first decision findings",
         expectedVersion: completed.task.version,
       }),
-      inspectCleaningTask({
+      () => inspectCleaningTask({
         taskId: completed.task.id,
         inspectorEmployeeId: world.owner.employeeId,
         commandId: randomUUID(),
-        result: "rejected",
+        result: firstDecision === "approved" ? "rejected" : "approved",
         findings: "not clean enough",
         expectedVersion: completed.task.version,
       }),
-    ]);
+    );
 
     const ok = settled.filter((s) => s.status === "fulfilled");
     const fail = settled.filter((s) => s.status === "rejected");
@@ -202,6 +215,9 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
       where: { taskId: completed.task.id },
     });
     assert.equal(inspections, 1);
+    assert.equal(task.status, firstDecision === "approved" ? TaskStatus.completed : TaskStatus.rework);
+    assert.equal(settled[0]!.status, "fulfilled");
+    assert.equal(settled[1]!.status, "rejected");
 
     const loc = await prisma.location.findUniqueOrThrow({
       where: { id: world.locationAId },
@@ -213,7 +229,9 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
     }
   });
 
-  it("T-CLN-29: concurrent start + reassign stay consistent", async () => {
+  }
+  for (const startFirst of [true, false]) {
+  it(`T-CLN-29: ${startFirst ? "start" : "reassign"} wins observed contention`, async () => {
     const today = await hotelTodayYmd();
     const task = await createCleaningTask({
       locationId: world.locationAId,
@@ -222,21 +240,22 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
       actorEmployeeId: world.owner.employeeId,
     });
 
-    const settled = await Promise.allSettled([
+    const start = () =>
       startCleaningTask({
         taskId: task.id,
         employeeId: world.hk1.employeeId,
         commandId: randomUUID(),
         expectedVersion: task.version,
-      }),
-      reassignCleaningTask({
+      });
+    const reassign = () => reassignCleaningTask({
         taskId: task.id,
         assignedEmployeeId: world.hk2.employeeId,
         reason: "cover shift",
         expectedVersion: task.version,
         actorEmployeeId: world.manager.employeeId,
-      }),
-    ]);
+      });
+    const ordered = await orderedDatabaseRace(prisma, tx => tx.$queryRaw`SELECT id FROM "CleaningTask" WHERE id = ${task.id} FOR UPDATE`, startFirst ? start : reassign, startFirst ? reassign : start);
+    const settled = startFirst ? ordered : [ordered[1]!, ordered[0]!];
 
     const startResult = settled[0]!;
     const reassignResult = settled[1]!;
@@ -248,6 +267,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
       where: { taskId: task.id, status: SessionStatus.running },
     });
 
+    assert.equal(Boolean(running), startFirst);
     if (running) {
       assert.equal(
         running.employeeId,
@@ -280,4 +300,5 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
       );
     }
   });
+  }
 });

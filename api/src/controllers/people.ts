@@ -216,6 +216,7 @@ export async function changeRole(
         await tx.$queryRaw<{ id: string }[]>`
           SELECT id FROM "User"
           WHERE role = CAST('owner' AS "Role") AND "isActive" = true
+          ORDER BY id
           FOR UPDATE
         `;
         const ownerCount = await tx.user.count({

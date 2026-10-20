@@ -44,7 +44,7 @@ export const taskInclude = {
 export async function listCleaningTasks(where: Prisma.CleaningTaskWhereInput) {
   // Shared include keeps list and mutation responses shape-identical.
   return prisma.cleaningTask.findMany({
-    where,
+    where: { AND: [where, { location: { catalogStatus: "active" } }] },
     include: taskInclude,
     // Newest hotel day first, then newest create within the day.
     orderBy: [{ hotelDate: "desc" }, { createdAt: "desc" }],

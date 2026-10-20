@@ -4,6 +4,7 @@ import { setDraining } from "./connState";
 import { drainQueue } from "./queueDrain";
 import {
   getOfflineUser,
+  isOfflineSwitching,
   setOfflineUser,
   whenOfflineUserSettled,
 } from "./userScope";
@@ -87,6 +88,7 @@ describe("T-DRAIN-01 mid-drain account switch", () => {
       headersFn: () => ({ "Content-Type": "application/json" }),
       afterClaim: async () => {
         setOfflineUser("B");
+        assert.equal(isOfflineSwitching(), true, "switch must block sends before its first microtask");
         await whenOfflineUserSettled();
         assert.equal(getOfflineUser(), "B");
       },
@@ -138,5 +140,63 @@ describe("T-DRAIN-01 mid-drain account switch", () => {
     });
 
     assert.equal(networkCalls, 1);
+  });
+
+  for (const fallback of [false, true]) {
+    for (const switchBack of [false, true]) {
+      it(`P0-10 ${fallback ? "fallback" : "batch"} does not retry after pending refresh and A→B${switchBack ? "→A" : ""}`, async () => {
+        const row = pendingRow("A");
+        const store = new Map([[row.id, row]]);
+        await bindUserOffline("A");
+        let enterRefresh!: () => void;
+        const entered = new Promise<void>(resolve => { enterRefresh = resolve; });
+        let finishRefresh!: () => void;
+        const pendingRefresh = new Promise<void>(resolve => { finishRefresh = resolve; });
+        const sends: Array<{ url: string; userId: string | null }> = [];
+        let deletions = 0;
+        const draining = drainQueue({
+          listQueueForUserFn: async id => [...store.values()].filter(r => r.userId === id),
+          putQueuedActionFn: async r => { store.set(r.id, r); },
+          deleteQueuedActionFn: async id => { deletions++; store.delete(id); },
+          headersFn: () => ({}),
+          fetchFn: async url => {
+            sends.push({ url, userId: getOfflineUser() });
+            return new Response("{}", { status: fallback && url.endsWith("/sync/push") ? 501 : 401 });
+          },
+          refreshFn: async () => { enterRefresh(); await pendingRefresh; return "refreshed"; },
+        });
+        await entered;
+        await bindUserOffline("B");
+        if (switchBack) await bindUserOffline("A");
+        finishRefresh();
+        await draining;
+        assert.equal(sends.length, fallback ? 2 : 1, "no retry or fallback send after identity transition");
+        assert.ok(sends.every(send => send.userId === "A"));
+        assert.equal(deletions, 0, "stale completion must not consume the original command");
+        assert.deepEqual(store.get(row.id), { ...row, status: "sending", updatedAt: store.get(row.id)!.updatedAt });
+      });
+    }
+  }
+
+  it("P0-10 unchanged binding retries successful refresh and consumes the same command", async () => {
+    const row = pendingRow("A");
+    const store = new Map([[row.id, row]]);
+    await bindUserOffline("A");
+    const bodies: string[] = [];
+    await drainQueue({
+      listQueueForUserFn: async () => [...store.values()],
+      putQueuedActionFn: async r => { store.set(r.id, r); },
+      deleteQueuedActionFn: async id => { store.delete(id); },
+      headersFn: () => ({}),
+      fetchFn: async (_url, init) => {
+        assert.equal(new Headers(init.headers).get("X-Offline-User"), "A");
+        bodies.push(String(init.body));
+        return new Response(JSON.stringify({ results: [{ commandId: row.commandId, status: "ok" }] }), { status: bodies.length === 1 ? 401 : 200 });
+      },
+      refreshFn: async () => "refreshed",
+    });
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[0], bodies[1]);
+    assert.equal(store.size, 0);
   });
 });

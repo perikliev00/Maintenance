@@ -11,6 +11,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { ACTIVE_TASK_STATUSES } from "../../constants";
+import { assertActiveCleaningAssignee } from "../assignees";
 import { bumpDirtyAndRebindWork } from "../cleaning";
 import { todayHotelDateYmd } from "../hotelTime";
 import {
@@ -39,6 +40,11 @@ export async function applyPlanEntryEffects(
   shiftId?: string | null,
   todayYmd?: string,
 ): Promise<PlanEffects> {
+  // Plan effects can create or fill an assignment too. Keep eligibility stable
+  // for this transaction, including deferred assignment stored on a plan entry.
+  if (assignedEmployeeId) {
+    await assertActiveCleaningAssignee(assignedEmployeeId, tx);
+  }
   // Defaults: no occupancy/dirty change and no task until a branch sets them.
   let taskEffect: TaskEffect = "skipped";
   let cleaningTaskId: string | null = null;

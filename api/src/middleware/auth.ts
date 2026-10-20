@@ -53,6 +53,17 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 
   authenticateToken(extracted.token)
     .then((decoded) => {
+      // Offline commands bind their original owner independently of cookies.
+      // Another tab or a delayed Set-Cookie can change the browser session
+      // without changing this tab's local binding. Reject before domain writes.
+      const offlineUser = req.headers["x-offline-user"];
+      if (offlineUser !== undefined && offlineUser !== decoded.userId) {
+        res.status(409).json({
+          error: "identity_changed",
+          message: "Offline command belongs to a different account",
+        });
+        return;
+      }
       // Attach DB-backed identity and how the token was presented.
       req.user = decoded;
       req.authVia = extracted.via;

@@ -437,4 +437,52 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     assert.equal(updated.version, task2.version + 1);
     assert.equal(updated.status, TaskStatus.assigned);
   });
+
+  for (const status of [TaskStatus.completed, TaskStatus.cancelled, TaskStatus.rework, TaskStatus.awaiting_inspection]) {
+    it(`P1-27: reassign matrix for ${status} preserves unrelated state`, async () => {
+      const task = await createCleaningTask({
+        locationId: world.locationAId, hotelDate: await hotelTodayYmd(),
+        assignedEmployeeId: world.hk1.employeeId, actorEmployeeId: world.owner.employeeId,
+      });
+      // Isolate the state policy from lifecycle preparation (covered separately).
+      const before = await prisma.cleaningTask.update({ where: { id: task.id }, data: { status } });
+      const location = await prisma.location.findUniqueOrThrow({ where: { id: world.locationAId } });
+      const audits = await prisma.auditEvent.findMany({ where: { entityId: task.id }, orderBy: { id: "asc" } });
+      const notifications = await prisma.notification.findMany({ where: { entityId: task.id }, orderBy: { id: "asc" } });
+      const operation = () => reassignCleaningTask({
+        taskId: task.id, assignedEmployeeId: world.hk2.employeeId,
+        reason: "  coverage  ", expectedVersion: before.version, actorEmployeeId: world.manager.employeeId,
+      });
+      if (status === TaskStatus.completed || status === TaskStatus.cancelled) {
+        await assert.rejects(operation(), (err: unknown) => isAppError(err) && err.code === "invalid_state");
+        assert.deepEqual(await prisma.cleaningTask.findUniqueOrThrow({ where: { id: task.id } }), before);
+        assert.deepEqual(await prisma.auditEvent.findMany({ where: { entityId: task.id }, orderBy: { id: "asc" } }), audits);
+        assert.deepEqual(await prisma.notification.findMany({ where: { entityId: task.id }, orderBy: { id: "asc" } }), notifications);
+      } else {
+        const updated = await operation();
+        assert.equal(updated.status, status);
+        assert.equal(updated.assignedEmployeeId, world.hk2.employeeId);
+        assert.equal(updated.version, before.version + 1);
+        assert.equal(updated.reassignReason, "coverage");
+        assert.equal(await prisma.auditEvent.count({ where: { entityId: task.id, action: "cleaning.task.reassign" } }), 1);
+      }
+      assert.deepEqual(await prisma.location.findUniqueOrThrow({ where: { id: world.locationAId } }), location);
+      assert.equal(await prisma.cleaningSession.count({ where: { taskId: task.id } }), 0);
+      assert.equal(await prisma.inspection.count({ where: { taskId: task.id } }), 0);
+    });
+  }
+
+  it("P1-27: running session blocks reassignment even when task appears idle", async () => {
+    const task = await createCleaningTask({
+      locationId: world.locationAId, hotelDate: await hotelTodayYmd(), assignedEmployeeId: world.hk1.employeeId,
+    });
+    const started = await startCleaningTask({ taskId: task.id, employeeId: world.hk1.employeeId, commandId: randomUUID(), expectedVersion: task.version });
+    const before = await prisma.cleaningTask.update({ where: { id: task.id }, data: { status: TaskStatus.assigned } });
+    await assert.rejects(reassignCleaningTask({
+      taskId: task.id, assignedEmployeeId: world.hk2.employeeId, reason: "idle-looking task", expectedVersion: before.version,
+    }), (err: unknown) => isAppError(err) && err.code === "conflict");
+    assert.deepEqual(await prisma.cleaningTask.findUniqueOrThrow({ where: { id: task.id } }), before);
+    assert.deepEqual(await prisma.cleaningSession.findUniqueOrThrow({ where: { id: started.session.id } }), started.session);
+    assert.equal(await prisma.auditEvent.count({ where: { entityId: task.id, action: "cleaning.task.reassign" } }), 0);
+  });
 });

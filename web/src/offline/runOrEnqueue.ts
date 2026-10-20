@@ -20,7 +20,8 @@ import {
 } from "./connState";
 import { enqueue } from "./queueOps";
 import type { QueueCommandType } from "./storage";
-import { postJson } from "./transport";
+import { authHeader, postJsonWithSessionRefresh } from "./transport";
+import { getOfflineBindingRevision, getOfflineUser, isOfflineSwitching } from "./userScope";
 
 /** `queued: true` means the action is in IndexedDB; else `data` is the live response. */
 export type QueuedResult = { queued: boolean; data?: unknown };
@@ -43,6 +44,14 @@ async function runOrEnqueue(
   url: string,
   body: Record<string, unknown>,
 ): Promise<QueuedResult> {
+  const userId = getOfflineUser();
+  const revision = getOfflineBindingRevision();
+  const beforeAttempt = () => {
+    if (!userId || isOfflineSwitching() || getOfflineUser() !== userId || getOfflineBindingRevision() !== revision) {
+      throw Object.assign(new Error("Account changed; retry the action from the current account"), { status: 409, code: "identity_changed" });
+    }
+  };
+  beforeAttempt();
   // Stable idempotency key — reuse caller-supplied id when present.
   const commandId = String(body.commandId ?? crypto.randomUUID());
   const payload = { ...body, commandId };
@@ -58,9 +67,19 @@ async function runOrEnqueue(
     return { queued: true };
   }
   try {
-    const data = await postJson(url, payload);
+    const data = await postJsonWithSessionRefresh(url, payload, {
+      beforeAttempt,
+      headersFn: () => {
+        const headers = new Headers(authHeader());
+        headers.set("X-Offline-User", userId!);
+        return headers;
+      },
+    });
+    beforeAttempt();
     return { queued: false, data };
   } catch (err) {
+    // Do not turn an old account's failed request into the new account's outbox.
+    beforeAttempt();
     // Transient failure → mark unreachable, backoff, and park in IndexedDB.
     if (isQueueableError(err)) {
       markUnreachable();

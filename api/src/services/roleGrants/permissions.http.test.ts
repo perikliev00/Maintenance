@@ -1,3 +1,4 @@
+import { withDatabaseBarrier } from "../../../tests/dbBarrier";
 /**
  * HTTP integration: T-PERM-HTTP-01/01b/01c, T-PERM-LAST-01/02, T-GRANT-HTTP-01.
  * Mutates shared RoleGrant rows — always snapshot/restore.
@@ -341,10 +342,10 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
           actions: g.actions.filter((a) => a !== "permissions.manage"),
         });
 
-      const [r1, r2] = await Promise.all([
+      const [r1, r2] = await withDatabaseBarrier(prisma, tx => tx.$queryRaw`SELECT role FROM "RoleGrant" WHERE kind = CAST('action' AS "GrantKind") AND key = 'permissions.manage' ORDER BY role FOR UPDATE`, () => Promise.all([
         strip("manager", mgrGrants),
         strip("admin", adminGrants),
-      ]);
+      ]));
 
       const remaining = await prisma.roleGrant.count({
         where: {
@@ -353,6 +354,8 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
           role: { in: [Role.manager, Role.admin] },
         },
       });
+      assert.deepEqual([r1.status, r2.status].sort(), [200, 400]);
+      assert.equal(remaining, 1);
       assert.ok(
         remaining >= 1,
         `expected ≥1 manage grant, got ${remaining}; statuses ${r1.status},${r2.status}`,

@@ -70,6 +70,17 @@ export async function assertActiveAssignee(
   message: string,
   db: AssigneeDb = prisma,
 ): Promise<void> {
+  // Transactional checks retain a shared User lock until commit. PostgreSQL
+  // UPDATEs of role/isActive take a conflicting NO KEY UPDATE lock, so the
+  // eligibility read cannot become stale before the assignment is committed.
+  // Shared locks let independent assignments to the same employee proceed
+  // without lock upgrades. Account mutation paths take User update locks
+  // without subsequently acquiring assignment task/location/ticket locks.
+  if (db !== prisma) {
+    await db.$queryRaw`
+      SELECT id FROM "User" WHERE "employeeId" = ${employeeId} FOR SHARE
+    `;
+  }
   // Missing employee → same validation error as wrong role (no 404 leak).
   const employee = await db.employee.findUnique({
     where: { id: employeeId },
@@ -104,6 +115,19 @@ export async function assertActiveMaintenanceAssignee(
     MAINTENANCE_ASSIGNEE_ROLES,
     MAINTENANCE_ASSIGNEE_MESSAGE,
     db,
+  );
+}
+
+/** Keep a starter active through its transaction without changing role policy. */
+export async function assertActiveWorkStarter(
+  employeeId: string,
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await assertActiveAssignee(
+    employeeId,
+    Object.values(Role),
+    "Employee must have an active user account",
+    tx,
   );
 }
 

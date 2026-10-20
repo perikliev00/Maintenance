@@ -40,9 +40,9 @@ import {
 import {
   authHeader,
   fetchWithTimeout,
-  postJson,
+  postJsonWithSessionRefresh,
 } from "./transport";
-import { getOfflineUser, isOfflineSwitching } from "./userScope";
+import { getOfflineUser, getOfflineBindingRevision, isOfflineSwitching } from "./userScope";
 
 /** Transient errors retry until this count, then mark `failed`. */
 const MAX_RETRIES = 8;
@@ -107,6 +107,7 @@ async function pushSyncBatch(
     fetchFn?: typeof fetchWithTimeout;
     refreshFn?: RefreshFn;
     headersFn?: () => HeadersInit;
+    beforeAttempt?: () => void;
   } = {},
 ): Promise<{ ok: true; results: SyncPushResult[] } | { ok: false; status: number }> {
   // Injectable deps for unit tests (same pattern as transport).
@@ -122,7 +123,7 @@ async function pushSyncBatch(
         headers: headersFn(),
         body: JSON.stringify({ commands }),
       }),
-    { refreshFn },
+    { refreshFn, beforeAttempt: deps.beforeAttempt },
   );
 
   const data = (await res.json().catch(() => ({}))) as {
@@ -164,12 +165,12 @@ async function markSending(
 async function applySyncResult(
   item: QueuedAction,
   result: SyncPushResult,
-  userId: string,
+  ownsBinding: () => boolean,
   putFn: typeof putQueuedAction,
   deleteFn: typeof deleteQueuedAction,
 ): Promise<void> {
   // Do not rewrite another user's store after an account switch.
-  if (!stillBoundTo(userId)) return;
+  if (!ownsBinding()) return;
 
   const patch = decideSyncResult(result, item.retries, MAX_RETRIES);
   // Success is the only path that removes the outbox row.
@@ -211,7 +212,24 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
   const listFn = deps.listQueueForUserFn ?? listQueueForUser;
   const putFn = deps.putQueuedActionFn ?? putQueuedAction;
   const deleteFn = deps.deleteQueuedActionFn ?? deleteQueuedAction;
-  const postJsonFn = deps.postJsonFn ?? postJson;
+  const revision = getOfflineBindingRevision();
+  const ownsBinding = () => stillBoundTo(activeUserId) && getOfflineBindingRevision() === revision;
+  const beforeAttempt = () => {
+    if (!ownsBinding()) throw new Error("Offline identity changed");
+  };
+  const headersFn = () => {
+    const headers = new Headers((deps.headersFn ?? authHeader)());
+    // Server verifies this original owner against the actual cookie identity,
+    // including when another tab changes cookies before our binding updates.
+    headers.set("X-Offline-User", activeUserId);
+    return headers;
+  };
+  const postJsonFn = deps.postJsonFn ?? ((url, body) => postJsonWithSessionRefresh(url, body, {
+    fetchFn: deps.fetchFn,
+    headersFn,
+    refreshFn: deps.refreshFn,
+    beforeAttempt,
+  }));
 
   setDraining(true);
   notify("syncing");
@@ -228,7 +246,7 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
         original.status === "sending" &&
         row.status === "pending"
       ) {
-        if (!stillBoundTo(userId)) return;
+        if (!ownsBinding()) return;
         await putFn(row);
       }
     }
@@ -247,7 +265,7 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
     // Keep each request within the API limit; leave later rows unclaimed until
     // their turn so an interrupted batch cannot lose the remaining work.
     for (let offset = 0; offset < pending.length; offset += 100) {
-    if (!stillBoundTo(userId)) return;
+    if (!ownsBinding()) return;
     const sending = await markSending(pending.slice(offset, offset + 100), putFn);
 
     if (deps.afterClaim) {
@@ -269,7 +287,7 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
     }
 
     // Abort before any network if the account switched mid-drain.
-    if (!stillBoundTo(userId)) {
+    if (!ownsBinding()) {
       return;
     }
 
@@ -282,29 +300,31 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
         clientTime: new Date(item.createdAt).toISOString(),
       }));
       const identitySafeRefresh: RefreshFn = async () => {
-        if (!stillBoundTo(userId)) return "rejected";
+        if (!ownsBinding()) return "rejected";
         const refreshFn = deps.refreshFn ?? refreshAccessToken;
-        return refreshFn();
+        const outcome = await refreshFn();
+        return ownsBinding() ? outcome : "rejected";
       };
       const batch = await pushSyncBatch(commands, {
         fetchFn: deps.fetchFn,
-        headersFn: deps.headersFn,
+        headersFn,
         refreshFn: identitySafeRefresh,
+        beforeAttempt,
       });
-      if (!stillBoundTo(userId)) return;
+      if (!ownsBinding()) return;
       if (batch.ok) {
         // Apply each per-command result (delete / conflict / retry).
         for (const result of batch.results) {
           const item = sending.find((p) => p.commandId === result.commandId);
           if (!item) continue;
-          await applySyncResult(item, result, userId, putFn, deleteFn);
+          await applySyncResult(item, result, ownsBinding, putFn, deleteFn);
         }
         markReachable();
         continue;
       }
       if (batch.status === 401 || batch.status === 429) {
         // Refresh failed — keep outbox pending until the user signs in again.
-        if (!stillBoundTo(userId)) return;
+        if (!ownsBinding()) return;
         for (const item of sending) {
           await putFn({
             ...item,
@@ -323,21 +343,21 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
 
     // Fallback: POST each original URL individually.
     for (const item of sending) {
-      if (!stillBoundTo(userId)) return;
+      if (!ownsBinding()) return;
 
       // Skip items already resolved by a partial batch (re-check store)
       const currentRows = await listFn(userId);
       const current = currentRows.find((r) => r.id === item.id);
       if (!current || current.status !== "sending") continue;
 
-      if (!stillBoundTo(userId)) return;
+      if (!ownsBinding()) return;
 
       try {
         await postJsonFn(item.url, item.body);
-        if (!stillBoundTo(userId)) return;
+        if (!ownsBinding()) return;
         await deleteFn(item.id);
       } catch (err) {
-        if (!stillBoundTo(userId)) return;
+        if (!ownsBinding()) return;
         const status = (err as { status?: number }).status;
         const message = err instanceof Error ? err.message : "Sync failed";
         const code = (err as { code?: string }).code;
@@ -424,7 +444,7 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
     scheduleBackoff();
   } finally {
     // Revert any leftover sending rows (crash / early break) back to pending.
-    if (getOfflineUser() === userId) {
+    if (ownsBinding()) {
       try {
         const leftover = await (deps.listQueueForUserFn ?? listQueueForUser)(
           userId,

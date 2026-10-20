@@ -9,8 +9,15 @@ import { notify, triggerDrain } from "./connState";
 import { clearOfflineStores } from "./storage";
 
 let activeUserId: string | null = null;
+// A drain started before an account transition must not resume after A→B→A.
+let bindingRevision = 0;
+
+export function getOfflineBindingRevision(): number {
+  return bindingRevision;
+}
 /** True while account-switch purge/lock is in progress — blocks reads/writes. */
 let switching = false;
+let pendingSwitches = 0;
 /** Serialize setOfflineUser so concurrent logout/login cannot interleave. */
 let switchChain: Promise<void> = Promise.resolve();
 
@@ -70,12 +77,16 @@ async function applyOfflineUser(userId: string | null): Promise<void> {
  * caches, purge private IndexedDB when leaving a previous user, then unlock.
  */
 export function setOfflineUser(userId: string | null): void {
+  if (userId !== activeUserId || switching) bindingRevision++;
+  // Lock immediately, before the serialized purge gets its first microtask.
+  pendingSwitches++;
   // Serialize concurrent logout/login so purges cannot interleave.
   switchChain = switchChain
     .then(() => applyOfflineUser(userId))
     .catch(() => {
       switching = false;
-    });
+    })
+    .finally(() => { pendingSwitches--; });
   void switchChain;
 }
 
@@ -84,6 +95,8 @@ export function setOfflineUser(userId: string | null): void {
  * clear active user (even if already null — covers killed-tab residue).
  */
 export function clearPrivateOfflineState(): void {
+  bindingRevision++;
+  pendingSwitches++;
   switchChain = switchChain
     .then(async () => {
       switching = true;
@@ -98,7 +111,8 @@ export function clearPrivateOfflineState(): void {
     })
     .catch(() => {
       switching = false;
-    });
+    })
+    .finally(() => { pendingSwitches--; });
   void switchChain;
 }
 
@@ -109,7 +123,7 @@ export function getOfflineUser(): string | null {
 
 /** True while purge/bind is in flight — queueOps must refuse reads/writes. */
 export function isOfflineSwitching(): boolean {
-  return switching;
+  return switching || pendingSwitches > 0;
 }
 
 /** Await the serialized switch chain (tests / callers that need settled bind). */

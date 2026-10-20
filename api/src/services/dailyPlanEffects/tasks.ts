@@ -9,6 +9,7 @@ import {
   TaskStatus,
 } from "@prisma/client";
 import { ACTIVE_TASK_STATUSES } from "../../constants";
+import { assertActiveCleaningAssignee } from "../assignees";
 import {
   deriveCleaningServiceType,
   resolveCycleForNewTask,
@@ -140,6 +141,10 @@ export async function linkOrCreateDepartureTask(
   },
 ): Promise<string | null> {
   const assignedEmployeeId = input.assignedEmployeeId;
+  // A deferred departure can outlive the assignee's eligibility.
+  if (assignedEmployeeId) {
+    await assertActiveCleaningAssignee(assignedEmployeeId, tx);
+  }
   const shiftId = input.shiftId;
 
   // Prefer the task already linked on the plan entry, if still active.
