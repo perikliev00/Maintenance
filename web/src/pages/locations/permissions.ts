@@ -4,7 +4,6 @@
  */
 import {
   canPerformAction,
-  canResolveIssues,
   isOwner,
   type AuthUser,
 } from "../../api/client";
@@ -42,7 +41,7 @@ export function locationPagePermissions(
     canInspect: owner || canPerformAction(user, "cleaning.inspect"),
     canReviewOverdue:
       owner || canPerformAction(user, "cleaning.review_overdue"),
-    canResolve: owner || canResolveIssues(user.role),
+    canResolve: owner || canPerformAction(user, "tickets.resolve"),
     // Occupancy controls are rooms-only (hidden on common-area board).
     canSetOccupancy:
       !isCommon && (owner || canPerformAction(user, "rooms.set_occupancy")),

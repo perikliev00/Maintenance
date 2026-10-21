@@ -73,6 +73,10 @@ export async function startCleaningTask(input: {
   try {
     // Serialize start against concurrent session/task mutations on this task.
     const result = await prisma.$transaction(async (tx) => {
+      // Lock the starter before the task. Reassignment locks affected users
+      // before the task too, so the shared User -> CleaningTask order prevents
+      // a start/reassign lock cycle.
+      await assertActiveWorkStarter(input.employeeId, tx);
       // Row lock so parallel starts cannot both pass the running-session checks.
       await lockTask(tx, input.taskId);
 
@@ -153,7 +157,6 @@ export async function startCleaningTask(input: {
       // Insert the running session keyed by startCommandId for idempotency.
       // Start also binds the task to the actor. Keep active status stable
       // through that write, while preserving the controller's role/bypass policy.
-      await assertActiveWorkStarter(input.employeeId, tx);
       const session = await tx.cleaningSession.create({
         data: {
           taskId: task.id,

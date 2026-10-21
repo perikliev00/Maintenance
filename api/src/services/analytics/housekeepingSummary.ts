@@ -19,13 +19,8 @@ import {
   sumValidSessionMs,
 } from "../cleaningResults";
 import type { AnalyticsScopeFilters } from "./types";
-import {
-  DAY_MS,
-  buildDailySeries,
-  daysRemainingInMonth,
-  previousPeriod,
-  startOfDay,
-} from "./period";
+import { buildDailySeries, previousPeriod } from "./period";
+import { buildMonthlyForecast, forecastWindowStart } from "./forecast";
 import {
   MIN_PERCENTILE_SAMPLES,
   bucketCounts,
@@ -397,7 +392,7 @@ export async function getHousekeepingSummary(
   const p90 = round1(percentile(sorted, 0.9));
 
   // Naive forecast: trailing 28-day daily rate × remaining UTC days in month.
-  const forecastFrom = startOfDay(new Date(period.now.getTime() - 28 * DAY_MS));
+  const forecastFrom = forecastWindowStart(period.now);
   // Completes in the trailing window (scoped).
   const recentCompleted = await prisma.cleaningTask.count({
     where: {
@@ -408,13 +403,11 @@ export async function getHousekeepingSummary(
     },
   });
   // Mean completes per day over the trailing 28 days.
-  const dailyRate = recentCompleted / 28;
-  // UTC calendar days left in the month (excludes today).
-  const remaining = daysRemainingInMonth(period.now);
-  // Extrapolated completes for the rest of the month.
-  const forecastValue = round1(dailyRate * remaining);
-  // Human-readable formula string for the UI tooltip.
-  const formula = `mean(${recentCompleted} cleaned tasks / 28 days) × ${remaining} remaining days in month`;
+  const forecast = buildMonthlyForecast(
+    period.now,
+    recentCompleted,
+    "cleaned tasks",
+  );
 
   // Daily completed-task series for charts.
   const series = buildDailySeries(
@@ -483,12 +476,6 @@ export async function getHousekeepingSummary(
     // Full risk-room rows (not just the count KPI).
     riskRooms,
     // End-of-month extrapolation from the trailing daily rate.
-    forecast: {
-      remainingDaysInMonth: remaining,
-      dailyRate: round1(dailyRate),
-      predicted: forecastValue,
-      formula,
-      unit: "cleaned_tasks" as const,
-    },
+    forecast: { ...forecast, unit: "cleaned_tasks" as const },
   };
 }

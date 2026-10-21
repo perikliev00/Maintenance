@@ -4,7 +4,7 @@
  */
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
-  canResolveIssues,
+  canPerformAction,
   fetchIssueOptions,
   fetchMaintenanceCategories,
   fetchRooms,
@@ -59,7 +59,7 @@ export function HomePage({ user }: Props) {
   const [priority, setPriority] = useState("normal");
   const [blocksRoom, setBlocksRoom] = useState(true);
   // Permission gate for TicketLifecycleActions on each open ticket.
-  const canResolve = canResolveIssues(user.role);
+  const canResolve = canPerformAction(user, "tickets.resolve");
 
   /** Apply catalog option defaults (priority / blocksRoom) into the form. */
   const applyOption = useCallback((opt: IssueOptionRow) => {

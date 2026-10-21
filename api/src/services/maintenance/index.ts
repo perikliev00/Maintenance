@@ -10,6 +10,7 @@ export {
 
 export type { CreateMaintenanceTicketInput } from "./types";
 export { formatMaintenanceTicket } from "./format";
+export { canBypassTicketAssignee } from "./authorization";
 export { createMaintenanceTicket } from "./create";
 export { assignMaintenanceTicket } from "./assign";
 export {

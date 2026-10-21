@@ -12,6 +12,7 @@ import {
 } from "../../dataScope";
 import {
   createMaintenanceTicket,
+  canBypassTicketAssignee,
   resolveMaintenanceTicket,
   resumeMaintenanceTicket,
   startMaintenanceTicket,
@@ -86,6 +87,7 @@ export async function handleTicketStart(
   const ticket = await startMaintenanceTicket({
     ticketId,
     actorEmployeeId: user.employeeId,
+    bypassAssigneeCheck: canBypassTicketAssignee(user.role),
     commandId: cmd.commandId,
   });
   return { commandId: cmd.commandId, status: "ok", data: ticket };
@@ -112,6 +114,7 @@ export async function handleTicketWait(
   const ticket = await waitMaintenanceTicket({
     ticketId,
     actorEmployeeId: user.employeeId,
+    bypassAssigneeCheck: canBypassTicketAssignee(user.role),
     reason:
       typeof cmd.payload.reason === "string"
         ? cmd.payload.reason
@@ -142,6 +145,7 @@ export async function handleTicketResume(
   const ticket = await resumeMaintenanceTicket({
     ticketId,
     actorEmployeeId: user.employeeId,
+    bypassAssigneeCheck: canBypassTicketAssignee(user.role),
     commandId: cmd.commandId,
   });
   return { commandId: cmd.commandId, status: "ok", data: ticket };
@@ -168,6 +172,7 @@ export async function handleTicketResolve(
   const ticket = await resolveMaintenanceTicket({
     ticketId,
     resolvedByEmployeeId: user.employeeId,
+    bypassAssigneeCheck: canBypassTicketAssignee(user.role),
     resolutionNotes:
       typeof cmd.payload.resolutionNotes === "string"
         ? cmd.payload.resolutionNotes

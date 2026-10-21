@@ -7,9 +7,7 @@ import {
   ROLE_LABELS,
   assignableRolesFor,
   assignIssue,
-  canAssignIssues,
-  canCloseIssues,
-  canResolveIssues,
+  canPerformAction,
   closeIssue,
   createCleaningTask,
   fetchHousekeepers,
@@ -74,9 +72,9 @@ export function ControlPage({ user }: Props) {
   const [assignDrafts, setAssignDrafts] = useState<Record<string, string>>({});
 
   // Ticket action gates derived from role helpers.
-  const canAssign = canAssignIssues(user.role);
-  const canClose = canCloseIssues(user.role);
-  const canResolve = canResolveIssues(user.role);
+  const canAssign = canPerformAction(user, "tickets.assign");
+  const canClose = canPerformAction(user, "tickets.close");
+  const canResolve = canPerformAction(user, "tickets.resolve");
 
   // Assignee choices for ticket assign drafts (technicians + supervisors).
   const technicians = useMemo(

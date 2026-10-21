@@ -343,6 +343,7 @@ type Tx = Prisma.TransactionClient;
 export async function waitForLockWaiter(
   prisma: PrismaClient,
   timeoutMs = 5_000,
+  minWaiters = 1,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -353,17 +354,67 @@ export async function waitForLockWaiter(
         AND pid <> pg_backend_pid()
         AND datname = current_database()
     `;
-    if (rows[0] && rows[0].n > 0n) return;
+    if (rows[0] && rows[0].n >= BigInt(minWaiters)) return;
     // Also catch ungranted lock entries (covers some drivers/pool timings).
     const lockRows = await prisma.$queryRaw<{ n: bigint }[]>`
       SELECT count(*)::bigint AS n
       FROM pg_locks
       WHERE NOT granted
     `;
-    if (lockRows[0] && lockRows[0].n > 0n) return;
+    if (lockRows[0] && lockRows[0].n >= BigInt(minWaiters)) return;
     await new Promise((r) => setTimeout(r, 20));
   }
   assert.fail("timed out waiting for a backend blocked on Lock");
+}
+
+/**
+ * Queue an eligibility mutation ahead of an operation's in-transaction user
+ * recheck. A FOR SHARE holder keeps both waiters ordered without forcing the
+ * operation to hold a user lock while the mutation is attempted.
+ */
+export async function runEligibilityChangeBeforeRace<T>(opts: {
+  prisma: PrismaClient;
+  acquireLock: (tx: Tx) => Promise<void>;
+  startMutation: () => Promise<unknown>;
+  startRace: () => Promise<T>;
+}): Promise<T> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let lockHeld = false;
+  const holder = opts.prisma.$transaction(async (tx) => {
+    await opts.acquireLock(tx);
+    lockHeld = true;
+    await gate;
+  }, { timeout: 20_000, maxWait: 20_000 });
+
+  for (let i = 0; i < 50 && !lockHeld; i += 1) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  if (!lockHeld) {
+    release();
+    await holder.catch(() => undefined);
+    assert.fail("expected eligibility holder to acquire row lock");
+  }
+
+  let mutation: Promise<unknown> | undefined;
+  let race: Promise<T> | undefined;
+  try {
+    mutation = opts.startMutation();
+    void mutation.catch(() => undefined);
+    await waitForLockWaiter(opts.prisma);
+    race = opts.startRace();
+    void race.catch(() => undefined);
+    await waitForLockWaiter(opts.prisma, 5_000, 2);
+    release();
+    await holder;
+    await mutation;
+    return await race;
+  } finally {
+    release();
+    await holder.catch(() => undefined);
+    if (mutation) await mutation.catch(() => undefined);
+    if (race) await race.catch(() => undefined);
+  }
 }
 
 /**

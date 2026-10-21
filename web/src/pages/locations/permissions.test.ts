@@ -116,13 +116,13 @@ describe("locationPagePermissions", () => {
     );
   });
 
-  it("canResolve follows role, not action list", () => {
+  it("canResolve honors explicit grants and retains only missing-actions fallback", () => {
     assert.equal(
       locationPagePermissions(
         user({ role: "technician", actions: [] }),
         false,
       ).canResolve,
-      true,
+      false,
     );
     assert.equal(
       locationPagePermissions(
@@ -136,6 +136,17 @@ describe("locationPagePermissions", () => {
         user({ role: "supervisor", actions: [] }),
         false,
       ).canResolve,
+      false,
+    );
+    assert.equal(
+      locationPagePermissions(
+        user({ role: "housekeeper", actions: ["tickets.resolve"] }),
+        false,
+      ).canResolve,
+      true,
+    );
+    assert.equal(
+      locationPagePermissions(user({ role: "technician" }), false).canResolve,
       true,
     );
   });

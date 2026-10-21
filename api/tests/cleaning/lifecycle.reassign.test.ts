@@ -16,9 +16,8 @@ import {
   reassignCleaningTask,
   startCleaningTask,
 } from "../../src/services/cleaning";
-import { lockLocation, lockTask } from "../../src/services/cleaning/locks";
+import { lockLocation } from "../../src/services/cleaning/locks";
 import { assignMaintenanceTicket } from "../../src/services/maintenance";
-import { lockTicket } from "../../src/services/maintenance/locks";
 import {
   cleanupCleaningWorld,
   countActiveTasks,
@@ -27,6 +26,7 @@ import {
   hotelTodayYmd,
   isAppError,
   resetCleaningWork,
+  runEligibilityChangeBeforeRace,
   runWhileRowLocked,
   type CleaningWorld,
 } from "./fixtures";
@@ -151,12 +151,15 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
       actorEmployeeId: world.owner.employeeId,
     });
 
-    // Hold the task lock so reassign passes the outer eligibility check, then
-    // waits — deactivate before the in-TX re-check runs.
+    // Queue the eligibility mutation before the in-transaction user recheck.
     try {
-      await runWhileRowLocked({
+      await runEligibilityChangeBeforeRace({
         prisma,
-        acquireLock: (tx) => lockTask(tx, task.id),
+        acquireLock: (tx) => tx.$queryRaw`SELECT id FROM "User" WHERE id = ${world.hk2.userId} FOR SHARE`,
+        startMutation: () => prisma.user.update({
+          where: { id: world.hk2.userId },
+          data: { isActive: false },
+        }),
         startRace: () =>
           reassignCleaningTask({
             taskId: task.id,
@@ -165,12 +168,6 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
             expectedVersion: task.version,
             actorEmployeeId: world.manager.employeeId,
           }),
-        whileBlocked: async () => {
-          await prisma.user.update({
-            where: { id: world.hk2.userId },
-            data: { isActive: false },
-          });
-        },
       });
       assert.fail("expected validation after mid-flight deactivate");
     } catch (err) {
@@ -191,9 +188,13 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     });
 
     try {
-      await runWhileRowLocked({
+      await runEligibilityChangeBeforeRace({
         prisma,
-        acquireLock: (tx) => lockTask(tx, task.id),
+        acquireLock: (tx) => tx.$queryRaw`SELECT id FROM "User" WHERE id = ${world.hk2.userId} FOR SHARE`,
+        startMutation: () => prisma.user.update({
+          where: { id: world.hk2.userId },
+          data: { role: Role.reception },
+        }),
         startRace: () =>
           reassignCleaningTask({
             taskId: task.id,
@@ -202,12 +203,6 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
             expectedVersion: afterBlock.version,
             actorEmployeeId: world.manager.employeeId,
           }),
-        whileBlocked: async () => {
-          await prisma.user.update({
-            where: { id: world.hk2.userId },
-            data: { role: Role.reception },
-          });
-        },
       });
       assert.fail("expected validation after mid-flight role demotion");
     } catch (err) {
@@ -291,21 +286,19 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     );
 
     try {
-      await runWhileRowLocked({
+      await runEligibilityChangeBeforeRace({
         prisma,
-        acquireLock: (tx) => lockTicket(tx, ticket.id),
+        acquireLock: (tx) => tx.$queryRaw`SELECT id FROM "User" WHERE id = ${world.technician.userId} FOR SHARE`,
+        startMutation: () => prisma.user.update({
+          where: { id: world.technician.userId },
+          data: { isActive: false },
+        }),
         startRace: () =>
           assignMaintenanceTicket({
             ticketId: ticket.id,
             assigneeId: world.technician.employeeId,
             actorEmployeeId: world.manager.employeeId,
           }),
-        whileBlocked: async () => {
-          await prisma.user.update({
-            where: { id: world.technician.userId },
-            data: { isActive: false },
-          });
-        },
       });
       assert.fail("expected validation after mid-flight deactivate on assign");
     } catch (err) {
@@ -325,21 +318,19 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     });
 
     try {
-      await runWhileRowLocked({
+      await runEligibilityChangeBeforeRace({
         prisma,
-        acquireLock: (tx) => lockTicket(tx, ticket.id),
+        acquireLock: (tx) => tx.$queryRaw`SELECT id FROM "User" WHERE id = ${world.technician.userId} FOR SHARE`,
+        startMutation: () => prisma.user.update({
+          where: { id: world.technician.userId },
+          data: { role: Role.reception },
+        }),
         startRace: () =>
           assignMaintenanceTicket({
             ticketId: ticket.id,
             assigneeId: world.technician.employeeId,
             actorEmployeeId: world.manager.employeeId,
           }),
-        whileBlocked: async () => {
-          await prisma.user.update({
-            where: { id: world.technician.userId },
-            data: { role: Role.reception },
-          });
-        },
       });
       assert.fail("expected validation after mid-flight role demotion on assign");
     } catch (err) {

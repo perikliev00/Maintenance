@@ -6,7 +6,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   canPerformAction,
-  canResolveIssues,
   fetchMyWork,
   todayHotelDate,
   type AuthUser,
@@ -66,14 +65,13 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     failed: 0,
   });
 
-  // Capability gates; role fallbacks keep HK/tech UIs visible if grants lag.
+  // Capability gates use explicit grants when the session supplies them.
   const canClean = canPerformAction(user, "cleaning.start");
-  const canResolve = canResolveIssues(user.role);
+  const canResolve = canPerformAction(user, "tickets.resolve");
   // Role fallbacks keep housekeeper/technician UIs visible even if grants lag.
   const showCleaning =
     canClean || user.role === "housekeeper" || user.role === "supervisor";
-  const showTickets =
-    canResolve || user.role === "technician" || user.role === "supervisor";
+  const showTickets = canResolve;
 
   /**
    * Fetch mine tasks/tickets and persist them to the offline cache.

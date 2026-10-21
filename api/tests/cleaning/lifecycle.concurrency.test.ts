@@ -276,6 +276,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
       );
       assert.equal(finalTask.status, TaskStatus.in_progress);
       assert.equal(reassignResult.status, "rejected");
+      assert.ok(isAppError(reassignResult.reason), "reassign loser must be a structured AppError");
       const code = errCode(
         reassignResult.status === "rejected" ? reassignResult.reason : null,
       );
@@ -288,6 +289,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
     } else {
       assert.equal(finalTask.assignedEmployeeId, world.hk2.employeeId);
       assert.equal(startResult.status, "rejected");
+      assert.ok(isAppError(startResult.reason), "start loser must be a structured AppError");
       const code = errCode(
         startResult.status === "rejected" ? startResult.reason : null,
       );

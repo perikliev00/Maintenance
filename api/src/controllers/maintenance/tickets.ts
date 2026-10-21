@@ -4,9 +4,8 @@
  * categoryId; mutations assert ticket/location scope.
  */
 import type { NextFunction, Request, Response } from "express";
-import { Priority, Role } from "@prisma/client";
+import { Priority } from "@prisma/client";
 import { z } from "zod";
-import { isOwner } from "../../permissions";
 import {
   assignMaintenanceTicket,
   closeMaintenanceTicket,
@@ -18,6 +17,7 @@ import {
   resumeMaintenanceTicket,
   startMaintenanceTicket,
   waitMaintenanceTicket,
+  canBypassTicketAssignee,
 } from "../../services/maintenance";
 import {
   assertCanAccessLocation,
@@ -26,18 +26,6 @@ import {
   ticketWhere,
 } from "../../services/dataScope";
 import { prioritySchema } from "./shared";
-
-/** Privileged roles may act on tickets without being the assignee. */
-function canBypassTicketAssignee(role: Role): boolean {
-  // Return value / early exit.
-  return (
-    isOwner(role) ||
-    role === Role.supervisor ||
-    role === Role.manager ||
-    role === Role.admin ||
-    role === Role.reception
-  );
-}
 
 /** GET /tickets — scoped list with status/assignee/SLA/blocksRoom filters. */
 export async function list(req: Request, res: Response, next: NextFunction) {

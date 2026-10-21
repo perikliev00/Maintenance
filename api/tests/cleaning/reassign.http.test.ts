@@ -2,12 +2,14 @@
  * T-CLN-28 — reception allow_reception_reassign gate (HTTP).
  */
 import assert from "node:assert/strict";
+import { randomUUID } from "crypto";
 import { after, before, describe, it } from "node:test";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import dotenv from "dotenv";
 import { createCleaningTask } from "../../src/services/cleaning";
 import { ensureDefaultRoleGrants } from "../../src/services/roleGrants";
+import { withDatabaseBarrier } from "../dbBarrier";
 import {
   closeServer,
   listenApp,
@@ -118,4 +120,58 @@ describe("cleaning reassign HTTP (T-CLN-28)", () => {
       },
     );
   });
+
+  for (const startFirst of [true, false]) {
+    it(`T-CLN-29 HTTP: ${startFirst ? "start" : "reassign"} first never returns 500`, async () => {
+      await resetCleaningWork(prisma, world);
+      const today = await hotelTodayYmd();
+      const task = await createCleaningTask({
+        locationId: world.locationAId,
+        hotelDate: today,
+        assignedEmployeeId: world.hk1.employeeId,
+        actorEmployeeId: world.owner.employeeId,
+      });
+      const { token: hkToken } = await loginBearer(api, world.hk1.email, CLN_PASSWORD);
+      const { token: managerToken } = await loginBearer(api, world.manager.email, CLN_PASSWORD);
+      const start = () => postJson(api, hkToken, `/cleaning/tasks/${task.id}/start`, {
+        commandId: randomUUID(),
+        expectedVersion: task.version,
+      });
+      const reassign = () => postJson(api, managerToken, `/cleaning/tasks/${task.id}/reassign`, {
+        assignedEmployeeId: world.hk2.employeeId,
+        reason: "HTTP lock-order race",
+        expectedVersion: task.version,
+      });
+
+      const ordered = await withDatabaseBarrier(
+        prisma,
+        (tx) => tx.$queryRaw`SELECT id FROM "CleaningTask" WHERE id = ${task.id} FOR UPDATE`,
+        async (waitFor) => {
+          const first = (startFirst ? start : reassign)();
+          await waitFor(1);
+          const second = (startFirst ? reassign : start)();
+          return Promise.all([first, second]);
+        },
+      );
+      const [startResponse, reassignResponse] = startFirst
+        ? ordered
+        : [ordered[1]!, ordered[0]!];
+
+      assert.notEqual(startResponse.status, 500);
+      assert.notEqual(reassignResponse.status, 500);
+      assert.equal(startResponse.status, startFirst ? 201 : 409);
+      assert.equal(reassignResponse.status, startFirst ? 409 : 200);
+
+      const finalTask = await prisma.cleaningTask.findUniqueOrThrow({ where: { id: task.id } });
+      const running = await prisma.cleaningSession.findFirst({
+        where: { taskId: task.id, status: "running" },
+      });
+      assert.equal(Boolean(running), startFirst);
+      assert.equal(
+        finalTask.assignedEmployeeId,
+        startFirst ? world.hk1.employeeId : world.hk2.employeeId,
+      );
+      if (running) assert.equal(running.employeeId, world.hk1.employeeId);
+    });
+  }
 });

@@ -6,11 +6,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignIssue,
-  canAssignIssues,
-  canCloseIssues,
   // Permission / capability gate.
   canPerformAction,
-  canResolveIssues,
   closeIssue,
   fetchIssueOptions,
   fetchMaintenanceCategories,
@@ -87,11 +84,11 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   optionRef.current = issueOptionId;
 
   // Permission / capability gate.
-  const canResolve = canResolveIssues(user.role);
+  const canResolve = canPerformAction(user, "tickets.resolve");
   // Permission / capability gate.
-  const canAssign = canAssignIssues(user.role);
+  const canAssign = canPerformAction(user, "tickets.assign");
   // Permission / capability gate.
-  const canClose = canCloseIssues(user.role);
+  const canClose = canPerformAction(user, "tickets.close");
   // Permission / capability gate.
   const canReport = canPerformAction(user, "tickets.report");
 

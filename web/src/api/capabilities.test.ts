@@ -27,6 +27,7 @@ describe("canPerformAction / panelsForUser empty capabilities", () => {
     const tech = user({ role: "technician", actions: [] });
     assert.equal(canPerformAction(tech, "tickets.resolve"), false);
     assert.equal(canPerformAction(tech, "tickets.assign"), false);
+    assert.equal(canPerformAction(tech, "tickets.close"), false);
   });
 
   it("panels: [] does not restore role panels (notifications still forced)", () => {
@@ -51,6 +52,13 @@ describe("canPerformAction / panelsForUser empty capabilities", () => {
     for (const panel of panelsForRole("technician")) {
       assert.ok(panelsForUser(tech).includes(panel));
     }
+  });
+
+  it("explicit partial grants authorize only their matching ticket action", () => {
+    const housekeeper = user({ role: "housekeeper", actions: ["tickets.assign"] });
+    assert.equal(canPerformAction(housekeeper, "tickets.assign"), true);
+    assert.equal(canPerformAction(housekeeper, "tickets.resolve"), false);
+    assert.equal(canPerformAction(housekeeper, "tickets.close"), false);
   });
 
   it("owner still bypasses action checks", () => {

@@ -10,13 +10,8 @@ import { OPEN_TICKET_STATUSES } from "../../constants";
 // Optional sector/location scope merged into every ticket where clause.
 import type { AnalyticsScopeFilters } from "./types";
 // UTC day windows, prior period, and daily chart series builders.
-import {
-  DAY_MS,
-  buildDailySeries,
-  daysRemainingInMonth,
-  previousPeriod,
-  startOfDay,
-} from "./period";
+import { buildDailySeries, previousPeriod } from "./period";
+import { buildMonthlyForecast, forecastWindowStart } from "./forecast";
 // Percentiles, averages, histograms, and period-over-period deltas.
 import {
   MIN_PERCENTILE_SAMPLES,
@@ -199,16 +194,11 @@ export async function getMaintenanceSummary(
 
   // Naive forecast: trailing 28-day daily open rate × remaining days in month.
   // Trailing 28 UTC days ending at `period.now` for the open-rate estimate.
-  const forecastFrom = startOfDay(new Date(period.now.getTime() - 28 * DAY_MS));
+  const forecastFrom = forecastWindowStart(period.now);
   const recentCount = await prisma.maintenanceTicket.count({
     where: { openedAt: { gte: forecastFrom, lte: period.now }, ...tw },
   });
-  const dailyRate = recentCount / 28;
-  // Calendar days left in the month (UTC), excluding today.
-  const remaining = daysRemainingInMonth(period.now);
-  const forecastValue = round1(dailyRate * remaining);
-  // Human-readable formula string for the analytics UI tooltip.
-  const formula = `mean(${recentCount} tickets / 28 days) × ${remaining} remaining days in month`;
+  const forecast = buildMonthlyForecast(period.now, recentCount, "tickets");
 
   // Daily opened-ticket series for charts.
   const series = buildDailySeries(
@@ -253,12 +243,6 @@ export async function getMaintenanceSummary(
     // Ranked rooms combining volume threshold and blocking SLA factors.
     riskRooms,
     // End-of-month ticket volume projection from trailing daily rate.
-    forecast: {
-      remainingDaysInMonth: remaining,
-      dailyRate: round1(dailyRate),
-      predicted: forecastValue,
-      formula,
-      unit: "tickets" as const,
-    },
+    forecast: { ...forecast, unit: "tickets" as const },
   };
 }
