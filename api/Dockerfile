@@ -1,4 +1,4 @@
-FROM node:22.18.0-alpine AS build
+FROM node:22.23.4-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -28,13 +28,15 @@ RUN cp -a node_modules/.prisma /tmp/prisma-generated \
  && mkdir -p node_modules/.prisma \
  && cp -a /tmp/prisma-generated/client node_modules/.prisma/client
 
-FROM node:22.18.0-alpine AS api
+FROM node:22.23.4-alpine3.24@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS api
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=runtime-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=runtime-deps --chown=node:node /app/package.json ./package.json
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/prisma ./prisma
+# npm is build tooling and is not required by the API process.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 USER node
 EXPOSE 4000
 CMD ["node", "dist/index.js"]
