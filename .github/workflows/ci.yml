@@ -294,6 +294,51 @@ jobs:
           docker build --target web -t maintenance-web:${GITHUB_SHA} ./web
       - name: Verify runtime Prisma client
         run: docker run --rm --entrypoint node maintenance-api:${GITHUB_SHA} -e "const {PrismaClient}=require('@prisma/client'); if(!PrismaClient) process.exit(1); console.log('Prisma client available')"
+      - name: Capture API vulnerability report (diagnostic)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: maintenance-api:${{ github.sha }}
+          format: json
+          output: trivy-api.json
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+      - name: Summarize API vulnerability paths
+        if: always()
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'trivy-api.json';
+          if (!fs.existsSync(path)) {
+            console.log('Trivy JSON report was not created');
+            process.exit(0);
+          }
+          const report = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const findings = [];
+          for (const result of report.Results ?? []) {
+            for (const item of result.Vulnerabilities ?? []) {
+              if (!['HIGH', 'CRITICAL'].includes(item.Severity)) continue;
+              findings.push({
+                type: result.Type,
+                target: result.Target,
+                package: item.PkgName,
+                installed: item.InstalledVersion,
+                fixed: item.FixedVersion || null,
+                severity: item.Severity,
+                id: item.VulnerabilityID,
+                packagePath: item.PkgPath || null
+              });
+            }
+          }
+          console.log(JSON.stringify(findings, null, 2));
+          NODE
+      - name: Upload API Trivy JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-api-json
+          path: trivy-api.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Scan API image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
