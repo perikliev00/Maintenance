@@ -51,15 +51,42 @@ it("P1-94 enabled redeem limiter resets after its real window", async t => {
   } finally { t.mock.timers.reset(); }
 });
 it("P1-128 production rejects missing, example and short JWT secrets before listen/jobs", () => {
-  const original = { secret: process.env.JWT_SECRET, mode: process.env.NODE_ENV };
+  const original = {
+    secret: process.env.JWT_SECRET,
+    mode: process.env.NODE_ENV,
+    webOrigin: process.env.WEB_ORIGIN,
+    databaseUrl: process.env.DATABASE_URL,
+    trustProxy: process.env.TRUST_PROXY,
+    cookieSecure: process.env.COOKIE_SECURE,
+    rateLimit: process.env.E2E_DISABLE_RATE_LIMIT,
+    port: process.env.PORT,
+  };
+  // Satisfy production checks that run before JWT so this case isolates secrets.
+  const productionBase = {
+    NODE_ENV: "production",
+    WEB_ORIGIN: "https://maintenance.example.com",
+    DATABASE_URL: process.env.DATABASE_URL?.startsWith("postgres")
+      ? process.env.DATABASE_URL
+      : "postgresql://db/maintenance",
+    TRUST_PROXY: "1",
+    COOKIE_SECURE: "true",
+    E2E_DISABLE_RATE_LIMIT: "0",
+    // Valid port required: assertEnv validates PORT before JWT_SECRET.
+    PORT: "43721",
+  };
   try {
-    process.env.NODE_ENV = "production";
+    Object.assign(process.env, productionBase);
     for (const secret of ["", "dev-jwt-secret-change-me", "local-dev-only-insecure-secret-do-not-use-in-prod", "too-short"]) {
       process.env.JWT_SECRET = secret;
       assert.throws(assertEnv, /JWT_SECRET/);
       const child = spawnSync(process.execPath, ["--import", "tsx", "src/index.ts"], {
         cwd: process.cwd(), encoding: "utf8", timeout: 10000,
-        env: { ...process.env, JWT_SECRET: secret, DOTENV_CONFIG_PATH: "tests/scenarios/nonexistent.env", PORT: "0" },
+        env: {
+          ...process.env,
+          ...productionBase,
+          JWT_SECRET: secret,
+          DOTENV_CONFIG_PATH: "tests/scenarios/nonexistent.env",
+        },
       });
       assert.equal(child.status, 1, child.stderr);
       assert.match(child.stderr, /JWT_SECRET/);
@@ -68,7 +95,18 @@ it("P1-128 production rejects missing, example and short JWT secrets before list
     process.env.JWT_SECRET = "valid-production-secret-32-characters-or-more";
     assert.doesNotThrow(assertEnv);
   } finally {
-    if (original.secret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = original.secret;
-    if (original.mode === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = original.mode;
+    for (const [key, value] of [
+      ["JWT_SECRET", original.secret],
+      ["NODE_ENV", original.mode],
+      ["WEB_ORIGIN", original.webOrigin],
+      ["DATABASE_URL", original.databaseUrl],
+      ["TRUST_PROXY", original.trustProxy],
+      ["COOKIE_SECURE", original.cookieSecure],
+      ["E2E_DISABLE_RATE_LIMIT", original.rateLimit],
+      ["PORT", original.port],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });

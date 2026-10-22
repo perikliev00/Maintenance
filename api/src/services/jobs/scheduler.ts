@@ -51,7 +51,4 @@ export function startJobScheduler(intervalMs = 5 * 60 * 1000, run = runAllJobs) 
   schedulerTimer = setInterval(() => {
     void runOnce(run);
   }, intervalMs);
-  // Allow the Node process to exit even if the timer is still scheduled.
-  schedulerTimer.unref?.();
-  initialTimer.unref?.();
 }
