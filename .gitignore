@@ -1,8 +1,16 @@
 node_modules/
 dist/
 .env
+.env.production*
+!.env.production.example
 *.log
 pgdata/
 e2e/test-results/
 e2e/playwright-report/
 e2e/blob-report/
+
+api/reports/stryker*.json
+api/reports/stryker*.html
+web/reports/stryker*.json
+web/reports/stryker*.html
+.stryker-tmp/

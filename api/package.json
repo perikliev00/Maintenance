@@ -6,20 +6,25 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "tsx --test \"src/**/*.test.ts\"",
-    "test:db": "tsx --test src/services/attendance/rebuild.test.ts src/services/cards.filter.test.ts src/services/roleGrants/seed.test.ts src/services/audit.write.test.ts",
-    "test:cleaning-lifecycle": "tsx --test --test-concurrency=1 \"tests/cleaning/**/*.test.ts\"",
-    "test:readiness": "tsx --test --test-concurrency=1 \"tests/readiness/**/*.test.ts\"",
-    "test:tickets-lifecycle": "tsx --test --test-concurrency=1 \"tests/tickets/**/*.test.ts\"",
-    "test:plan": "tsx --test --test-concurrency=1 \"tests/plan/**/*.test.ts\"",
-    "test:sectors": "tsx --test --test-concurrency=1 \"tests/sectors/**/*.test.ts\"",
-    "test:shifts": "tsx --test --test-concurrency=1 \"tests/shifts/**/*.test.ts\"",
-    "test:my-work": "tsx --test --test-concurrency=1 \"tests/my-work/**/*.test.ts\"",
+    "test": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"src/**/*.test.ts\"",
+    "test:mutation": "stryker run stryker.config.mjs",
+    "test:mutation:incremental": "stryker run --incremental stryker.config.mjs",
+    "test:mutation:full": "stryker run stryker.full.config.mjs",
+    "test:db": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 src/services/attendance/rebuild.test.ts src/services/cards.filter.test.ts src/services/roleGrants/seed.test.ts src/services/audit.write.test.ts",
+    "test:cleaning-lifecycle": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/cleaning/**/*.test.ts\"",
+    "test:readiness": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/readiness/**/*.test.ts\"",
+    "test:tickets-lifecycle": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/tickets/**/*.test.ts\"",
+    "test:plan": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/plan/**/*.test.ts\"",
+    "test:sectors": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/sectors/**/*.test.ts\"",
+    "test:shifts": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/shifts/**/*.test.ts\"",
+    "test:my-work": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/my-work/**/*.test.ts\"",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:bootstrap": "node dist/bootstrap.js",
+    "db:create-owner": "node dist/createOwner.js",
     "db:setup": "prisma migrate dev --name init && tsx prisma/seed.ts",
     "test:attendance": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/attendance/**/*.test.ts\"",
     "test:cards": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/cards/**/*.test.ts\"",
@@ -43,6 +48,9 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/tap-runner": "^10.0.0",
+    "@stryker-mutator/typescript-checker": "^10.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
@@ -54,5 +62,8 @@
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2"
   }
 }

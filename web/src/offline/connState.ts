@@ -24,6 +24,19 @@ let draining = false;
 let apiUnreachable = false;
 let backoffAttempt = 0;
 let backoffTimer: ReturnType<typeof setTimeout> | null = null;
+let clearBackoffTimer: (timer: ReturnType<typeof setTimeout>) => void = (timer) => clearTimeout(timer);
+
+type BackoffTimers = {
+  setTimeout: (
+    callback: () => void,
+    delay: number,
+  ) => ReturnType<typeof setTimeout>;
+  clearTimeout: (timer: ReturnType<typeof setTimeout>) => void;
+};
+const systemTimers: BackoffTimers = {
+  setTimeout: (callback, delay) => globalThis.setTimeout(callback, delay),
+  clearTimeout: (timer) => globalThis.clearTimeout(timer),
+};
 
 /** Whether a drain loop is currently running (banner "syncing"). */
 export function isDraining(): boolean {
@@ -55,10 +68,15 @@ export function resolveConn(conn?: ConnMode, stats?: QueueStats): ConnMode {
 }
 
 /** Push `{ conn, stats }` to subscribers (stats loaded asynchronously). */
-export function notify(conn?: ConnMode) {
-  // Dynamic import breaks the queueOps ↔ connState cycle.
-  void import("./queueOps")
-    .then(({ getQueueStats }) => getQueueStats())
+export function notify(
+  conn?: ConnMode,
+  readStats: () => Promise<QueueStats> = async () => {
+    // Dynamic import breaks the queueOps ↔ connState cycle.
+    const { getQueueStats } = await import("./queueOps");
+    return getQueueStats();
+  },
+): Promise<void> {
+  return readStats()
     .then((stats) => {
       const mode = resolveConn(conn, stats);
       for (const listener of listeners) {
@@ -74,8 +92,8 @@ export function notify(conn?: ConnMode) {
 export function markReachable() {
   apiUnreachable = false;
   backoffAttempt = 0;
-  if (backoffTimer) {
-    clearTimeout(backoffTimer);
+  if (backoffTimer !== null) {
+    clearBackoffTimer(backoffTimer);
     backoffTimer = null;
   }
 }
@@ -86,20 +104,26 @@ export function markUnreachable() {
   notify("unreachable");
 }
 
-/** Lazy to avoid static cycle with queueDrain. */
-export function triggerDrain(): void {
-  void import("./queueDrain").then((m) => m.drainQueue());
+/** Lazy to avoid static cycle with queueDrain; loader is injectable for tests. */
+export function triggerDrain(
+  loadQueueDrain: () => Promise<{ drainQueue: () => void | Promise<void> }> = () => import("./queueDrain"),
+): void {
+  void loadQueueDrain().then((m) => m.drainQueue());
 }
 
 /** One scheduled drain retry; stacks attempt index up to the last BACKOFF_MS slot. */
-export function scheduleBackoff() {
+export function scheduleBackoff(
+  drain: () => void = triggerDrain,
+  timers: BackoffTimers = systemTimers,
+) {
   // Only one timer; SSR / non-window skips scheduling.
-  if (backoffTimer || typeof window === "undefined") return;
+  if (backoffTimer !== null || typeof window === "undefined") return;
   const delay = BACKOFF_MS[Math.min(backoffAttempt, BACKOFF_MS.length - 1)]!;
   backoffAttempt += 1;
-  backoffTimer = setTimeout(() => {
+  clearBackoffTimer = timers.clearTimeout;
+  backoffTimer = timers.setTimeout(() => {
     backoffTimer = null;
-    triggerDrain();
+    drain();
   }, delay);
 }
 
@@ -107,25 +131,29 @@ export function scheduleBackoff() {
  * Subscribe to conn/stats updates and wire browser online/offline/visibility
  * so returning to the tab retries the outbox.
  */
-export function subscribeOffline(listener: Listener): () => void {
+export function subscribeOffline(
+  listener: Listener,
+  drain: () => void = triggerDrain,
+  readStats?: () => Promise<QueueStats>,
+): () => void {
   listeners.add(listener);
   // Immediate snapshot so the banner does not wait for the next event.
-  notify();
+  void notify(undefined, readStats);
   const onOnline = () => {
     markReachable();
-    notify("syncing");
-    triggerDrain();
+    void notify("syncing", readStats);
+    drain();
   };
   const onOffline = () => {
     // Clear unreachable so we show clean "offline" rather than stale API error.
     markReachable();
     apiUnreachable = false;
-    notify("offline");
+    void notify("offline", readStats);
   };
   const onVis = () => {
     // Returning to a visible online tab — retry any pending outbox work.
     if (document.visibilityState === "visible" && navigator.onLine) {
-      triggerDrain();
+      drain();
     }
   };
   window.addEventListener("online", onOnline);

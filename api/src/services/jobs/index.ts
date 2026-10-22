@@ -25,3 +25,4 @@ export { runAllJobs } from "./orchestrator";
 export { listJobRuns } from "./runLifecycle";
 // In-process interval scheduler wiring all job keys.
 export { startJobScheduler, stopJobScheduler } from "./scheduler";
+export { runWithJobExecutionLock, waitForJobExecution } from "./executionLock";

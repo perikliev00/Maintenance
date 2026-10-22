@@ -47,7 +47,8 @@ export async function runTicketSlaBreach() {
     // Tickets that actually inserted at least one notification this run.
     let notified = 0;
     for (const ticket of tickets) {
-      // Dedupe: skip if we already audited a breach within the last 12 hours.
+      // The most recent audit timestamp identifies the dedupe bucket. Keep
+      // scanning when the audit exists so a partial recipient set can heal.
       const recent = await prisma.auditEvent.findFirst({
         where: {
           entityType: "maintenance_ticket",
@@ -55,29 +56,9 @@ export async function runTicketSlaBreach() {
           action: "ticket.sla_breach",
           occurredAt: { gte: new Date(now.getTime() - 12 * 60 * 60 * 1000) },
         },
-        select: { id: true },
+        select: { id: true, occurredAt: true },
       });
-      // 12h window matches audit occurredAt filter above.
-      // Already notified recently — skip duplicate breach handling.
-      if (recent) continue;
-
-      // System audit doubles as the 12h dedupe marker.
-      await recordAudit({
-        actorEmployeeId: null,
-        action: "ticket.sla_breach",
-        entityType: "maintenance_ticket",
-        entityId: ticket.id,
-        after: {
-          status: ticket.status,
-          // ISO dueAt preserved for audit timeline display.
-          dueAt: ticket.dueAt?.toISOString() ?? null,
-        },
-      });
-      // Push live ticket update to SSE subscribers for boards and detail views.
-      publish("ticket.changed", {
-        ticketId: ticket.id,
-        locationId: ticket.locationId,
-      });
+      const breachAt = recent?.occurredAt ?? now;
 
       // Assignee plus ops with tickets.assign for this location's scope.
       // Location-scoped ops holding tickets.assign receive supervisor copies.
@@ -90,7 +71,8 @@ export async function runTicketSlaBreach() {
         ...(ticket.assigneeId ? [ticket.assigneeId] : []),
         ...supervisors,
       ];
-      // Hour-bucketed dedupeKey limits inbox spam if the job runs often.
+      // Reuse the audit's hour bucket so an interrupted delivery is repaired
+      // without creating duplicate notifications for already delivered users.
       const result = await createNotifications({
         type: "ticket.sla_breach",
         title: "Ticket SLA breached",
@@ -100,7 +82,7 @@ export async function runTicketSlaBreach() {
         locationId: ticket.locationId,
         actorEmployeeId: null,
         recipientEmployeeIds: recipients,
-        dedupeKey: `ticket.sla_breach:${ticket.id}:${now.toISOString().slice(0, 13)}`,
+        dedupeKey: `ticket.sla_breach:${ticket.id}:${breachAt.toISOString().slice(0, 13)}`,
         payload: {
           // Deep-link hints for the web client notification drawer.
           panel: "repairs",
@@ -109,6 +91,18 @@ export async function runTicketSlaBreach() {
           locationNumber: ticket.location.number,
         },
       });
+      // Write the dedupe marker after the idempotent notification inserts.
+      // A restart before this point retries with the same hour bucket.
+      if (!recent) {
+        await recordAudit({
+          actorEmployeeId: null,
+          action: "ticket.sla_breach",
+          entityType: "maintenance_ticket",
+          entityId: ticket.id,
+          after: { status: ticket.status, dueAt: ticket.dueAt?.toISOString() ?? null },
+        });
+        publish("ticket.changed", { ticketId: ticket.id, locationId: ticket.locationId });
+      }
       // Count only tickets that actually created at least one notification row.
       if (result.created > 0) notified += 1;
     }

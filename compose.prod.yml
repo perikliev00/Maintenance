@@ -1,0 +1,210 @@
+name: maintenance
+services:
+  db:
+    image: postgres:16.10-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:?Set POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+    cpus: 2
+
+  migrate:
+    image: ${IMAGE_PREFIX:-ghcr.io/perikliev00}/maintenance-migrate:${RELEASE_SHA:?Set RELEASE_SHA}
+    build:
+      context: ./api
+      target: migrate
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL}
+      NODE_ENV: production
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [backend]
+    restart: "no"
+
+  api:
+    image: ${IMAGE_PREFIX:-ghcr.io/perikliev00}/maintenance-api:${RELEASE_SHA:?Set RELEASE_SHA}
+    build:
+      context: ./api
+      target: api
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${RUNTIME_DATABASE_URL:?Set RUNTIME_DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN}
+      TRUST_PROXY: ${TRUST_PROXY:?Set TRUST_PROXY}
+      COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      E2E_DISABLE_RATE_LIMIT: ${E2E_DISABLE_RATE_LIMIT:-0}
+      RELEASE_SHA: ${RELEASE_SHA:?Set RELEASE_SHA}
+      PORT: "4000"
+    depends_on:
+      bootstrap: { condition: service_completed_successfully }
+    deploy:
+      replicas: 1
+    networks: [backend]
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs: [/tmp:size=32m,noexec,nosuid]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+
+  web:
+    image: ${IMAGE_PREFIX:-ghcr.io/perikliev00}/maintenance-web:${RELEASE_SHA:?Set RELEASE_SHA}
+    build:
+      context: ./web
+      target: web
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN to the public DNS name}
+    depends_on:
+      api: { condition: service_healthy }
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks: [backend, public]
+    restart: unless-stopped
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.5
+
+  bootstrap:
+    image: ${IMAGE_PREFIX:-ghcr.io/perikliev00}/maintenance-bootstrap:${RELEASE_SHA:?Set RELEASE_SHA}
+    build:
+      context: ./api
+      target: bootstrap
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${BOOTSTRAP_DATABASE_URL:?Set BOOTSTRAP_DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [backend]
+    restart: "no"
+
+  create-owner:
+    image: ${IMAGE_PREFIX:-ghcr.io/perikliev00}/maintenance-owner:${RELEASE_SHA:?Set RELEASE_SHA}
+    build:
+      context: ./api
+      target: owner-bootstrap
+    profiles: [initial-owner]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${BOOTSTRAP_DATABASE_URL:?Set BOOTSTRAP_DATABASE_URL}
+      ALLOW_INITIAL_OWNER_CREATION: ${ALLOW_INITIAL_OWNER_CREATION:-false}
+      INITIAL_OWNER_EMAIL: ${INITIAL_OWNER_EMAIL:-}
+      INITIAL_OWNER_NAME: ${INITIAL_OWNER_NAME:-}
+      INITIAL_OWNER_PASSWORD: ${INITIAL_OWNER_PASSWORD:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [backend]
+    restart: "no"
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=15d", "--web.enable-lifecycle"]
+    volumes:
+      - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports: ["127.0.0.1:9090:9090"]
+    networks: [backend]
+    depends_on: [api, postgres-exporter]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 0.5
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    profiles: [monitoring]
+    environment:
+      DATA_SOURCE_NAME: ${METRICS_DATABASE_URL:?Set read-only METRICS_DATABASE_URL}
+    networks: [backend]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    profiles: [monitoring]
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.textfile.directory=/textfile
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+    volumes:
+      - /:/host:ro,rslave
+      - ./infra/monitoring/textfile:/textfile:ro
+    networks: [backend]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    profiles: [monitoring]
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--config.expand-env"]
+    environment:
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-http://127.0.0.1:9/not-configured}
+    volumes:
+      - ./infra/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports: ["127.0.0.1:9093:9093"]
+    networks: [backend, public]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    profiles: [monitoring]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Set GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [backend]
+    depends_on: [prometheus]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 0.5
+
+networks:
+  backend:
+    internal: true
+  public: {}
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+  prometheus_data:
+  grafana_data:

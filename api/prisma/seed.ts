@@ -23,6 +23,7 @@ import {
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
+import { assertDemoSeedAllowed } from "../src/demoSeedGuard";
 
 const prisma = new PrismaClient();
 
@@ -41,6 +42,7 @@ function cycle<T>(arr: T[], i: number): T {
 }
 
 async function main() {
+  assertDemoSeedAllowed();
   // Wipe in dependency-safe order. `.catch` tolerates tables missing on older DBs.
   await prisma.inspection.deleteMany();
   await prisma.cleaningSession.deleteMany();

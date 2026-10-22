@@ -48,9 +48,28 @@ import {
   securityHeaders,
 } from "./middleware/security";
 import { requireCsrf } from "./middleware/session";
+import { prisma } from "./db";
+import { renderMetrics, requestObservability, safeErrorMessage } from "./observability";
+
+let bootstrapComplete = false;
+let shuttingDown = false;
+export function setBootstrapComplete(value: boolean) { bootstrapComplete = value; }
+export function setShuttingDown(value: boolean) { shuttingDown = value; }
+
+/** Required, idempotent defaults must finish before startup is ready. */
+export async function initializeRequiredDefaults() {
+  await ensureDefaultSettings();
+  await ensureDefaultRoleGrants();
+  await applyCatalogGrantSeed("grants.sectors.transfer_cross.v1", [
+    { role: "manager", kind: GrantKind.action, key: "sectors.transfer_cross" },
+    { role: "admin", kind: GrantKind.action, key: "sectors.transfer_cross" },
+  ]);
+  await ensureDefaultSlaPolicies();
+  setBootstrapComplete(true);
+}
 
 /** Build and return a configured Express app (does not listen). */
-export function createApp() {
+export function createApp(options: { probeDatabase?: () => Promise<unknown> } = {}) {
   // Fresh Express instance for this process (tests may call createApp repeatedly).
   const app = express();
 
@@ -58,6 +77,7 @@ export function createApp() {
   configureTrustProxy(app);
   // Standard security response headers (Helmet).
   app.use(securityHeaders);
+  app.use(requestObservability);
 
   // Comma-separated WEB_ORIGIN; trailing slashes normalized for comparison.
   const allowedOrigins = (process.env.WEB_ORIGIN ?? "http://localhost:5173")
@@ -87,35 +107,26 @@ export function createApp() {
   // Broad per-IP ceiling; /health is skipped inside the limiter.
   app.use(globalApiLimiter);
 
-  // Best-effort defaults so first requests work before seed
-  void ensureDefaultSettings().catch((err) => {
-    console.warn("ensureDefaultSettings failed", err);
-  });
-  void ensureDefaultRoleGrants().catch((err) => {
-    console.warn("ensureDefaultRoleGrants failed", err);
-  });
-  // One-shot catalog seed (ledger-gated; does not restore admin revokes).
-  void applyCatalogGrantSeed("grants.sectors.transfer_cross.v1", [
-    {
-      role: "manager",
-      kind: GrantKind.action,
-      key: "sectors.transfer_cross",
-    },
-    {
-      role: "admin",
-      kind: GrantKind.action,
-      key: "sectors.transfer_cross",
-    },
-  ]).catch((err) => {
-    console.warn("applyCatalogGrantSeed failed", err);
-  });
-  void ensureDefaultSlaPolicies().catch((err) => {
-    console.warn("ensureDefaultSlaPolicies failed", err);
-  });
-
-  // Liveness probe for load balancers / orchestrators (no auth).
+  // Liveness probe has no database dependency.
   app.get("/health", (_req, res) => {
     res.json({ ok: true });
+  });
+  app.get("/health/live", (_req, res) => res.json({ ok: true }));
+  app.get("/health/ready", async (_req, res) => {
+    if (!bootstrapComplete || shuttingDown) return res.status(503).json({ ok: false, ready: false });
+    try {
+      await (options.probeDatabase ?? (() => prisma.$transaction((tx) => tx.$queryRaw`SELECT 1`, { maxWait: 1000, timeout: 2000 })))();
+      return res.json({ ok: true, ready: true });
+    } catch {
+      return res.status(503).json({ ok: false, ready: false, dependency: "database" });
+    }
+  });
+  app.get("/metrics", (_req, res) => {
+    res.type("text/plain; version=0.0.4; charset=utf-8").send(renderMetrics());
+  });
+  app.use((_req, res, next) => {
+    if (shuttingDown) return res.status(503).json({ error: "shutting_down" });
+    next();
   });
 
   // Domain routers — path prefixes match the SPA client API base paths.
@@ -167,7 +178,7 @@ export function createApp() {
         return res.status(400).json({ error: "validation", message: "Invalid JSON body" });
       }
       // Unexpected failures — log server-side, hide internals from the client.
-      console.error(err);
+      console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "error", service: "maintenance-api", requestId: (res.getHeader("X-Request-Id") as string | undefined) ?? "unknown", event: "request_failed", error: safeErrorMessage(err) }));
       return res.status(500).json({ error: "internal", message: "Internal server error" });
     },
   );

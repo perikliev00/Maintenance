@@ -100,7 +100,7 @@ docker compose up -d
 cd api
 npm install
 npx prisma migrate dev
-npm run db:seed
+ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed
 npm run dev
 
 cd web
@@ -640,7 +640,11 @@ Errors: `{ error, message, details? }`.
 
 ## Seed / demo data
 
-`cd api && npm run db:seed` — **wipes and recreates** data.
+`cd api && ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed` — **wipes and recreates** data. The destructive command refuses to run without both explicit values, when the declared name does not match `DATABASE_URL`, and always in production.
+
+### Production and staging operations
+
+Production containers, HTTPS proxy, health checks, monitoring, backup/restore, first-owner setup, release, and rollback runbooks are in [`docs/operations/`](./docs/operations/). The deployment intentionally runs one API replica until SSE events, rate limits, settings cache invalidation, and job ownership are shared across processes.
 
 | What | Amount / content |
 |---|---|

@@ -135,3 +135,50 @@ describe("classifyBootstrapError", () => {
     );
   });
 });
+
+describe("classifyBootstrapError edge cases", () => {
+  it("preserves explicit auth rejection even when the HTTP status is transient", () => {
+    assert.deepEqual(
+      classifyBootstrapError({ status: 503, authRejected: true }),
+      { kind: "auth_rejected", status: 503 },
+    );
+  });
+
+  it("gives an explicit network classification precedence over a status", () => {
+    assert.deepEqual(classifyBootstrapError({ kind: "network", status: 503 }), {
+      kind: "network",
+    });
+  });
+
+  it("classifies 403 without refresh metadata as rejected", () => {
+    assert.deepEqual(classifyBootstrapError({ status: 403 }), {
+      kind: "auth_rejected",
+      status: 403,
+    });
+  });
+
+  it("treats null and primitive throws as network failures", () => {
+    assert.deepEqual(classifyBootstrapError(null), { kind: "network" });
+    assert.deepEqual(classifyBootstrapError("fetch failed"), {
+      kind: "network",
+    });
+  });
+
+  it("uses an explicit rejected refresh outcome even without authRejected", () => {
+    assert.deepEqual(
+      classifyBootstrapError({ status: 503, refreshOutcome: "rejected" }),
+      { kind: "auth_rejected", status: 503 },
+    );
+  });
+
+  it("keeps unknown non-transient HTTP statuses distinct from transient HTTP", () => {
+    assert.deepEqual(classifyBootstrapError({ status: 404 }), {
+      kind: "network",
+    });
+  });
+
+  it("treats function throws as unknown network failures", () => {
+    const thrown = Object.assign(() => {}, { status: 503 });
+    assert.deepEqual(classifyBootstrapError(thrown), { kind: "network" });
+  });
+});

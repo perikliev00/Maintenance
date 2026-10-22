@@ -59,38 +59,38 @@ export async function runOverdueSessions() {
       const flags = Array.isArray(session.anomalyFlags)
         ? (session.anomalyFlags as string[])
         : [];
-      // Skip sessions already stamped with the overdue anomaly flag.
-      if (flags.includes("overdue")) continue;
-
-      // Merge against the current row after acquiring its write lock. PostgreSQL
-      // rechecks status and flags after waiting for a concurrent completion.
-      const changed = await prisma.$queryRaw<{ id: string }[]>`
-        UPDATE "CleaningSession"
-        SET "anomalyFlags" =
-          (CASE WHEN jsonb_typeof("anomalyFlags") = 'array'
-            THEN "anomalyFlags" ELSE '[]'::jsonb END) || '["overdue"]'::jsonb,
-          "updatedAt" = CURRENT_TIMESTAMP
-        WHERE id = ${session.id} AND status = 'running'
-          AND "startedAt" <= ${cutoff}
-          AND NOT (COALESCE("anomalyFlags", '[]'::jsonb) @> '["overdue"]'::jsonb)
-        RETURNING id
-      `;
-      if (changed.length === 0) continue;
-      // System audit (null actor) for the overdue detection.
-      await recordAudit({
-        actorEmployeeId: null,
-        action: "session.overdue_detected",
-        entityType: "cleaning_session",
-        entityId: session.id,
-        after: {
-          taskId: session.taskId,
-          startedAt: session.startedAt.toISOString(),
-          // Threshold at detection time for audit forensics.
-          overdueMinutes: operations.overdueSessionMinutes,
-        },
-      });
-      // Refresh live cleaning board subscribers for this task.
-      publish("cleaning.changed", { taskId: session.taskId });
+      // A prior attempt may have persisted the flag but failed before notices.
+      // Recheck flagged rows and reconcile notification delivery below.
+      const newlyFlagged = !flags.includes("overdue");
+      if (newlyFlagged) {
+        // Commit the state change and audit together. A crash after commit is
+        // safe: the next run sees the flag and retries idempotent notifications.
+        const changed = await prisma.$transaction(async (tx) => {
+          const rows = await tx.$queryRaw<{ id: string }[]>`
+            UPDATE "CleaningSession"
+            SET "anomalyFlags" =
+              (CASE WHEN jsonb_typeof("anomalyFlags") = 'array'
+                THEN "anomalyFlags" ELSE '[]'::jsonb END) || '["overdue"]'::jsonb,
+              "updatedAt" = CURRENT_TIMESTAMP
+            WHERE id = ${session.id} AND status = 'running'
+              AND "startedAt" <= ${cutoff}
+              AND NOT (COALESCE("anomalyFlags", '[]'::jsonb) @> '["overdue"]'::jsonb)
+            RETURNING id
+          `;
+          if (rows.length === 0) return false;
+          await recordAudit({
+            actorEmployeeId: null,
+            action: "session.overdue_detected",
+            entityType: "cleaning_session",
+            entityId: session.id,
+            after: { taskId: session.taskId, startedAt: session.startedAt.toISOString(), overdueMinutes: operations.overdueSessionMinutes },
+          }, tx);
+          return true;
+        });
+        if (!changed) continue;
+        publish("cleaning.changed", { taskId: session.taskId });
+        flagged += 1;
+      }
 
       // Notify assignee, sector supervisor, and the employee who started the session.
       // Drop null assignee/supervisor ids; keep whoever started the session.
@@ -120,8 +120,8 @@ export async function runOverdueSessions() {
         },
       });
 
-      // Count only sessions that completed the full flag/audit/notify path.
-      flagged += 1;
+      // createNotifications uses a stable unique key; any partial prior
+      // recipient inserts are repaired without duplicating existing rows.
     }
 
     // Success summary includes cutoff ISO for debugging threshold drift.

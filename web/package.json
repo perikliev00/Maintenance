@@ -8,6 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:mutation": "stryker run stryker.config.mjs",
+    "test:mutation:incremental": "stryker run --incremental stryker.config.mjs",
+    "test:mutation:full": "stryker run stryker.full.config.mjs",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
@@ -15,6 +18,9 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/tap-runner": "^10.0.0",
+    "@stryker-mutator/typescript-checker": "^10.0.0",
     "@types/node": "^22.20.5",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",

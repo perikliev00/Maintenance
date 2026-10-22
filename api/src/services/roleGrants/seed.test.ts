@@ -58,13 +58,12 @@ async function dropEphemeralDb(adminUrl: string, dbName: string): Promise<void> 
 
 function migrateDeploy(databaseUrl: string): void {
   const result = spawnSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["prisma", "migrate", "deploy"],
+    process.execPath,
+    [path.join(API_ROOT, "node_modules", "prisma", "build", "index.js"), "migrate", "deploy"],
     {
       cwd: API_ROOT,
       env: { ...process.env, DATABASE_URL: databaseUrl },
       encoding: "utf8",
-      shell: process.platform === "win32",
     },
   );
   if (result.status !== 0) {
@@ -76,8 +75,8 @@ function migrateDeploy(databaseUrl: string): void {
 
 function runChild(databaseUrl: string, scenario: "bootstrap" | "restart"): void {
   const result = spawnSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["tsx", CHILD_PATH],
+    process.execPath,
+    ["--import", "tsx", CHILD_PATH],
     {
       cwd: API_ROOT,
       env: {
@@ -86,7 +85,6 @@ function runChild(databaseUrl: string, scenario: "bootstrap" | "restart"): void 
         T03_SCENARIO: scenario,
       },
       encoding: "utf8",
-      shell: process.platform === "win32",
     },
   );
   if (result.status !== 0) {

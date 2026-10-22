@@ -11,6 +11,7 @@ import {
 } from "../middleware/auth";
 import { getJwtSecret } from "../auth/tokens";
 import { subscribe, type LiveEvent } from "../events/bus";
+import { sseOpened, sseClosed, sseDeliveryFailed, safeErrorMessage } from "../observability";
 import { resolveDataScope, type DataScope } from "../services/dataScope";
 import { assertSessionActive } from "../services/authSessions";
 import {
@@ -24,6 +25,12 @@ const SSE_TICKET_PURPOSE = "sse" as const;
 const SSE_TICKET_EXPIRES_SEC = 5 * 60;
 /** Heartbeat interval; also refreshes session + DataScope. */
 const SSE_HEARTBEAT_MS = 25_000;
+const activeStreams = new Set<() => void>();
+
+/** Close active streams during process drain; each remains authorization-scoped. */
+export function closeSseStreams() {
+  for (const close of [...activeStreams]) close();
+}
 
 type SseTicketPayload = {
   purpose: typeof SSE_TICKET_PURPOSE;
@@ -185,7 +192,7 @@ export async function refreshSseSubscriberState(
       ) {
         throw err;
       }
-      console.error("resolveDataScope failed on SSE heartbeat", err);
+      console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "error", service: "maintenance-api", event: "sse_scope_refresh_failed", error: safeErrorMessage(err) }));
       throw new SseScopeRefreshError();
     }
   }
@@ -199,7 +206,7 @@ export async function refreshSseSubscriberState(
     const scope = await resolveScope(next);
     return { currentUser: next, scope };
   } catch (err) {
-    console.error("resolveDataScope failed on SSE heartbeat", err);
+    console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "error", service: "maintenance-api", event: "sse_scope_refresh_failed", error: safeErrorMessage(err) }));
     throw new SseScopeRefreshError();
   }
 }
@@ -240,7 +247,7 @@ export async function stream(req: Request, res: Response) {
   try {
     scope = await resolveDataScope(currentUser);
   } catch (err) {
-    console.error("resolveDataScope failed for SSE", err);
+    console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "error", service: "maintenance-api", event: "sse_initial_scope_failed", error: safeErrorMessage(err) }));
     return res.status(500).json({
       error: "internal",
       message: "Failed to resolve data scope",
@@ -264,6 +271,7 @@ export async function stream(req: Request, res: Response) {
   });
 
   let closed = false;
+  sseOpened();
   // Serialize delivery and heartbeat checks. An older asynchronous refresh must
   // never overwrite a newer authorization decision or write after revocation.
   let pending: Promise<void> = Promise.resolve();
@@ -274,6 +282,7 @@ export async function stream(req: Request, res: Response) {
         await action();
       } catch (err) {
         if (closed) return;
+        sseDeliveryFailed();
         writeSse(res, "revoked", {
           ok: false,
           reason: err instanceof SseScopeRefreshError
@@ -304,9 +313,18 @@ export async function stream(req: Request, res: Response) {
   const cleanup = () => {
     if (closed) return;
     closed = true;
+    activeStreams.delete(shutdownClose);
+    sseClosed();
     if (heartbeat !== undefined) clearInterval(heartbeat);
     unsubscribe();
   };
+  const shutdownClose = () => {
+    if (closed) return;
+    writeSse(res, "shutdown", { reconnect: true });
+    cleanup();
+    res.end();
+  };
+  activeStreams.add(shutdownClose);
 
   // Periodic ping + session/scope refresh.
   heartbeat = setInterval(() => {

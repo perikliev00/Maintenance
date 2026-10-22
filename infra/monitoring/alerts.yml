@@ -1,0 +1,52 @@
+groups:
+  - name: maintenance-availability
+    rules:
+      - alert: MaintenanceApiNotReady
+        expr: up{job="maintenance-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: Maintenance API metrics endpoint is unavailable
+          description: API scrape has failed for over one minute.
+      - alert: MaintenanceApiElevated5xx
+        expr: sum(rate(http_requests_total{job="maintenance-api",status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{job="maintenance-api"}[5m])), 0.01) > 0.02
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: API 5xx rate is above 2 percent
+      - alert: MaintenanceDatabaseExporterUnavailable
+        expr: up{job="postgresql"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: PostgreSQL metrics exporter is unavailable
+      - alert: MaintenanceDatabaseConnectionsHigh
+        expr: sum(pg_stat_activity_count) / clamp_min(pg_settings_max_connections, 1) > 0.8
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: PostgreSQL connections exceed 80 percent of capacity
+      - alert: MaintenanceJobCycleFailures
+        expr: increase(background_job_failures_total[10m]) > 0
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: A background job cycle reported a failure
+      - alert: MaintenanceSseDeliveryErrors
+        expr: increase(sse_delivery_errors_total[5m]) > 0
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: SSE delivery or authorization refresh failed
+      - alert: MaintenanceSyncServerErrors
+        expr: sum(rate(sync_requests_total{status=~"5.."}[5m])) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Offline synchronization endpoint is returning server errors
+      - alert: MaintenanceBackupStale
+        expr: time() - backup_last_success_timestamp_seconds > 90000
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Last successful off-host database backup is older than 25 hours

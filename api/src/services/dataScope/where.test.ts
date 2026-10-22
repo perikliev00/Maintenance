@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Role } from "@prisma/client";
+import { prisma } from "../../db";
 import type { DataScope } from "./types";
-import { locationWhere, taskWhere, ticketWhere } from "./where";
+import { locationWhere, scopedLocationIdsFor, sectorWhere, sessionTaskWhere, taskWhere, ticketWhere } from "./where";
 
 function allScope(): DataScope {
   return {
@@ -142,5 +143,70 @@ describe("ticketWhere", () => {
     assert.deepEqual(ticketWhere(techScope()), {
       assigneeId: "emp-tech",
     });
+  });
+});
+
+describe("sessionTaskWhere", () => {
+  it("keeps unrestricted sessions unfiltered", () => {
+    assert.deepEqual(sessionTaskWhere(allScope()), {});
+  });
+
+  it("nests task scope under session task relation", () => {
+    assert.deepEqual(sessionTaskWhere(sectorsScope(["sec-a"])), {
+      task: {
+        OR: [
+          { sectorId: { in: ["sec-a"] } },
+          {
+            sectorId: null,
+            location: { sectorMembership: { sectorId: { in: ["sec-a"] } } },
+          },
+        ],
+      },
+    });
+    assert.deepEqual(sessionTaskWhere(hkScope()), {
+      task: { assignedEmployeeId: "emp-hk" },
+    });
+  });
+});
+
+describe("sectorWhere", () => {
+  it("allows all sectors for unrestricted scope", () => {
+    assert.deepEqual(sectorWhere(allScope()), {});
+  });
+
+  it("filters sectors and denies empty and field-role scopes", () => {
+    assert.deepEqual(sectorWhere(sectorsScope(["sec-a", "sec-b"])), {
+      id: { in: ["sec-a", "sec-b"] },
+    });
+    assert.deepEqual(sectorWhere(sectorsScope([])), { id: "__none__" });
+    assert.deepEqual(sectorWhere(hkScope()), { id: "__none__" });
+    assert.deepEqual(sectorWhere(techScope()), { id: "__none__" });
+  });
+});
+
+describe("scopedLocationIdsFor", () => {
+  it("returns null for unrestricted scope without querying locations", async () => {
+    assert.equal(await scopedLocationIdsFor(allScope()), null);
+  });
+
+  it("materializes scoped IDs using the same location predicate", async () => {
+    const delegate = prisma.location as unknown as {
+      findMany: (args: unknown) => Promise<Array<{ id: string }>>;
+    };
+    const originalFindMany = delegate.findMany;
+    let received: unknown;
+    delegate.findMany = async (args: unknown) => {
+      received = args;
+      return [{ id: "loc-1" }, { id: "loc-2" }];
+    };
+    try {
+      assert.deepEqual(await scopedLocationIdsFor(hkScope()), ["loc-1", "loc-2"]);
+      assert.deepEqual(received, {
+        where: locationWhere(hkScope()),
+        select: { id: true },
+      });
+    } finally {
+      delegate.findMany = originalFindMany;
+    }
   });
 });

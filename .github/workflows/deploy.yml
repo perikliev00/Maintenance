@@ -1,0 +1,59 @@
+name: Deploy immutable release
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target GitHub Environment
+        type: environment
+        required: true
+      release_sha:
+        description: Full commit SHA of a successful CI and image publish
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Validate target settings and release SHA
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+        run: |
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z0-9._-]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RELEASE_SHA&per_page=100" --jq '[.workflow_runs[] | select(.name == "CI" and .head_sha == env.RELEASE_SHA and .event == "push")] | any(.[]; .conclusion == "success")' | grep -qx true
+      - name: Deploy and run readiness check
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_PRIVATE_KEY: ${{ secrets.DEPLOY_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          test -n "$DEPLOY_PRIVATE_KEY" && test -n "$DEPLOY_KNOWN_HOSTS" && test -n "$APP_URL"
+          key="$RUNNER_TEMP/maintenance-deploy-key"
+          known_hosts="$RUNNER_TEMP/maintenance-known-hosts"
+          printf '%s\n' "$DEPLOY_PRIVATE_KEY" > "$key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known_hosts"
+          chmod 600 "$key" "$known_hosts"
+          ssh -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_PATH' && git fetch origin '$RELEASE_SHA' && git checkout --detach '$RELEASE_SHA' && RELEASE_SHA='$RELEASE_SHA' docker compose --env-file .env.production -f compose.prod.yml pull && RELEASE_SHA='$RELEASE_SHA' docker compose --env-file .env.production -f compose.prod.yml up -d --no-build"
+          curl --fail --retry 12 --retry-delay 5 --retry-connrefused "$APP_URL/api/health/ready"

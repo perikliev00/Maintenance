@@ -22,13 +22,21 @@ export const NON_REBASEABLE_CODES = new Set([
 
 /** Narrow unknown sync `details` into typed conflict fields (best-effort). */
 export function parseConflictDetails(raw: unknown): ConflictDetails | null {
-  if (!raw || typeof raw !== "object") return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
   const details: ConflictDetails = {};
-  if (typeof o.expectedVersion === "number") {
+  if (
+    typeof o.expectedVersion === "number" &&
+    Number.isSafeInteger(o.expectedVersion) &&
+    o.expectedVersion > 0
+  ) {
     details.expectedVersion = o.expectedVersion;
   }
-  if (typeof o.currentVersion === "number") {
+  if (
+    typeof o.currentVersion === "number" &&
+    Number.isSafeInteger(o.currentVersion) &&
+    o.currentVersion > 0
+  ) {
     details.currentVersion = o.currentVersion;
   }
   if (typeof o.status === "string") {
@@ -115,6 +123,9 @@ export function decideSyncResult(
   retries: number,
   maxRetries: number,
 ): QueuedActionPatch {
+  const message = nonEmptyString(result.message);
+  const code = nonEmptyString(result.code);
+  const details = isRecord(result.details) ? result.details : null;
   // Success — remove from outbox.
   if (result.status === "ok") {
     return { status: "deleted" };
@@ -123,28 +134,28 @@ export function decideSyncResult(
   if (result.status === "conflict") {
     return {
       status: "conflict",
-      lastError: result.message ?? "conflict",
-      conflictCode: result.code ?? null,
-      conflictMessage: result.message ?? null,
-      conflictDetails: result.details ?? null,
+      lastError: message ?? "conflict",
+      conflictCode: code ?? null,
+      conflictMessage: message ?? null,
+      conflictDetails: details,
     };
   }
   if (result.status === "forbidden") {
     // Reassignment-style 403 → conflict bucket; true ACL miss → failed.
     if (
-      shouldTreatForbiddenAsConflict(result.code ?? null, result.message ?? null)
+      shouldTreatForbiddenAsConflict(code ?? null, message ?? null)
     ) {
       return {
         status: "conflict",
-        lastError: result.message ?? "conflict",
-        conflictCode: result.code ?? "assignee_conflict",
-        conflictMessage: result.message ?? null,
-        conflictDetails: result.details ?? null,
+        lastError: message ?? "conflict",
+        conflictCode: code ?? "assignee_conflict",
+        conflictMessage: message ?? null,
+        conflictDetails: details,
       };
     }
     return {
       status: "failed",
-      lastError: result.message ?? "forbidden",
+      lastError: message ?? "forbidden",
       conflictCode: null,
       conflictMessage: null,
       conflictDetails: null,
@@ -155,7 +166,7 @@ export function decideSyncResult(
   const next = retries + 1;
   return {
     status: next >= maxRetries ? "failed" : "pending",
-    lastError: result.message ?? "error",
+    lastError: message ?? "error",
     conflictCode: null,
     conflictMessage: null,
     conflictDetails: null,
@@ -184,15 +195,39 @@ export function entityIdFromQueued(
   if (typeof body.taskId === "string" && body.taskId) return body.taskId;
   if (typeof body.sessionId === "string" && body.sessionId) return body.sessionId;
   if (typeof body.ticketId === "string" && body.ticketId) return body.ticketId;
+  // The stored URL may be relative or absolute and can include query/hash
+  // parameters. Match against its pathname so those do not become part of the
+  // entity id; invalid URLs simply have no fallback id.
+  let pathname: string;
+  try {
+    pathname = new URL(url, "http://offline.invalid").pathname;
+  } catch {
+    return null;
+  }
   // Fall back to parsing REST paths used by cleaning/ticket commands.
   if (type === "cleaning.start") {
-    return url.split("/tasks/")[1]?.split("/")[0] ?? null;
+    return pathSegmentAfter(pathname, "/tasks/");
   }
   if (type === "cleaning.complete") {
-    return url.split("/sessions/")[1]?.split("/")[0] ?? null;
+    return pathSegmentAfter(pathname, "/sessions/");
   }
   if (type.startsWith("ticket.")) {
-    return url.split("/tickets/")[1]?.split("/")[0] ?? null;
+    return pathSegmentAfter(pathname, "/tickets/");
   }
   return null;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function pathSegmentAfter(pathname: string, marker: string): string | null {
+  const segment = pathname.split(marker)[1]?.split("/")[0];
+  return segment || null;
 }

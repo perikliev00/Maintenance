@@ -76,5 +76,5 @@ export const globalApiLimiter = rateLimit({
   handler: rateLimitedHandler,
   keyGenerator: (req) => clientIpKey(req),
   // Health checks must not consume the global budget; E2E skips entirely.
-  skip: (req) => req.path === "/health" || rateLimitsDisabled(),
+  skip: (req) => ["/health", "/health/live", "/health/ready", "/metrics"].includes(req.path) || rateLimitsDisabled(),
 });

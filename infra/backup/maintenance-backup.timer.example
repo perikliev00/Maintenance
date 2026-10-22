@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Maintenance PostgreSQL backup hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5m
+Persistent=true
+Unit=maintenance-backup.service
+
+[Install]
+WantedBy=timers.target

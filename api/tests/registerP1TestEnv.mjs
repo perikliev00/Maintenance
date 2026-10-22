@@ -11,8 +11,13 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const apiRoot = path.resolve(__dirname, "..");
 const p1EnvPath = path.join(apiRoot, ".env.p1_test");
+// CI and local Docker may provide the same dedicated test database at a
+// different endpoint. Keep that explicit override across every later dotenv
+// load while preserving the database-name isolation check below.
+const explicitTestDatabaseUrl = process.env.P1_TEST_DATABASE_URL?.trim();
+const explicitTestWebOrigin = process.env.P1_TEST_WEB_ORIGIN?.trim();
 
-if (!fs.existsSync(p1EnvPath)) {
+if (!fs.existsSync(p1EnvPath) && !explicitTestDatabaseUrl) {
   throw new Error(
     `registerP1TestEnv requires ${p1EnvPath} (do not overwrite api/.env)`,
   );
@@ -31,10 +36,25 @@ dotenv.config = function patchedConfig(options = {}) {
   } else if (opts.path == null) {
     opts.path = p1EnvPath;
   }
-  return originalConfig(opts);
+  const result = originalConfig(opts);
+  if (explicitTestDatabaseUrl) {
+    process.env.DATABASE_URL = explicitTestDatabaseUrl;
+  }
+  if (explicitTestWebOrigin) {
+    process.env.WEB_ORIGIN = explicitTestWebOrigin;
+  }
+  return result;
 };
 
-originalConfig({ path: p1EnvPath, override: true });
+if (fs.existsSync(p1EnvPath)) {
+  originalConfig({ path: p1EnvPath, override: true });
+}
+if (explicitTestDatabaseUrl) {
+  process.env.DATABASE_URL = explicitTestDatabaseUrl;
+}
+if (explicitTestWebOrigin) {
+  process.env.WEB_ORIGIN = explicitTestWebOrigin;
+}
 
 const expected =
   process.env.EXPECTED_TEST_DATABASE?.trim() || "maintenance_p1_test";

@@ -1,29 +1,56 @@
-/**
- * Process entrypoint: validate env, bind the Express app, then start the
- * in-process background job scheduler once the HTTP server is listening.
- */
+/** Production entrypoint: validate config, complete bootstrap, then listen. */
 import "dotenv/config";
+import { createServer } from "node:http";
 import { assertEnv } from "./env";
-import { createApp } from "./app";
-import { startJobScheduler } from "./services/jobs";
+import { createApp, initializeRequiredDefaults, setShuttingDown } from "./app";
+import { startJobScheduler, stopJobScheduler } from "./services/jobs";
+import { prisma } from "./db";
+import { closeSseStreams } from "./controllers/events";
+import { safeErrorMessage } from "./observability";
 
-// Fail fast before binding a port if required secrets/config are invalid.
-try {
+async function main() {
   assertEnv();
-} catch (err) {
-  // Log the message and exit non-zero so process managers do not keep restarting a broken config.
-  console.error(err instanceof Error ? err.message : err);
-  process.exit(1);
+  const port = Number(process.env.PORT ?? 4000);
+  const server = createServer(createApp());
+  let closing = false;
+  let startupTask: Promise<void> = Promise.resolve();
+  server.listen(port, "0.0.0.0", () => {
+    console.log(JSON.stringify({ timestamp: new Date().toISOString(), level: "info", service: "maintenance-api", event: "listening", port, release: process.env.RELEASE_SHA ?? "unknown" }));
+    startupTask = initializeRequiredDefaults()
+      .then(() => { if (!closing) startJobScheduler(); })
+      .catch(async (err) => {
+        console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "fatal", service: "maintenance-api", event: "bootstrap_failed", error: safeErrorMessage(err) }));
+        setShuttingDown(true);
+        server.close();
+        await prisma.$disconnect().catch(() => undefined);
+        process.exitCode = 1;
+      });
+  });
+  server.on("error", (err) => {
+    console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "fatal", service: "maintenance-api", event: "listen_failed", error: err.message }));
+    process.exitCode = 1;
+  });
+
+  const shutdown = (signal: string) => {
+    if (closing) return;
+    closing = true;
+    setShuttingDown(true);
+    console.log(JSON.stringify({ timestamp: new Date().toISOString(), level: "info", service: "maintenance-api", event: "shutdown_started", signal }));
+    const timeout = setTimeout(() => process.exit(1), 25_000);
+    timeout.unref();
+    closeSseStreams();
+    const serverClosed = new Promise<void>((resolve) => server.close(() => resolve()));
+    void Promise.all([serverClosed, stopJobScheduler(), startupTask])
+      .then(() => prisma.$disconnect())
+      .then(() => { clearTimeout(timeout); process.exit(0); })
+      .catch((err) => { console.error("graceful shutdown failed", err); process.exit(1); });
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
-// PORT from env, default local API port.
-const port = Number(process.env.PORT ?? 4000);
-// Build the Express app (middleware + routers); does not listen yet.
-const app = createApp();
-
-app.listen(port, () => {
-  console.log(`API listening on http://localhost:${port}`);
-  // Scheduler depends on a live process; start only after listen succeeds.
-  startJobScheduler();
-  console.log("Background job scheduler started");
+main().catch(async (err) => {
+  console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "fatal", service: "maintenance-api", event: "startup_failed", error: safeErrorMessage(err) }));
+  await prisma.$disconnect().catch(() => undefined);
+  process.exit(1);
 });

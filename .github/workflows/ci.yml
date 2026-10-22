@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -74,6 +77,8 @@ jobs:
     env:
       DATABASE_URL: postgresql://maintenance:maintenance@localhost:5432/maintenance?schema=public
       JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
+      ALLOW_DEMO_SEED: "true"
+      DEMO_SEED_DATABASE_NAME: maintenance
     steps:
       - uses: actions/checkout@v4
 
@@ -104,6 +109,7 @@ jobs:
           DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10" \
             npx prisma migrate deploy
           DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10" \
+            DEMO_SEED_DATABASE_NAME=maintenance_p1_test \
             npm run db:seed
           # Write .env.p1_test without heredoc indent leakage (YAML-safe).
           printf '%s\n' \
@@ -200,6 +206,8 @@ jobs:
       PORT: "4000"
       # Many UI logins + live polls from one runner exceed production IP budgets.
       E2E_DISABLE_RATE_LIMIT: "1"
+      ALLOW_DEMO_SEED: "true"
+      DEMO_SEED_DATABASE_NAME: maintenance
     steps:
       - uses: actions/checkout@v4
 
@@ -248,7 +256,7 @@ jobs:
             'WEB_ORIGIN=http://127.0.0.1:5185' \
             > .env.p1_test
           DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" npx prisma migrate deploy
-          node --import ./tests/registerP1TestEnv.mjs --import tsx prisma/seed.ts
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" DEMO_SEED_DATABASE_NAME=maintenance_p1_test node --import ./tests/registerP1TestEnv.mjs --import tsx prisma/seed.ts
           npm run prove:p1-isolation
 
       - name: Run isolated browser integrations and workflows
@@ -266,3 +274,60 @@ jobs:
             e2e/playwright-report
             e2e/test-results
           retention-days: 7
+
+  containers:
+    name: Container verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [api, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate production Compose
+        run: docker compose --env-file .env.production.example -f compose.prod.yml config --quiet
+      - name: Build production images
+        run: |
+          docker build --target api -t maintenance-api:${GITHUB_SHA} ./api
+          docker build --target migrate -t maintenance-migrate:${GITHUB_SHA} ./api
+          docker build --target bootstrap -t maintenance-bootstrap:${GITHUB_SHA} ./api
+          docker build --target owner-bootstrap -t maintenance-owner:${GITHUB_SHA} ./api
+          docker build --target web -t maintenance-web:${GITHUB_SHA} ./web
+      - name: Verify runtime Prisma client
+        run: docker run --rm --entrypoint node maintenance-api:${GITHUB_SHA} -e "const {PrismaClient}=require('@prisma/client'); if(!PrismaClient) process.exit(1); console.log('Prisma client available')"
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: maintenance-api:${{ github.sha }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+      - name: Scan web image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: maintenance-web:${{ github.sha }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

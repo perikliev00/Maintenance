@@ -6,28 +6,32 @@ import { runLockInactiveUsers } from "./lockInactive";
 import { runOverdueSessions } from "./overdueSessions";
 import { runTicketSlaBreach } from "./ticketSlaBreach";
 import { runStaleOpenAttendance } from "./staleAttendance";
+import { jobExecutionFinished } from "../../observability";
+
+async function execute(key: string, task: () => Promise<unknown>) {
+  const started = process.hrtime.bigint();
+  try {
+    const result = await task();
+    const failed = !!result && typeof result === "object" && "error" in result;
+    jobExecutionFinished(key, failed, Number(process.hrtime.bigint() - started) / 1e9);
+    return result;
+  } catch (err) {
+    jobExecutionFinished(key, true, Number(process.hrtime.bigint() - started) / 1e9);
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 /** Execute all scheduled maintenance jobs and return a keyed result map. */
 export async function runAllJobs() {
   // Accumulate per-job outcomes under stable keys for the scheduler / ops UI.
   const results: Record<string, unknown> = {};
   // Lock users who have been inactive past the configured threshold.
-  results.lock_inactive_users = await runLockInactiveUsers().catch((err) => ({
-    error: err instanceof Error ? err.message : String(err),
-  }));
+  results.lock_inactive_users = await execute("lock_inactive_users", runLockInactiveUsers);
   // Auto-close cleaning sessions that exceeded their allowed duration.
-  results.overdue_sessions = await runOverdueSessions().catch((err) => ({
-    error: err instanceof Error ? err.message : String(err),
-  }));
+  results.overdue_sessions = await execute("overdue_sessions", runOverdueSessions);
   // Mark maintenance tickets whose SLA deadline has passed.
-  results.ticket_sla_breach = await runTicketSlaBreach().catch((err) => ({
-    error: err instanceof Error ? err.message : String(err),
-  }));
+  results.ticket_sla_breach = await execute("ticket_sla_breach", runTicketSlaBreach);
   // Flag open attendance intervals missing an end punch for too long.
-  results.stale_open_attendance = await runStaleOpenAttendance().catch(
-    (err) => ({
-      error: err instanceof Error ? err.message : String(err),
-    }),
-  );
+  results.stale_open_attendance = await execute("stale_open_attendance", runStaleOpenAttendance);
   return results;
 }

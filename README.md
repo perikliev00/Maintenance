@@ -100,7 +100,7 @@ docker compose up -d
 cd api
 npm install
 npx prisma migrate dev
-npm run db:seed
+ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed
 npm run dev
 
 cd web
@@ -638,7 +638,15 @@ Scan UI: `#/room-qr/:token`. Печат: таб QR в Почистване. Ка
 
 ## Seed / демо данни
 
-`cd api && npm run db:seed` — **изтрива и пресъздава** данните.
+`cd api && ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed` — **изтрива и пресъздава** данните. Командата отказва работа без двете изрични стойности, при несъвпадение с името в `DATABASE_URL` и винаги в production.
+
+### Production и staging операции
+
+Production конфигурацията е в [`compose.prod.yml`](./compose.prod.yml), с API, web/Caddy, отделни migration/bootstrap еднократни услуги и PostgreSQL в частна Docker мрежа. Към публичната мрежа се свързват само Caddy и Alertmanager. HTTPS сертификатите се издават автоматично от Caddy за публично DNS име; DNS трябва да сочи към сървъра и входящите TCP портове 80/443 и UDP 443 да са разрешени.
+
+Локалният demo seed е destructive и не се изпълнява при production startup. Runtime, migration, bootstrap и monitoring DB потребителите трябва да са отделни. API и job scheduler остават един процес/една реплика, защото SSE bus, rate limits и кешове са локални за процеса. Втора API реплика или отделен worker изискват споделени event delivery и rate-limit/cache state.
+
+Runbooks и команди за staging, release, rollback, backup/restore и инциденти са в [`docs/operations/`](./docs/operations/).
 
 | Какво | Количество / съдържание |
 |---|---|

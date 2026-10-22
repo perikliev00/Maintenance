@@ -5,8 +5,10 @@ import { AppError } from "../errors";
 import {
   OPEN_MISSING_END_HOURS,
   assertValidAdjustmentTimes,
+  addDaysYmd,
   computeWorkedMinutes,
   eventRequiresIntervalLink,
+  hotelDateKey,
   pairEventsToIntervalDrafts,
   uniqueFlags,
   type RebuildEvent,
@@ -709,5 +711,155 @@ describe("attendance pairing DST windows (P1-77)", () => {
       drafts[0]!.hotelDate.toISOString().slice(0, 10),
       "2026-10-24",
     );
+  });
+});
+
+describe("attendance date-only helpers", () => {
+  it("adds and subtracts calendar days across month and leap-day boundaries", () => {
+    assert.equal(addDaysYmd("2024-02-28", 1), "2024-02-29");
+    assert.equal(addDaysYmd("2024-02-29", 1), "2024-03-01");
+    assert.equal(addDaysYmd("2026-03-01", -1), "2026-02-28");
+  });
+
+  it("stores a hotel date key at UTC midnight", () => {
+    assert.equal(hotelDateKey("2026-10-08").getTime(), Date.UTC(2026, 9, 8));
+  });
+});
+
+describe("attendance event and window boundaries", () => {
+  it("sorts break events by time before pairing regardless of input order", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({ id: "in", kind: AttendanceEventKind.clock_in, normalizedTime: new Date("2026-10-06T08:00:00.000Z") }),
+        ev({ id: "break-end", kind: AttendanceEventKind.break_end, normalizedTime: new Date("2026-10-06T12:30:00.000Z") }),
+        ev({ id: "break-start", kind: AttendanceEventKind.break_start, normalizedTime: new Date("2026-10-06T12:00:00.000Z") }),
+        ev({ id: "out", kind: AttendanceEventKind.clock_out, normalizedTime: new Date("2026-10-06T16:00:00.000Z") }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.breakMinutes, 30);
+    assert.equal(drafts[0]!.workedMinutes, 450);
+  });
+
+  it("does not count breaks that begin before and end after a closed interval", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({ id: "break-start", kind: AttendanceEventKind.break_start, normalizedTime: new Date("2026-10-06T07:00:00.000Z") }),
+        ev({ id: "in", kind: AttendanceEventKind.clock_in, normalizedTime: new Date("2026-10-06T08:00:00.000Z") }),
+        ev({ id: "out", kind: AttendanceEventKind.clock_out, normalizedTime: new Date("2026-10-06T16:00:00.000Z") }),
+        ev({ id: "break-end", kind: AttendanceEventKind.break_end, normalizedTime: new Date("2026-10-06T17:00:00.000Z") }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts[0]!.breakMinutes, 0);
+    assert.equal(drafts[0]!.workedMinutes, 480);
+  });
+
+  it("does not treat a clock-out at the exact clock-in instant as out-before-in", () => {
+    const at = new Date("2026-10-06T08:00:00.000Z");
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({ id: "in", kind: AttendanceEventKind.clock_in, normalizedTime: at }),
+        ev({ id: "out", kind: AttendanceEventKind.clock_out, normalizedTime: at }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.status, AttendanceIntervalStatus.closed);
+    assert.ok(!drafts[0]!.anomalyFlags.includes("absurd_duration"));
+  });
+
+  it("keeps events before a frozen adjustment window eligible for rebuild", () => {
+    const frozenStart = new Date("2026-10-06T10:00:00.000Z").getTime();
+    const frozenEnd = new Date("2026-10-06T12:00:00.000Z").getTime();
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({ id: "in", kind: AttendanceEventKind.clock_in, normalizedTime: new Date("2026-10-06T08:00:00.000Z") }),
+        ev({ id: "out", kind: AttendanceEventKind.clock_out, normalizedTime: new Date("2026-10-06T09:00:00.000Z") }),
+      ],
+      frozen: [{ startMs: frozenStart, endMs: frozenEnd }],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.startEventId, "in");
+    assert.equal(drafts[0]!.endEventId, "out");
+    assert.equal(drafts[0]!.workedMinutes, 60);
+  });
+});
+
+describe("attendance break interval boundaries", () => {
+  it("excludes break pairs that straddle either closed shift boundary", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({ id: "early-break-start", kind: AttendanceEventKind.break_start, normalizedTime: new Date("2026-10-06T07:30:00.000Z") }),
+        ev({ id: "in", kind: AttendanceEventKind.clock_in, normalizedTime: new Date("2026-10-06T08:00:00.000Z") }),
+        ev({ id: "early-break-end", kind: AttendanceEventKind.break_end, normalizedTime: new Date("2026-10-06T08:30:00.000Z") }),
+        ev({ id: "late-break-start", kind: AttendanceEventKind.break_start, normalizedTime: new Date("2026-10-06T15:30:00.000Z") }),
+        ev({ id: "out", kind: AttendanceEventKind.clock_out, normalizedTime: new Date("2026-10-06T16:00:00.000Z") }),
+        ev({ id: "late-break-end", kind: AttendanceEventKind.break_end, normalizedTime: new Date("2026-10-06T17:00:00.000Z") }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.breakMinutes, 0);
+    assert.equal(drafts[0]!.workedMinutes, 480);
+  });
+
+  it("does not include a break that started before an open shift", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({ id: "break-start", kind: AttendanceEventKind.break_start, normalizedTime: new Date("2026-10-06T07:00:00.000Z") }),
+        ev({ id: "in", kind: AttendanceEventKind.clock_in, normalizedTime: new Date("2026-10-06T08:00:00.000Z") }),
+        ev({ id: "break-end", kind: AttendanceEventKind.break_end, normalizedTime: new Date("2026-10-06T09:00:00.000Z") }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+      now: new Date("2026-10-06T10:00:00.000Z"),
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.endedAt, null);
+    assert.equal(drafts[0]!.breakMinutes, 0);
+  });
+});
+
+describe("attendance window inclusivity", () => {
+  it("counts breaks that start at clock-in and end at clock-out boundaries", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({ id: "in", kind: AttendanceEventKind.clock_in, normalizedTime: new Date("2026-10-06T08:00:00.000Z") }),
+        ev({ id: "start-at-in", kind: AttendanceEventKind.break_start, normalizedTime: new Date("2026-10-06T08:00:00.000Z") }),
+        ev({ id: "end-inside", kind: AttendanceEventKind.break_end, normalizedTime: new Date("2026-10-06T08:30:00.000Z") }),
+        ev({ id: "start-inside", kind: AttendanceEventKind.break_start, normalizedTime: new Date("2026-10-06T15:30:00.000Z") }),
+        ev({ id: "out", kind: AttendanceEventKind.clock_out, normalizedTime: new Date("2026-10-06T16:00:00.000Z") }),
+        ev({ id: "end-at-out", kind: AttendanceEventKind.break_end, normalizedTime: new Date("2026-10-06T16:00:00.000Z") }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.breakMinutes, 60);
+    assert.equal(drafts[0]!.workedMinutes, 420);
+  });
+
+  it("counts an open-shift break beginning at clock-in", () => {
+    const drafts = pairEventsToIntervalDrafts({
+      events: [
+        ev({ id: "in", kind: AttendanceEventKind.clock_in, normalizedTime: new Date("2026-10-06T08:00:00.000Z") }),
+        ev({ id: "start-at-in", kind: AttendanceEventKind.break_start, normalizedTime: new Date("2026-10-06T08:00:00.000Z") }),
+        ev({ id: "break-end", kind: AttendanceEventKind.break_end, normalizedTime: new Date("2026-10-06T08:30:00.000Z") }),
+      ],
+      frozen: [],
+      timeZone: "UTC",
+      now: new Date("2026-10-06T10:00:00.000Z"),
+    });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]!.endedAt, null);
+    assert.equal(drafts[0]!.breakMinutes, 30);
+    assert.equal(drafts[0]!.workedMinutes, null);
   });
 });

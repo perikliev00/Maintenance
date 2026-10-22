@@ -1,0 +1,19 @@
+[Unit]
+Description=Encrypted off-host Meridian Maintenance PostgreSQL backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=maintenance-backup
+Group=maintenance-backup
+WorkingDirectory=/opt/maintenance
+EnvironmentFile=/etc/maintenance/backup.env
+Environment=BACKUP_METRICS_FILE=/opt/maintenance/infra/monitoring/textfile/backup.prom
+UMask=0077
+ExecStart=/opt/maintenance/scripts/backup-db.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/maintenance/infra/monitoring/textfile

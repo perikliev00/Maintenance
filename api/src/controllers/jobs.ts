@@ -9,6 +9,7 @@ import {
   runStaleOpenAttendance,
   runTicketSlaBreach,
 } from "../services/jobs";
+import { runWithJobExecutionLock } from "../services/jobs/executionLock";
 
 /** GET /jobs/runs — recent JobRun rows (default limit 50). */
 export async function listRuns(req: Request, res: Response, next: NextFunction) {
@@ -54,28 +55,14 @@ export async function run(req: Request, res: Response, next: NextFunction) {
         .json({ error: "validation", details: parsed.error.flatten() });
     }
     const key = parsed.data.jobKey ?? "all";
-    // Dispatch to the matching job runner.
-    if (key === "lock_inactive_users") {
-      // JSON success response.
-      return res.json(await runLockInactiveUsers());
-    }
-    // Branch: conditional gate.
-    if (key === "overdue_sessions") {
-      // JSON success response.
-      return res.json(await runOverdueSessions());
-    }
-    // Branch: conditional gate.
-    if (key === "ticket_sla_breach") {
-      // JSON success response.
-      return res.json(await runTicketSlaBreach());
-    }
-    // Branch: conditional gate.
-    if (key === "stale_open_attendance") {
-      // JSON success response.
-      return res.json(await runStaleOpenAttendance());
-    }
-    // "all" or omitted — run the full orchestrator suite.
-    return res.json(await runAllJobs());
+    const job = key === "lock_inactive_users" ? runLockInactiveUsers
+      : key === "overdue_sessions" ? runOverdueSessions
+      : key === "ticket_sla_breach" ? runTicketSlaBreach
+      : key === "stale_open_attendance" ? runStaleOpenAttendance
+      : runAllJobs;
+    const execution = await runWithJobExecutionLock(job);
+    if (!execution.acquired) return res.status(409).json({ error: "job_already_running" });
+    return res.json(execution.value);
   } catch (err) {
     // Forward error to Express.
     return next(err);
