@@ -37,7 +37,7 @@
     "smoke:attendance:isolated": "node --import ./tests/registerP1TestEnv.mjs --import tsx ./scripts/smoke-attendance-atomic.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.5.0",
+    "@prisma/client": "^7.10.1",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
