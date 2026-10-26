@@ -45,7 +45,7 @@ export async function writeTicketEvent(
       : input.payload;
 
   // Append-only lifecycle row (unique commandId when provided).
-  await tx.ticketEvent.create({
+  const event = await tx.ticketEvent.create({
     data: {
       ticketId: input.ticketId,
       fromStatus: input.fromStatus,
@@ -144,4 +144,5 @@ export async function writeTicketEvent(
     },
     tx,
   );
+  return event;
 }

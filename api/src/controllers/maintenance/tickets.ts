@@ -196,7 +196,10 @@ export async function assign(req: Request, res: Response, next: NextFunction) {
   // Try block for fallible work.
   try {
     // Zod schema for request shape.
-    const schema = z.object({ assigneeId: z.string().min(1) });
+    const schema = z.object({
+      assigneeId: z.string().min(1),
+      commandId: z.string().uuid().optional(),
+    });
     // Parse and validate input.
     const parsed = schema.safeParse(req.body ?? {});
     // Reject invalid request payload.
@@ -214,6 +217,7 @@ export async function assign(req: Request, res: Response, next: NextFunction) {
       ticketId: req.params.id,
       assigneeId: parsed.data.assigneeId,
       actorEmployeeId: req.user!.employeeId,
+      commandId: parsed.data.commandId,
     });
     // JSON success response.
     return res.json(ticket);
@@ -368,6 +372,13 @@ export async function resolve(req: Request, res: Response, next: NextFunction) {
 export async function close(req: Request, res: Response, next: NextFunction) {
   // Try block for fallible work.
   try {
+    const schema = z.object({ commandId: z.string().uuid().optional() });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res
+        .status(400)
+        .json({ error: "validation", details: parsed.error.flatten() });
+    }
     // Build data-scope filter.
     const scope = await resolveDataScope(req.user!);
     // Assert access / permission.
@@ -375,6 +386,7 @@ export async function close(req: Request, res: Response, next: NextFunction) {
     const ticket = await closeMaintenanceTicket({
       ticketId: req.params.id,
       closedByEmployeeId: req.user!.employeeId,
+      commandId: parsed.data.commandId,
     });
     // JSON success response.
     return res.json(ticket);
@@ -391,6 +403,7 @@ export async function reopen(req: Request, res: Response, next: NextFunction) {
     // Zod schema for request shape.
     const schema = z.object({
       reason: z.string().optional(),
+      commandId: z.string().uuid().optional(),
     });
     // Parse and validate input.
     const parsed = schema.safeParse(req.body ?? {});
@@ -410,6 +423,7 @@ export async function reopen(req: Request, res: Response, next: NextFunction) {
       ticketId: req.params.id,
       reopenedByEmployeeId: req.user!.employeeId,
       reason: parsed.data.reason,
+      commandId: parsed.data.commandId,
     });
     // JSON success response.
     return res.json(ticket);

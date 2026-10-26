@@ -64,6 +64,22 @@ export async function initializeRequiredDefaults() {
     { role: "manager", kind: GrantKind.action, key: "sectors.transfer_cross" },
     { role: "admin", kind: GrantKind.action, key: "sectors.transfer_cross" },
   ]);
+  // FEAT-001 / B1: notifications panel enters RoleGrant catalog (was client-forced).
+  await applyCatalogGrantSeed("grants.panels.notifications.v1", [
+    { role: "housekeeper", kind: GrantKind.panel, key: "notifications" },
+    { role: "technician", kind: GrantKind.panel, key: "notifications" },
+    { role: "reception", kind: GrantKind.panel, key: "notifications" },
+    { role: "supervisor", kind: GrantKind.panel, key: "notifications" },
+    { role: "manager", kind: GrantKind.panel, key: "notifications" },
+    { role: "admin", kind: GrantKind.panel, key: "notifications" },
+  ]);
+  // SEC-002 / B1: managers/admins who may bypass assignee also need start/complete.
+  await applyCatalogGrantSeed("grants.actions.cleaning.start_complete.manager_admin.v1", [
+    { role: "manager", kind: GrantKind.action, key: "cleaning.start" },
+    { role: "manager", kind: GrantKind.action, key: "cleaning.complete" },
+    { role: "admin", kind: GrantKind.action, key: "cleaning.start" },
+    { role: "admin", kind: GrantKind.action, key: "cleaning.complete" },
+  ]);
   await ensureDefaultSlaPolicies();
   setBootstrapComplete(true);
 }
@@ -96,6 +112,7 @@ export function createApp(options: { probeDatabase?: () => Promise<unknown> } = 
         return cb(null, false);
       },
       credentials: true,
+      exposedHeaders: ["X-Next-Cursor", "X-Result-Truncated", "X-Attendance-Truncated", "X-Attendance-Total"],
     }),
   );
   // JSON body cap keeps accidental/large payloads from exhausting memory.

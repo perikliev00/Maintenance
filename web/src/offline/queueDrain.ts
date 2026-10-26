@@ -94,6 +94,7 @@ type SyncPushResult = {
   message?: string;
   code?: string;
   details?: unknown;
+  retryable?: boolean;
 };
 
 async function pushSyncBatch(
@@ -234,6 +235,7 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
   setDraining(true);
   notify("syncing");
   let networkFailure = false;
+  let pendingRetry = false;
   const userId = activeUserId;
   try {
     let rows = await listFn(userId);
@@ -258,7 +260,7 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
       .sort(compareQueuedActions);
 
     if (pending.length === 0) {
-      markReachable();
+      markReachable({ cancelCommandRetry: true });
       return;
     }
 
@@ -319,7 +321,13 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
           if (!item) continue;
           await applySyncResult(item, result, ownsBinding, putFn, deleteFn);
         }
-        markReachable();
+        const remaining = await listFn(userId);
+        if (!ownsBinding()) return;
+        // Includes unconfirmed/missing results, recovered to pending in finally.
+        pendingRetry ||= sending.some(item => remaining.some(row =>
+          row.id === item.id && (row.status === "pending" || row.status === "sending")));
+        if (pendingRetry) return;
+        markReachable({ cancelCommandRetry: true });
         continue;
       }
       if (batch.status === 401 || batch.status === 429) {
@@ -435,7 +443,7 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
       scheduleBackoff();
       return;
     } else {
-      markReachable();
+      if (!pendingRetry) markReachable({ cancelCommandRetry: true });
     }
     }
   } catch {
@@ -463,6 +471,9 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
       }
     }
     setDraining(false);
+    if (pendingRetry && ownsBinding() && navigator.onLine) {
+      scheduleBackoff(() => { if (ownsBinding()) void drainQueue(deps); }, undefined, { keepOnReachable: true });
+    }
     // Final banner mode from browser + unreachable latch.
     if (!navigator.onLine) {
       notify("offline");

@@ -173,6 +173,19 @@ export function clearSession() {
 
 /** Coalesce concurrent 401s into one refresh so the outbox does not stampede. */
 let refreshInFlight: Promise<RefreshOutcome> | null = null;
+let authChangeInFlight: Promise<void> = Promise.resolve();
+
+/** Serialize cookie-changing login/logout responses, including a queued login. */
+function withSessionChange<T>(action: () => Promise<T>): Promise<T> {
+  const previousRefresh = refreshInFlight;
+  beginSessionChange();
+  const task = authChangeInFlight.then(async () => {
+    await previousRefresh;
+    return action();
+  });
+  authChangeInFlight = task.then(() => undefined, () => undefined);
+  return task.finally(() => { sessionChangesPending--; });
+}
 
 /**
  * Rotate the cookie session via POST /auth/refresh.
@@ -280,35 +293,33 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
 
 /** End this browser's session; always clears local + offline state afterward. */
 export async function logout(): Promise<void> {
-  const previousRefresh = refreshInFlight;
-  beginSessionChange();
-  // A refresh response writes cookies in the browser before JS sees it.
-  // Finish it before issuing the request that establishes the next cookie state.
-  await previousRefresh;
-  try {
+  return withSessionChange(async () => { try {
     // Best-effort server revoke; local wipe always runs in finally.
     await apiFetch(`${API_BASE}/auth/logout`, { method: "POST" });
   } catch {
     /* best-effort */
   } finally {
     // Await purge so the Sign-in screen is only shown after outbox wipe settles.
-    try { await wipeLocalSession(); } finally { sessionChangesPending--; }
-  }
+    await wipeLocalSession();
+  } });
 }
 
 /** Revoke all devices' sessions, then clear local + offline state. */
 export async function logoutAll(): Promise<void> {
-  const previousRefresh = refreshInFlight;
-  beginSessionChange();
-  await previousRefresh;
-  try {
-    // Best-effort server revoke-all; local wipe always runs in finally.
-    await apiFetch(`${API_BASE}/auth/logout-all`, { method: "POST" });
-  } catch {
-    /* best-effort */
+  return withSessionChange(async () => { try {
+    const res = await apiFetch(`${API_BASE}/auth/logout-all`, { method: "POST" });
+    const result = await parseJson<{ ok?: boolean; revoked?: number }>(res);
+    if (result.ok !== true || typeof result.revoked !== "number") {
+      throw new Error("The server did not confirm revoking all sessions");
+    }
+  } catch (error) {
+    // Drop this browser's httpOnly cookies even when global revoke failed.
+    // The queue keeps any subsequent login behind this response.
+    try { await apiFetch(`${API_BASE}/auth/logout`, { method: "POST" }); } catch { /* best effort */ }
+    throw error;
   } finally {
-    try { await wipeLocalSession(); } finally { sessionChangesPending--; }
-  }
+    await wipeLocalSession();
+  } });
 }
 
 /**
@@ -316,10 +327,7 @@ export async function logoutAll(): Promise<void> {
  * session cookies come from the response `Set-Cookie`.
  */
 export async function login(email: string, password: string) {
-  const previousRefresh = refreshInFlight;
-  beginSessionChange();
-  await previousRefresh;
-  try {
+  return withSessionChange(async () => {
     // Raw fetch (not apiFetch) — no prior CSRF; skip refresh loop on login.
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
@@ -334,9 +342,7 @@ export async function login(email: string, password: string) {
     // Non-secret UI cache; real session lives in HttpOnly cookies.
     localStorage.setItem("user", JSON.stringify(data.user));
     return data;
-  } finally {
-    sessionChangesPending--;
-  }
+  });
 }
 
 /** Refresh capabilities/panels from the server and update the local user cache. */

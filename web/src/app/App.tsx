@@ -81,6 +81,8 @@ export default function App() {
 
   // Local React state.
   const [navOpen, setNavOpen] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  useEffect(() => { if (user) setSignOutError(null); }, [user?.id]);
   // Locale-driven sidebar labels (BG default, EN when settings say so).
   const panelLabels = locale === "en" ? PANEL_LABELS_EN : PANEL_LABELS_BG;
 
@@ -93,6 +95,8 @@ export default function App() {
   // Return value / early exit.
   return (
     // Render UI node.
+    <>
+    {signOutError && <p role="alert" className="error">{signOutError}</p>}
     <AppRouting
       authReady={authReady}
       signedIn={signedIn}
@@ -187,13 +191,21 @@ export default function App() {
                   title="Revoke all sessions on all devices"
                   onClick={() => {
                     // Revoke every device session, then same local wipe as logout.
-                    void logoutAll().finally(() => {
+                    void logoutAll().then(() => {
                       // State transition.
                       setSignedIn(false);
                       // State transition.
                       setUser(null);
                       // State transition.
                       setAuthEpoch((n) => n + 1);
+                    }).catch(() => {
+                      setSignedIn(false);
+                      setUser(null);
+                      // Do not bootstrap with credentials whose global revoke
+                      // failed. Local private data has already been purged.
+                      setSignOutError(locale === "bg"
+                        ? "Не успяхме да потвърдим излизането от всички устройства. Локалните данни са почистени."
+                        : "Could not confirm sign out on all devices. Local data has been cleared.");
                     });
                   }}
                 >
@@ -247,5 +259,6 @@ export default function App() {
         </div>
       )}
     </AppRouting>
+    </>
   );
 }

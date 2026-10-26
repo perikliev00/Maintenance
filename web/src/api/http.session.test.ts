@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, it } from "node:test";
-import { fetchMe, login, refreshAccessToken } from "./http";
+import { fetchMe, login, logoutAll, refreshAccessToken } from "./http";
 
 const originalFetch = globalThis.fetch;
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -9,6 +9,34 @@ afterEach(() => {
   if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
   else Reflect.deleteProperty(globalThis, "localStorage");
 });
+
+for (const status of [401, 503]) {
+it(`logout-all ${status} rejects, wipes local state, and serializes a following login`, async () => {
+  const values = new Map<string, string>([["user", '{"id":"A"}']]);
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    getItem: (k: string) => values.get(k) ?? null,
+    setItem: (k: string, v: string) => values.set(k, v), removeItem: (k: string) => values.delete(k),
+  } });
+  let release!: (res: Response) => void;
+  const held = new Promise<Response>(resolve => { release = resolve; });
+  const calls: string[] = [];
+  globalThis.fetch = async input => {
+    const url = String(input); calls.push(url);
+    if (url.endsWith("/logout-all")) return held;
+    if (url.endsWith("/logout")) return new Response('{"ok":true}');
+    return new Response('{"user":{"id":"B"}}');
+  };
+  const logout = logoutAll();
+  await Promise.resolve(); await Promise.resolve();
+  const rejected = assert.rejects(logout, /temporary failure/);
+  const nextLogin = login("B@test.local", "password");
+  assert.equal(calls.some(url => url.endsWith("/login")), false);
+  release(new Response('{"message":"temporary failure"}', { status }));
+  await rejected; await nextLogin;
+  assert.deepEqual(JSON.parse(values.get("user")!), { id: "B" });
+  assert.deepEqual(calls.map(url => url.split("/").at(-1)), ["logout-all", "logout", "login"]);
+});
+}
 
 for (const status of [200, 401]) {
   it(`P0-10 stale refresh ${status} cannot update or clear the next login`, async () => {

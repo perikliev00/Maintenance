@@ -15,6 +15,7 @@ on:
 permissions:
   contents: read
   actions: read
+  packages: read
 
 concurrency:
   group: deploy-${{ inputs.environment }}
@@ -28,6 +29,7 @@ jobs:
     steps:
       - name: Validate target settings and release SHA
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ inputs.release_sha }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
@@ -38,7 +40,31 @@ jobs:
           [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "$DEPLOY_USER" =~ ^[A-Za-z0-9._-]+$ ]]
           gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RELEASE_SHA&per_page=100" --jq '[.workflow_runs[] | select(.name == "CI" and .head_sha == env.RELEASE_SHA and .event == "push")] | any(.[]; .conclusion == "success")' | grep -qx true
-      - name: Deploy and run readiness check
+
+      - name: Authenticate to GHCR for image verification
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Verify GHCR images exist for RELEASE_SHA
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX }}
+        run: |
+          set -euo pipefail
+          # Contract: images are tagged with the full git SHA (not a content digest pin).
+          # Residual: a mutable tag can be overwritten if registry ACLs allow it.
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          prefix="${IMAGE_PREFIX:-ghcr.io/${owner}}"
+          for name in maintenance-api maintenance-web maintenance-migrate maintenance-bootstrap maintenance-owner; do
+            img="${prefix}/${name}:${RELEASE_SHA}"
+            echo "Checking $img"
+            docker buildx imagetools inspect "$img" >/dev/null
+          done
+
+      - name: Deploy and run readiness + smoke checks
         env:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
@@ -54,6 +80,13 @@ jobs:
           printf '%s\n' "$DEPLOY_PRIVATE_KEY" > "$key"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known_hosts"
           chmod 600 "$key" "$known_hosts"
+          # Image-only promote: pull + up --no-build. Never compose build on the prod host.
           ssh -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             "cd '$DEPLOY_PATH' && git fetch origin '$RELEASE_SHA' && git checkout --detach '$RELEASE_SHA' && RELEASE_SHA='$RELEASE_SHA' docker compose --env-file .env.production -f compose.prod.yml pull && RELEASE_SHA='$RELEASE_SHA' docker compose --env-file .env.production -f compose.prod.yml up -d --no-build"
-          curl --fail --retry 12 --retry-delay 5 --retry-connrefused "$APP_URL/api/health/ready"
+          ready="$(curl --fail --retry 12 --retry-delay 5 --retry-connrefused "$APP_URL/api/health/ready")"
+          printf '%s' "$ready" | jq -e '.ok == true and .ready == true' >/dev/null
+          # DEP-05: public metrics must stay blocked at the edge (B0 / SEC-001).
+          for path in /api/metrics /api/metrics/ /api/METRICS/ /api/%6detrics; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL$path" || true)"
+            test "$code" = "404" -o "$code" = "401" -o "$code" = "403"
+          done

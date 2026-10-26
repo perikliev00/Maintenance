@@ -17,7 +17,10 @@ export type QueueCommandType =
   | "ticket.wait"
   | "ticket.resume"
   | "ticket.resolve"
-  | "ticket.report";
+  | "ticket.report"
+  | "ticket.assign"
+  | "ticket.close"
+  | "ticket.reopen";
 
 /** One idempotent command waiting to sync (`commandId` is the server dedupe key). */
 export type QueuedAction = {

@@ -24,6 +24,8 @@ let draining = false;
 let apiUnreachable = false;
 let backoffAttempt = 0;
 let backoffTimer: ReturnType<typeof setTimeout> | null = null;
+let backoffKeepsCommandRetry = false;
+let backoffDrain: () => void = () => {};
 let clearBackoffTimer: (timer: ReturnType<typeof setTimeout>) => void = (timer) => clearTimeout(timer);
 
 type BackoffTimers = {
@@ -88,14 +90,16 @@ export function notify(
     });
 }
 
-/** Clear unreachable flag and cancel pending backoff (successful I/O). */
-export function markReachable() {
+/** Successful I/O cancels network backoff, but cannot settle a queued command. */
+export function markReachable(options: { cancelCommandRetry?: boolean } = {}) {
   apiUnreachable = false;
+  if (backoffKeepsCommandRetry && !options.cancelCommandRetry) return;
   backoffAttempt = 0;
   if (backoffTimer !== null) {
     clearBackoffTimer(backoffTimer);
     backoffTimer = null;
   }
+  backoffKeepsCommandRetry = false;
 }
 
 /** Browser is online but API calls are timing out / failing at the network layer. */
@@ -115,15 +119,26 @@ export function triggerDrain(
 export function scheduleBackoff(
   drain: () => void = triggerDrain,
   timers: BackoffTimers = systemTimers,
+  options: { keepOnReachable?: boolean } = {},
 ) {
   // Only one timer; SSR / non-window skips scheduling.
-  if (backoffTimer !== null || typeof window === "undefined") return;
+  if (typeof window === "undefined") return;
+  if (backoffTimer !== null) {
+    if (options.keepOnReachable) {
+      backoffKeepsCommandRetry = true;
+      backoffDrain = drain;
+    }
+    return;
+  }
+  backoffKeepsCommandRetry = options.keepOnReachable ?? false;
+  backoffDrain = drain;
   const delay = BACKOFF_MS[Math.min(backoffAttempt, BACKOFF_MS.length - 1)]!;
   backoffAttempt += 1;
   clearBackoffTimer = timers.clearTimeout;
   backoffTimer = timers.setTimeout(() => {
     backoffTimer = null;
-    drain();
+    backoffKeepsCommandRetry = false;
+    backoffDrain();
   }, delay);
 }
 
@@ -146,7 +161,7 @@ export function subscribeOffline(
   };
   const onOffline = () => {
     // Clear unreachable so we show clean "offline" rather than stale API error.
-    markReachable();
+    markReachable({ cancelCommandRetry: true });
     apiUnreachable = false;
     void notify("offline", readStats);
   };

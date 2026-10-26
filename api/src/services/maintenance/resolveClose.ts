@@ -24,6 +24,7 @@ import { notifyTicketEvent, publishTicketChanged } from "./notify";
 // Module dependency import.
 import { isP2002 } from "./prismaConflicts";
 import { unpauseFields } from "./slaPause";
+import { deliverTicketOutcome, enqueueTicketOutcome } from "./notificationOutbox";
 
 /**
  * in_progress|waiting → resolved. Resolving from waiting unpauses SLA first
@@ -56,12 +57,14 @@ export async function resolveMaintenanceTicket(input: {
   // Replay prior successful resolve with the same commandId.
   const replayed = await replayLifecycleCommand(input.commandId, commandKey);
   // Offline retry: return the ticket from the prior successful event.
-  if (replayed) return replayed.ticket;
+  if (replayed) { await deliverTicketOutcome(replayed.eventId); return replayed.ticket; }
 
   // Fresh resolve proceeds below (or loses P2002 race to a peer).
   try {
     // Serialize resolve against concurrent lifecycle mutations.
-    const updated = await prisma.$transaction(async (tx) => {
+    // Resolve does not take User locks — assign is already disallowed in
+    // in_progress/waiting, so there is no Ticket→User deadlock with assign.
+    const { row: updated, eventId } = await prisma.$transaction(async (tx) => {
       // Row lock via loadLockedTicket — status/assignee read is current.
       const ticket = await loadLockedTicket(tx, input.ticketId);
       // Only in_progress or waiting may resolve.
@@ -115,7 +118,7 @@ export async function resolveMaintenanceTicket(input: {
       );
 
       // Persist lifecycle event (and commandId for replay).
-      await writeTicketEvent(tx, {
+      const event = await writeTicketEvent(tx, {
         ticketId: ticket.id,
         locationId: ticket.locationId,
         fromStatus,
@@ -126,28 +129,13 @@ export async function resolveMaintenanceTicket(input: {
         commandKey,
       });
 
-      return row;
+      await enqueueTicketOutcome(tx, event.id, row, "resolved", input.resolvedByEmployeeId);
+      return { row, eventId: event.id };
     });
 
     // Notify live boards of the status change.
     publishTicketChanged(updated);
-    {
-      // Notify assignee and reporter (when present).
-      const recipients = [
-        updated.assigneeId,
-        updated.reportedByEmployeeId,
-      ].filter((id): id is string => Boolean(id));
-      // Inbox notification for stakeholders on resolve.
-      await notifyTicketEvent({
-        type: "ticket.resolved",
-        title: "Ticket resolved",
-        body: `${updated.location?.number ?? "?"}: ${updated.title}`,
-        ticket: updated,
-        actorEmployeeId: input.resolvedByEmployeeId,
-        recipientEmployeeIds: recipients,
-        dedupeKey: `ticket.resolved:${updated.id}`,
-      });
-    }
+    await deliverTicketOutcome(eventId);
     // API DTO with nested location/assignee includes.
     return formatMaintenanceTicket(updated);
   } catch (err) {
@@ -156,7 +144,7 @@ export async function resolveMaintenanceTicket(input: {
     if (input.commandId) {
       if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
         const again = await replayLifecycleCommand(input.commandId, commandKey);
-        if (again) return again.ticket;
+        if (again) { await deliverTicketOutcome(again.eventId); return again.ticket; }
       }
     }
     // Non-P2002 or replay miss — propagate to the HTTP layer.
@@ -165,171 +153,202 @@ export async function resolveMaintenanceTicket(input: {
 }
 
 /**
- * resolved → closed. Final acknowledgment; no commandId idempotency path.
+ * resolved → closed. Optional `commandId` for offline/sync idempotent replay
+ * (FEAT-002 / B4).
  *
  * @param input.ticketId - Ticket primary key.
  * @param input.closedByEmployeeId - Actor stamping closedByEmployeeId.
+ * @param input.commandId - Offline idempotency key (optional).
  */
 export async function closeMaintenanceTicket(input: {
   ticketId: string;
   closedByEmployeeId: string;
+  commandId?: string;
 }) {
-  // Serialize close against concurrent lifecycle mutations.
-  const updated = await prisma.$transaction(async (tx) => {
-    // Row lock — close races with concurrent resolve/reopen are serialized.
-    const ticket = await loadLockedTicket(tx, input.ticketId);
-    // Only resolved tickets may close.
-    if (ticket.status !== TicketStatus.resolved) {
-      // Close is only valid from resolved (not directly from in_progress).
-      throw new AppError(
-        409,
-        "invalid_state",
-        `Cannot close ticket in status ${ticket.status}`,
+  const commandKey: LifecycleCommandKey = {
+    kind: "close",
+    ticketId: input.ticketId,
+    actorEmployeeId: input.closedByEmployeeId,
+  };
+  const replayed = await replayLifecycleCommand(input.commandId, commandKey);
+  if (replayed) { await deliverTicketOutcome(replayed.eventId); return replayed.ticket; }
+
+  try {
+    // Serialize close against concurrent lifecycle mutations.
+    const { row: updated, eventId } = await prisma.$transaction(async (tx) => {
+      // Row lock — close races with concurrent resolve/reopen are serialized.
+      const ticket = await loadLockedTicket(tx, input.ticketId);
+      // Only resolved tickets may close.
+      if (ticket.status !== TicketStatus.resolved) {
+        // Close is only valid from resolved (not directly from in_progress).
+        throw new AppError(
+          409,
+          "invalid_state",
+          `Cannot close ticket in status ${ticket.status}`,
+        );
+      }
+
+      const fromStatus = ticket.status;
+      // Conditional claim → closed with closer stamp.
+      const row = await claimTicketUpdate(
+        tx,
+        ticket.id,
+        [TicketStatus.resolved],
+        {
+          status: TicketStatus.closed,
+          closedAt: new Date(),
+          closedByEmployeeId: input.closedByEmployeeId,
+        },
+        (status) => `Cannot close ticket in status ${status}`,
       );
+
+      // Persist lifecycle event (+ commandId for offline replay).
+      const event = await writeTicketEvent(tx, {
+        ticketId: ticket.id,
+        locationId: ticket.locationId,
+        fromStatus,
+        toStatus: TicketStatus.closed,
+        actorEmployeeId: input.closedByEmployeeId,
+        commandId: input.commandId,
+        commandKey,
+      });
+
+      await enqueueTicketOutcome(tx, event.id, row, "closed", input.closedByEmployeeId);
+      return { row, eventId: event.id };
+    });
+
+    // Broadcast closed status to live maintenance views.
+    publishTicketChanged(updated);
+    await deliverTicketOutcome(eventId);
+    return formatMaintenanceTicket(updated);
+  } catch (err) {
+    if (input.commandId) {
+      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
+        const again = await replayLifecycleCommand(input.commandId, commandKey);
+        if (again) { await deliverTicketOutcome(again.eventId); return again.ticket; }
+      }
     }
-
-    const fromStatus = ticket.status;
-    // Conditional claim → closed with closer stamp.
-    const row = await claimTicketUpdate(
-      tx,
-      ticket.id,
-      [TicketStatus.resolved],
-      {
-        status: TicketStatus.closed,
-        closedAt: new Date(),
-        closedByEmployeeId: input.closedByEmployeeId,
-      },
-      (status) => `Cannot close ticket in status ${status}`,
-    );
-
-    // Persist lifecycle event (no commandId path for close).
-    await writeTicketEvent(tx, {
-      ticketId: ticket.id,
-      locationId: ticket.locationId,
-      fromStatus,
-      toStatus: TicketStatus.closed,
-      actorEmployeeId: input.closedByEmployeeId,
-    });
-
-    return row;
-  });
-
-  // Broadcast closed status to live maintenance views.
-  publishTicketChanged(updated);
-  {
-    // Notify assignee and reporter (when present).
-    const recipients = [
-      updated.assigneeId,
-      updated.reportedByEmployeeId,
-    ].filter((id): id is string => Boolean(id));
-    // Close notification — no commandId dedupe path on this transition.
-    await notifyTicketEvent({
-      type: "ticket.closed",
-      title: "Ticket closed",
-      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
-      ticket: updated,
-      actorEmployeeId: input.closedByEmployeeId,
-      recipientEmployeeIds: recipients,
-      dedupeKey: `ticket.closed:${updated.id}`,
-    });
+    throw err;
   }
-  // Close path has no commandId replay — always a fresh transition.
-  return formatMaintenanceTicket(updated);
 }
 
 /**
  * resolved|closed → in_progress. Clears resolve/close fields and records a
  * TicketReopenEvent; does not restore prior SLA pause state.
+ * Optional `commandId` for offline/sync idempotent replay (FEAT-002 / B4).
  *
  * @param input.ticketId - Ticket primary key.
  * @param input.reopenedByEmployeeId - Actor for reopen audit + TicketEvent.
  * @param input.reason - Optional reopen reason stored on TicketReopenEvent.
+ * @param input.commandId - Offline idempotency key (optional).
  */
 export async function reopenMaintenanceTicket(input: {
   ticketId: string;
   reopenedByEmployeeId: string;
   reason?: string;
+  commandId?: string;
 }) {
-  // Serialize reopen against concurrent lifecycle mutations.
-  const updated = await prisma.$transaction(async (tx) => {
-    // Row lock before terminal → in_progress transition.
-    const ticket = await loadLockedTicket(tx, input.ticketId);
-    // Only terminal resolved/closed states may reopen.
-    if (
-      ticket.status !== TicketStatus.resolved &&
-      ticket.status !== TicketStatus.closed
-    ) {
-      // Open lifecycle states must use start/wait/resume instead.
-      throw new AppError(
-        409,
-        "invalid_state",
-        "Only resolved or closed tickets can be reopened",
+  const reason = input.reason?.trim() || null;
+  const commandKey: LifecycleCommandKey = {
+    kind: "reopen",
+    ticketId: input.ticketId,
+    actorEmployeeId: input.reopenedByEmployeeId,
+    reason,
+  };
+  const replayed = await replayLifecycleCommand(input.commandId, commandKey);
+  if (replayed) return replayed.ticket;
+
+  try {
+    // Serialize reopen against concurrent lifecycle mutations.
+    const updated = await prisma.$transaction(async (tx) => {
+      // Row lock before terminal → in_progress transition.
+      const ticket = await loadLockedTicket(tx, input.ticketId);
+      // Only terminal resolved/closed states may reopen.
+      if (
+        ticket.status !== TicketStatus.resolved &&
+        ticket.status !== TicketStatus.closed
+      ) {
+        // Open lifecycle states must use start/wait/resume instead.
+        throw new AppError(
+          409,
+          "invalid_state",
+          "Only resolved or closed tickets can be reopened",
+        );
+      }
+
+      const fromStatus = ticket.status;
+
+      // Claim → in_progress and clear resolve/close/pause fields.
+      const row = await claimTicketUpdate(
+        tx,
+        ticket.id,
+        [TicketStatus.resolved, TicketStatus.closed],
+        {
+          status: TicketStatus.in_progress,
+          resolvedAt: null,
+          resolvedByEmployeeId: null,
+          resolutionNotes: null,
+          closedAt: null,
+          closedByEmployeeId: null,
+          // Reopen resumes active work; any prior waiting pause is discarded.
+          slaPausedAt: null,
+        },
+        () => "Only resolved or closed tickets can be reopened",
       );
-    }
 
-    const reason = input.reason?.trim() || null;
-    const fromStatus = ticket.status;
+      // Analytics table — separate from TicketEvent stream.
+      await tx.ticketReopenEvent.create({
+        data: {
+          ticketId: ticket.id,
+          reopenedByEmployeeId: input.reopenedByEmployeeId,
+          reason,
+          previousStatus: fromStatus,
+        },
+      });
 
-    // Claim → in_progress and clear resolve/close/pause fields.
-    const row = await claimTicketUpdate(
-      tx,
-      ticket.id,
-      [TicketStatus.resolved, TicketStatus.closed],
-      {
-        status: TicketStatus.in_progress,
-        resolvedAt: null,
-        resolvedByEmployeeId: null,
-        resolutionNotes: null,
-        closedAt: null,
-        closedByEmployeeId: null,
-        // Reopen resumes active work; any prior waiting pause is discarded.
-        slaPausedAt: null,
-      },
-      () => "Only resolved or closed tickets can be reopened",
-    );
-
-    // Analytics table — separate from TicketEvent stream.
-    await tx.ticketReopenEvent.create({
-      data: {
+      // Persist lifecycle event marked as a reopen (+ commandId for replay).
+      await writeTicketEvent(tx, {
         ticketId: ticket.id,
-        reopenedByEmployeeId: input.reopenedByEmployeeId,
+        locationId: ticket.locationId,
+        fromStatus,
+        toStatus: TicketStatus.in_progress,
+        actorEmployeeId: input.reopenedByEmployeeId,
         reason,
-        previousStatus: fromStatus,
-      },
+        payload: { reopen: true },
+        commandId: input.commandId,
+        commandKey,
+      });
+
+      return row;
     });
 
-    // Persist lifecycle event marked as a reopen.
-    await writeTicketEvent(tx, {
-      ticketId: ticket.id,
-      locationId: ticket.locationId,
-      fromStatus,
-      toStatus: TicketStatus.in_progress,
-      actorEmployeeId: input.reopenedByEmployeeId,
-      reason,
-      payload: { reopen: true },
-    });
-
-    return row;
-  });
-
-  // Live subscribers refresh after reopen clears terminal fields.
-  publishTicketChanged(updated);
-  {
-    // Notify assignee and reporter (when present).
-    const recipients = [
-      updated.assigneeId,
-      updated.reportedByEmployeeId,
-    ].filter((id): id is string => Boolean(id));
-    // DedupeKey includes updatedAt so multiple reopens notify separately.
-    await notifyTicketEvent({
-      type: "ticket.reopened",
-      title: "Ticket reopened",
-      body: `${updated.location?.number ?? "?"}: ${updated.title}`,
-      ticket: updated,
-      actorEmployeeId: input.reopenedByEmployeeId,
-      recipientEmployeeIds: recipients,
-      dedupeKey: `ticket.reopened:${updated.id}:${updated.updatedAt.toISOString()}`,
-    });
+    // Live subscribers refresh after reopen clears terminal fields.
+    publishTicketChanged(updated);
+    {
+      // Notify assignee and reporter (when present).
+      const recipients = [
+        updated.assigneeId,
+        updated.reportedByEmployeeId,
+      ].filter((id): id is string => Boolean(id));
+      // DedupeKey includes updatedAt so multiple reopens notify separately.
+      await notifyTicketEvent({
+        type: "ticket.reopened",
+        title: "Ticket reopened",
+        body: `${updated.location?.number ?? "?"}: ${updated.title}`,
+        ticket: updated,
+        actorEmployeeId: input.reopenedByEmployeeId,
+        recipientEmployeeIds: recipients,
+        dedupeKey: `ticket.reopened:${updated.id}:${updated.updatedAt.toISOString()}`,
+      });
+    }
+    return formatMaintenanceTicket(updated);
+  } catch (err) {
+    if (input.commandId) {
+      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
+        const again = await replayLifecycleCommand(input.commandId, commandKey);
+        if (again) return again.ticket;
+      }
+    }
+    throw err;
   }
-  return formatMaintenanceTicket(updated);
 }

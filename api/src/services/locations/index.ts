@@ -6,6 +6,9 @@ export type { LocationForMap } from "./types";
 export { mapLocation } from "./format";
 export { loadScopedLocation } from "./access";
 export {
+  DEFAULT_ACTIVE_LOCATION_LIMIT,
+  MAX_ACTIVE_LOCATION_LIMIT,
+  resolveActiveLocationLimit,
   findActiveLocations,
   findLocationById,
   findLocationByQrToken,

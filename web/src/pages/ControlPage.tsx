@@ -6,15 +6,12 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ROLE_LABELS,
   assignableRolesFor,
-  assignIssue,
   canPerformAction,
-  closeIssue,
   createCleaningTask,
   fetchHousekeepers,
   fetchPeople,
   fetchRooms,
   fetchTickets,
-  reopenIssue,
   todayHotelDate,
   updatePersonRole,
   type AuthUser,
@@ -25,6 +22,11 @@ import {
 } from "../api/client";
 import { TicketLifecycleActions } from "../components/TicketLifecycleActions";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
+import {
+  assignTicketQueued,
+  closeTicketQueued,
+  reopenTicketQueued,
+} from "../offline";
 
 type Props = {
   user: AuthUser;
@@ -469,9 +471,16 @@ export function ControlPage({ user }: Props) {
                               setResolvingId(ticket.id);
                               setError(null);
                               try {
-                                await assignIssue(ticket.id, assigneeId);
-                                setMessage("Тикетът е възложен");
-                                await refresh();
+                                const result = await assignTicketQueued(
+                                  ticket.id,
+                                  assigneeId,
+                                );
+                                setMessage(
+                                  result.queued
+                                    ? "Назначаване в опашката"
+                                    : "Тикетът е възложен",
+                                );
+                                if (!result.queued) await refresh();
                               } catch (err) {
                                 setError(
                                   err instanceof Error
@@ -557,9 +566,13 @@ export function ControlPage({ user }: Props) {
                             setResolvingId(ticket.id);
                             setError(null);
                             try {
-                              await closeIssue(ticket.id);
-                              setMessage("Тикетът е затворен");
-                              await refresh();
+                              const result = await closeTicketQueued(ticket.id);
+                              setMessage(
+                                result.queued
+                                  ? "Затваряне в опашката"
+                                  : "Тикетът е затворен",
+                              );
+                              if (!result.queued) await refresh();
                             } catch (err) {
                               setError(
                                 err instanceof Error
@@ -574,37 +587,46 @@ export function ControlPage({ user }: Props) {
                           Close
                         </button>
                       )}
-                      {/* Reopen always available; cancel prompt aborts. */}
-                      <button
-                        type="button"
-                        className="subtle"
-                        disabled={resolvingId === ticket.id}
-                        onClick={async () => {
-                          // Optional reason; null means user cancelled the prompt.
-                          const reason = window.prompt(
-                            "Причина за повторно отваряне (опционално)",
-                          );
-                          if (reason === null) return;
-                          setResolvingId(ticket.id);
-                          setError(null);
-                          setMessage(null);
-                          try {
-                            await reopenIssue(ticket.id, reason);
-                            setMessage("Issue reopened");
-                            await refresh();
-                          } catch (err) {
-                            setError(
-                              err instanceof Error
-                                ? err.message
-                                : "Reopen failed",
+                      {/* Reopen gated by tickets.resolve (same as HTTP). */}
+                      {canResolve && (
+                        <button
+                          type="button"
+                          className="subtle"
+                          disabled={resolvingId === ticket.id}
+                          onClick={async () => {
+                            // Optional reason; null means user cancelled the prompt.
+                            const reason = window.prompt(
+                              "Причина за повторно отваряне (опционално)",
                             );
-                          } finally {
-                            setResolvingId(null);
-                          }
-                        }}
-                      >
-                        Reopen
-                      </button>
+                            if (reason === null) return;
+                            setResolvingId(ticket.id);
+                            setError(null);
+                            setMessage(null);
+                            try {
+                              const result = await reopenTicketQueued(
+                                ticket.id,
+                                reason,
+                              );
+                              setMessage(
+                                result.queued
+                                  ? "Повторно отваряне в опашката"
+                                  : "Issue reopened",
+                              );
+                              if (!result.queued) await refresh();
+                            } catch (err) {
+                              setError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Reopen failed",
+                              );
+                            } finally {
+                              setResolvingId(null);
+                            }
+                          }}
+                        >
+                          Reopen
+                        </button>
+                      )}
                     </div>
                   </li>
                 ))}

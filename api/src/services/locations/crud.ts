@@ -13,25 +13,56 @@ import { prisma } from "../../db";
 import { AppError } from "../../errors";
 import { publish } from "../../events/bus";
 import { recordAudit } from "../audit";
-import { locationInclude } from "./types";
+import { locationInclude, type LocationForMap } from "./types";
+import { activeLocationAfter, activeLocationCursor } from "./pagination";
+
+/** Default cap for active board lists (SUS-001 / B3). Override via `?limit=`. */
+export const DEFAULT_ACTIVE_LOCATION_LIMIT = 500;
+/** Hard ceiling so clients cannot request an unbounded dump. */
+export const MAX_ACTIVE_LOCATION_LIMIT = 2000;
+
+/**
+ * Clamp a requested board-list limit into `[1, MAX]` (default when missing/NaN).
+ * Exported for unit tests (SUS-001 / B3).
+ */
+export function resolveActiveLocationLimit(requested?: number): number {
+  if (requested == null || !Number.isFinite(requested)) {
+    return DEFAULT_ACTIVE_LOCATION_LIMIT;
+  }
+  return Math.min(
+    Math.max(1, Math.floor(requested)),
+    MAX_ACTIVE_LOCATION_LIMIT,
+  );
+}
 
 /**
  * Active locations of `kind`, optionally narrowed by data-scope filter.
  *
  * @param kind - room vs common_area board partition.
  * @param scopeFilter - Optional Prisma where AND from data scope.
+ * @param options.limit - Page size (default 500, max 2000). Fetches limit+1 for continuation.
+ * @param options.cursor - Opaque sort tuple from X-Next-Cursor; scope applies on every page.
  */
 export async function findActiveLocations(
   kind: LocationKind,
   scopeFilter?: Prisma.LocationWhereInput,
-) {
+  options?: { limit?: number; cursor?: string },
+): Promise<{ rows: LocationForMap[]; truncated: boolean; nextCursor: string | null }> {
+  const limit = resolveActiveLocationLimit(options?.limit);
   // Live board / room list — active catalog only.
   // scopeFilter ANDs with kind when the caller is sector-scoped.
-  return prisma.location.findMany({
-    where: { catalogStatus: "active", kind, ...(scopeFilter ?? {}) },
+  const rows = await prisma.location.findMany({
+    where: { AND: [{ catalogStatus: "active", kind }, scopeFilter ?? {}, activeLocationAfter(options?.cursor)] },
     include: locationInclude,
-    orderBy: [{ floor: { number: "asc" } }, { number: "asc" }],
+    orderBy: [{ floor: { number: "asc" } }, { number: "asc" }, { id: "asc" }],
+    take: limit + 1,
   });
+  const truncated = rows.length > limit;
+  return {
+    rows: (truncated ? rows.slice(0, limit) : rows) as LocationForMap[],
+    truncated,
+    nextCursor: truncated ? activeLocationCursor(rows[limit - 1]) : null,
+  };
 }
 
 /**

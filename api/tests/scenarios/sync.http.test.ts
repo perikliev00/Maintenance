@@ -40,6 +40,29 @@ describe("P1 sync HTTP and PostgreSQL", () => {
     }
     await prisma.$disconnect();
   });
+  it("temporary command storage errors are retryable inside HTTP 200; validation stays permanent", async () => {
+    const command = commands();
+    const trigger = `sync_retry_${randomUUID().replaceAll("-", "")}`;
+    await prisma.$executeRawUnsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."commandId" = '${command.commandId}' THEN RAISE EXCEPTION 'temporary_sync_storage_failure'; END IF; RETURN NEW; END $$`);
+    try {
+      await prisma.$executeRawUnsafe(`CREATE TRIGGER ${trigger} BEFORE INSERT ON "MaintenanceTicket" FOR EACH ROW EXECUTE FUNCTION ${trigger}()`);
+      try {
+        const response = await postJson(api, ownerToken, "/sync/push", { commands: [command] });
+        assert.equal(response.status, 200);
+        assert.deepEqual((response.body as any).results, [{ commandId: command.commandId, status: "error", message: "Temporary command failure", retryable: true }]);
+        assert.equal(await prisma.maintenanceTicket.count({ where: { commandId: command.commandId } }), 0);
+      } finally { await prisma.$executeRawUnsafe(`DROP TRIGGER ${trigger} ON "MaintenanceTicket"`); }
+    } finally { await prisma.$executeRawUnsafe(`DROP FUNCTION ${trigger}()`); }
+    const response = await postJson(api, ownerToken, "/sync/push", { commands: [command] });
+    assert.equal(response.status, 200);
+    assert.equal((response.body as any).results[0].status, "ok");
+    assert.equal(await prisma.maintenanceTicket.count({ where: { commandId: command.commandId } }), 1);
+    const invalid = { ...commands(), payload: { locationId: 42 } };
+    const rejected = await postJson(api, ownerToken, "/sync/push", { commands: [invalid] });
+    assert.equal(rejected.status, 200);
+    assert.equal((rejected.body as any).results[0].retryable, false);
+    assert.equal((rejected.body as any).results[0].code, "validation");
+  });
   it("P0-10 original offline owner is enforced against the actual cookie session before batch or fallback writes", async () => {
     const command = commands();
     const session = await loginBearer(api, world.owner.email, CLN_PASSWORD);

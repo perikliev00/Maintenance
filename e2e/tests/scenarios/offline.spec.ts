@@ -6,6 +6,43 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/__scenario");
   await page.evaluate(() => { Object.defineProperty(navigator, "onLine", { configurable: true, value: false }); });
 });
+
+test("temporary batch command failure retries on its own despite unrelated successful I/O", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const scope = await import(/* @vite-ignore */ "/src/offline/userScope.ts");
+    scope.setOfflineUser("automatic-retry"); await scope.whenOfflineUserSettled();
+    const ops = await import(/* @vite-ignore */ "/src/offline/queueOps.ts");
+    const storage = await import(/* @vite-ignore */ "/src/offline/storage.ts");
+    const { drainQueue } = await import(/* @vite-ignore */ "/src/offline/queueDrain.ts");
+    const { postJsonWithSessionRefresh } = await import(/* @vite-ignore */ "/src/offline/transport.ts");
+    const commandId = crypto.randomUUID();
+    await ops.enqueue({ commandId, type: "ticket.start", url: "/tickets/retry/start", method: "POST", body: { commandId } });
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+    const sent: string[] = [];
+    let completed!: () => void;
+    const retried = new Promise<void>(resolve => { completed = resolve; });
+    await drainQueue({ headersFn: () => ({}), fetchFn: async (_url: string, init: RequestInit) => {
+      const command = JSON.parse(String(init.body)).commands[0];
+      sent.push(command.commandId);
+      if (sent.length === 2) completed();
+      return new Response(JSON.stringify({ results: [{ commandId: command.commandId,
+        status: sent.length === 1 ? "error" : "ok", retryable: true }] }));
+    } });
+    const pending = await storage.listQueueForUser("automatic-retry");
+    // This production transport calls markReachable after successful I/O.
+    await postJsonWithSessionRefresh("/unrelated", {}, { headersFn: () => ({}),
+      fetchFn: async () => new Response("{}") });
+    await Promise.race([retried, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("No automatic retry")), 10000))]);
+    // Wait for the retry's production storage writes, not an extra drain/event.
+    const { isDraining } = await import(/* @vite-ignore */ "/src/offline/connState.ts");
+    while (isDraining()) await new Promise(resolve => setTimeout(resolve, 10));
+    return { commandId, sent, pending, after: await storage.listQueueForUser("automatic-retry") };
+  });
+  expect(result.pending).toHaveLength(1);
+  expect(result.pending[0]).toMatchObject({ status: "pending", retries: 1 });
+  expect(result.sent).toEqual([result.commandId, result.commandId]);
+  expect(result.after).toEqual([]);
+});
 test("P1-95 P1-97 P1-102 P1-103 real IndexedDB survives reload, recovers sending and retains unconfirmed results", async ({ page }) => {
   await page.evaluate(async () => {
     const load = (p: string) => import(/* @vite-ignore */ p);

@@ -486,9 +486,21 @@ model TicketEvent {
   /** Client command id for idempotent lifecycle replay (start/wait/resume/resolve). */
   commandId       String?           @unique
   occurredAt      DateTime          @default(now())
+  notificationOutbox TicketNotificationOutbox?
 
   @@index([ticketId, occurredAt])
   @@index([occurredAt])
+}
+
+/// Durable notification snapshot, committed with the lifecycle event.
+model TicketNotificationOutbox {
+  eventId     String      @id
+  event       TicketEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  payload     Json
+  createdAt   DateTime    @default(now())
+  deliveredAt DateTime?
+
+  @@index([deliveredAt, createdAt])
 }
 
 /// Explicit reopen history (separate from TicketEvent for analytics / audit clarity).

@@ -7,5 +7,5 @@ route:
 receivers:
   - name: default
     webhook_configs:
-      - url: ${ALERT_WEBHOOK_URL}
+      - url_file: /tmp/maintenance-alertmanager/webhook-url
         send_resolved: true

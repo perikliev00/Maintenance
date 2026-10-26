@@ -187,7 +187,7 @@ Results (`GET /cleaning/results`) and housekeeping analytics use `completedAt` f
 | `IssueOption` | Preset issue types (kind, category, optional defaults) |
 | `MaintenanceTicket` | Repair issue on a location; category snapshot on create; optional `issueOptionId`; `blocksRoom` affects readiness |
 
-**TicketStatus:** `new` \| `in_progress` \| `resolved` \| `closed`.  
+**TicketStatus:** `new` \| `assigned` \| `in_progress` \| `waiting` \| `resolved` \| `closed`.  
 **Ticket category:** snapshot at create time (catalog edits do not rewrite history).  
 **Priority:** low, normal, high, urgent.
 

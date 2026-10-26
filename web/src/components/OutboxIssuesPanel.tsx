@@ -38,6 +38,9 @@ function typeLabel(locale: "bg" | "en", type: QueuedAction["type"]): string {
     "ticket.resume": ["Възобновяване тикет", "Resume ticket"],
     "ticket.resolve": ["Решаване тикет", "Resolve ticket"],
     "ticket.report": ["Докладване", "Report ticket"],
+    "ticket.assign": ["Назначаване тикет", "Assign ticket"],
+    "ticket.close": ["Затваряне тикет", "Close ticket"],
+    "ticket.reopen": ["Повторно отваряне", "Reopen ticket"],
   };
   const pair = map[type];
   // Early / value return.

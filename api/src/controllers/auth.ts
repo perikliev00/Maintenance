@@ -7,6 +7,8 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { Role } from "@prisma/client";
 import { prisma } from "../db";
+import { AppError } from "../errors";
+import { verifyAccessToken } from "../auth/tokens";
 import { authenticateToken } from "../middleware/auth";
 import {
   clearAuthCookies,
@@ -18,6 +20,8 @@ import {
   createSession,
   hashRefreshToken,
   revokeAllForUser,
+  revokeAllUsingRefreshToken,
+  assertSessionActive,
   revokeSession,
   rotateRefresh,
 } from "../services/authSessions";
@@ -118,7 +122,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
   }
 }
 
-/** Rotate refresh token and re-issue cookies; clears cookies on failure. */
+/** Rotate cookies; only a confirmed authentication rejection clears them. */
 export async function refresh(req: Request, res: Response, next: NextFunction) {
   try {
     // Cookie preferred; body fallback for non-browser clients.
@@ -139,8 +143,9 @@ export async function refresh(req: Request, res: Response, next: NextFunction) {
     issueAuthCookies(res, tokens);
     return res.json({ ok: true, expiresIn: tokens.expiresIn });
   } catch (err) {
-    // On rotate failure, drop cookies so the client cannot keep a bad session.
-    clearAuthCookies(res);
+    if (err instanceof AppError && (err.status === 401 || err.status === 403)) {
+      clearAuthCookies(res);
+    }
     return next(err);
   }
 }
@@ -188,9 +193,23 @@ export async function logout(req: Request, res: Response) {
   }
 }
 
-/** Revoke every AuthSession for the authenticated user (requireAuth). */
+/** Revoke all sessions using refresh credentials, or a valid access token. */
 export async function logoutAll(req: Request, res: Response) {
-  const count = await revokeAllForUser(req.user!.userId);
+  // Browser access cookies expire sooner than refresh cookies. Authenticate the
+  // refresh under the same User lock as revocation; never rotate it just to logout.
+  const refreshToken = readRefreshToken(req);
+  let count: number;
+  if (refreshToken) {
+    count = await revokeAllUsingRefreshToken(refreshToken);
+  } else {
+    const access = extractAccessToken(req);
+    if (!access) throw new AppError(401, "unauthorized", "Missing token");
+    let claims;
+    try { claims = verifyAccessToken(access.token); }
+    catch { throw new AppError(401, "unauthorized", "Invalid token"); }
+    await assertSessionActive(claims.sid, claims.userId);
+    count = await revokeAllForUser(claims.userId);
+  }
   clearAuthCookies(res);
   return res.json({ ok: true, revoked: count });
 }

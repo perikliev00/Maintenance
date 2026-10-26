@@ -20,5 +20,6 @@ export type SyncCommandResult = {
   message?: string;
   code?: string;
   details?: unknown;
+  retryable?: boolean;
   data?: unknown;
 };

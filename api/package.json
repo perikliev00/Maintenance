@@ -6,6 +6,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "lint": "oxlint --quiet src",
     "test": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"src/**/*.test.ts\"",
     "test:mutation": "stryker run stryker.config.mjs",
     "test:mutation:incremental": "stryker run --incremental stryker.config.mjs",
@@ -56,6 +57,7 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^22.13.10",
+    "oxlint": "^1.89.0",
     "prisma": "^6.5.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"

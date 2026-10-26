@@ -24,11 +24,8 @@ export {
 export {
   ALL_ROLES,
   assignableRolesFor,
-  canAssignIssues,
-  canCloseIssues,
-  // Permission / capability gate.
+  // Permission / capability gate (SEC-003: do not re-export legacy role helpers).
   canPerformAction,
-  canResolveIssues,
   canViewControl,
   canViewTeam,
   filterPanelsByModules,

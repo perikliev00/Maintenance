@@ -1,5 +1,6 @@
 /**
- * T-CLN-16 HTTP — owner foreign-complete bypass vs manager denial.
+ * T-CLN-16 HTTP — cleaning assignee bypass aligned with tickets (SEC-002 / B1).
+ * Deny foreign housekeeper; allow manager complete bypass; assignee can complete own.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -7,6 +8,7 @@ import { after, before, describe, it } from "node:test";
 import path from "node:path";
 import { GrantKind, PrismaClient, Role, SessionStatus } from "@prisma/client";
 import dotenv from "dotenv";
+import { createCleaningTask } from "../../src/services/cleaning";
 import {
   ensureDefaultRoleGrants,
   invalidateGrantCache,
@@ -22,6 +24,7 @@ import {
   cleanupCleaningWorld,
   createAndStartToday,
   createCleaningWorld,
+  hotelTodayYmd,
   resetCleaningWork,
   type CleaningWorld,
 } from "./fixtures";
@@ -35,7 +38,7 @@ process.env.JWT_SECRET =
 
 const prisma = new PrismaClient();
 
-describe("cleaning complete HTTP (T-CLN-16)", () => {
+describe("cleaning complete HTTP (T-CLN-16 / SEC-002)", () => {
   let world: CleaningWorld;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
   let api = "";
@@ -43,6 +46,16 @@ describe("cleaning complete HTTP (T-CLN-16)", () => {
   before(async () => {
     assert.ok(process.env.DATABASE_URL, "DATABASE_URL required");
     await ensureDefaultRoleGrants();
+    for (const key of ["cleaning.start", "cleaning.complete"] as const) {
+      await prisma.roleGrant.upsert({
+        where: {
+          role_kind_key: { role: Role.manager, kind: GrantKind.action, key },
+        },
+        create: { role: Role.manager, kind: GrantKind.action, key },
+        update: {},
+      });
+    }
+    invalidateGrantCache();
     world = await createCleaningWorld(prisma);
     const listened = await listenApp();
     server = listened.server;
@@ -55,7 +68,33 @@ describe("cleaning complete HTTP (T-CLN-16)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-CLN-16-http: owner may complete HK session; manager with complete action may not", async () => {
+  it("T-CLN-16-http: foreign HK denied; manager bypasses complete; assignee completes own", async () => {
+    await resetCleaningWork(prisma, world);
+    const today = await hotelTodayYmd();
+    const task = await createCleaningTask({
+      locationId: world.locationAId,
+      hotelDate: today,
+      assignedEmployeeId: world.hk1.employeeId,
+      actorEmployeeId: world.owner.employeeId,
+    });
+
+    const { token: hk2Token } = await loginBearer(
+      api,
+      world.hk2.email,
+      CLN_PASSWORD,
+    );
+    const foreignStart = await postJson(
+      api,
+      hk2Token,
+      `/cleaning/tasks/${task.id}/start`,
+      { commandId: randomUUID(), expectedVersion: task.version },
+    );
+    // Scope denial (403) or assignee_conflict (409) are both valid deny paths.
+    assert.ok(
+      foreignStart.status === 403 || foreignStart.status === 409,
+      JSON.stringify(foreignStart.body),
+    );
+
     await resetCleaningWork(prisma, world);
     const { started } = await createAndStartToday(
       world,
@@ -63,83 +102,54 @@ describe("cleaning complete HTTP (T-CLN-16)", () => {
       world.hk1.employeeId,
     );
 
-    // Temporarily grant cleaning.complete so the denial is ownership, not RBAC.
-    await prisma.roleGrant.upsert({
-      where: {
-        role_kind_key: {
-          role: Role.manager,
-          kind: GrantKind.action,
-          key: "cleaning.complete",
-        },
+    const { token: managerToken } = await loginBearer(
+      api,
+      world.manager.email,
+      CLN_PASSWORD,
+    );
+    const managerRes = await postJson(
+      api,
+      managerToken,
+      `/cleaning/sessions/${started.session.id}/complete`,
+      {
+        commandId: randomUUID(),
+        expectedVersion: started.task.version,
       },
-      create: {
-        role: Role.manager,
-        kind: GrantKind.action,
-        key: "cleaning.complete",
+    );
+    assert.equal(managerRes.status, 200, JSON.stringify(managerRes.body));
+    const managerBody = managerRes.body as {
+      session?: { employeeId?: string; completeActorEmployeeId?: string };
+    };
+    assert.equal(managerBody.session?.employeeId, world.hk1.employeeId);
+    assert.equal(
+      managerBody.session?.completeActorEmployeeId,
+      world.manager.employeeId,
+    );
+
+    await resetCleaningWork(prisma, world);
+    const own = await createAndStartToday(
+      world,
+      world.locationAId,
+      world.hk1.employeeId,
+    );
+    const { token: hk1Token } = await loginBearer(
+      api,
+      world.hk1.email,
+      CLN_PASSWORD,
+    );
+    const ownRes = await postJson(
+      api,
+      hk1Token,
+      `/cleaning/sessions/${own.started.session.id}/complete`,
+      {
+        commandId: randomUUID(),
+        expectedVersion: own.started.task.version,
       },
-      update: {},
+    );
+    assert.equal(ownRes.status, 200, JSON.stringify(ownRes.body));
+    const done = await prisma.cleaningSession.findUniqueOrThrow({
+      where: { id: own.started.session.id },
     });
-    invalidateGrantCache();
-
-    try {
-      const { token: managerToken } = await loginBearer(
-        api,
-        world.manager.email,
-        CLN_PASSWORD,
-      );
-      const managerRes = await postJson(
-        api,
-        managerToken,
-        `/cleaning/sessions/${started.session.id}/complete`,
-        {
-          commandId: randomUUID(),
-          expectedVersion: started.task.version,
-        },
-      );
-      assert.equal(managerRes.status, 409, JSON.stringify(managerRes.body));
-      assert.equal(
-        (managerRes.body as { error?: string }).error,
-        "assignee_conflict",
-      );
-
-      const stillRunning = await prisma.cleaningSession.findUniqueOrThrow({
-        where: { id: started.session.id },
-      });
-      assert.equal(stillRunning.status, SessionStatus.running);
-
-      // Owner role sets bypassSessionOwnerCheck in the controller.
-      const { token: ownerToken } = await loginBearer(
-        api,
-        world.owner.email,
-        CLN_PASSWORD,
-      );
-      const ownerRes = await postJson(
-        api,
-        ownerToken,
-        `/cleaning/sessions/${started.session.id}/complete`,
-        {
-          commandId: randomUUID(),
-          expectedVersion: started.task.version,
-        },
-      );
-      assert.equal(ownerRes.status, 200, JSON.stringify(ownerRes.body));
-      const body = ownerRes.body as {
-        session?: { employeeId?: string; completeActorEmployeeId?: string };
-      };
-      assert.equal(body.session?.employeeId, world.hk1.employeeId);
-      assert.equal(
-        body.session?.completeActorEmployeeId,
-        world.owner.employeeId,
-      );
-    } finally {
-      await prisma.roleGrant.deleteMany({
-        where: {
-          role: Role.manager,
-          kind: GrantKind.action,
-          key: "cleaning.complete",
-        },
-      });
-      invalidateGrantCache();
-    }
+    assert.equal(done.status, SessionStatus.completed);
   });
 });

@@ -1,27 +1,49 @@
 /** Common-area location list/get/mark-dirty; scoped like rooms. */
 import type { NextFunction, Request, Response } from "express";
 import { LocationKind } from "@prisma/client";
+import { z } from "zod";
 import { markRoomDirty } from "../services/cleaning";
 import {
   locationWhere,
   resolveDataScope,
 } from "../services/dataScope";
 import {
+  DEFAULT_ACTIVE_LOCATION_LIMIT,
+  MAX_ACTIVE_LOCATION_LIMIT,
   findActiveLocations,
   loadScopedLocation,
   mapLocation,
 } from "../services/locations";
 
-/** GET /common-areas — active common-area locations in the caller's scope. */
+/** GET /common-areas — active common areas in scope (capped; see SUS-001). */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
+    const parsed = z
+      .object({
+        limit: z.coerce
+          .number()
+          .int()
+          .positive()
+          .max(MAX_ACTIVE_LOCATION_LIMIT)
+          .optional(),
+        cursor: z.string().min(1).max(2048).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) {
+      return res
+        .status(400)
+        .json({ error: "validation", details: parsed.error.flatten() });
+    }
     const scope = await resolveDataScope(req.user!);
     // Only active common areas; Prisma where includes sector/hotel scope.
-    const locations = await findActiveLocations(
+    const { rows, truncated, nextCursor } = await findActiveLocations(
       LocationKind.common_area,
       locationWhere(scope),
+      { limit: parsed.data.limit ?? DEFAULT_ACTIVE_LOCATION_LIMIT, cursor: parsed.data.cursor },
     );
-    return res.json(locations.map(mapLocation));
+    if (truncated) res.setHeader("X-Result-Truncated", "1");
+    if (nextCursor) res.setHeader("X-Next-Cursor", nextCursor);
+    return res.json(rows.map(mapLocation));
   } catch (err) {
     return next(err);
   }

@@ -9,6 +9,7 @@ import { assertActiveWorkStarter } from "../assignees";
 // Module dependency import.
 import { AppError } from "../../errors";
 // Module dependency import.
+import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
 import { claimTicketUpdate } from "./claims";
 import {
   replayLifecycleCommand,
@@ -52,6 +53,24 @@ export async function startMaintenanceTicket(input: {
   try {
     // Serialize start against concurrent lifecycle mutations.
     const updated = await prisma.$transaction(async (tx) => {
+      // Deadlock-safe lock order vs assignMaintenanceTicket + SSE FOR SHARE:
+      // User locks BEFORE MaintenanceTicket (same class as cleaning AUDIT-001 /
+      // sessions.ts start). assign takes User → Ticket; never Ticket → User.
+      const preview = await tx.maintenanceTicket.findUnique({
+        where: { id: input.ticketId },
+        select: { assigneeId: true },
+      });
+      if (!preview) {
+        throw new AppError(404, "not_found", "Ticket not found");
+      }
+      // Lock starter (+ current assignee if different) before the ticket row.
+      await lockEmployeesForLiveAccess(tx, [
+        preview.assigneeId,
+        input.actorEmployeeId,
+      ]);
+      // Eligibility under the User lock (FOR SHARE is nested under FOR UPDATE).
+      await assertActiveWorkStarter(input.actorEmployeeId, tx);
+
       // Row lock + load for status/assignee checks.
       const ticket = await loadLockedTicket(tx, input.ticketId);
       // Only assigned tickets may start.
@@ -79,7 +98,6 @@ export async function startMaintenanceTicket(input: {
 
       const fromStatus = ticket.status;
       // Conditional claim: assigned → in_progress.
-      await assertActiveWorkStarter(input.actorEmployeeId, tx);
       const row = await claimTicketUpdate(
         tx,
         ticket.id,
@@ -167,6 +185,8 @@ export async function waitMaintenanceTicket(input: {
 
   try {
     // Serialize wait against concurrent lifecycle mutations.
+    // Wait does not take User locks (no Ticket→User with assign); ticket-only
+    // lock is safe here because assign is disallowed once work has started.
     const updated = await prisma.$transaction(async (tx) => {
       const ticket = await loadLockedTicket(tx, input.ticketId);
       // Only in_progress may enter waiting.
@@ -273,6 +293,7 @@ export async function resumeMaintenanceTicket(input: {
 
   try {
     // Serialize resume against concurrent lifecycle mutations.
+    // Resume does not take User locks (same rationale as wait — see above).
     const updated = await prisma.$transaction(async (tx) => {
       const ticket = await loadLockedTicket(tx, input.ticketId);
       // Only waiting may resume.

@@ -1,7 +1,10 @@
 [Unit]
-Description=Run Maintenance PostgreSQL backup hourly
+Description=Run Meridian Maintenance PostgreSQL backup hourly
+Documentation=file:/opt/maintenance/docs/operations/backup-install.md
 
 [Timer]
+# Hourly dumps → starting RPO under ~60 minutes (plus RandomizedDelaySec).
+# A 15-minute RPO requires managed PITR / WAL archiving — not this timer alone.
 OnCalendar=hourly
 RandomizedDelaySec=5m
 Persistent=true

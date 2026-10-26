@@ -24,18 +24,24 @@ it("P2-46 P2-47 QR identity read preserves nonempty tasks/history; invalid/archi
   assert.deepEqual(await prisma.auditEvent.findMany({ where: { locationId: { in: [fx.locAId, fx.locBId] } }, orderBy: { id: "asc" } }), audit);
   assert.equal(await prisma.cleaningSession.count({ where: { taskId: { in: [fx.taskAId, fx.taskBId] } } }), 0);
 });
-it("P1-105 P1-107 sync recomputes current sector scope even when expectedVersion is current", async () => {
+it("P1-105 P1-107 sync recomputes supervisor sector ownership even when expectedVersion is current", async () => {
+  // Losing supervision is actual access loss. Moving a room alone retains the
+  // task's sector snapshot and supervisors intentionally bypass its assignee.
+  await prisma.cleaningTask.update({ where: { id: fx.taskAId }, data: { hotelDate: new Date("2026-01-01") } });
   const before = await prisma.cleaningTask.findUniqueOrThrow({ where: { id: fx.taskAId } });
   const location = await prisma.location.findUniqueOrThrow({ where: { id: fx.locAId } });
-  const memberships = await prisma.sectorLocation.findMany({ where: { locationId: fx.locAId } }); assert.ok(memberships.some(r => r.sectorId === fx.sectorAId));
-  await prisma.sectorLocation.deleteMany({ where: { locationId: fx.locAId } });
-  await prisma.sectorLocation.create({ data: { sectorId: fx.sectorBId, locationId: fx.locAId } });
+  const sector = await prisma.sector.findUniqueOrThrow({ where: { id: fx.sectorAId } });
+  await prisma.sector.update({ where: { id: sector.id }, data: { primarySupervisorEmployeeId: fx.supervisorB.employeeId } });
   try {
     const cmd = { commandId: randomUUID(), type: "cleaning.start", payload: { taskId: before.id, expectedVersion: before.version } };
-    const res = await postJson(api, token, "/sync/push", { commands: [cmd] }); assert.equal(res.status, 200);
-    assert.equal((res.body as any).results[0].status, "conflict"); assert.equal((res.body as any).results[0].code, "assignee_conflict");
+    const res = await postJson(api, token, "/sync/push", { commands: [cmd] });
+    assert.equal(res.status, 200);
+    assert.equal((res.body as any).results[0].status, "conflict");
+    assert.equal((res.body as any).results[0].code, "assignee_conflict");
     assert.deepEqual(await prisma.cleaningTask.findUniqueOrThrow({ where: { id: before.id } }), before);
     assert.deepEqual(await prisma.location.findUniqueOrThrow({ where: { id: location.id } }), location);
     assert.equal(await prisma.cleaningSession.count({ where: { taskId: before.id } }), 0);
-  } finally { await prisma.sectorLocation.deleteMany({ where: { locationId: fx.locAId } }); await prisma.sectorLocation.createMany({ data: memberships }); }
+  } finally {
+    await prisma.sector.update({ where: { id: sector.id }, data: { primarySupervisorEmployeeId: sector.primarySupervisorEmployeeId } });
+  }
 });

@@ -1,5 +1,6 @@
 /**
- * Offline ticket lifecycle commands. Lifecycle steps reuse tickets.resolve grant;
+ * Offline ticket lifecycle commands. Mid-lifecycle steps reuse tickets.resolve;
+ * assign/close use their finer grants; reopen uses tickets.resolve (same as HTTP).
  * report uses tickets.report. commandId is forwarded for server-side idempotency.
  */
 import { Priority } from "@prisma/client";
@@ -11,8 +12,11 @@ import {
   type DataScope,
 } from "../../dataScope";
 import {
+  assignMaintenanceTicket,
+  closeMaintenanceTicket,
   createMaintenanceTicket,
   canBypassTicketAssignee,
+  reopenMaintenanceTicket,
   resolveMaintenanceTicket,
   resumeMaintenanceTicket,
   startMaintenanceTicket,
@@ -177,6 +181,82 @@ export async function handleTicketResolve(
       typeof cmd.payload.resolutionNotes === "string"
         ? cmd.payload.resolutionNotes
         : undefined,
+    commandId: cmd.commandId,
+  });
+  return { commandId: cmd.commandId, status: "ok", data: ticket };
+}
+
+/** Assign / reassign (new|assigned only); requires tickets.assign. */
+export async function handleTicketAssign(
+  user: AuthUser,
+  scope: DataScope,
+  cmd: SyncCommand,
+): Promise<SyncCommandResult> {
+  if (!(await canPerform(user.role, "tickets.assign"))) {
+    return {
+      commandId: cmd.commandId,
+      status: "forbidden",
+      message: "Missing tickets.assign",
+    };
+  }
+  const ticketId = String(cmd.payload.ticketId ?? "");
+  const assigneeId = String(cmd.payload.assigneeId ?? "");
+  await assertCanAccessTicket(scope, ticketId);
+  const ticket = await assignMaintenanceTicket({
+    ticketId,
+    assigneeId,
+    actorEmployeeId: user.employeeId,
+    commandId: cmd.commandId,
+  });
+  return { commandId: cmd.commandId, status: "ok", data: ticket };
+}
+
+/** Close a resolved ticket; requires tickets.close. */
+export async function handleTicketClose(
+  user: AuthUser,
+  scope: DataScope,
+  cmd: SyncCommand,
+): Promise<SyncCommandResult> {
+  if (!(await canPerform(user.role, "tickets.close"))) {
+    return {
+      commandId: cmd.commandId,
+      status: "forbidden",
+      message: "Missing tickets.close",
+    };
+  }
+  const ticketId = String(cmd.payload.ticketId ?? "");
+  await assertCanAccessTicket(scope, ticketId);
+  const ticket = await closeMaintenanceTicket({
+    ticketId,
+    closedByEmployeeId: user.employeeId,
+    commandId: cmd.commandId,
+  });
+  return { commandId: cmd.commandId, status: "ok", data: ticket };
+}
+
+/**
+ * Reopen resolved/closed → in_progress. Matches HTTP: tickets.resolve grant
+ * (not tickets.close).
+ */
+export async function handleTicketReopen(
+  user: AuthUser,
+  scope: DataScope,
+  cmd: SyncCommand,
+): Promise<SyncCommandResult> {
+  if (!(await canPerform(user.role, "tickets.resolve"))) {
+    return {
+      commandId: cmd.commandId,
+      status: "forbidden",
+      message: "Missing tickets.resolve",
+    };
+  }
+  const ticketId = String(cmd.payload.ticketId ?? "");
+  await assertCanAccessTicket(scope, ticketId);
+  const ticket = await reopenMaintenanceTicket({
+    ticketId,
+    reopenedByEmployeeId: user.employeeId,
+    reason:
+      typeof cmd.payload.reason === "string" ? cmd.payload.reason : undefined,
     commandId: cmd.commandId,
   });
   return { commandId: cmd.commandId, status: "ok", data: ticket };

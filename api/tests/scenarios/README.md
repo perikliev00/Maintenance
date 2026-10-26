@@ -6,6 +6,9 @@ register preload + tsx loader, serial workers, `.env.p1_test`, and a real
 database or replace `.env`. Migrate and seed a dedicated `maintenance_p1_test`
 database first; run `npm run prove:p1-isolation` before the suites.
 
+Local isolation DB setup (including `P1_TEST_DATABASE_URL` when `:55439` is
+unreachable): see [`docs/testing/P1_ISOLATION_DB.md`](../../docs/testing/P1_ISOLATION_DB.md).
+
 Run from `web/`: `npm test` and `npm run typecheck:tests`.
 Run from `e2e/`: `npm run typecheck:scenarios` and `npm run test:scenarios`.
 Chromium must be installed. The scenario config starts separate servers on

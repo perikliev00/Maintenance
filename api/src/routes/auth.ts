@@ -6,6 +6,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { authLoginLimiter } from "../middleware/security";
+import { requireCsrf } from "../middleware/session";
 import * as authController from "../controllers/auth";
 
 export const authRouter = Router();
@@ -22,7 +23,7 @@ authRouter.post("/logout", asyncHandler(authController.logout));
 // POST /logout-all — revoke all sessions for the authenticated user.
 authRouter.post(
   "/logout-all",
-  requireAuth,
+  requireCsrf,
   asyncHandler(authController.logoutAll),
 );
 

@@ -5,8 +5,8 @@
 import type { NextFunction, Request, Response } from "express";
 import { Role } from "@prisma/client";
 import { z } from "zod";
-import { isOwner } from "../../permissions";
 import { listActiveHousekeepers } from "../../services/assignees";
+import { canBypassCleaningAssignee } from "../../services/cleaning/authorization";
 import {
   createCleaningTask,
   inspectCleaningTask,
@@ -99,7 +99,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
 }
 
 /**
- * Start a task session. Owners may bypass the assignee check; 200 on idempotent replay.
+ * Start a task session. Bypass roles match tickets (SEC-002); 200 on idempotent replay.
  */
 export async function start(req: Request, res: Response, next: NextFunction) {
   // Try block for fallible work.
@@ -128,8 +128,8 @@ export async function start(req: Request, res: Response, next: NextFunction) {
       employeeId: req.user!.employeeId,
       commandId: parsed.data.commandId,
       expectedVersion: parsed.data.expectedVersion,
-      // Owners may start tasks assigned to someone else.
-      bypassAssigneeCheck: isOwner(req.user!.role),
+      // Same bypass set as tickets (owner/supervisor/manager/admin/reception).
+      bypassAssigneeCheck: canBypassCleaningAssignee(req.user!.role),
     });
 
     // Idempotent replay returns 200; first start returns 201.

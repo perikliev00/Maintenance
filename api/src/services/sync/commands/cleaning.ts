@@ -9,6 +9,7 @@ import {
   completeCleaningSession,
   startCleaningTask,
 } from "../../cleaning";
+import { canBypassCleaningAssignee } from "../../cleaning/authorization";
 import {
   assertCanAccessSession,
   assertCanAccessTask,
@@ -55,11 +56,13 @@ export async function handleCleaningStart(
     throw err;
   }
   // Domain start (idempotent via commandId + expectedVersion CAS).
+  // Bypass parity with HTTP cleaning.start (SEC-002 / B1).
   const result = await startCleaningTask({
     taskId,
     employeeId: user.employeeId,
     commandId: cmd.commandId,
     expectedVersion,
+    bypassAssigneeCheck: canBypassCleaningAssignee(user.role),
   });
   return { commandId: cmd.commandId, status: "ok", data: result };
 }
@@ -104,12 +107,14 @@ export async function handleCleaningComplete(
     throw err;
   }
   // Domain complete (idempotent via commandId + expectedVersion CAS).
+  // Bypass parity with HTTP cleaning.complete (SEC-002 / B1).
   const result = await completeCleaningSession({
     sessionId,
     employeeId: user.employeeId,
     commandId: cmd.commandId,
     notes,
     expectedVersion,
+    bypassSessionOwnerCheck: canBypassCleaningAssignee(user.role),
   });
   return { commandId: cmd.commandId, status: "ok", data: result };
 }

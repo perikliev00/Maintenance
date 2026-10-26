@@ -6,6 +6,9 @@
 import jwt from "jsonwebtoken";
 import type { Role } from "@prisma/client";
 
+/** Only HS256 is accepted for access tokens (SUS-002 / B3). */
+export const ACCESS_JWT_ALGORITHMS = ["HS256"] as const;
+
 /** Access-token claim shape; sid ties the token to an AuthSession row. */
 export type AuthUser = {
   userId: string;
@@ -28,7 +31,10 @@ export function getJwtSecret(): string {
 /** Sign a 15-minute access token (refresh rotation issues a new one). */
 export function signAccessToken(payload: AuthUser): string {
   // Short TTL limits damage if a token is leaked; refresh issues a replacement.
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: "15m" });
+  return jwt.sign(payload, getJwtSecret(), {
+    expiresIn: "15m",
+    algorithm: "HS256",
+  });
 }
 
 /**
@@ -37,8 +43,10 @@ export function signAccessToken(payload: AuthUser): string {
  * Does not check session revocation — callers must assertSessionActive.
  */
 export function verifyAccessToken(token: string): AuthUser {
-  // Throws on bad signature or expiry (jsonwebtoken default).
-  const decoded = jwt.verify(token, getJwtSecret()) as AuthUser & {
+  // Pin algorithms so `alg: none` / unexpected HMAC/RSA algs cannot verify.
+  const decoded = jwt.verify(token, getJwtSecret(), {
+    algorithms: [...ACCESS_JWT_ALGORITHMS],
+  }) as AuthUser & {
     sid?: string;
     purpose?: unknown;
   };

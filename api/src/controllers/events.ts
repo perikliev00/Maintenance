@@ -68,7 +68,9 @@ export async function resolveSseTicketUser(
 ): Promise<AuthUser | null> {
   try {
     // Verify signature/expiry of the short-lived SSE ticket.
-    const decoded = jwt.verify(ticket, getJwtSecret());
+    const decoded = jwt.verify(ticket, getJwtSecret(), {
+      algorithms: ["HS256"],
+    });
     if (!isSseTicketPayload(decoded)) return null;
     // Reload session + user from DB (do not trust JWT role claims).
     const session = await assertActive(decoded.sid, decoded.userId);
@@ -224,6 +226,7 @@ export function issueTicket(req: Request, res: Response) {
   };
   const token = jwt.sign(payload, getJwtSecret(), {
     expiresIn: SSE_TICKET_EXPIRES_SEC,
+    algorithm: "HS256",
   });
   res.json({ token, expiresIn: SSE_TICKET_EXPIRES_SEC });
 }

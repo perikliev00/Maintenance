@@ -115,7 +115,8 @@ describe("cleaning lifecycle inspection (T-CLN-16…20)", () => {
         ownerCompletesForeign.task.status === TaskStatus.completed,
     );
 
-    // Manager without bypass cannot complete another employee's session.
+    // Service layer: without bypassSessionOwnerCheck, manager is denied.
+    // HTTP/sync set the flag via canBypassCleaningAssignee (SEC-002 / B1).
     await resetCleaningWork(prisma, world);
     const { started: started2 } = await createAndStartToday(
       world,

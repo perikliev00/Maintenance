@@ -8,7 +8,7 @@ No production deployment, push, or working database mutation is authorized by th
 |---|---|---|
 | CI isolation | VERIFIED | Temporary .env shared by both workers; original marker/name assertions retained plus exact fixture assertion. Proof passes. |
 | P0-06 | VERIFIED | Two observed refresh claim waiters; one winner, one active successor, no extra session. Revoked-read/reuse branch remains covered. |
-| P0-10 | Final regression running | Batch/fallback/online command identity guards, ABA revision, cookie ordering, stale /me protection; server original-owner header rejects actual cookie mismatch before writes. Unit+HTTP evidence passes; browser rerun includes login-CSRF correction. |
+| P0-10 | **VERIFIED / DONE** (2026-10-25 B1) | Working tree vs `737cf36`. Evidence: web units `queueDrain`/`runOrEnqueue`/`http.session` (P0-10 cases in `npm test`); API `tests/scenarios/sync.http.test.ts` P0-10 case **pass**; E2E `remaining-workflows.spec.ts` P0-10 cookie login **pass** (`P1_TEST_DATABASE_URL` → `:5433/maintenance_p1_test`). |
 | P1-03 | VERIFIED | Two observed owner lock waiters; exactly200/409 and one remaining owner; ordered locks. |
 | P1-04 | VERIFIED | Two observed grant lock waiters; exactly200/400 and one manage grant; ordered locks. |
 | P1-08 | VERIFIED | Full-response negative controls across both analytics domains/live, with manager positive deltas;7/7 scoped suite. |
@@ -23,9 +23,9 @@ No production deployment, push, or working database mutation is authorized by th
 | P1-44 | VERIFIED | Four duplicate lifecycle paths observed at actual DB lock barrier; one event and one state/SLA effect. |
 | P1-46 | VERIFIED | Both ticket inserts wait at real DB barrier; one ticket and initial event. |
 | P1-68 | VERIFIED | Keyset API+UI;>50, timestamp ties, removed cursor row, ownership, invalid parameters. Real browser55-ticket workflow passes. |
-| P1-110 | Final regression running | Real offline cleaning start+complete reconciles session/version/inspection/cache/reload; targeted workflow passed. |
+| P1-110 | **VERIFIED / DONE** (2026-10-25 B1) | E2E `npx playwright test --config playwright.scenarios.config.ts tests/scenarios/remaining-workflows.spec.ts` — P1-110 offline cleaning start+complete **pass** (same isolation DB override). |
 | P1-115 | VERIFIED | User FOR SHARE + Sector FOR SHARE delivery gate; writers use User FOR UPDATE (session/role/supervisor/assignee) or Sector FOR NO KEY UPDATE (membership). Deterministic `runWhileRowLocked` tests prove revoke/expiry/sector/membership races; open-stream HTTP uses production writers. Post-fix audit closed membership deadlock and stale-supervisor lock gaps. |
-| P1-117 | Final regression running |8 real-page subscription cases and busy-action deferral; targeted run passed after harness binding correction. |
+| P1-117 | **VERIFIED / DONE** (2026-10-25 B1) | E2E `remaining-ui.spec.ts` — 8 page subscription cases + busy deferral **pass** (suite 20/20 with remaining-workflows in same run). |
 | P1-127 | VERIFIED | Late SQL fault matrix extends cancel/reassign/reject and assign/wait/resume/resolve/close/reopen; exact graph rollback incl audit/notifications/reopen history;3/3 suite. |
 | P2-43 | VERIFIED |9 real-component A→B late success/error/loading cases across Analytics/Results/Repairs. |
 
@@ -33,6 +33,7 @@ Each scenario requires production review, meaningful assertions, executed tests,
 
 ## Execution and review log
 
+- **2026-10-25 B1:** Closed P0-10 / P1-110 / P1-117 with executed evidence (web units + API sync.http + Playwright scenarios remaining-ui + remaining-workflows; 20/20 in that Playwright invocation). Isolation via `P1_TEST_DATABASE_URL` → `127.0.0.1:5433/maintenance_p1_test` (`.env.p1_test` `:55439` unreachable).
 - Initial proof failed because configured localhost:5433 was unavailable. Docker was unavailable; created a fresh scratch PostgreSQL18 cluster on loopback55439. Never connected mutating tests to the working database.
 - Applied all35 migrations and seeded only scratch maintenance_p1_test. Temporarily repointed ignored .env.p1_test, with original backed up outside the repository; .env untouched.
 - Isolation proof passed; baseline previously-blocked scenarios71/71 passed.

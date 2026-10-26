@@ -225,6 +225,24 @@ export async function revokeAllForUser(userId: string): Promise<number> {
   });
 }
 
+/** Authenticate a refresh token and revoke its user's sessions under one lock. */
+export async function revokeAllUsingRefreshToken(refreshToken: string): Promise<number> {
+  const session = await prisma.authSession.findUnique({
+    where: { refreshTokenHash: hashRefreshToken(refreshToken) },
+    select: { id: true, userId: true },
+  });
+  if (!session) throw new AppError(401, "unauthorized", "Invalid refresh token");
+  return prisma.$transaction(async tx => {
+    await lockUsersForLiveAccess(tx, [session.userId]);
+    await assertSessionActive(session.id, session.userId, tx);
+    const result = await tx.authSession.updateMany({
+      where: { userId: session.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return result.count;
+  });
+}
+
 /** Revoke every active session bound to a device id. */
 export async function revokeAllForDevice(deviceId: string): Promise<number> {
   // Device revoke cascades to all sessions sharing that deviceId.

@@ -31,6 +31,7 @@ jobs:
 
       - run: npm ci
       - run: npx prisma generate
+      - run: npm run lint
       - run: npm run build
       - run: npm run typecheck:tests
 
@@ -50,6 +51,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - run: npm ci
+      - run: npm run lint
       - run: npm run build
       - run: npm run typecheck:tests
       - run: npm test
@@ -295,6 +297,8 @@ jobs:
           docker build --target web -t maintenance-web:${GITHUB_SHA} ./web
       - name: Verify runtime Prisma client
         run: docker run --rm --entrypoint node maintenance-api:${GITHUB_SHA} -e "const {PrismaClient}=require('@prisma/client'); if(!PrismaClient) process.exit(1); console.log('Prisma client available')"
+      - name: Verify edge routing and monitoring delivery in isolated containers
+        run: API_IMAGE=maintenance-api:${GITHUB_SHA} WEB_IMAGE=maintenance-web:${GITHUB_SHA} node scripts/verify-containers.mjs
       - name: Scan API image
         if: ${{ always() && steps.build_images.outcome == 'success' }}
         uses: aquasecurity/trivy-action@v0.36.0
@@ -401,13 +405,29 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: "false"
 
   dependency-review:
-    name: Dependency review
+    name: Dependency review (PR)
     if: github.event_name == 'pull_request'
     permissions:
       actions: read
       contents: read
       security-events: write
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.7.0
+    with:
+      scan-args: |-
+        --lockfile=./api/package-lock.json
+        --lockfile=./web/package-lock.json
+        --lockfile=./e2e/package-lock.json
+      fail-on-vuln: true
+      upload-sarif: false
+
+  # P2-T06: OSV on push-to-main (PR-only dependency-review left a main-branch gap).
+  osv-main:
+    name: OSV scanner (main)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.7.0
     with:
       scan-args: |-
         --lockfile=./api/package-lock.json

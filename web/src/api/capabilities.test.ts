@@ -30,9 +30,9 @@ describe("canPerformAction / panelsForUser empty capabilities", () => {
     assert.equal(canPerformAction(tech, "tickets.close"), false);
   });
 
-  it("panels: [] does not restore role panels (notifications still forced)", () => {
+  it("panels: [] does not restore role panels (notifications not forced)", () => {
     const tech = user({ role: "technician", panels: [] });
-    assert.deepEqual(panelsForUser(tech), ["notifications"]);
+    assert.deepEqual(panelsForUser(tech), []);
   });
 
   it("non-empty arrays only allow granted capabilities", () => {
@@ -43,15 +43,24 @@ describe("canPerformAction / panelsForUser empty capabilities", () => {
     });
     assert.equal(canPerformAction(tech, "cards.view"), true);
     assert.equal(canPerformAction(tech, "tickets.resolve"), false);
-    assert.deepEqual(panelsForUser(tech), ["cards", "notifications"]);
+    assert.deepEqual(panelsForUser(tech), ["cards"]);
   });
 
-  it("missing actions/panels keep legacy role fallback", () => {
+  it("missing actions/panels keep legacy role fallback including notifications", () => {
     const tech = user({ role: "technician" });
     assert.equal(canPerformAction(tech, "tickets.resolve"), true);
     for (const panel of panelsForRole("technician")) {
       assert.ok(panelsForUser(tech).includes(panel));
     }
+    assert.ok(panelsForUser(tech).includes("notifications"));
+  });
+
+  it("explicit notifications grant is honored without client inject", () => {
+    const tech = user({
+      role: "technician",
+      panels: ["repairs", "notifications"],
+    });
+    assert.deepEqual(panelsForUser(tech), ["repairs", "notifications"]);
   });
 
   it("explicit partial grants authorize only their matching ticket action", () => {
@@ -64,6 +73,25 @@ describe("canPerformAction / panelsForUser empty capabilities", () => {
   it("owner still bypasses action checks", () => {
     const owner = user({ role: "owner", actions: [] });
     assert.equal(canPerformAction(owner, "tickets.resolve"), true);
+  });
+
+  it("SEC-003: legacy role helpers are not part of the public capabilities surface", async () => {
+    const caps = await import("./capabilities");
+    assert.equal(
+      "canResolveIssues" in caps,
+      false,
+      "canResolveIssues must not be exported",
+    );
+    assert.equal(
+      "canAssignIssues" in caps,
+      false,
+      "canAssignIssues must not be exported",
+    );
+    assert.equal(
+      "canCloseIssues" in caps,
+      false,
+      "canCloseIssues must not be exported",
+    );
   });
 });
 

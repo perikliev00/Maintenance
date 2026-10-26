@@ -1,5 +1,6 @@
 [Unit]
 Description=Encrypted off-host Meridian Maintenance PostgreSQL backup
+Documentation=file:/opt/maintenance/docs/operations/backup-install.md
 Wants=network-online.target
 After=network-online.target
 
@@ -8,6 +9,9 @@ Type=oneshot
 User=maintenance-backup
 Group=maintenance-backup
 WorkingDirectory=/opt/maintenance
+# Required keys in EnvironmentFile (production):
+#   DATABASE_URL, BACKUP_S3_URI, BACKUP_AGE_RECIPIENT
+# Optional: BACKUP_METRICS_FILE, BACKUP_HEARTBEAT_URL, AWS_* for the upload identity
 EnvironmentFile=/etc/maintenance/backup.env
 Environment=BACKUP_METRICS_FILE=/opt/maintenance/infra/monitoring/textfile/backup.prom
 UMask=0077
@@ -17,3 +21,5 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/maintenance/infra/monitoring/textfile
+# If aws CLI needs a credentials file owned by this user, also allow:
+# ReadOnlyPaths=/etc/maintenance

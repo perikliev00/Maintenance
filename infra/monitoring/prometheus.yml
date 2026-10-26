@@ -10,6 +10,8 @@ alerting:
     - static_configs:
         - targets: [alertmanager:9093]
 scrape_configs:
+  # Scrape the API on the internal Compose/backend network only.
+  # Public Caddy deliberately does NOT proxy /api/metrics (SEC-001 / P0-T02).
   - job_name: maintenance-api
     metrics_path: /metrics
     static_configs:

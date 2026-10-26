@@ -313,6 +313,43 @@ describe("drainQueue commandPayload URL enrichment", () => {
     assert.equal(commands[0]!.payload.commandId, commandId);
   });
 
+  it("enriches ticket.assign/close/reopen with ticketId and preserves body fields", async () => {
+    const assignId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const closeId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const reopenId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const commands = await capturePushPayload([
+      queued({
+        id: "q-assign",
+        type: "ticket.assign",
+        url: "/api/maintenance/tickets/t-asg/assign",
+        body: { commandId: assignId, assigneeId: "emp-1" },
+        commandId: assignId,
+      }),
+      queued({
+        id: "q-close",
+        type: "ticket.close",
+        url: "/api/maintenance/tickets/t-cls/close",
+        body: { commandId: closeId },
+        commandId: closeId,
+      }),
+      queued({
+        id: "q-reopen",
+        type: "ticket.reopen",
+        url: "/api/maintenance/tickets/t-rop/reopen?x=1",
+        body: { commandId: reopenId, reason: "again" },
+        commandId: reopenId,
+      }),
+    ]);
+    const assign = commands.find((c) => c.type === "ticket.assign");
+    const close = commands.find((c) => c.type === "ticket.close");
+    const reopen = commands.find((c) => c.type === "ticket.reopen");
+    assert.equal(assign?.payload.ticketId, "t-asg");
+    assert.equal(assign?.payload.assigneeId, "emp-1");
+    assert.equal(close?.payload.ticketId, "t-cls");
+    assert.equal(reopen?.payload.ticketId, "t-rop");
+    assert.equal(reopen?.payload.reason, "again");
+  });
+
   it("enriches cleaning.start/complete with taskId and sessionId", async () => {
     const startId = "44444444-4444-4444-8444-444444444444";
     const completeId = "55555555-5555-4555-8555-555555555555";

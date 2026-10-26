@@ -126,3 +126,44 @@ export function reportTicketQueued(
     ...(input.priority ? { priority: input.priority } : {}),
   });
 }
+
+/** Build ticket.assign command. */
+export function assignTicketQueued(
+  ticketId: string,
+  assigneeId: string,
+  run: RunOrEnqueue,
+): Promise<QueuedResult> {
+  return run(
+    "ticket.assign",
+    `${API_BASE}/maintenance/tickets/${ticketId}/assign`,
+    { commandId: crypto.randomUUID(), assigneeId },
+  );
+}
+
+/** Build ticket.close command. */
+export function closeTicketQueued(
+  ticketId: string,
+  run: RunOrEnqueue,
+): Promise<QueuedResult> {
+  return run(
+    "ticket.close",
+    `${API_BASE}/maintenance/tickets/${ticketId}/close`,
+    { commandId: crypto.randomUUID() },
+  );
+}
+
+/** Build ticket.reopen command; omit empty reason. */
+export function reopenTicketQueued(
+  ticketId: string,
+  reason: string | undefined,
+  run: RunOrEnqueue,
+): Promise<QueuedResult> {
+  return run(
+    "ticket.reopen",
+    `${API_BASE}/maintenance/tickets/${ticketId}/reopen`,
+    {
+      commandId: crypto.randomUUID(),
+      ...(reason?.trim() ? { reason: reason.trim() } : {}),
+    },
+  );
+}

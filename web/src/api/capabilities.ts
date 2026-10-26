@@ -118,9 +118,9 @@ const ALL_PANELS: Panel[] = [
 
 /** Bilingual / lookup table `PANEL_BY_ROLE` (data only). */
 const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {
-  housekeeper: ["mywork", "home", "rooms", "common"],
-  technician: ["mywork", "repairs", "home", "rooms", "common"],
-  reception: ["home", "rooms", "common", "plan", "cards"],
+  housekeeper: ["mywork", "home", "rooms", "common", "notifications"],
+  technician: ["mywork", "repairs", "home", "rooms", "common", "notifications"],
+  reception: ["home", "rooms", "common", "plan", "cards", "notifications"],
   supervisor: [
     "home",
     "rooms",
@@ -134,6 +134,7 @@ const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {
     "analytics",
     "cleaning",
     "repairs",
+    "notifications",
   ],
   manager: [
     "home",
@@ -152,6 +153,7 @@ const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {
     "control",
     "settings",
     "permissions",
+    "notifications",
   ],
   admin: [
     "home",
@@ -168,6 +170,7 @@ const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {
     "audit",
     "settings",
     "permissions",
+    "notifications",
   ],
 };
 
@@ -218,28 +221,23 @@ export function canViewControl(role: Role): boolean {
   return panelsForRole(role).includes("control");
 }
 
-/** Legacy ticket helpers used when `user.actions` is absent. */
-export function canResolveIssues(role: Role): boolean {
-  // Return value / early exit.
+/**
+ * Internal role heuristics for pre-capabilities sessions only.
+ * Not exported (SEC-003 / B3) — UI must use `canPerformAction` so `user.actions`
+ * remains authoritative when present (including empty arrays).
+ */
+function legacyTicketResolve(role: Role): boolean {
   return isOwner(role) || ["supervisor", "manager", "technician", "admin"].includes(role);
 }
 
-/**
- * Helper `canAssignIssues`.
- */
-export function canAssignIssues(role: Role): boolean {
-  // Return value / early exit.
+function legacyTicketAssign(role: Role): boolean {
   return (
     isOwner(role) ||
     ["reception", "supervisor", "manager", "admin"].includes(role)
   );
 }
 
-/**
- * Helper `canCloseIssues`.
- */
-export function canCloseIssues(role: Role): boolean {
-  // Return value / early exit.
+function legacyTicketClose(role: Role): boolean {
   return isOwner(role) || ["supervisor", "manager", "admin"].includes(role);
 }
 
@@ -252,12 +250,10 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
   if (isOwner(user.role)) return true;
   // Explicit array (including []) is authoritative; legacy fallback only when missing.
   if (Array.isArray(user.actions)) return user.actions.includes(action);
-  // Fallback mirrors when session predates capabilities
-  if (action === "tickets.resolve") return canResolveIssues(user.role);
-  // Branch: conditional gate.
-  if (action === "tickets.assign") return canAssignIssues(user.role);
-  // Branch: conditional gate.
-  if (action === "tickets.close") return canCloseIssues(user.role);
+  // Fallback when session predates capabilities (actions omitted, not []).
+  if (action === "tickets.resolve") return legacyTicketResolve(user.role);
+  if (action === "tickets.assign") return legacyTicketAssign(user.role);
+  if (action === "tickets.close") return legacyTicketClose(user.role);
   // Branch: conditional gate.
   if (action === "people.view") return canViewTeam(user.role);
   // Branch: conditional gate.
@@ -348,20 +344,15 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
 }
 
 /**
- * Panels the user may open. Always includes `notifications` so the inbox
- * remains reachable even when the server matrix omits it.
+ * Panels the user may open. Server RoleGrant `panels` is authoritative
+ * (FEAT-001 / B1 — notifications is a real catalog panel, not client-forced).
  */
 export function panelsForUser(user: AuthUser): Panel[] {
   // Explicit array (including []) is authoritative; legacy fallback only when missing.
-  const base = Array.isArray(user.panels)
-    ? [...user.panels]
-    : [...panelsForRole(user.role)];
-  // Branch: conditional gate.
-  if (!base.includes("notifications")) {
-    base.push("notifications");
+  if (Array.isArray(user.panels)) {
+    return [...user.panels];
   }
-  // Return value / early exit.
-  return base;
+  return [...panelsForRole(user.role)];
 }
 
 export type ModuleToggles = {

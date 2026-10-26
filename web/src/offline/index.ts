@@ -48,8 +48,11 @@ export { drainQueue } from "./queueDrain";
 
 export type { QueuedResult } from "./runOrEnqueue";
 export {
+  assignTicketQueued,
+  closeTicketQueued,
   completeCleaningQueued,
   reportTicketQueued,
+  reopenTicketQueued,
   resolveTicketQueued,
   resumeTicketQueued,
   startCleaningQueued,

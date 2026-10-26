@@ -5,8 +5,11 @@
  * validation errors immediately rather than hiding them in the outbox.
  */
 import {
+  assignTicketQueued as assignTicketCommand,
+  closeTicketQueued as closeTicketCommand,
   completeCleaningQueued as completeCleaningCommand,
   reportTicketQueued as reportTicketCommand,
+  reopenTicketQueued as reopenTicketCommand,
   resolveTicketQueued as resolveTicketCommand,
   resumeTicketQueued as resumeTicketCommand,
   startCleaningQueued as startCleaningCommand,
@@ -153,4 +156,25 @@ export async function reportTicketQueued(input: {
   blocksRoom: boolean;
 }): Promise<QueuedResult> {
   return reportTicketCommand(input, runOrEnqueue);
+}
+
+/** Assign / reassign a ticket (online or queued). */
+export async function assignTicketQueued(
+  ticketId: string,
+  assigneeId: string,
+): Promise<QueuedResult> {
+  return assignTicketCommand(ticketId, assigneeId, runOrEnqueue);
+}
+
+/** Close a resolved ticket (online or queued). */
+export async function closeTicketQueued(ticketId: string): Promise<QueuedResult> {
+  return closeTicketCommand(ticketId, runOrEnqueue);
+}
+
+/** Reopen a resolved/closed ticket (online or queued). */
+export async function reopenTicketQueued(
+  ticketId: string,
+  reason?: string,
+): Promise<QueuedResult> {
+  return reopenTicketCommand(ticketId, reason, runOrEnqueue);
 }

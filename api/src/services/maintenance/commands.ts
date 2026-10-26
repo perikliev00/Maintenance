@@ -9,7 +9,14 @@ import { AppError } from "../../errors";
 import { formatMaintenanceTicket, type FormattedMaintenanceTicket } from "./format";
 import { ticketInclude } from "./types";
 
-export type LifecycleCommandKind = "start" | "wait" | "resume" | "resolve";
+export type LifecycleCommandKind =
+  | "start"
+  | "wait"
+  | "resume"
+  | "resolve"
+  | "assign"
+  | "close"
+  | "reopen";
 
 /** Canonical fields hashed into `_commandFingerprint` on the ticket event payload. */
 export type LifecycleCommandKey = {
@@ -18,6 +25,8 @@ export type LifecycleCommandKey = {
   actorEmployeeId: string;
   reason?: string | null;
   resolutionNotes?: string | null;
+  /** Present for assign — fingerprint must bind the chosen technician. */
+  assigneeId?: string | null;
 };
 
 /** Canonical fields for create commandId fingerprinting. */
@@ -35,13 +44,24 @@ export type CreateCommandKey = {
 /** Stable hash of the lifecycle command key for conflict detection on replay. */
 export function lifecyclePayloadFingerprint(key: LifecycleCommandKey): string {
   // Null-normalize optional fields so undefined vs null hash identically.
-  const normalized = {
-    kind: key.kind,
-    ticketId: key.ticketId,
-    actorEmployeeId: key.actorEmployeeId,
-    reason: key.reason ?? null,
-    resolutionNotes: key.resolutionNotes ?? null,
-  };
+  // Keep legacy start/wait/resume/resolve hashes stable — only assign binds assigneeId.
+  const normalized =
+    key.kind === "assign"
+      ? {
+          kind: key.kind,
+          ticketId: key.ticketId,
+          actorEmployeeId: key.actorEmployeeId,
+          reason: key.reason ?? null,
+          resolutionNotes: key.resolutionNotes ?? null,
+          assigneeId: key.assigneeId ?? null,
+        }
+      : {
+          kind: key.kind,
+          ticketId: key.ticketId,
+          actorEmployeeId: key.actorEmployeeId,
+          reason: key.reason ?? null,
+          resolutionNotes: key.resolutionNotes ?? null,
+        };
   // SHA-256 hex of the canonical JSON — stored as `_commandFingerprint`.
   return createHash("sha256")
     .update(JSON.stringify(normalized))
@@ -118,7 +138,7 @@ function assertLifecycleCommandMatch(
 export async function replayLifecycleCommand(
   commandId: string | undefined,
   key: LifecycleCommandKey,
-): Promise<{ ticket: FormattedMaintenanceTicket; idempotent: true } | null> {
+): Promise<{ ticket: FormattedMaintenanceTicket; eventId: string; idempotent: true } | null> {
   // Online paths without commandId skip idempotency entirely.
   if (!commandId) return null;
 
@@ -150,6 +170,7 @@ export async function replayLifecycleCommand(
   assertLifecycleCommandMatch(existing, key);
   return {
     ticket: formatMaintenanceTicket(existing.ticket),
+    eventId: existing.id,
     idempotent: true,
   };
 }

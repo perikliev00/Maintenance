@@ -88,28 +88,39 @@ export type LocationQrPayload = {
   number: string;
 };
 
+/** Load the whole scoped board so client filters/selectors never hide later pages. */
+async function fetchActiveLocations(path: string, init?: { signal?: AbortSignal }): Promise<Room[]> {
+  const rows = new Map<string, Room>();
+  const seenCursors = new Set<string>();
+  let cursor: string | null = null;
+  do {
+    init?.signal?.throwIfAborted();
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+    const res = await apiFetch(`${API_BASE}${path}${query}`, {
+      headers: authHeaders(), signal: init?.signal,
+    });
+    const page = await parseJson<Room[]>(res);
+    for (const row of page) rows.set(row.id, row);
+    cursor = res.headers.get("X-Next-Cursor");
+    if (res.headers.get("X-Result-Truncated") === "1" && !cursor) {
+      throw new Error("Location list is incomplete; refresh after updating the server");
+    }
+    if (cursor && seenCursors.has(cursor)) throw new Error("Location pagination did not advance");
+    if (cursor) seenCursors.add(cursor);
+  } while (cursor);
+  return [...rows.values()];
+}
+
 /** Guest-room board rows (readiness + active cleaning task). Abortable. */
 export async function fetchRooms(init?: { signal?: AbortSignal }): Promise<Room[]> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/rooms`, {
-    headers: authHeaders(),
-    signal: init?.signal,
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return fetchActiveLocations("/rooms", init);
 }
 
 /** Common-area board rows (same shape as rooms). Abortable. */
 export async function fetchCommonAreas(init?: {
   signal?: AbortSignal;
 }): Promise<Room[]> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/common-areas`, {
-    headers: authHeaders(),
-    signal: init?.signal,
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return fetchActiveLocations("/common-areas", init);
 }
 
 /** Mark a guest room dirty and rebind active cleaning work server-side. */

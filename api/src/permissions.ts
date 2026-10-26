@@ -26,6 +26,7 @@ export const ALL_PANELS = [
   "control",
   "settings",
   "permissions",
+  "notifications",
 ] as const;
 /** Panel union derived from the catalog above. */
 export type Panel = (typeof ALL_PANELS)[number];
@@ -77,10 +78,10 @@ export type Action = (typeof ALL_ACTIONS)[number];
 
 /** Seed / bootstrap source only — runtime reads RoleGrant from DB. */
 export const DEFAULT_PANEL_GRANTS: Record<Exclude<Role, "owner">, Panel[]> = {
-  // Floor roles: limited nav surface for day-to-day work.
-  housekeeper: ["mywork", "home", "rooms", "common"],
-  technician: ["mywork", "repairs", "home", "rooms", "common"],
-  reception: ["home", "rooms", "common", "plan", "cards"],
+  // Floor roles: limited nav surface for day-to-day work (+ inbox).
+  housekeeper: ["mywork", "home", "rooms", "common", "notifications"],
+  technician: ["mywork", "repairs", "home", "rooms", "common", "notifications"],
+  reception: ["home", "rooms", "common", "plan", "cards", "notifications"],
   // Ops leadership: live board, plan, results, analytics.
   supervisor: [
     "home",
@@ -95,6 +96,7 @@ export const DEFAULT_PANEL_GRANTS: Record<Exclude<Role, "owner">, Panel[]> = {
     "analytics",
     "cleaning",
     "repairs",
+    "notifications",
   ],
   // Manager: full ops + control / settings / permissions.
   manager: [
@@ -114,6 +116,7 @@ export const DEFAULT_PANEL_GRANTS: Record<Exclude<Role, "owner">, Panel[]> = {
     "control",
     "settings",
     "permissions",
+    "notifications",
   ],
   // Admin: broad access without live/control board defaults.
   admin: [
@@ -131,6 +134,7 @@ export const DEFAULT_PANEL_GRANTS: Record<Exclude<Role, "owner">, Panel[]> = {
     "audit",
     "settings",
     "permissions",
+    "notifications",
   ],
 };
 
@@ -198,6 +202,8 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
     "rooms.set_occupancy",
     "rooms.set_service_status",
     "cleaning.create",
+    "cleaning.start",
+    "cleaning.complete",
     "cleaning.reassign",
     "cleaning.inspect",
     "cleaning.review_overdue",
@@ -233,6 +239,8 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
     "rooms.view",
     "rooms.manage",
     "rooms.set_service_status",
+    "cleaning.start",
+    "cleaning.complete",
     "tickets.report",
     "tickets.resolve",
     "tickets.assign",

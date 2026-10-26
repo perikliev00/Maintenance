@@ -11,7 +11,10 @@ import {
   handleCleaningStart,
 } from "./commands/cleaning";
 import {
+  handleTicketAssign,
+  handleTicketClose,
   handleTicketReport,
+  handleTicketReopen,
   handleTicketResolve,
   handleTicketResume,
   handleTicketStart,
@@ -29,6 +32,9 @@ const payloadSchemas: Record<string, z.ZodTypeAny> = {
   "ticket.wait": z.object({ ticketId: id, reason: z.string().optional() }),
   "ticket.resume": z.object({ ticketId: id }),
   "ticket.resolve": z.object({ ticketId: id, resolutionNotes: z.string().optional() }),
+  "ticket.assign": z.object({ ticketId: id, assigneeId: id }),
+  "ticket.close": z.object({ ticketId: id }),
+  "ticket.reopen": z.object({ ticketId: id, reason: z.string().optional() }),
 };
 
 /**
@@ -40,9 +46,9 @@ export async function applyCommand(
   cmd: SyncCommand,
 ): Promise<SyncCommandResult> {
   try {
-    const schema = payloadSchemas[cmd.type];
+    const schema = Object.hasOwn(payloadSchemas, cmd.type) ? payloadSchemas[cmd.type] : undefined;
     if (schema && !schema.safeParse(cmd.payload).success) {
-      return { commandId: cmd.commandId, status: "error", code: "validation", message: "Invalid command payload" };
+      return { commandId: cmd.commandId, status: "error", code: "validation", message: "Invalid command payload", retryable: false };
     }
     // Scope once per command so handlers share the same sector/assignment view.
     const scope = await resolveDataScope(user);
@@ -63,12 +69,19 @@ export async function applyCommand(
         return await handleTicketResume(user, scope, cmd);
       case "ticket.resolve":
         return await handleTicketResolve(user, scope, cmd);
+      case "ticket.assign":
+        return await handleTicketAssign(user, scope, cmd);
+      case "ticket.close":
+        return await handleTicketClose(user, scope, cmd);
+      case "ticket.reopen":
+        return await handleTicketReopen(user, scope, cmd);
       default:
         // Forward-compat: unknown types fail soft so the batch can continue.
         return {
           commandId: cmd.commandId,
           status: "error",
           message: `Unknown command type ${cmd.type}`,
+          retryable: false,
         };
     }
   } catch (err) {
@@ -94,13 +107,16 @@ export async function applyCommand(
         commandId: cmd.commandId,
         status: "error",
         message: err.message,
+        code: err.code,
+        retryable: err.status === 408 || err.status === 429 || err.status >= 500,
       };
     }
     // Unexpected throws become opaque error results (batch continues).
     return {
       commandId: cmd.commandId,
       status: "error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: "Temporary command failure",
+      retryable: true,
     };
   }
 }

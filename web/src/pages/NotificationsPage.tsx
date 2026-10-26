@@ -1,6 +1,6 @@
 /**
  * In-app notification inbox: mark read / dismiss / navigate to linked panels.
- * Live-refreshes on `notification.changed` (debounced).
+ * Live-refreshes on `notification.changed` (debounced). Cursor load-more (B3).
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -56,21 +56,47 @@ function relativeTime(iso: string, locale: "bg" | "en") {
  * Live-refreshes on `notification.changed` (debounced).
  */
 export function NotificationsPage({ locale = "bg", onNavigate }: Props) {
-  // Inbox rows for the signed-in user (max 50 per fetch).
+  // Inbox rows loaded so far (cursor pages append).
   const [items, setItems] = useState<AppNotification[]>([]);
+  // Cursor for the next page; null when exhausted.
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   // True until the first successful or failed load settles.
   const [loading, setLoading] = useState(true);
+  // True while appending a subsequent page.
+  const [loadingMore, setLoadingMore] = useState(false);
   // User-visible load error; cleared on the next refresh attempt.
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Fetch up to 50 notifications for the current user and replace local state.
+   * Fetch the first page and replace local state (initial + live refresh).
    */
   const refresh = useCallback(async () => {
-    // Cap list size; older notifications are not paged on this screen.
     const res = await listNotifications({ limit: 50 });
     setItems(res.items);
+    setNextCursor(res.nextCursor);
   }, []);
+
+  /**
+   * Append the next cursor page onto the current list.
+   */
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const res = await listNotifications({ limit: 50, cursor: nextCursor });
+      setItems((prev) => [...prev, ...res.items]);
+      setNextCursor(res.nextCursor);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(locale, "Неуспешно зареждане", "Failed to load more"),
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextCursor, loadingMore, locale]);
 
   // Initial load (and when locale changes — error strings need refresh).
   useEffect(() => {
@@ -131,8 +157,12 @@ export function NotificationsPage({ locale = "bg", onNavigate }: Props) {
               : x,
           ),
         );
-      } catch {
-        /* still navigate even if mark-read failed */
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(locale, "Неуспешно маркиране", "Failed to mark read"),
+        );
       }
     }
     // Deep-link payload may name a shell panel to open.
@@ -150,8 +180,12 @@ export function NotificationsPage({ locale = "bg", onNavigate }: Props) {
       await dismissNotification(id);
       // Drop the row locally after a successful dismiss.
       setItems((prev) => prev.filter((x) => x.id !== id));
-    } catch {
-      /* ignore dismiss failures */
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(locale, "Неуспешно скриване", "Failed to dismiss"),
+      );
     }
   }
 
@@ -169,8 +203,12 @@ export function NotificationsPage({ locale = "bg", onNavigate }: Props) {
           readAt: x.readAt ?? new Date().toISOString(),
         })),
       );
-    } catch {
-      /* ignore mark-all failures */
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(locale, "Неуспешно маркиране", "Failed to mark all read"),
+      );
     }
   }
 
@@ -226,39 +264,55 @@ export function NotificationsPage({ locale = "bg", onNavigate }: Props) {
               {t(locale, "Няма известия", "No notifications")}
             </p>
           ) : (
-            <ul className="notif-page-list">
-              {items.map((n) => (
-                <li
-                  key={n.id}
-                  className={`notif-page-item${n.unread ? " unread" : ""}`}
-                >
-                  {/* Open: mark read + optional panel navigation. */}
+            <>
+              <ul className="notif-page-list">
+                {items.map((n) => (
+                  <li
+                    key={n.id}
+                    className={`notif-page-item${n.unread ? " unread" : ""}`}
+                  >
+                    {/* Open: mark read + optional panel navigation. */}
+                    <button
+                      type="button"
+                      className="notif-page-item-main"
+                      onClick={() => void onOpenItem(n)}
+                    >
+                      <strong>{n.title}</strong>
+                      <span>{n.body}</span>
+                      <time dateTime={n.createdAt}>
+                        {relativeTime(n.createdAt, locale)}
+                        {/* Absolute locale string alongside relative time. */}
+                        {n.createdAt
+                          ? ` · ${new Date(n.createdAt).toLocaleString()}`
+                          : ""}
+                      </time>
+                    </button>
+                    {/* Dismiss removes the row without navigating. */}
+                    <button
+                      type="button"
+                      className="ghost notif-dismiss"
+                      onClick={() => void onDismiss(n.id)}
+                    >
+                      {t(locale, "Скрий", "Dismiss")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {nextCursor && (
+                <div style={{ padding: "0.75rem 1rem" }}>
                   <button
                     type="button"
-                    className="notif-page-item-main"
-                    onClick={() => void onOpenItem(n)}
+                    className="ghost"
+                    disabled={loadingMore}
+                    onClick={() => void loadMore()}
                   >
-                    <strong>{n.title}</strong>
-                    <span>{n.body}</span>
-                    <time dateTime={n.createdAt}>
-                      {relativeTime(n.createdAt, locale)}
-                      {/* Absolute locale string alongside relative time. */}
-                      {n.createdAt
-                        ? ` · ${new Date(n.createdAt).toLocaleString()}`
-                        : ""}
-                    </time>
+                    {loadingMore
+                      ? t(locale, "Зареждане…", "Loading…")
+                      : t(locale, "Зареди още", "Load more")}
                   </button>
-                  {/* Dismiss removes the row without navigating. */}
-                  <button
-                    type="button"
-                    className="ghost notif-dismiss"
-                    onClick={() => void onDismiss(n.id)}
-                  >
-                    {t(locale, "Скрий", "Dismiss")}
-                  </button>
-                </li>
-              ))}
-            </ul>
+                </div>
+              )}
+            </>
           )}
         </section>
       )}

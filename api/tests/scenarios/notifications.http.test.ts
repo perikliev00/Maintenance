@@ -10,7 +10,7 @@ import { createNotifications, recipientsForLocationOps } from "../../src/service
 import { getSetting, updateSetting } from "../../src/services/settings";
 import { waitForBackendsBlockedByHolderChain } from "../attendance/fixtures";
 import { createCleaningTask, inspectCleaningTask } from "../../src/services/cleaning";
-import { resolveMaintenanceTicket } from "../../src/services/maintenance";
+import { closeMaintenanceTicket, reopenMaintenanceTicket, resolveMaintenanceTicket } from "../../src/services/maintenance";
 
 let fx: ScopeSmokeFixture;
 let api: string;
@@ -38,6 +38,7 @@ describe("P1 notifications / P2 inbox", () => {
       await prisma.notification.deleteMany({ where: { OR: [{ entityId: tag }, { locationId: { in: [fx.locAId, fx.locBId] } }] } });
       await prisma.auditEvent.deleteMany({ where: { actorEmployeeId: fx.manager.employeeId } });
       await prisma.ticketEvent.deleteMany({ where: { ticketId: { in: [fx.ticketAId, fx.ticketBId] } } });
+      await prisma.ticketReopenEvent.deleteMany({ where: { ticketId: { in: [fx.ticketAId, fx.ticketBId] } } });
       await prisma.inspection.deleteMany({ where: { taskId: { in: [fx.taskAId, fx.taskBId] } } });
       await prisma.cleaningTask.deleteMany({ where: { locationId: fx.locAId, id: { notIn: [fx.taskAId, fx.taskOtherHkId] } } });
       await cleanupScopeSmokeFixture(prisma, fx);
@@ -72,6 +73,27 @@ describe("P1 notifications / P2 inbox", () => {
     const rows = await prisma.notification.findMany({ where: { entityId: fx.ticketAId, type: "ticket.resolved" } });
     assert.deepEqual(rows.map(r => r.recipientEmployeeId).sort(), [fx.housekeeper.employeeId, fx.otherHk.employeeId].sort());
     assert.ok(rows.every(r => r.locationId === fx.locAId && (r.payload as any).ticketId === fx.ticketAId));
+  });
+  it("resolve/close notify each lifecycle event, while command retries stay deduplicated", async () => {
+    await prisma.maintenanceTicket.update({ where: { id: fx.ticketBId }, data: { status: "in_progress", assigneeId: fx.housekeeper.employeeId, reportedByEmployeeId: fx.otherHk.employeeId } });
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      const resolve = { ticketId: fx.ticketBId, resolvedByEmployeeId: fx.manager.employeeId, bypassAssigneeCheck: true, commandId: cycle < 3 ? randomUUID() : undefined };
+      const close = { ticketId: fx.ticketBId, closedByEmployeeId: fx.manager.employeeId, commandId: cycle < 3 ? randomUUID() : undefined };
+      await resolveMaintenanceTicket(resolve);
+      await closeMaintenanceTicket(close);
+      if (cycle < 3) {
+        await resolveMaintenanceTicket(resolve);
+        await closeMaintenanceTicket(close);
+      }
+      for (const type of ["ticket.resolved", "ticket.closed"]) {
+        const rows = await prisma.notification.findMany({ where: { entityId: fx.ticketBId, type } });
+        assert.equal(rows.length, 2 * cycle);
+        for (const recipient of [fx.housekeeper.employeeId, fx.otherHk.employeeId]) assert.equal(rows.filter(r => r.recipientEmployeeId === recipient).length, cycle);
+        assert.ok(rows.every(r => r.recipientEmployeeId !== fx.manager.employeeId));
+        assert.equal(new Set(rows.map(r => r.dedupeKey)).size, cycle);
+      }
+      if (cycle < 3) await reopenMaintenanceTicket({ ticketId: fx.ticketBId, reopenedByEmployeeId: fx.manager.employeeId, commandId: randomUUID() });
+    }
   });
   it("P2-38 overlapping creates blocked on real recipient row dedupe each recipient and exclude actor", async () => {
     await clearInbox();

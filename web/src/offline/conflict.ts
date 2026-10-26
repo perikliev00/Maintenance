@@ -102,6 +102,7 @@ export type SyncResultLike = {
   message?: string;
   code?: string;
   details?: unknown;
+  retryable?: boolean;
 };
 
 export type QueuedActionPatch = {
@@ -162,7 +163,11 @@ export function decideSyncResult(
       retries: retries + 1,
     };
   }
-  // Other errors: retry until maxRetries, then failed.
+  if (result.retryable === false || code === "validation") {
+    return { status: "failed", lastError: message ?? "error", retries: retries + 1,
+      conflictCode: null, conflictMessage: null, conflictDetails: null };
+  }
+  // Legacy servers omit retryable; keep bounded retries for those results too.
   const next = retries + 1;
   return {
     status: next >= maxRetries ? "failed" : "pending",

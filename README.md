@@ -185,7 +185,7 @@ Property (Meridian Resort)
 | `IssueOption` | Предварително зададени опции за сигнал (вид, категория, defaults) |
 | `MaintenanceTicket` | Ремонтен проблем по location; snapshot на категорията (`categoryKey`, labels); optional `issueOptionId`; `blocksRoom` влияе на readiness |
 
-**TicketStatus:** `new` \| `in_progress` \| `resolved` \| `closed`.  
+**TicketStatus:** `new` \| `assigned` \| `in_progress` \| `waiting` \| `resolved` \| `closed`.  
 **Категория на тикет:** snapshot при създаване (промяна в каталога не променя историята).  
 **Priority:** low, normal, high, urgent.
 

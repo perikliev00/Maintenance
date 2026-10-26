@@ -5,10 +5,8 @@
  */
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  assignIssue,
   // Permission / capability gate.
   canPerformAction,
-  closeIssue,
   fetchIssueOptions,
   fetchMaintenanceCategories,
   fetchPeople,
@@ -26,6 +24,8 @@ import { TicketLifecycleActions } from "../../components/TicketLifecycleActions"
 import { OutboxIssuesPanel } from "../../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import {
+  assignTicketQueued,
+  closeTicketQueued,
   getQueueStats,
   reportTicketQueued,
   subscribeOffline,
@@ -488,20 +488,21 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                                 if (!assigneeId) return;
                                 // State transition.
                                 setBusyId(ticket.id);
-                                // Fire-and-forget async call.
-                                void assignIssue(ticket.id, assigneeId)
-                                  // Promise then handler.
-                                  .then(() => {
-                                    // State transition.
+                                // Fire-and-forget async call (online or outbox).
+                                void assignTicketQueued(ticket.id, assigneeId)
+                                  .then((result) => {
                                     setMessage(
-                                      t(locale, "Назначен", "Assigned"),
+                                      result.queued
+                                        ? t(
+                                            locale,
+                                            "Назначаване в опашката",
+                                            "Assign queued",
+                                          )
+                                        : t(locale, "Назначен", "Assigned"),
                                     );
-                                    // Early / value return.
-                                    return refresh();
+                                    if (!result.queued) return refresh();
                                   })
-                                  // Promise catch handler.
                                   .catch((err) =>
-                                    // State transition.
                                     setError(
                                       err instanceof Error
                                         ? err.message
@@ -528,20 +529,21 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                             className="subtle"
                             disabled={busyId === ticket.id}
                             onClick={() => {
-                              // State transition.
                               setBusyId(ticket.id);
-                              // Fire-and-forget async call.
-                              void closeIssue(ticket.id)
-                                // Promise then handler.
-                                .then(() => {
-                                  // State transition.
-                                  setMessage(t(locale, "Затворен", "Closed"));
-                                  // Early / value return.
-                                  return refresh();
+                              void closeTicketQueued(ticket.id)
+                                .then((result) => {
+                                  setMessage(
+                                    result.queued
+                                      ? t(
+                                          locale,
+                                          "Затваряне в опашката",
+                                          "Close queued",
+                                        )
+                                      : t(locale, "Затворен", "Closed"),
+                                  );
+                                  if (!result.queued) return refresh();
                                 })
-                                // Promise catch handler.
                                 .catch((err) =>
-                                  // State transition.
                                   setError(
                                     err instanceof Error
                                       ? err.message

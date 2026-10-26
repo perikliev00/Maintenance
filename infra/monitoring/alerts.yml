@@ -44,6 +44,8 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: Offline synchronization endpoint is returning server errors
+      # ~25h threshold = "missed about a day of hourly dumps", not "missed one hour".
+      # Pair with BACKUP_HEARTBEAT_URL / external dead-man for host-down detection.
       - alert: MaintenanceBackupStale
         expr: time() - backup_last_success_timestamp_seconds > 90000
         for: 5m

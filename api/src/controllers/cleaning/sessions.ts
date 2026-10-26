@@ -4,19 +4,19 @@
  */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
-import { isOwner } from "../../permissions";
 import {
   cancelCleaningSession,
   completeCleaningSession,
   listOverdueSessions,
 } from "../../services/cleaning";
+import { canBypassCleaningAssignee } from "../../services/cleaning/authorization";
 import {
   assertCanAccessSession,
   resolveDataScope,
   sessionTaskWhere,
 } from "../../services/dataScope";
 
-/** Complete a session; owners may bypass the session-owner check. */
+/** Complete a session; bypass roles match tickets (SEC-002). */
 export async function complete(req: Request, res: Response, next: NextFunction) {
   try {
     // commandId required for idempotent complete; notes/version optional.
@@ -40,8 +40,8 @@ export async function complete(req: Request, res: Response, next: NextFunction) 
       commandId: parsed.data.commandId,
       notes: parsed.data.notes,
       expectedVersion: parsed.data.expectedVersion,
-      // Owners may complete sessions they did not start.
-      bypassSessionOwnerCheck: isOwner(req.user!.role),
+      // Same bypass set as tickets (owner/supervisor/manager/admin/reception).
+      bypassSessionOwnerCheck: canBypassCleaningAssignee(req.user!.role),
     });
 
     return res.json(result);
