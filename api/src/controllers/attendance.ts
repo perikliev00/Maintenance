@@ -4,7 +4,7 @@
  */
 import type { NextFunction, Request, Response } from "express";
 import { AttendanceEventKind } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { AppError } from "../errors";
 import {
   getInterval as getIntervalById,

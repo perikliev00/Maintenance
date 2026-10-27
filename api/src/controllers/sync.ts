@@ -3,7 +3,7 @@
  * server deltas since a cursor. Authorization of each command is inside pushSync.
  */
 import type { NextFunction, Request, Response } from "express";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { pullSync, pushSync } from "../services/sync";
 
 /** POST /sync/push — apply a batch of offline client commands (max 100). */

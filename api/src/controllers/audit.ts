@@ -4,7 +4,7 @@
  * operations.view_live when filtering to a single locationId, then applies DataScope.
  */
 import type { NextFunction, Request, Response } from "express";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { canPerform } from "../services/roleGrants";
 import { auditScopeArgsFor, listAuditEvents } from "../services/audit";
 import {

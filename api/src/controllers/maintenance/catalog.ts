@@ -1,7 +1,7 @@
 /** Issue category/option catalog CRUD and reorder (manage vs report on routes). */
 import type { NextFunction, Request, Response } from "express";
 import { IssueOptionKind, Priority } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 import {
   archiveCategory,
   archiveIssueOption,

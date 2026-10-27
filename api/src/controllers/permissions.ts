@@ -1,7 +1,7 @@
 /** Permissions matrix HTTP handlers (permissions.manage on the route). */
 import type { NextFunction, Request, Response } from "express";
 import { Role } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 import {
   getFullMatrix,
   listPermissionHistory,

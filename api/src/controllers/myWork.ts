@@ -1,7 +1,7 @@
 /** Current employee's assigned cleaning/maintenance work for optional hotelDate/shift. */
 import type { NextFunction, Request, Response } from "express";
 import { getMyWork } from "../services/myWork";
-import { z } from "zod";
+import { z } from "zod/v3";
 
 /** GET /my-work — tasks/tickets for the authenticated employee. */
 export async function list(req: Request, res: Response, next: NextFunction) {

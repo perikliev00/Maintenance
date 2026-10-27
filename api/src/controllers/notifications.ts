@@ -1,6 +1,6 @@
 /** In-app notifications for the authenticated employee's inbox only. */
 import type { NextFunction, Request, Response } from "express";
-import { z } from "zod";
+import { z } from "zod/v3";
 import {
   dismissNotification,
   listNotificationsForEmployee,

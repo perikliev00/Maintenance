@@ -3,7 +3,7 @@
  * service status, QR, archive/restore. Most mutations assert DataScope access.
  */
 import type { NextFunction, Request, Response } from "express";
-import { z } from "zod";
+import { z } from "zod/v3";
 import {
   LocationKind,
   Occupancy,

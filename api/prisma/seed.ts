@@ -786,7 +786,8 @@ async function main() {
     optionNameEn?: string;
   }> = [
     {
-      number: "104",
+      // Room 110: no live active "AC leak" ticket (104/204 already have one).
+      number: "110",
       title: "Repeat AC drip (resolved)",
       categoryKey: "climate",
       priority: Priority.high,

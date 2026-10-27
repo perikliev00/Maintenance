@@ -3,7 +3,7 @@
  * DataScope; sectors.transfer_cross allows assigning locations outside scope.
  */
 import type { NextFunction, Request, Response } from "express";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { AppError } from "../errors";
 import { canPerform } from "../services/roleGrants";
 import {

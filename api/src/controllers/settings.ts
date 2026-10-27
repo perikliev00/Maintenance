@@ -1,6 +1,6 @@
 /** Settings + SLA policy HTTP handlers (public subset vs settings.manage routes). */
 import type { NextFunction, Request, Response } from "express";
-import { z } from "zod";
+import { z } from "zod/v3";
 import {
   ensureDefaultSettings,
   getAllSettings,

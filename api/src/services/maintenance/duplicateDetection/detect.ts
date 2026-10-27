@@ -47,6 +47,7 @@ const summarySelect = {
   priority: true,
   blocksRoom: true,
   issueOptionId: true,
+  duplicateIdentityKey: true,
   assigneeId: true,
   reportedByEmployeeId: true,
   openedAt: true,

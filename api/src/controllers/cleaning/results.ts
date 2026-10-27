@@ -1,6 +1,6 @@
 /** Paginated cleaning results report for a hotel-date range (DataScope-filtered). */
 import type { NextFunction, Request, Response } from "express";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { getCleaningResults } from "../../services/cleaningResults";
 import {
   resolveDataScope,

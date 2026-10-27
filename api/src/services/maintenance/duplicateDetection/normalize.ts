@@ -4,7 +4,7 @@
  */
 
 /** Characters stripped as harmless punctuation after Unicode normalize. */
-const HARMLESS_PUNCT = /[/\\|_.,;:()[\]"'`~!?+\-]+/g;
+const HARMLESS_PUNCT = /[/\\|_.,;:()[\]"'`~!?+-]+/g;
 
 /**
  * Normalize free text for identity comparison:

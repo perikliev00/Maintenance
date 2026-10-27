@@ -4,7 +4,7 @@
  */
 import type { NextFunction, Request, Response } from "express";
 import { Role } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { listActiveHousekeepers } from "../../services/assignees";
 import { canBypassCleaningAssignee } from "../../services/cleaning/authorization";
 import {

@@ -5,7 +5,7 @@
 import { Prisma } from "@prisma/client";
 import { AppError } from "../../errors";
 import { safeErrorMessage } from "../../observability";
-import { z } from "zod";
+import { z } from "zod/v3";
 import type { AuthUser } from "../../middleware/auth";
 import { resolveDataScope } from "../dataScope";
 import {

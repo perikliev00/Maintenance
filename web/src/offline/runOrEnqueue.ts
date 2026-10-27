@@ -150,6 +150,7 @@ export async function resolveTicketQueued(
 export async function reportTicketQueued(input: {
   locationId: string;
   title?: string;
+  description?: string;
   issueOptionId?: string;
   categoryId?: string;
   priority?: string;

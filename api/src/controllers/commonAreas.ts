@@ -1,7 +1,7 @@
 /** Common-area location list/get/mark-dirty; scoped like rooms. */
 import type { NextFunction, Request, Response } from "express";
 import { LocationKind } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { markRoomDirty } from "../services/cleaning";
 import {
   locationWhere,

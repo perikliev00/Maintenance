@@ -4,7 +4,7 @@
  */
 import type { NextFunction, Request, Response } from "express";
 import { Prisma, Role } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { prisma } from "../db";
 import { canChangeUserRole } from "../permissions";
 import { AppError } from "../errors";

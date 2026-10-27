@@ -5,7 +5,7 @@
  */
 import type { NextFunction, Request, Response } from "express";
 import { Priority } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 import {
   assignMaintenanceTicket,
   closeMaintenanceTicket,

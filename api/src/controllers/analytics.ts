@@ -1,6 +1,6 @@
 /** Analytics summary for maintenance or housekeeping domains, DataScope-filtered. */
 import type { NextFunction, Request, Response } from "express";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { getAnalyticsSummary } from "../services/analytics";
 import {
   locationWhere,

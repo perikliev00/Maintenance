@@ -1,7 +1,7 @@
 /** Access-card list/issue/revoke and employee picker for issuance. */
 import type { NextFunction, Request, Response } from "express";
 import { CardStatus, CardType } from "@prisma/client";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { AppError } from "../errors";
 import {
   issueCard,

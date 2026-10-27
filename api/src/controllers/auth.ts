@@ -4,7 +4,7 @@
  */
 import type { NextFunction, Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { Role } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "../errors";

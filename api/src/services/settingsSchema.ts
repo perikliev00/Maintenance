@@ -2,7 +2,7 @@
  * Zod schemas, defaults, and key union for AppSetting JSON values.
  * Keep schemas and DEFAULT_SETTINGS in sync — getSetting falls back on parse failure.
  */
-import { z } from "zod";
+import { z } from "zod/v3";
 
 /** Canonical AppSetting.key values — keep in sync with SETTING_SCHEMAS / defaults. */
 export const SETTING_KEYS = [

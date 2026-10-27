@@ -243,12 +243,15 @@ export function OutboxIssuesPanel({
             const rebaseable =
               item.status === "conflict" &&
               canRebaseConflict(item.conflictCode, item.conflictDetails);
-            const existingTicketId =
-              item.conflictDetails &&
-              typeof item.conflictDetails === "object" &&
-              !Array.isArray(item.conflictDetails) &&
-              (item.conflictDetails as { existingTicket?: { id?: string } })
+            const existingTicketId = (() => {
+              const raw = item.conflictDetails;
+              if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+                return undefined;
+              }
+              const id = (raw as { existingTicket?: { id?: unknown } })
                 .existingTicket?.id;
+              return typeof id === "string" ? id : undefined;
+            })();
             // Early / value return.
             return (
               <li key={item.id} className="outbox-issue-item">
@@ -264,12 +267,12 @@ export function OutboxIssuesPanel({
                     {new Date(item.updatedAt).toLocaleString()}
                   </span>
                   <span>{message}</span>
-                  {existingTicketId && (
+                  {existingTicketId ? (
                     <span className="muted">
                       {t(locale, "Съществуващ тикет", "Existing ticket")}:{" "}
                       <code>{existingTicketId.slice(0, 10)}…</code>
                     </span>
-                  )}
+                  ) : null}
                   {item.status === "conflict" && (
                     <>
                       <span className="muted">
