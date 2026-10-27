@@ -34,17 +34,18 @@ test.describe("E2E-01 readiness blocking flow", () => {
     await assignAndStartTicket(token, ticket.id, techId);
     await createAndStartCleaningTask(token, room.id, hkId);
 
+    // Board labels are "{buildingCode} {number}" (e.g. "ANNEX E2E…"), so match
+    // the unique room number as a substring — not exact text of the cell.
     const roomRow = () =>
       page.locator("tr.location-row-clickable, tr").filter({
-        has: page.getByText(room.number, { exact: true }),
+        hasText: room.number,
       });
 
     // Housekeeper completes via UI
     await uiLogin(page, USERS.housekeeper, DEMO_PASSWORD);
     await openNav(page, /Стаи|Rooms/);
-    await expect(page.getByText(room.number, { exact: true })).toBeVisible({
-      timeout: 20_000,
-    });
+    await page.getByLabel(/Търсене|Search/).fill(room.number);
+    await expect(roomRow()).toBeVisible({ timeout: 20_000 });
     const completeBtn = roomRow().getByRole("button", { name: "Complete" });
     await expect(completeBtn).toBeVisible({ timeout: 20_000 });
     await completeBtn.click();
@@ -58,9 +59,8 @@ test.describe("E2E-01 readiness blocking flow", () => {
     // Supervisor approves inspection
     await uiLogin(page, USERS.supervisor, DEMO_PASSWORD);
     await openNav(page, /Стаи|Rooms/);
-    await expect(page.getByText(room.number, { exact: true })).toBeVisible({
-      timeout: 20_000,
-    });
+    await page.getByLabel(/Търсене|Search/).fill(room.number);
+    await expect(roomRow()).toBeVisible({ timeout: 20_000 });
     const approveBtn = roomRow().getByRole("button", { name: "Approve" });
     await expect(approveBtn).toBeVisible({ timeout: 20_000 });
     await approveBtn.click();
@@ -86,6 +86,7 @@ test.describe("E2E-01 readiness blocking flow", () => {
     await resolveTicket(token, ticket.id, "e2e last blocker");
     await page.reload();
     await openNav(page, /Стаи|Rooms/);
+    await page.getByLabel(/Търсене|Search/).fill(room.number);
     const afterResolve = await getRoom(token, room.id);
     expect(afterResolve.readiness).toBe("ready");
     await expect(roomRow().locator(".pill.ready-ready")).toBeVisible({
@@ -95,6 +96,7 @@ test.describe("E2E-01 readiness blocking flow", () => {
     await reopenTicket(token, ticket.id, "e2e reopen blocker");
     await page.reload();
     await openNav(page, /Стаи|Rooms/);
+    await page.getByLabel(/Търсене|Search/).fill(room.number);
     const afterReopen = await getRoom(token, room.id);
     expect(afterReopen.readiness).toBe("not_ready");
     expect(afterReopen.occupancy).toBe(occ);

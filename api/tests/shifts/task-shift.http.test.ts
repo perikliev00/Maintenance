@@ -196,6 +196,8 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
         reason: "T-SH-66e clear",
         shiftId: null,
         expectedVersion: task.version,
+        // Fixture HK is off-roster; this case covers shiftId clearing, not availability.
+        forceDespiteAvailability: true,
       },
     );
     assert.equal(res.status, 200);
@@ -226,6 +228,8 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
         assignedEmployeeId: sectors.housekeeper.employeeId,
         reason: "T-SH-66f omit",
         expectedVersion: task.version,
+        // Fixture HK is off-roster; this case covers omit-shiftId keep, not availability.
+        forceDespiteAvailability: true,
       },
     );
     assert.equal(res.status, 200);

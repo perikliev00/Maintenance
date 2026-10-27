@@ -39,7 +39,6 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     );
     expect(optionValues.length).toBeGreaterThan(0);
     await optionSelect.selectOption(optionValues[0]!);
-    const optionLabel = await optionSelect.locator("option:checked").textContent();
     // Title is catalog-driven; stamp goes in the optional clarification field.
     await page.getByLabel(/Уточнение|Clarification/i).fill(stamp);
     await page.getByRole("button", { name: /Докладвай|Report/i }).click();
@@ -81,8 +80,9 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     await uiLogin(page, USERS.technician, DEMO_PASSWORD);
     await openNav(page, /Повреди|Repairs/);
 
-    const rowMatch = ticket!.title || optionLabel || stamp;
-    const ticketRow = () => page.locator("tr").filter({ hasText: rowMatch! });
+    // Catalog titles collide across leftover tickets; room number is unique per run.
+    const ticketRow = () =>
+      page.locator("tr").filter({ hasText: room.number });
     const startBtn = /Старт|Start/;
     const waitBtn = /Изчакай|Wait/;
     const resumeBtn = /Продължи|Resume/;
