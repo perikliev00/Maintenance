@@ -24,6 +24,7 @@ export type PublicSettings = {
   flags: {
     show_overdue_banner: boolean;
     require_inspection: boolean;
+    allow_reception_reassign?: boolean;
   };
 };
 

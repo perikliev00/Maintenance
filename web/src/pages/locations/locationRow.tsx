@@ -1,7 +1,6 @@
 /**
- * Single Locations board row: status pills, blocking issues, and lifecycle
- * actions. Start/complete gates combine `canWork` with assignee ownership
- * (owners/supervisors may act on others' tasks).
+ * Single Locations board row: status pills, issues summary, and lifecycle actions.
+ * Each action is gated by its exact capability — no OR bleed.
  */
 import type { AuthUser, Room } from "../../api/client";
 import { IssuesCell, ReportIssueButton } from "./issues";
@@ -10,12 +9,22 @@ import {
   TaskInfoCell,
   TaskPriorityDueCell,
 } from "./lifecycle";
-import { OccupancyCell } from "./occupancy";
+import {
+  boardT,
+  cleaningLabel,
+  nextActionLabel,
+  occupancyLabel,
+  readinessLabel,
+  reasonLabel,
+  serviceLabel,
+  type BoardLocale,
+} from "./labels";
 import type { LocationPagePermissions } from "./permissions";
 
 type LocationRowProps = {
   location: Room;
   user: AuthUser;
+  locale: BoardLocale;
   isCommon: boolean;
   unitLabel: string;
   unitLabelCap: string;
@@ -24,6 +33,7 @@ type LocationRowProps = {
   busyId: string | null;
   detailLocationId: string | null;
   permissions: LocationPagePermissions;
+  canReassignEffective: boolean;
   setDetailLocationId: (id: string | null) => void;
   setBusyId: (id: string | null) => void;
   setMessage: (message: string | null) => void;
@@ -31,17 +41,15 @@ type LocationRowProps = {
   setIssueLocationId: (id: string | null) => void;
   setIssueTitle: (title: string) => void;
   setIssueBlocks: (blocks: boolean) => void;
+  onReassignClick: (location: Room) => void;
   runAction: (locationId: string, action: () => Promise<void>) => Promise<void>;
   refresh: () => Promise<void>;
 };
 
-/**
- * Single Locations board row: status pills, blocking issues, and lifecycle actions.
- * Start/complete gates combine `canWork` with assignee ownership rules.
- */
 export function LocationRow({
   location: loc,
   user,
+  locale,
   isCommon,
   unitLabel,
   unitLabelCap,
@@ -50,6 +58,7 @@ export function LocationRow({
   busyId,
   detailLocationId,
   permissions,
+  canReassignEffective,
   setDetailLocationId,
   setBusyId,
   setMessage,
@@ -57,17 +66,25 @@ export function LocationRow({
   setIssueLocationId,
   setIssueTitle,
   setIssueBlocks,
+  onReassignClick,
   runAction,
   refresh,
 }: LocationRowProps) {
-  // Unpack permission flags used for action gates below.
-  const { owner, canManage, canWork, canInspect, canResolve } = permissions;
+  const {
+    owner,
+    canMarkDirty,
+    canCreateTask,
+    canStart,
+    canComplete,
+    canInspect,
+    canReportIssue,
+    canResolve,
+  } = permissions;
   const busy = busyId === loc.id;
   const task = loc.activeTask;
   const isMyRunning = task?.runningSession?.employeeId === user.employeeId;
-  // Owners/supervisors may start others' tasks; staff only their own / unassigned.
   const canStartThis =
-    canWork &&
+    canStart &&
     task &&
     (task.status === "assigned" || task.status === "rework") &&
     !task.runningSession &&
@@ -75,9 +92,8 @@ export function LocationRow({
       user.role === "supervisor" ||
       !task.assignee ||
       task.assignee.id === user.employeeId);
-  // Complete only the session owner (or owner/supervisor override).
   const canCompleteThis =
-    canWork &&
+    canComplete &&
     task?.runningSession &&
     (owner || user.role === "supervisor" || isMyRunning);
 
@@ -88,42 +104,62 @@ export function LocationRow({
       }`}
       onClick={() => setDetailLocationId(loc.id)}
     >
-      <td>{loc.number}</td>
-      <td>{loc.buildingCode}</td>
-      <td>{loc.floor}</td>
       <td>
-        {/* Sector code with full name tooltip, or em dash. */}
-        {loc.sector ? (
-          <span title={loc.sector.nameBg}>{loc.sector.code}</span>
+        <strong>
+          {loc.buildingCode} {loc.number}
+        </strong>
+        <div className="muted small">
+          {boardT(locale, "Етаж", "Floor")} {loc.floor}
+          {loc.sector ? ` · ${loc.sector.code}` : ""}
+        </div>
+      </td>
+      <td>
+        <span className={`pill ready-${loc.readiness}`}>
+          {readinessLabel(locale, loc.readiness)}
+        </span>
+        {loc.readinessReasons.length > 0 && (
+          <div className="reasons">
+            {loc.readinessReasons.map((r) => reasonLabel(locale, r)).join(", ")}
+          </div>
+        )}
+      </td>
+      <td>
+        {task?.assignee ? (
+          <span>
+            {task.assignee.fullName}
+            <div className="muted small">{task.assignee.employeeNumber}</div>
+          </span>
         ) : (
           <span className="muted">—</span>
         )}
       </td>
-      {/* Occupancy column hidden for common areas inside OccupancyCell. */}
-      <OccupancyCell isCommon={isCommon} occupancy={loc.occupancy} />
-      <td>
-        <span className={`pill service-${loc.serviceStatus}`}>
-          {loc.serviceStatus}
-        </span>
-      </td>
       <td>
         <span className={`pill cleaning-${loc.cleaningStatus}`}>
-          {loc.cleaningStatus}
+          {cleaningLabel(locale, loc.cleaningStatus)}
         </span>
-      </td>
-      <TaskPriorityDueCell task={task} />
-      <td>
-        <span className={`pill ready-${loc.readiness}`}>{loc.readiness}</span>
-        {/* Optional readiness reason chips. */}
-        {loc.readinessReasons.length > 0 && (
-          <div className="reasons">{loc.readinessReasons.join(", ")}</div>
+        {!isCommon && (
+          <div className="muted small">
+            {occupancyLabel(locale, loc.occupancy)} ·{" "}
+            {serviceLabel(locale, loc.serviceStatus)}
+          </div>
+        )}
+        {isCommon && (
+          <div className="muted small">
+            {serviceLabel(locale, loc.serviceStatus)}
+          </div>
         )}
       </td>
-      {/* Blocking issues + resolve actions. */}
+      <td>
+        <span className="next-action">
+          {nextActionLabel(locale, loc)}
+        </span>
+        <TaskPriorityDueCell task={task} />
+      </td>
       <IssuesCell
         location={loc}
         busy={busy}
         canResolve={canResolve}
+        locale={locale}
         setBusyId={setBusyId}
         setMessage={setMessage}
         setError={setError}
@@ -131,12 +167,13 @@ export function LocationRow({
       />
       <TaskInfoCell task={task} />
       <td>
-        {/* Lifecycle + report-issue actions (stopPropagation inside). */}
         <LifecycleActions
           location={loc}
           busy={busy}
-          canManage={canManage}
+          canMarkDirty={canMarkDirty}
+          canCreateTask={canCreateTask}
           canInspect={canInspect}
+          canReassign={canReassignEffective}
           canStartThis={canStartThis}
           canCompleteThis={canCompleteThis}
           isCommon={isCommon}
@@ -144,17 +181,24 @@ export function LocationRow({
           unitLabelCap={unitLabelCap}
           dueHours={dueHours}
           assigneeId={assigneeId}
+          reassignLabel={boardT(locale, "Преназначи", "Reassign")}
+          markDirtyLabel={boardT(locale, "Маркирай като мръсна", "Mark dirty")}
+          createTaskLabel={boardT(locale, "Създай задача", "Create task")}
           runAction={runAction}
           setMessage={setMessage}
           setError={setError}
+          onReassignClick={onReassignClick}
           reportIssueButton={
-            <ReportIssueButton
-              busy={busy}
-              locationId={loc.id}
-              setIssueLocationId={setIssueLocationId}
-              setIssueTitle={setIssueTitle}
-              setIssueBlocks={setIssueBlocks}
-            />
+            canReportIssue ? (
+              <ReportIssueButton
+                busy={busy}
+                locationId={loc.id}
+                label={boardT(locale, "Докладвай проблем", "Report issue")}
+                setIssueLocationId={setIssueLocationId}
+                setIssueTitle={setIssueTitle}
+                setIssueBlocks={setIssueBlocks}
+              />
+            ) : null
           }
         />
       </td>

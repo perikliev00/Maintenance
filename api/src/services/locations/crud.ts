@@ -9,11 +9,16 @@ import {
   Prisma,
   ServiceStatus,
 } from "@prisma/client";
+import { OPEN_TICKET_STATUSES } from "../../constants";
 import { prisma } from "../../db";
 import { AppError } from "../../errors";
 import { publish } from "../../events/bus";
 import { recordAudit } from "../audit";
-import { locationInclude, type LocationForMap } from "./types";
+import {
+  attachOpenIssueCounts,
+  locationInclude,
+  type LocationForMap,
+} from "./types";
 import { activeLocationAfter, activeLocationCursor } from "./pagination";
 
 /** Default cap for active board lists (SUS-001 / B3). Override via `?limit=`. */
@@ -58,8 +63,22 @@ export async function findActiveLocations(
     take: limit + 1,
   });
   const truncated = rows.length > limit;
+  const page = (truncated ? rows.slice(0, limit) : rows) as LocationForMap[];
+  const ids = page.map((r) => r.id);
+  const grouped =
+    ids.length === 0
+      ? []
+      : await prisma.maintenanceTicket.groupBy({
+          by: ["locationId", "blocksRoom"],
+          where: {
+            locationId: { in: ids },
+            status: { in: OPEN_TICKET_STATUSES },
+          },
+          _count: { _all: true },
+        });
+  const withCounts = await attachOpenIssueCounts(page, grouped);
   return {
-    rows: (truncated ? rows.slice(0, limit) : rows) as LocationForMap[],
+    rows: withCounts,
     truncated,
     nextCursor: truncated ? activeLocationCursor(rows[limit - 1]) : null,
   };
@@ -81,8 +100,19 @@ export async function findLocationById(id: string, kind?: LocationKind) {
   if (!location) return null;
   // Optional kind guard so room routes cannot load common areas by id.
   if (kind && location.kind !== kind) return null;
-  // Happy path — location matches optional kind filter.
-  return location;
+  const grouped = await prisma.maintenanceTicket.groupBy({
+    by: ["locationId", "blocksRoom"],
+    where: {
+      locationId: location.id,
+      status: { in: OPEN_TICKET_STATUSES },
+    },
+    _count: { _all: true },
+  });
+  const [withCounts] = await attachOpenIssueCounts(
+    [location as LocationForMap],
+    grouped,
+  );
+  return withCounts;
 }
 
 /**

@@ -20,7 +20,8 @@ export function mapLocation(location: LocationForMap) {
     occupancy: location.occupancy as any,
     cleaningStatus: location.cleaningStatus as any,
     serviceStatus: location.serviceStatus as any,
-    hasBlockingTicket: blockingTickets.length > 0,
+    hasBlockingTicket:
+      (location.blockingIssueCount ?? blockingTickets.length) > 0,
   });
   // Active task is the first included cleaning task (query orders by status).
   const activeTask = location.cleaningTasks?.[0] ?? null;
@@ -62,7 +63,7 @@ export function mapLocation(location: LocationForMap) {
     sector,
     readiness,
     readinessReasons: reasons,
-    // Compact ticket cards for the readiness / issue chips.
+    // Compact ticket cards for the readiness / issue chips (preview only).
     blockingIssues: blockingTickets.map((t) => ({
       id: t.id,
       title: t.title,
@@ -71,6 +72,10 @@ export function mapLocation(location: LocationForMap) {
       priority: t.priority,
       status: t.status,
     })),
+    // Authoritative totals — preview may be truncated at 5.
+    blockingIssueCount:
+      location.blockingIssueCount ?? blockingTickets.length,
+    nonBlockingIssueCount: location.nonBlockingIssueCount ?? 0,
     // Null when no active cleaning task; otherwise nest session/inspection DTOs.
     activeTask: activeTask
       ? {

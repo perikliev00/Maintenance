@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
 import {
+  AttendanceIntervalStatus,
   CleaningStatus,
   Prisma,
   PrismaClient,
@@ -48,6 +49,8 @@ export type CleaningWorld = {
   floorId: string;
   locationAId: string;
   locationBId: string;
+  /** Full-day active shift used to mark housekeepers available for reassign. */
+  availabilityShiftId: string;
   hk1: EmployeeUserFixture;
   hk2: EmployeeUserFixture;
   owner: EmployeeUserFixture;
@@ -180,6 +183,24 @@ export async function createCleaningWorld(
     technician.employeeId,
   ];
 
+  // Full-day shift so housekeepers are on-shift regardless of wall-clock hour.
+  const availabilityShift = await prisma.shift.create({
+    data: {
+      code: `CLN-AV-${stamp}`.slice(0, 32),
+      nameBg: "CLN Availability",
+      nameEn: "CLN Availability",
+      startTime: "00:00",
+      endTime: "00:00",
+      sortOrder: 99,
+      isActive: true,
+    },
+  });
+
+  await makeHousekeepersAvailable(prisma, {
+    employeeIds: [hk1.employeeId, hk2.employeeId],
+    shiftId: availabilityShift.id,
+  });
+
   return {
     stamp,
     propertyId: property.id,
@@ -187,6 +208,7 @@ export async function createCleaningWorld(
     floorId: floor.id,
     locationAId: locationA.id,
     locationBId: locationB.id,
+    availabilityShiftId: availabilityShift.id,
     hk1,
     hk2,
     owner,
@@ -195,6 +217,58 @@ export async function createCleaningWorld(
     technician,
     employeeIds,
   };
+}
+
+/**
+ * Roster + open attendance so reassignment availability checks pass.
+ * Uses a full-day shift window (00:00–00:00) when creating roster rows.
+ */
+export async function makeHousekeepersAvailable(
+  prisma: PrismaClient,
+  input: { employeeIds: string[]; shiftId: string; hotelDateYmd?: string },
+): Promise<void> {
+  const ymd = input.hotelDateYmd ?? (await todayHotelDateYmd());
+  const hotelDate = new Date(`${ymd}T00:00:00.000Z`);
+  const startedAt = new Date();
+
+  for (const employeeId of input.employeeIds) {
+    await prisma.employeeShiftRoster.upsert({
+      where: {
+        employeeId_hotelDate: { employeeId, hotelDate },
+      },
+      create: {
+        employeeId,
+        hotelDate,
+        shiftId: input.shiftId,
+      },
+      update: { shiftId: input.shiftId },
+    });
+
+    // Close any prior open intervals for this employee/day, then open a fresh one.
+    await prisma.attendanceInterval.updateMany({
+      where: {
+        employeeId,
+        hotelDate,
+        status: AttendanceIntervalStatus.open,
+        endedAt: null,
+      },
+      data: {
+        status: AttendanceIntervalStatus.closed,
+        endedAt: startedAt,
+      },
+    });
+
+    await prisma.attendanceInterval.create({
+      data: {
+        employeeId,
+        hotelDate,
+        startedAt,
+        status: AttendanceIntervalStatus.open,
+        breakMinutes: 0,
+        anomalyFlags: [],
+      },
+    });
+  }
 }
 
 /** Cancel active cleaning work on the world's locations (and our employees' sessions). */
@@ -258,12 +332,24 @@ export async function cleanupCleaningWorld(
   await prisma.maintenanceTicket.deleteMany({
     where: { locationId: { in: locationIds } },
   });
+  await prisma.attendanceInterval.deleteMany({
+    where: { employeeId: { in: world.employeeIds } },
+  });
+  await prisma.attendanceEvent.deleteMany({
+    where: { employeeId: { in: world.employeeIds } },
+  });
+  await prisma.employeeShiftRoster.deleteMany({
+    where: { employeeId: { in: world.employeeIds } },
+  });
   await prisma.location.deleteMany({
     where: { id: { in: locationIds } },
   });
   await prisma.floor.deleteMany({ where: { id: world.floorId } });
   await prisma.building.deleteMany({ where: { id: world.buildingId } });
   await prisma.property.deleteMany({ where: { id: world.propertyId } });
+  if (world.availabilityShiftId) {
+    await prisma.shift.deleteMany({ where: { id: world.availabilityShiftId } });
+  }
   await cleanupEmployeeGraph(prisma, world.employeeIds);
 }
 

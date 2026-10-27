@@ -1,16 +1,30 @@
 /**
- * Issue report dialog host and blocking-issues cell for the Locations board.
- * Ticket lifecycle uses offline-aware queued actions; report submit always
- * posts with priority "high".
+ * Issue report dialog host and issues cell for the Locations board.
+ * Uses catalog/default priority (never hardcoded high) and offline-capable report.
  */
 import {
-  reportIssue,
   type IssueOptionRow,
   type MaintenanceCategoryRow,
   type Room,
 } from "../../api/client";
 import { TicketLifecycleActions } from "../../components/TicketLifecycleActions";
 import { LocationIssueDialog } from "../../components/LocationIssueDialog";
+import { parseDuplicateReportError } from "../../api/duplicateReport";
+import { reportTicketQueued } from "../../offline";
+
+type Priority = "low" | "normal" | "high" | "urgent";
+
+function asPriority(value: string | null | undefined): Priority {
+  if (
+    value === "low" ||
+    value === "normal" ||
+    value === "high" ||
+    value === "urgent"
+  ) {
+    return value;
+  }
+  return "normal";
+}
 
 type IssueDialogHostProps = {
   issueLocationId: string;
@@ -20,6 +34,7 @@ type IssueDialogHostProps = {
   categoryId: string;
   title: string;
   blocksRoom: boolean;
+  priority: Priority;
   options: IssueOptionRow[];
   categories: MaintenanceCategoryRow[];
   onPickModeChange: (mode: "option" | "custom") => void;
@@ -27,17 +42,15 @@ type IssueDialogHostProps = {
   onCategoryIdChange: (id: string) => void;
   onTitleChange: (title: string) => void;
   onBlocksRoomChange: (blocks: boolean) => void;
+  onPriorityChange: (priority: Priority) => void;
   onCancel: () => void;
   runAction: (locationId: string, action: () => Promise<void>) => Promise<void>;
   setMessage: (message: string | null) => void;
+  setError: (error: string | null) => void;
   setIssueLocationId: (id: string | null) => void;
   setIssueTitle: (title: string) => void;
 };
 
-/**
- * Host that wires LocationsPage issue-dialog state into LocationIssueDialog
- * and posts reports via `runAction` (always priority "high").
- */
 export function IssueDialogHost({
   issueLocationId,
   unitLabel,
@@ -46,6 +59,7 @@ export function IssueDialogHost({
   categoryId,
   title,
   blocksRoom,
+  priority,
   options,
   categories,
   onPickModeChange,
@@ -53,9 +67,11 @@ export function IssueDialogHost({
   onCategoryIdChange,
   onTitleChange,
   onBlocksRoomChange,
+  onPriorityChange,
   onCancel,
   runAction,
   setMessage,
+  setError,
   setIssueLocationId,
   setIssueTitle,
 }: IssueDialogHostProps) {
@@ -67,6 +83,7 @@ export function IssueDialogHost({
       categoryId={categoryId}
       title={title}
       blocksRoom={blocksRoom}
+      priority={priority}
       options={options}
       categories={categories}
       onPickModeChange={onPickModeChange}
@@ -74,33 +91,57 @@ export function IssueDialogHost({
       onCategoryIdChange={onCategoryIdChange}
       onTitleChange={onTitleChange}
       onBlocksRoomChange={onBlocksRoomChange}
+      onPriorityChange={onPriorityChange}
       onCancel={onCancel}
       onSubmit={() => {
         const locationId = issueLocationId;
-        // Wrap in runAction so the row shows busy + surfaces errors.
         runAction(locationId, async () => {
-          // Catalog option path vs free-text + category path.
-          if (pickMode === "option" && optionId) {
-            await reportIssue({
-              locationId,
-              issueOptionId: optionId,
-              title: title.trim() || undefined,
-              blocksRoom,
-              priority: "high",
-            });
-          } else {
-            await reportIssue({
-              locationId,
-              title: title.trim(),
-              categoryId,
-              blocksRoom,
-              priority: "high",
-            });
+          const payload =
+            pickMode === "option" && optionId
+              ? {
+                  locationId,
+                  issueOptionId: optionId,
+                  title: title.trim() || undefined,
+                  blocksRoom,
+                  priority,
+                }
+              : {
+                  locationId,
+                  title: title.trim(),
+                  categoryId,
+                  blocksRoom,
+                  priority,
+                };
+
+          try {
+            await reportTicketQueued(payload);
+          } catch (err) {
+            const dup = parseDuplicateReportError(err);
+            if (dup?.code === "duplicate_active" || dup?.code === "probable_duplicate") {
+              const ok = window.confirm(
+                dup.code === "duplicate_active"
+                  ? "An active duplicate ticket exists. Report anyway as duplicate override?"
+                  : "A similar ticket may already exist. Confirm and continue?",
+              );
+              if (!ok) throw err;
+              await reportTicketQueued({
+                ...payload,
+                ...(dup.code === "duplicate_active"
+                  ? {
+                      allowDuplicate: true,
+                      duplicateOverrideReason: "Confirmed from Rooms board",
+                    }
+                  : { confirmSimilar: true }),
+              });
+            } else {
+              throw err;
+            }
           }
           setMessage("Issue reported");
-          // Close dialog and clear title for the next report.
           setIssueLocationId(null);
           setIssueTitle("");
+        }).catch((err) => {
+          setError(err instanceof Error ? err.message : "Report failed");
         });
       }}
     />
@@ -111,57 +152,90 @@ type IssuesCellProps = {
   location: Room;
   busy: boolean;
   canResolve: boolean;
+  locale: "bg" | "en";
   setBusyId: (id: string | null) => void;
   setMessage: (message: string | null) => void;
   setError: (error: string | null) => void;
   refresh: () => Promise<void>;
+  onOpenRepairs?: (locationId: string) => void;
 };
 
-/**
- * Table cell listing blocking issues with inline lifecycle actions.
- * Clicks stopPropagation so opening the row detail panel is not triggered.
- */
 export function IssuesCell({
   location,
   busy,
   canResolve,
+  locale,
   setBusyId,
   setMessage,
   setError,
   refresh,
+  onOpenRepairs,
 }: IssuesCellProps) {
+  const blocking =
+    location.blockingIssueCount ?? location.blockingIssues.length;
+  const nonBlocking = location.nonBlockingIssueCount ?? 0;
+
   return (
     <td>
-      {location.blockingIssues.length === 0 ? (
-        <span className="muted">—</span>
-      ) : (
-        location.blockingIssues.map((issue) => (
-          <div
-            key={issue.id}
-            className="issue-row"
-            // Prevent row-click from opening the location detail panel.
-            onClick={(e) => e.stopPropagation()}
+      <div className="issue-summary">
+        <span>
+          {blocking}{" "}
+          {locale === "en" ? "blocking" : "блокиращи"}
+          {" · "}
+          {nonBlocking}{" "}
+          {locale === "en" ? "other" : "други"}
+        </span>
+        {onOpenRepairs && (blocking > 0 || nonBlocking > 0) && (
+          <button
+            type="button"
+            className="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenRepairs(location.id);
+            }}
           >
-            <div>
-              {issue.title} · {issue.status}
+            {locale === "en" ? "View all" : "Виж всички"}
+          </button>
+        )}
+      </div>
+      {location.blockingIssues.length === 0 ? (
+        blocking === 0 && nonBlocking === 0 ? (
+          <span className="muted">—</span>
+        ) : null
+      ) : (
+        <>
+          {location.blockingIssues.map((issue) => (
+            <div
+              key={issue.id}
+              className="issue-row"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div>
+                {issue.title} · {issue.status}
+              </div>
+              <TicketLifecycleActions
+                ticket={issue}
+                busy={busy}
+                canResolve={canResolve}
+                onBusy={(id) => {
+                  if (id) setBusyId(location.id);
+                  else setBusyId(null);
+                }}
+                onDone={(result) => {
+                  setMessage(result.message);
+                  void refresh();
+                }}
+                onError={(msg) => setError(msg)}
+              />
             </div>
-            <TicketLifecycleActions
-              ticket={issue}
-              busy={busy}
-              canResolve={canResolve}
-              onBusy={(id) => {
-                // Map ticket busy onto the location row busyId.
-                if (id) setBusyId(location.id);
-                else setBusyId(null);
-              }}
-              onDone={(result) => {
-                setMessage(result.message);
-                void refresh();
-              }}
-              onError={(msg) => setError(msg)}
-            />
-          </div>
-        ))
+          ))}
+          {blocking > location.blockingIssues.length && (
+            <div className="muted">
+              +{blocking - location.blockingIssues.length}{" "}
+              {locale === "en" ? "more" : "още"}
+            </div>
+          )}
+        </>
       )}
     </td>
   );
@@ -170,17 +244,16 @@ export function IssuesCell({
 type ReportIssueButtonProps = {
   busy: boolean;
   locationId: string;
+  label: string;
   setIssueLocationId: (id: string | null) => void;
   setIssueTitle: (title: string) => void;
   setIssueBlocks: (blocks: boolean) => void;
 };
 
-/**
- * Opens the issue dialog for a location; blocksRoom starts false until catalog defaults apply.
- */
 export function ReportIssueButton({
   busy,
   locationId,
+  label,
   setIssueLocationId,
   setIssueTitle,
   setIssueBlocks,
@@ -191,13 +264,15 @@ export function ReportIssueButton({
       className="ghost"
       disabled={busy}
       onClick={() => {
-        // Seed dialog state: clear title; catalog option select applies blocksRoom.
         setIssueLocationId(locationId);
         setIssueTitle("");
         setIssueBlocks(false);
       }}
     >
-      Report issue
+      {label}
     </button>
   );
 }
+
+export { asPriority };
+export type { Priority };

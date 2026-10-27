@@ -2,7 +2,10 @@
  * Modal to report a location issue either from the catalog option list
  * or as a free-text custom title + category. Selecting a catalog option
  * passes the full row so the parent can apply defaults (priority / blocks).
+ * Portaled to document.body so position:fixed is always viewport-relative.
  */
+import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type {
   IssueOptionRow,
   MaintenanceCategoryRow,
@@ -15,6 +18,7 @@ type Props = {
   categoryId: string;
   title: string;
   blocksRoom: boolean;
+  priority: "low" | "normal" | "high" | "urgent";
   options: IssueOptionRow[];
   categories: MaintenanceCategoryRow[];
   onPickModeChange: (mode: "option" | "custom") => void;
@@ -23,6 +27,7 @@ type Props = {
   onCategoryIdChange: (categoryId: string) => void;
   onTitleChange: (title: string) => void;
   onBlocksRoomChange: (blocks: boolean) => void;
+  onPriorityChange: (priority: "low" | "normal" | "high" | "urgent") => void;
   onCancel: () => void;
   onSubmit: () => void;
 };
@@ -38,6 +43,7 @@ export function LocationIssueDialog({
   categoryId,
   title,
   blocksRoom,
+  priority,
   options,
   categories,
   onPickModeChange,
@@ -45,27 +51,44 @@ export function LocationIssueDialog({
   onCategoryIdChange,
   onTitleChange,
   onBlocksRoomChange,
+  onPriorityChange,
   onCancel,
   onSubmit,
 }: Props) {
-  // Render output.
-  return (
-    <div className="modal-backdrop">
-      {/* Editable form. */}
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancelRef.current();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  return createPortal(
+    <div className="modal-backdrop" role="presentation" onClick={onCancel}>
       <form
         className="modal"
+        onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
-          // Prevent full page reload; parent owns the report / enqueue mutation.
           e.preventDefault();
           onSubmit();
         }}
       >
-        {/* Section heading. */}
         <h3>Report issue</h3>
-        {/* Toggle catalog option path vs free-text custom path. */}
         <label>
           Type
-          {/* Select input. */}
           <select
             value={pickMode}
             onChange={(e) =>
@@ -76,16 +99,12 @@ export function LocationIssueDialog({
             <option value="custom">Custom</option>
           </select>
         </label>
-        {/* Catalog path: pass the full option so parent can apply defaults. */}
-        {/* Form field. */}
         {pickMode === "option" ? (
           <label>
             Option
-            {/* Select input. */}
             <select
               value={optionId}
               onChange={(e) => {
-                // Resolve the row so priority/blocks defaults can be applied upstream.
                 const opt = options.find((o) => o.id === e.target.value);
                 onOptionIdChange(e.target.value, opt);
               }}
@@ -100,20 +119,16 @@ export function LocationIssueDialog({
           </label>
         ) : (
           <>
-            {/* Custom path: free title + category from the maintenance catalog. */}
             <label>
               Title
-              {/* Text/checkbox input. */}
               <input
                 value={title}
                 onChange={(e) => onTitleChange(e.target.value)}
                 required
               />
             </label>
-            {/* Form field. */}
             <label>
               Category
-              {/* Select input. */}
               <select
                 value={categoryId}
                 onChange={(e) => onCategoryIdChange(e.target.value)}
@@ -128,9 +143,23 @@ export function LocationIssueDialog({
             </label>
           </>
         )}
-        {/* Whether the issue should block location readiness. */}
+        <label>
+          Priority
+          <select
+            value={priority}
+            onChange={(e) =>
+              onPriorityChange(
+                e.target.value as "low" | "normal" | "high" | "urgent",
+              )
+            }
+          >
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </label>
         <label className="checkbox">
-          {/* Text/checkbox input. */}
           <input
             type="checkbox"
             checked={blocksRoom}
@@ -139,14 +168,13 @@ export function LocationIssueDialog({
           Blocks {unitLabel} readiness
         </label>
         <div className="modal-actions">
-          {/* Action control. */}
           <button type="button" className="ghost" onClick={onCancel}>
             Cancel
           </button>
-          {/* Action control. */}
           <button type="submit">Submit</button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 }

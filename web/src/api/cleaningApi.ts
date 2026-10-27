@@ -195,6 +195,7 @@ export async function reassignCleaningTask(
   reason: string,
   expectedVersion?: number,
   shiftId?: string | null,
+  forceDespiteAvailability?: boolean,
 ) {
   // Only send shiftId when the caller explicitly wants to change/clear it.
   const res = await apiFetch(`${API_BASE}/cleaning/tasks/${taskId}/reassign`, {
@@ -206,9 +207,67 @@ export async function reassignCleaningTask(
       reason,
       expectedVersion,
       ...(shiftId !== undefined ? { shiftId } : {}),
+      ...(forceDespiteAvailability === true
+        ? { forceDespiteAvailability: true }
+        : {}),
     }),
   });
   // Return value / early exit.
+  return parseJson(res);
+}
+
+export type HousekeeperAvailabilityStatus =
+  | "available"
+  | "busy"
+  | "on_break"
+  | "off_shift"
+  | "absent"
+  | "unknown";
+
+export type AvailableHousekeeper = {
+  employeeId: string;
+  fullName: string;
+  employeeNumber: string;
+  availabilityStatus: HousekeeperAvailabilityStatus;
+  availabilityReasons: string[];
+  currentShift: {
+    id: string;
+    code: string;
+    nameBg: string;
+    nameEn: string;
+    startTime: string;
+    endTime: string;
+  } | null;
+  currentRunningTask: {
+    taskId: string;
+    locationId: string;
+    locationNumber: string;
+  } | null;
+  assignedTaskCount: number;
+  sectorEligibility: "hotel_wide";
+  checkedAt: string;
+};
+
+export type AvailableHousekeepersResponse = {
+  locationId: string;
+  taskId: string | null;
+  hotelDate: string;
+  checkedAt: string;
+  housekeepers: AvailableHousekeeper[];
+};
+
+/** Real-time housekeeper availability for the reassignment modal. */
+export async function fetchAvailableHousekeepers(params: {
+  locationId: string;
+  taskId?: string;
+}): Promise<AvailableHousekeepersResponse> {
+  const search = new URLSearchParams();
+  search.set("locationId", params.locationId);
+  if (params.taskId) search.set("taskId", params.taskId);
+  const res = await apiFetch(
+    `${API_BASE}/cleaning/available-housekeepers?${search.toString()}`,
+    { headers: authHeaders() },
+  );
   return parseJson(res);
 }
 

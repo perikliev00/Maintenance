@@ -37,21 +37,21 @@ describe("computeReadiness", () => {
     );
   });
 
-  it("needs_check when room occupancy is unknown", () => {
+  it("needs_check when room occupancy is unknown (no hard blockers)", () => {
     assert.deepEqual(
       computeReadiness(room({ occupancy: Occupancy.unknown })),
       { readiness: "needs_check", reasons: ["occupancy_unknown"] },
     );
   });
 
-  it("needs_check when room service is unknown", () => {
+  it("needs_check when room service is unknown (no hard blockers)", () => {
     assert.deepEqual(
       computeReadiness(room({ serviceStatus: ServiceStatus.unknown })),
       { readiness: "needs_check", reasons: ["service_unknown"] },
     );
   });
 
-  it("needs_check when both occupancy and service are unknown", () => {
+  it("needs_check when both occupancy and service are unknown (no hard blockers)", () => {
     assert.deepEqual(
       computeReadiness(
         room({
@@ -62,6 +62,36 @@ describe("computeReadiness", () => {
       {
         readiness: "needs_check",
         reasons: ["occupancy_unknown", "service_unknown"],
+      },
+    );
+  });
+
+  it("not_ready when occupancy unknown AND out_of_service (hard blocker wins)", () => {
+    assert.deepEqual(
+      computeReadiness(
+        room({
+          occupancy: Occupancy.unknown,
+          serviceStatus: ServiceStatus.out_of_service,
+        }),
+      ),
+      {
+        readiness: "not_ready",
+        reasons: ["out_of_service", "occupancy_unknown"],
+      },
+    );
+  });
+
+  it("not_ready when occupancy unknown AND blocking ticket", () => {
+    assert.deepEqual(
+      computeReadiness(
+        room({
+          occupancy: Occupancy.unknown,
+          hasBlockingTicket: true,
+        }),
+      ),
+      {
+        readiness: "not_ready",
+        reasons: ["blocking_issue", "occupancy_unknown"],
       },
     );
   });

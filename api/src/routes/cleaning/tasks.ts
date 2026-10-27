@@ -47,4 +47,12 @@ export function registerTaskRoutes(router: Router): void {
     requireAction("cleaning.reassign"),
     tasksController.listHousekeepers,
   );
+
+  // GET /available-housekeepers — real-time availability for reassignment modal.
+  router.get(
+    "/available-housekeepers",
+    requireAuth,
+    requireAction("cleaning.reassign"),
+    tasksController.listAvailableHousekeepers,
+  );
 }

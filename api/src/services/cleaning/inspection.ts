@@ -21,6 +21,7 @@ import {
   assertTaskVersion,
   claimTaskStatus,
 } from "./claims";
+import { assertTaskOwnsCleaningCycle } from "./cycles";
 // Cycle-aware location status writes (never stomp newer cycles).
 import { applyLocationCleaningStatusIfCurrent } from "./locationStatus";
 // Row lock to serialize inspect vs reassign/start.
@@ -108,6 +109,16 @@ export async function inspectCleaningTask(input: {
       }
       // Offline clients: reject when expectedVersion is stale.
       assertTaskVersion(task, input.expectedVersion);
+
+      // Reject of a non-current cycle would leave task=rework while location
+      // stays pending_inspection. Fail closed instead of creating that split.
+      if (input.result === "rejected") {
+        await assertTaskOwnsCleaningCycle(
+          tx,
+          task.locationId,
+          task.cleaningCycle,
+        );
+      }
 
       // Persist the inspection row keyed by commandId for idempotency.
       const inspection = await tx.inspection.create({

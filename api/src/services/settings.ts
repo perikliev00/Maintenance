@@ -119,6 +119,7 @@ export async function getPublicSettings() {
     flags: {
       show_overdue_banner: flags.show_overdue_banner,
       require_inspection: flags.require_inspection,
+      allow_reception_reassign: flags.allow_reception_reassign,
     },
   };
 }

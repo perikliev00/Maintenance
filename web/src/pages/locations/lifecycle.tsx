@@ -11,7 +11,6 @@ import {
   inspectCleaningTask,
   markCommonAreaDirty,
   markRoomDirty,
-  reassignCleaningTask,
   startCleaningTask,
   todayHotelDate,
   type OverdueSession,
@@ -40,8 +39,9 @@ type AssigneeToolbarProps = {
 };
 
 /**
- * Toolbar for picking the default assignee when creating/reassigning tasks,
+ * Toolbar for picking the default assignee when creating tasks,
  * plus a manual refresh and optional live-stamp.
+ * Reassignment uses a dedicated per-room modal — not this dropdown.
  */
 export function AssigneeToolbar({
   assigneeId,
@@ -53,7 +53,7 @@ export function AssigneeToolbar({
   return (
     <div className="toolbar">
       <label>
-        Assign housekeeper when creating / reassigning
+        Assign housekeeper when creating
         <select
           value={assigneeId}
           onChange={(e) => setAssigneeId(e.target.value)}
@@ -245,8 +245,10 @@ export function TaskInfoCell({ task }: TaskInfoCellProps) {
 type LifecycleActionsProps = {
   location: Room;
   busy: boolean;
-  canManage: boolean;
+  canMarkDirty: boolean;
+  canCreateTask: boolean;
   canInspect: boolean;
+  canReassign: boolean;
   canStartThis: boolean | "" | null | undefined;
   canCompleteThis: boolean | "" | null | undefined;
   isCommon: boolean;
@@ -254,22 +256,27 @@ type LifecycleActionsProps = {
   unitLabelCap: string;
   dueHours: number;
   assigneeId: string;
+  reassignLabel: string;
+  markDirtyLabel: string;
+  createTaskLabel: string;
   runAction: (locationId: string, action: () => Promise<void>) => Promise<void>;
   setMessage: (message: string | null) => void;
   setError: (error: string | null) => void;
+  onReassignClick: (location: Room) => void;
   reportIssueButton: ReactNode;
 };
 
 /**
  * Permission- and status-gated cleaning actions for one location row.
- * Start/complete visibility is computed by the parent (`canStartThis` /
- * `canCompleteThis`); inspect/reassign use local status checks here.
+ * Each button checks its exact capability — no OR bleed across actions.
  */
 export function LifecycleActions({
   location,
   busy,
-  canManage,
+  canMarkDirty,
+  canCreateTask,
   canInspect,
+  canReassign,
   canStartThis,
   canCompleteThis,
   isCommon,
@@ -277,9 +284,13 @@ export function LifecycleActions({
   unitLabelCap,
   dueHours,
   assigneeId,
+  reassignLabel,
+  markDirtyLabel,
+  createTaskLabel,
   runAction,
   setMessage,
   setError,
+  onReassignClick,
   reportIssueButton,
 }: LifecycleActionsProps) {
   const task = location.activeTask;
@@ -287,8 +298,7 @@ export function LifecycleActions({
   return (
     // Stop row click from opening the detail panel when using actions.
     <div className="actions" onClick={(e) => e.stopPropagation()}>
-      {/* Mark dirty only when clean-ish and no active task. */}
-      {canManage && location.cleaningStatus !== "dirty" && !task && (
+      {canMarkDirty && location.cleaningStatus !== "dirty" && !task && (
         <button
           type="button"
           disabled={busy}
@@ -299,17 +309,15 @@ export function LifecycleActions({
             })
           }
         >
-          Mark dirty
+          {markDirtyLabel}
         </button>
       )}
-      {/* Create task when manager and no active task. */}
-      {canManage && !task && (
+      {canCreateTask && !task && (
         <button
           type="button"
           disabled={busy}
           onClick={() =>
             runAction(location.id, async () => {
-              // Due defaults to now + configured dueHours.
               const due = new Date();
               due.setHours(due.getHours() + dueHours);
               await createCleaningTask({
@@ -323,10 +331,9 @@ export function LifecycleActions({
             })
           }
         >
-          Create task
+          {createTaskLabel}
         </button>
       )}
-      {/* Start gate computed by parent (ownership + status). */}
       {canStartThis && (
         <button
           type="button"
@@ -341,14 +348,12 @@ export function LifecycleActions({
           Start
         </button>
       )}
-      {/* Complete gate: requires running session; cancel prompt aborts. */}
       {canCompleteThis && (
         <button
           type="button"
           disabled={busy}
           onClick={() => {
             const notes = window.prompt("Бележка при complete (опционално)");
-            // null = user cancelled the prompt.
             if (notes === null) return;
             runAction(location.id, async () => {
               await completeCleaningSession(
@@ -365,7 +370,6 @@ export function LifecycleActions({
           Complete
         </button>
       )}
-      {/* Inspect approve/reject when awaiting inspection. */}
       {canInspect && task?.status === "awaiting_inspection" && (
         <>
           <button
@@ -375,7 +379,6 @@ export function LifecycleActions({
               const findings = window.prompt(
                 "Бележка при approve (опционално)",
               );
-              // null = user cancelled the prompt.
               if (findings === null) return;
               runAction(location.id, async () => {
                 await inspectCleaningTask(
@@ -395,7 +398,6 @@ export function LifecycleActions({
             disabled={busy}
             onClick={() => {
               const findings = window.prompt("Rejection reason / findings");
-              // Reject requires a non-empty reason.
               if (!findings?.trim()) {
                 setError("Rejection reason required");
                 return;
@@ -415,38 +417,20 @@ export function LifecycleActions({
           </button>
         </>
       )}
-      {/* Reassign when manage + eligible status + no running session + assignee set. */}
-      {canManage &&
+      {canReassign &&
         task &&
         (task.status === "assigned" ||
           task.status === "rework" ||
           task.status === "awaiting_inspection") &&
-        !task.runningSession &&
-        assigneeId && (
+        !task.runningSession && (
           <button
             type="button"
             disabled={busy}
-            onClick={() =>
-              runAction(location.id, async () => {
-                const reason = window.prompt("Reassign reason");
-                // Reassign requires a non-empty reason.
-                if (!reason?.trim()) {
-                  throw new Error("Reassign reason required");
-                }
-                await reassignCleaningTask(
-                  task.id,
-                  assigneeId,
-                  reason,
-                  task.version,
-                );
-                setMessage(`Reassigned ${unitLabel} ${location.number}`);
-              })
-            }
+            onClick={() => onReassignClick(location)}
           >
-            Reassign
+            {reassignLabel}
           </button>
         )}
-      {/* Report-issue button slot from the parent row. */}
       {reportIssueButton}
     </div>
   );

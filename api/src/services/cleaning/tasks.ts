@@ -3,7 +3,13 @@
  * assignee checks, and optimistic version claims on reassign.
  */
 // Task/session enums and unchecked update input types.
-import { CleaningServiceType, Prisma, SessionStatus, TaskStatus } from "@prisma/client";
+import {
+  CleaningServiceType,
+  Prisma,
+  Role,
+  SessionStatus,
+  TaskStatus,
+} from "@prisma/client";
 // Module dependency import.
 import { prisma } from "../../db";
 // Module dependency import.
@@ -20,6 +26,10 @@ import { recordAudit } from "../audit";
 import { createNotifications } from "../notifications";
 // Validate assignee is active and cleaning-capable.
 import { assertActiveCleaningAssignee } from "../assignees";
+import {
+  assertReassignAvailability,
+  evaluateEmployeeAvailability,
+} from "../housekeepers";
 // Module dependency import.
 import { taskInclude } from "../cleaningTasksQuery";
 // Module dependency import.
@@ -211,6 +221,10 @@ export async function reassignCleaningTask(input: {
   shiftId?: string | null;
   expectedVersion?: number;
   actorEmployeeId?: string;
+  /** Actor role for availability override authorization. */
+  actorRole?: Role;
+  /** Explicit override when replacement is not currently available. */
+  forceDespiteAvailability?: boolean;
 }) {
   // Reason is required for audit / accountability.
   if (!input.reason.trim()) {
@@ -294,6 +308,17 @@ export async function reassignCleaningTask(input: {
     // Re-check after task lock so a concurrent block/role change cannot slip in.
     await assertActiveCleaningAssignee(input.assignedEmployeeId, tx);
 
+    // Server-authoritative availability (stale frontend list is never trusted).
+    const availability = await evaluateEmployeeAvailability(
+      input.assignedEmployeeId,
+      { db: tx },
+    );
+    assertReassignAvailability({
+      availability,
+      forceDespiteAvailability: input.forceDespiteAvailability === true,
+      actorRole: input.actorRole,
+    });
+
     // Build the claim payload: new assignee + trimmed reason.
     const data: Prisma.CleaningTaskUncheckedUpdateManyInput = {
       assignedEmployeeId: input.assignedEmployeeId,
@@ -329,6 +354,11 @@ export async function reassignCleaningTask(input: {
       include: taskInclude,
     });
 
+    const forced =
+      input.forceDespiteAvailability === true &&
+      availability != null &&
+      availability.availabilityStatus !== "available";
+
     // Audit before/after assignee and shift.
     await recordAudit({
       actorEmployeeId: input.actorEmployeeId,
@@ -344,8 +374,17 @@ export async function reassignCleaningTask(input: {
       after: {
         assignedEmployeeId: input.assignedEmployeeId,
         shiftId: result.shiftId,
+        ...(forced
+          ? {
+              availabilityOverride: true,
+              availabilityStatus: availability.availabilityStatus,
+              availabilityReasons: availability.availabilityReasons,
+            }
+          : {}),
       },
-      summary: `Reassigned cleaning ${result.location.number}`,
+      summary: forced
+        ? `Reassigned cleaning ${result.location.number} (availability override)`
+        : `Reassigned cleaning ${result.location.number}`,
     }, tx);
 
     // Return result to caller.

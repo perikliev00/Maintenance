@@ -193,12 +193,14 @@ export function ActivePanel({
         <RoomsPage
           user={user}
           publicSettings={publicSettings}
+          locale={locale}
         />
       )}
       {view === "common" && (
         <CommonAreasPage
           user={user}
           publicSettings={publicSettings}
+          locale={locale}
         />
       )}
       {view === "team" && <TeamPage user={user} />}

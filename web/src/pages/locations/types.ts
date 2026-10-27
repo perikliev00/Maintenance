@@ -12,4 +12,5 @@ export type LocationsPageProps = {
   user: AuthUser;
   kind: LocationKindFilter;
   publicSettings?: PublicSettings | null;
+  locale?: "bg" | "en";
 };

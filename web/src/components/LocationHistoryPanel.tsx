@@ -1,8 +1,11 @@
 /**
- * Side panel for a single location: status pills, optional occupancy/service
- * controls (permission-gated), and audit timeline. Backdrop click closes;
- * clicks inside the aside are stopped so they do not dismiss.
+ * Centered modal for a single location: status pills, optional occupancy/service
+ * controls (permission-gated), and audit timeline. Backdrop click / Escape / X close.
+ * Portaled to document.body so position:fixed is always viewport-relative.
+ * Body scroll is locked while open so the rooms list keeps its scroll position.
  */
+import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type {
   AuditEventRow,
   LocationOccupancy,
@@ -44,8 +47,8 @@ type Props = {
 };
 
 /**
- * Side panel for a single location: status pills, optional occupancy/service
- * controls (permission-gated), and audit timeline.
+ * Centered location detail modal with the same ops controls and audit timeline
+ * as the former side panel.
  */
 export function LocationHistoryPanel({
   location,
@@ -60,113 +63,130 @@ export function LocationHistoryPanel({
   onOccupancyChange,
   onServiceStatusChange,
 }: Props) {
-  // Render output.
-  return (
-    // Backdrop click closes; stopPropagation on aside keeps inner clicks open.
-    <div className="location-detail-backdrop" onClick={onClose}>
-      {/* Side panel. */}
-      <aside
-        className="location-detail-panel"
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  return createPortal(
+    <div
+      className="location-detail-backdrop"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="location-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="location-detail-title"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Panel header. */}
-        <header>
+        <header className="location-detail-modal-header">
           <div>
-            {/* Section heading. */}
-            <h3>
+            <h3 id="location-detail-title">
               {unitLabelCap} {location.number}
             </h3>
             <div className="muted">
               {location.buildingCode} · ет. {location.floor}
-              {/* Optional sector code suffix. */}
               {location.sector ? ` · ${location.sector.code}` : ""}
             </div>
           </div>
-          {/* Action control. */}
-          <button type="button" className="ghost" onClick={onClose}>
-            ✕
+          <button
+            type="button"
+            className="ghost location-detail-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            X
           </button>
         </header>
-        {/* Live status pills from the location board row. */}
-        <div>
-          <span className={`pill cleaning-${location.cleaningStatus}`}>
-            {location.cleaningStatus}
-          </span>{" "}
-          <span className={`pill service-${location.serviceStatus}`}>
-            {location.serviceStatus}
-          </span>{" "}
-          <span className={`pill ready-${location.readiness}`}>
-            {location.readiness}
-          </span>
-        </div>
 
-        {/* Ops controls only when at least one permission is granted. */}
-        {/* Panel section. */}
-        {(canSetOccupancy || canSetServiceStatus) && (
-          <section className="location-ops-controls">
-            {/* Section heading. */}
-            <h4>Оперативни състояния</h4>
-            {/* Occupancy select — requires canSetOccupancy + handler. */}
-            {/* Form field. */}
-            {canSetOccupancy && onOccupancyChange && (
-              <label>
-                Occupancy
-                {/* Select input. */}
-                <select
-                  value={location.occupancy}
-                  disabled={busy}
-                  onChange={(e) =>
-                    onOccupancyChange(e.target.value as LocationOccupancy)
-                  }
-                >
-                  {OCCUPANCY_OPTIONS.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {/* Service-status select — requires canSetServiceStatus + handler. */}
-            {/* Form field. */}
-            {canSetServiceStatus && onServiceStatusChange && (
-              <label>
-                Service status
-                {/* Select input. */}
-                <select
-                  value={location.serviceStatus}
-                  disabled={busy}
-                  onChange={(e) =>
-                    onServiceStatusChange(
-                      e.target.value as LocationServiceStatus,
-                    )
-                  }
-                >
-                  {SERVICE_OPTIONS.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+        <div className="location-detail-modal-body">
+          <div>
+            <span className={`pill cleaning-${location.cleaningStatus}`}>
+              {location.cleaningStatus}
+            </span>{" "}
+            <span className={`pill service-${location.serviceStatus}`}>
+              {location.serviceStatus}
+            </span>{" "}
+            <span className={`pill ready-${location.readiness}`}>
+              {location.readiness}
+            </span>
+          </div>
+
+          {(canSetOccupancy || canSetServiceStatus) && (
+            <section className="location-ops-controls">
+              <h4>Оперативни състояния</h4>
+              {canSetOccupancy && onOccupancyChange && (
+                <label>
+                  Occupancy
+                  <select
+                    value={location.occupancy}
+                    disabled={busy}
+                    onChange={(e) =>
+                      onOccupancyChange(e.target.value as LocationOccupancy)
+                    }
+                  >
+                    {OCCUPANCY_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {canSetServiceStatus && onServiceStatusChange && (
+                <label>
+                  Service status
+                  <select
+                    value={location.serviceStatus}
+                    disabled={busy}
+                    onChange={(e) =>
+                      onServiceStatusChange(
+                        e.target.value as LocationServiceStatus,
+                      )
+                    }
+                  >
+                    {SERVICE_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </section>
+          )}
+
+          <section>
+            <h4>Хронология</h4>
+            <AuditTimeline
+              events={events}
+              loading={loading}
+              accessDenied={auditError?.kind === "forbidden"}
+              error={auditError?.kind === "error" ? auditError.message : null}
+              emptyLabel="Няма одит записи за това помещение."
+            />
           </section>
-        )}
-
-        {/* Panel section. */}
-        <section>
-          {/* Section heading. */}
-          <h4>Хронология</h4>
-          {/* Map auditError kind to timeline's accessDenied vs error props. */}
-          <AuditTimeline
-            events={events}
-            loading={loading}
-            accessDenied={auditError?.kind === "forbidden"}
-            error={auditError?.kind === "error" ? auditError.message : null}
-            emptyLabel="Няма одит записи за това помещение."
-          />
-        </section>
-      </aside>
-    </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

@@ -219,6 +219,9 @@ export async function createBlockingTicketAtStatus(
     reportedByEmployeeId: world.owner.employeeId,
     priority: Priority.normal,
     commandId: randomUUID(),
+    // Readiness tests create multiple blockers on one room; override exact-dup gate.
+    allowDuplicate: true,
+    duplicateOverrideReason: "readiness multi-blocker fixture",
   });
   const ticketId = created.ticket.id;
 

@@ -34,6 +34,10 @@ export type Room = {
     priority: string;
     status: string;
   }>;
+  /** Authoritative open blocking ticket total (preview may be truncated). */
+  blockingIssueCount?: number;
+  /** Authoritative open non-blocking ticket total. */
+  nonBlockingIssueCount?: number;
   activeTask: {
     id: string;
     status: string;

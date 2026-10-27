@@ -20,6 +20,7 @@ import {
   resolveDataScope,
   taskWhere,
 } from "../../services/dataScope";
+import { listAvailableHousekeepers as listAvailableHousekeepersService } from "../../services/housekeepers";
 import { getFlags } from "../../services/settings";
 
 /** GET /cleaning/tasks — scoped list with optional hotelDate/status filters. */
@@ -207,6 +208,7 @@ export async function reassign(req: Request, res: Response, next: NextFunction) 
       reason: z.string().min(1),
       shiftId: z.string().min(1).nullable().optional(),
       expectedVersion: z.number().int().optional(),
+      forceDespiteAvailability: z.boolean().optional(),
     });
     // Parse and validate input.
     const parsed = schema.safeParse(req.body);
@@ -228,6 +230,8 @@ export async function reassign(req: Request, res: Response, next: NextFunction) 
       shiftId: parsed.data.shiftId,
       expectedVersion: parsed.data.expectedVersion,
       actorEmployeeId: req.user!.employeeId,
+      actorRole: req.user!.role,
+      forceDespiteAvailability: parsed.data.forceDespiteAvailability === true,
     });
 
     // JSON success response.
@@ -251,6 +255,45 @@ export async function listHousekeepers(
     return res.json(employees);
   } catch (err) {
     // Forward error to Express.
+    return next(err);
+  }
+}
+
+/**
+ * GET /available-housekeepers?locationId=&taskId=
+ * Real-time availability for the room-specific reassignment modal.
+ */
+export async function listAvailableHousekeepers(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const locationId =
+      typeof req.query.locationId === "string" ? req.query.locationId : "";
+    if (!locationId) {
+      return res.status(400).json({
+        error: "validation",
+        message: "locationId is required",
+      });
+    }
+    const taskId =
+      typeof req.query.taskId === "string" && req.query.taskId.length > 0
+        ? req.query.taskId
+        : undefined;
+
+    const scope = await resolveDataScope(req.user!);
+    await assertCanAccessLocation(scope, locationId);
+    if (taskId) {
+      await assertCanAccessTask(scope, taskId);
+    }
+
+    const result = await listAvailableHousekeepersService({
+      locationId,
+      taskId,
+    });
+    return res.json(result);
+  } catch (err) {
     return next(err);
   }
 }

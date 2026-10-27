@@ -94,7 +94,8 @@ type LocationDetailPanelProps = {
 };
 
 /**
- * Thin adapter that wires LocationsPage detail state into LocationHistoryPanel.
+ * Thin adapter that wires LocationsPage detail state into the centered
+ * LocationHistoryPanel modal (same props / business logic as before).
  */
 export function LocationDetailPanel({
   location,
@@ -109,7 +110,6 @@ export function LocationDetailPanel({
   onOccupancyChange,
   onServiceStatusChange,
 }: LocationDetailPanelProps) {
-  // Props are already shaped for the shared panel — pass through.
   return (
     <LocationHistoryPanel
       location={location}

@@ -1,10 +1,8 @@
 /**
- * Rooms / Common-areas operational board: cleaning workflow, blocking issues,
- * overdue sessions, and detail audit. Live-refreshes on location/cleaning/
- * ticket/settings events while idle; overdue list is filtered to locations
- * currently on the board.
+ * Rooms / Common-areas operational board: cleaning workflow, issues,
+ * overdue sessions, reassignment modal, filters, and detail audit.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchCommonAreas,
   fetchHousekeepers,
@@ -20,39 +18,58 @@ import {
 import { ScopeHint } from "../../components/ScopeHint";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import { LocationDetailPanel, useLocationAudit } from "./audit";
-import { IssueDialogHost } from "./issues";
+import {
+  applyRoomFilters,
+  EMPTY_ROOM_FILTERS,
+  uniqueSorted,
+  type RoomBoardFilters,
+} from "./filters";
+import { IssueDialogHost, asPriority, type Priority } from "./issues";
+import { boardT, type BoardLocale } from "./labels";
 import { AssigneeToolbar, OverdueSessionsPanel } from "./lifecycle";
 import { LocationRow } from "./locationRow";
-import { makeOccupancyHandlers, OccupancyHeaderCell } from "./occupancy";
+import { makeOccupancyHandlers } from "./occupancy";
 import { locationPagePermissions } from "./permissions";
+import { ReassignDialog } from "./ReassignDialog";
 import type { LocationsPageProps } from "./types";
 
-/**
- * Rooms / Common-areas operational board: cleaning workflow, blocking issues,
- * overdue sessions, and detail audit. Live-refreshes while idle.
- */
 export function LocationsPage({
   user,
   kind,
   publicSettings,
+  locale: localeProp,
 }: LocationsPageProps) {
-  // Kind drives labels, occupancy column visibility, and fetch endpoint.
+  const locale: BoardLocale =
+    localeProp ?? publicSettings?.interface.locale ?? "bg";
   const isCommon = kind === "common_area";
-  const unitLabel = isCommon ? "зона" : "стая";
-  const unitLabelCap = isCommon ? "Зона" : "Room";
-  const pageTitle = isCommon ? "Общи части" : "Rooms";
+  const unitLabel = isCommon
+    ? boardT(locale, "зона", "zone")
+    : boardT(locale, "стая", "room");
+  const unitLabelCap = isCommon
+    ? boardT(locale, "Зона", "Zone")
+    : boardT(locale, "Стая", "Room");
+  const pageTitle = isCommon
+    ? boardT(locale, "Общи части", "Common areas")
+    : boardT(locale, "Стаи", "Rooms");
   const pageSubtitle = isCommon
-    ? "Почистване, инспекция и проблеми по общи части (без заетост)"
-    : "Readiness, cleaning workflow и blocking issues";
-  // Flag defaults to shown when unset.
+    ? boardT(
+        locale,
+        "Почистване, инспекция и проблеми по общи части",
+        "Cleaning, inspection, and issues for common areas",
+      )
+    : boardT(
+        locale,
+        "Готовност, почистване и оперативни действия",
+        "Readiness, cleaning workflow, and operational actions",
+      );
   const showOverdueBanner =
     publicSettings?.flags.show_overdue_banner !== false;
   const dueHours = publicSettings?.operations.defaultTaskDueHours ?? 4;
+  const allowReceptionReassign =
+    publicSettings?.flags.allow_reception_reassign !== false;
 
-  // Board rows + overdue sessions scoped to those rows.
   const [locations, setLocations] = useState<Room[]>([]);
   const [overdue, setOverdue] = useState<OverdueSession[]>([]);
-  // Housekeeper assignee toolbar (managers only).
   const [housekeepers, setHousekeepers] = useState<
     Array<{ id: string; fullName: string; employeeNumber: string }>
   >([]);
@@ -60,9 +77,7 @@ export function LocationsPage({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // Row busy id pauses live refresh during mutations.
   const [busyId, setBusyId] = useState<string | null>(null);
-  // Issue report dialog target + catalog drafts.
   const [issueLocationId, setIssueLocationId] = useState<string | null>(null);
   const [issueCategories, setIssueCategories] = useState<
     MaintenanceCategoryRow[]
@@ -75,42 +90,88 @@ export function LocationsPage({
   const [issueCategoryId, setIssueCategoryId] = useState("");
   const [issueTitle, setIssueTitle] = useState("");
   const [issueBlocks, setIssueBlocks] = useState(false);
-  // Expanded detail panel location id.
+  const [issuePriority, setIssuePriority] = useState<Priority>("normal");
   const [detailLocationId, setDetailLocationId] = useState<string | null>(null);
+  const [reassignLocation, setReassignLocation] = useState<Room | null>(null);
+  const [filters, setFilters] = useState<RoomBoardFilters>(EMPTY_ROOM_FILTERS);
 
-  // Capability gates for manage / overdue / occupancy / service.
+  /** Only one overlay at a time — detail / issue / reassign never stack. */
+  const openDetail = useCallback((id: string | null) => {
+    setIssueLocationId(null);
+    setReassignLocation(null);
+    setDetailLocationId(id);
+  }, []);
+  const openIssue = useCallback((id: string | null) => {
+    setDetailLocationId(null);
+    setReassignLocation(null);
+    setIssueLocationId(id);
+  }, []);
+  const openReassign = useCallback((location: Room | null) => {
+    setDetailLocationId(null);
+    setIssueLocationId(null);
+    setReassignLocation(location);
+  }, []);
+
   const permissions = locationPagePermissions(user, isCommon);
   const {
     owner,
-    canManage,
+    canShowAssigneeToolbar,
+    canReassign,
     canReviewOverdue,
     canSetOccupancy,
     canSetServiceStatus,
   } = permissions;
 
-  // Audit trail for the open detail panel.
+  const canReassignEffective =
+    canReassign &&
+    (user.role !== "reception" || allowReceptionReassign);
+
+  const canOverrideAvailability =
+    owner ||
+    user.role === "admin" ||
+    user.role === "manager" ||
+    user.role === "supervisor";
+
   const { detailEvents, detailLoading, detailAuditError } =
     useLocationAudit(detailLocationId);
 
-  // Resolve detail location from the current board list.
   const detailLocation = detailLocationId
     ? (locations.find((l) => l.id === detailLocationId) ?? null)
     : null;
 
-  /**
-   * Soft refresh: reload locations and filter overdue sessions to board ids.
-   * Overdue fetch failures clear the overdue list without failing the board.
-   */
+  const overdueLocationIds = useMemo(
+    () => new Set(overdue.map((s) => s.room.id)),
+    [overdue],
+  );
+
+  const filteredLocations = useMemo(
+    () => applyRoomFilters(locations, filters, overdueLocationIds),
+    [locations, filters, overdueLocationIds],
+  );
+
+  const buildingOptions = useMemo(
+    () => uniqueSorted(locations.map((l) => l.buildingCode)),
+    [locations],
+  );
+  const floorOptions = useMemo(
+    () => uniqueSorted(locations.map((l) => String(l.floor))),
+    [locations],
+  );
+  const sectorOptions = useMemo(
+    () =>
+      uniqueSorted(
+        locations.map((l) => l.sector?.code ?? "").filter(Boolean),
+      ),
+    [locations],
+  );
+
   const refresh = useCallback(async () => {
     setError(null);
-    // Kind selects rooms vs common-areas endpoint.
     const data = isCommon ? await fetchCommonAreas() : await fetchRooms();
     setLocations(data);
-    // Overdue panel only when actor can review overdue sessions.
     if (canReviewOverdue) {
       try {
         const sessions = await fetchOverdueSessions();
-        // Keep only sessions whose location is on this board.
         const ids = new Set(data.map((l) => l.id));
         setOverdue(sessions.filter((s) => ids.has(s.room.id)));
       } catch {
@@ -119,7 +180,6 @@ export function LocationsPage({
     }
   }, [canReviewOverdue, isCommon]);
 
-  // Pause live refresh while a row action is in flight to avoid races.
   const liveAt = useLiveRefresh(refresh, {
     enabled: !loading,
     busy: busyId !== null,
@@ -131,7 +191,6 @@ export function LocationsPage({
     ],
   });
 
-  // Mount / kind / permission change: abortable initial load of board + catalogs.
   useEffect(() => {
     const ac = new AbortController();
     const { signal } = ac;
@@ -139,14 +198,11 @@ export function LocationsPage({
       try {
         setLoading(true);
         setError(null);
-        // Primary board fetch (rooms or common areas).
         const data = isCommon
           ? await fetchCommonAreas({ signal })
           : await fetchRooms({ signal });
-        // Abort guard after each await.
         if (signal.aborted) return;
         setLocations(data);
-        // Optional overdue sessions scoped to board location ids.
         if (canReviewOverdue) {
           try {
             const sessions = await fetchOverdueSessions({ signal });
@@ -159,7 +215,6 @@ export function LocationsPage({
             setOverdue([]);
           }
         }
-        // Issue catalog for the report dialog.
         const [cats, opts] = await Promise.all([
           fetchMaintenanceCategories({ signal }),
           fetchIssueOptions({ signal }),
@@ -167,17 +222,16 @@ export function LocationsPage({
         if (signal.aborted) return;
         setIssueCategories(cats);
         setIssueOptions(opts);
-        // Seed option / title / blocks defaults from first catalog option.
         if (opts[0]) {
           setIssueOptionId(opts[0].id);
           setIssueTitle(opts[0].nameBg);
           if (opts[0].defaultBlocksRoom != null) {
             setIssueBlocks(opts[0].defaultBlocksRoom);
           }
+          setIssuePriority(asPriority(opts[0].defaultPriority));
         }
         if (cats[0]) setIssueCategoryId(cats[0].id);
-        // Managers also load housekeepers for the assignee toolbar.
-        if (canManage) {
+        if (canShowAssigneeToolbar || canReassign) {
           const hk = await fetchHousekeepers({ signal });
           if (signal.aborted) return;
           setHousekeepers(hk);
@@ -198,12 +252,8 @@ export function LocationsPage({
     return () => {
       ac.abort();
     };
-  }, [canManage, canReviewOverdue, isCommon]);
+  }, [canShowAssigneeToolbar, canReassign, canReviewOverdue, isCommon]);
 
-  /**
-   * Run a location-scoped mutation under busyId, then soft-refresh the board.
-   * Surfaces errors via the page error banner.
-   */
   async function runAction(locationId: string, action: () => Promise<void>) {
     setBusyId(locationId);
     setError(null);
@@ -218,7 +268,6 @@ export function LocationsPage({
     }
   }
 
-  // Occupancy/service handlers only when a detail location is open.
   const occupancyHandlers = detailLocation
     ? makeOccupancyHandlers({
         location: detailLocation,
@@ -226,6 +275,13 @@ export function LocationsPage({
         setMessage,
       })
     : null;
+
+  function patchFilter<K extends keyof RoomBoardFilters>(
+    key: K,
+    value: RoomBoardFilters[K],
+  ) {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  }
 
   return (
     <main className="content">
@@ -237,15 +293,19 @@ export function LocationsPage({
         </div>
       </header>
 
-      {/* Owner full-access banner. */}
       {owner && (
         <div className="owner-banner">
-          Собственик — пълен достъп до всички действия по{" "}
-          {isCommon ? "общите части" : "стаите"}
+          {boardT(
+            locale,
+            `Собственик — пълен достъп до всички действия по ${
+              isCommon ? "общите части" : "стаите"
+            }`,
+            `Owner — full access to all ${isCommon ? "common area" : "room"} actions`,
+          )}
         </div>
       )}
-      {/* Manager assignee toolbar + manual refresh. */}
-      {canManage && (
+
+      {canShowAssigneeToolbar && (
         <AssigneeToolbar
           assigneeId={assigneeId}
           setAssigneeId={setAssigneeId}
@@ -255,7 +315,154 @@ export function LocationsPage({
         />
       )}
 
-      {/* Overdue sessions banner when permitted and flag enabled. */}
+      <div className="rooms-filters toolbar">
+        <label>
+          {boardT(locale, "Търсене", "Search")}
+          <input
+            value={filters.q}
+            onChange={(e) => patchFilter("q", e.target.value)}
+            placeholder={boardT(locale, "Номер на стая", "Room number")}
+          />
+        </label>
+        <label>
+          {boardT(locale, "Сграда", "Building")}
+          <select
+            value={filters.building}
+            onChange={(e) => patchFilter("building", e.target.value)}
+          >
+            <option value="">{boardT(locale, "Всички", "All")}</option>
+            {buildingOptions.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          {boardT(locale, "Етаж", "Floor")}
+          <select
+            value={filters.floor}
+            onChange={(e) => patchFilter("floor", e.target.value)}
+          >
+            <option value="">{boardT(locale, "Всички", "All")}</option>
+            {floorOptions.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          {boardT(locale, "Сектор", "Sector")}
+          <select
+            value={filters.sector}
+            onChange={(e) => patchFilter("sector", e.target.value)}
+          >
+            <option value="">{boardT(locale, "Всички", "All")}</option>
+            {sectorOptions.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!isCommon && (
+          <label>
+            {boardT(locale, "Заетост", "Occupancy")}
+            <select
+              value={filters.occupancy}
+              onChange={(e) => patchFilter("occupancy", e.target.value)}
+            >
+              <option value="">{boardT(locale, "Всички", "All")}</option>
+              <option value="vacant">{boardT(locale, "Свободна", "Vacant")}</option>
+              <option value="occupied">{boardT(locale, "Заета", "Occupied")}</option>
+              <option value="unknown">{boardT(locale, "Неизвестна", "Unknown")}</option>
+            </select>
+          </label>
+        )}
+        <label>
+          {boardT(locale, "Готовност", "Readiness")}
+          <select
+            value={filters.readiness}
+            onChange={(e) => patchFilter("readiness", e.target.value)}
+          >
+            <option value="">{boardT(locale, "Всички", "All")}</option>
+            <option value="ready">{boardT(locale, "Готова", "Ready")}</option>
+            <option value="not_ready">{boardT(locale, "Не е готова", "Not ready")}</option>
+            <option value="needs_check">{boardT(locale, "Изисква проверка", "Needs check")}</option>
+          </select>
+        </label>
+        <label>
+          {boardT(locale, "Изпълнител", "Assignee")}
+          <select
+            value={filters.assigneeId}
+            onChange={(e) => patchFilter("assigneeId", e.target.value)}
+          >
+            <option value="">{boardT(locale, "Всички", "All")}</option>
+            {housekeepers.map((hk) => (
+              <option key={hk.id} value={hk.id}>
+                {hk.fullName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={filters.dirtyOnly}
+            onChange={(e) => patchFilter("dirtyOnly", e.target.checked)}
+          />
+          {boardT(locale, "Мръсни", "Dirty")}
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={filters.awaitingInspection}
+            onChange={(e) => patchFilter("awaitingInspection", e.target.checked)}
+          />
+          {boardT(locale, "Чака проверка", "Awaiting inspection")}
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={filters.reworkOnly}
+            onChange={(e) => patchFilter("reworkOnly", e.target.checked)}
+          />
+          {boardT(locale, "Преработка", "Rework")}
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={filters.activeRepairs}
+            onChange={(e) => patchFilter("activeRepairs", e.target.checked)}
+          />
+          {boardT(locale, "Активни ремонти", "Active repairs")}
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={filters.blockingRepairs}
+            onChange={(e) => patchFilter("blockingRepairs", e.target.checked)}
+          />
+          {boardT(locale, "Блокиращи ремонти", "Blocking repairs")}
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={filters.overdueOnly}
+            onChange={(e) => patchFilter("overdueOnly", e.target.checked)}
+          />
+          {boardT(locale, "Просрочени", "Overdue")}
+        </label>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setFilters(EMPTY_ROOM_FILTERS)}
+        >
+          {boardT(locale, "Изчисти филтри", "Clear filters")}
+        </button>
+      </div>
+
       {canReviewOverdue && showOverdueBanner && (
         <OverdueSessionsPanel
           overdueSessionMinutes={
@@ -272,11 +479,9 @@ export function LocationsPage({
         />
       )}
 
-      {/* Error / success feedback. */}
       {error && <div className="error banner">{error}</div>}
       {message && <div className="ok banner">{message}</div>}
 
-      {/* Issue report dialog host when a location was chosen. */}
       {issueLocationId && (
         <IssueDialogHost
           issueLocationId={issueLocationId}
@@ -286,61 +491,77 @@ export function LocationsPage({
           categoryId={issueCategoryId}
           title={issueTitle}
           blocksRoom={issueBlocks}
+          priority={issuePriority}
           options={issueOptions}
           categories={issueCategories}
           onPickModeChange={setIssuePickMode}
           onOptionIdChange={(id, opt) => {
-            // Sync title + blocks defaults when catalog option changes.
             setIssueOptionId(id);
             if (opt) {
               setIssueTitle(opt.nameBg);
               if (opt.defaultBlocksRoom != null) {
                 setIssueBlocks(opt.defaultBlocksRoom);
               }
+              setIssuePriority(asPriority(opt.defaultPriority));
             }
           }}
           onCategoryIdChange={setIssueCategoryId}
           onTitleChange={setIssueTitle}
           onBlocksRoomChange={setIssueBlocks}
-          onCancel={() => setIssueLocationId(null)}
+          onPriorityChange={setIssuePriority}
+          onCancel={() => openIssue(null)}
           runAction={runAction}
           setMessage={setMessage}
-          setIssueLocationId={setIssueLocationId}
+          setError={setError}
+          setIssueLocationId={openIssue}
           setIssueTitle={setIssueTitle}
         />
       )}
 
-      {/* Loading gate vs locations table. */}
+      {reassignLocation && (
+        <ReassignDialog
+          location={reassignLocation}
+          locale={locale}
+          canOverrideAvailability={canOverrideAvailability}
+          onClose={() => openReassign(null)}
+          onSuccess={(msg) => {
+            setMessage(msg);
+            void refresh();
+          }}
+          onError={setError}
+        />
+      )}
+
       {loading ? (
         <p className="muted">
-          Loading {isCommon ? "common areas" : "rooms"}…
+          {boardT(locale, "Зареждане…", "Loading…")}
         </p>
       ) : (
         <div className="table-wrap">
-          <table>
+          <p className="muted">
+            {filteredLocations.length} / {locations.length}{" "}
+            {boardT(locale, "показани", "shown")}
+          </p>
+          <table className="rooms-board-table">
             <thead>
               <tr>
-                <th>{unitLabelCap}</th>
-                <th>Building</th>
-                <th>Floor</th>
-                <th>Sector</th>
-                {/* Occupancy header omitted for common areas. */}
-                <OccupancyHeaderCell isCommon={isCommon} />
-                <th>Service</th>
-                <th>Cleaning</th>
-                <th>Priority / Due</th>
-                <th>Readiness</th>
-                <th>Issues</th>
-                <th>Task</th>
-                <th>Actions</th>
+                <th>{boardT(locale, "Стая", "Room")}</th>
+                <th>{boardT(locale, "Готовност", "Readiness")}</th>
+                <th>{boardT(locale, "Изпълнител", "Assignee")}</th>
+                <th>{boardT(locale, "Почистване", "Cleaning")}</th>
+                <th>{boardT(locale, "Следващо действие", "Next action")}</th>
+                <th>{boardT(locale, "Ремонти", "Issues")}</th>
+                <th>{boardT(locale, "Задача", "Task")}</th>
+                <th>{boardT(locale, "Действия", "Actions")}</th>
               </tr>
             </thead>
             <tbody>
-              {locations.map((loc) => (
+              {filteredLocations.map((loc) => (
                 <LocationRow
                   key={loc.id}
                   location={loc}
                   user={user}
+                  locale={locale}
                   isCommon={isCommon}
                   unitLabel={unitLabel}
                   unitLabelCap={unitLabelCap}
@@ -349,13 +570,15 @@ export function LocationsPage({
                   busyId={busyId}
                   detailLocationId={detailLocationId}
                   permissions={permissions}
-                  setDetailLocationId={setDetailLocationId}
+                  canReassignEffective={canReassignEffective}
+                  setDetailLocationId={openDetail}
                   setBusyId={setBusyId}
                   setMessage={setMessage}
                   setError={setError}
-                  setIssueLocationId={setIssueLocationId}
+                  setIssueLocationId={openIssue}
                   setIssueTitle={setIssueTitle}
                   setIssueBlocks={setIssueBlocks}
+                  onReassignClick={openReassign}
                   runAction={runAction}
                   refresh={refresh}
                 />
@@ -365,7 +588,6 @@ export function LocationsPage({
         </div>
       )}
 
-      {/* Detail side panel with occupancy/service + audit. */}
       {detailLocation && occupancyHandlers && (
         <LocationDetailPanel
           location={detailLocation}
@@ -376,7 +598,7 @@ export function LocationsPage({
           busy={busyId === detailLocation.id}
           canSetOccupancy={canSetOccupancy}
           canSetServiceStatus={canSetServiceStatus}
-          onClose={() => setDetailLocationId(null)}
+          onClose={() => openDetail(null)}
           onOccupancyChange={occupancyHandlers.onOccupancyChange}
           onServiceStatusChange={occupancyHandlers.onServiceStatusChange}
         />

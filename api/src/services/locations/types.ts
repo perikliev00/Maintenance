@@ -51,6 +51,37 @@ export const locationInclude = {
   },
 };
 
+/**
+ * Attach open blocking / non-blocking ticket counts for board DTOs.
+ * Preview samples stay capped at 5; counts are authoritative totals.
+ */
+export async function attachOpenIssueCounts<T extends { id: string }>(
+  rows: T[],
+  grouped: Array<{
+    locationId: string;
+    blocksRoom: boolean;
+    _count: { _all: number };
+  }>,
+): Promise<
+  Array<T & { blockingIssueCount: number; nonBlockingIssueCount: number }>
+> {
+  if (rows.length === 0) return [];
+  const blocking = new Map<string, number>();
+  const nonBlocking = new Map<string, number>();
+  for (const row of grouped) {
+    if (row.blocksRoom) {
+      blocking.set(row.locationId, row._count._all);
+    } else {
+      nonBlocking.set(row.locationId, row._count._all);
+    }
+  }
+  return rows.map((row) => ({
+    ...row,
+    blockingIssueCount: blocking.get(row.id) ?? 0,
+    nonBlockingIssueCount: nonBlocking.get(row.id) ?? 0,
+  }));
+}
+
 type SessionRow = {
   id: string;
   status: string;
@@ -118,4 +149,8 @@ export type LocationForMap = {
     status: string;
     blocksRoom: boolean;
   }>;
+  /** Authoritative open blocking ticket total (may exceed preview length). */
+  blockingIssueCount?: number;
+  /** Authoritative open non-blocking ticket total. */
+  nonBlockingIssueCount?: number;
 };
