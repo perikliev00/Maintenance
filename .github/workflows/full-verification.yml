@@ -6,6 +6,8 @@ permissions:
 on:
   push:
     branches: [codex/full-verification-20261027-796ae8d]
+    paths-ignore:
+      - .github/workflows/full-verification.yml
   workflow_dispatch:
 
 concurrency:
@@ -58,6 +60,7 @@ jobs:
       - run: npm run build
       - run: npm run typecheck:tests
       - run: npm test
+        id: verification_step_1
         continue-on-error: true
 
       - name: Fail job when any verification step failed
@@ -130,51 +133,71 @@ jobs:
             'WEB_ORIGIN=http://127.0.0.1:5173' \
             > .env.p1_test
       - run: npm run prove:p1-isolation
+        id: verification_step_2
         continue-on-error: true
       - run: npm run test:scenarios
+        id: verification_step_3
         continue-on-error: true
       - run: npm test
+        id: verification_step_4
         continue-on-error: true
       - run: npm run test:cleaning-lifecycle
+        id: verification_step_5
         continue-on-error: true
       - run: npm run test:readiness
+        id: verification_step_6
         continue-on-error: true
       - run: npm run test:tickets-lifecycle
+        id: verification_step_7
         continue-on-error: true
       - run: npm run test:plan
+        id: verification_step_8
         continue-on-error: true
       - run: npm run test:sectors
+        id: verification_step_9
         continue-on-error: true
         env:
           EXPECTED_TEST_DATABASE: maintenance_p1_test
       - run: npm run test:shifts
+        id: verification_step_10
         continue-on-error: true
         env:
           EXPECTED_TEST_DATABASE: maintenance_p1_test
       - run: npm run test:my-work
+        id: verification_step_11
         continue-on-error: true
         env:
           EXPECTED_TEST_DATABASE: maintenance_p1_test
       - run: npm run test:attendance
+        id: verification_step_12
         continue-on-error: true
       - run: npm run test:cards
+        id: verification_step_13
         continue-on-error: true
       - run: npm run db:seed
       - run: npx tsx scripts/smoke-ticket-lifecycle-idempotency.ts
+        id: verification_step_14
         continue-on-error: true
       - run: npx tsx scripts/smoke-cleaning-atomic.ts
+        id: verification_step_15
         continue-on-error: true
       - run: npx tsx scripts/smoke-invitation-atomic.ts
+        id: verification_step_16
         continue-on-error: true
       - run: npx tsx scripts/smoke-invitation-role.ts
+        id: verification_step_17
         continue-on-error: true
       - run: npm run smoke:attendance:isolated
+        id: verification_step_18
         continue-on-error: true
       - run: npx tsx scripts/smoke-maintenance-atomic.ts
+        id: verification_step_19
         continue-on-error: true
       - run: npx tsx scripts/smoke-daily-plan-atomic.ts
+        id: verification_step_20
         continue-on-error: true
       - run: npx tsx scripts/smoke-data-scope.ts
+        id: verification_step_21
         continue-on-error: true
 
       - name: Fail job when any verification step failed
@@ -217,6 +240,7 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx tsx scripts/smoke-legacy-audit-upgrade.ts
+        id: verification_step_22
         continue-on-error: true
 
       - name: Fail job when any verification step failed
@@ -305,6 +329,7 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Run Playwright
+        id: verification_step_23
         continue-on-error: true
         working-directory: e2e
         run: npm test
@@ -320,6 +345,7 @@ jobs:
             > .env.p1_test
 
       - name: Run isolated browser integrations and workflows
+        id: verification_step_24
         continue-on-error: true
         working-directory: e2e
         run: |
