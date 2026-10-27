@@ -1,0 +1,579 @@
+name: Maintenance full verification
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [codex/full-verification-20261027-796ae8d]
+  workflow_dispatch:
+
+concurrency:
+  group: full-verification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 796ae8de25600686a83cbdb3e7d638b05737ee13
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run typecheck:tests
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 796ae8de25600686a83cbdb3e7d638b05737ee13
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run typecheck:tests
+      - run: npm test
+        continue-on-error: true
+
+      - name: Fail job when any verification step failed
+        if: ${{ !cancelled() && contains(steps.*.outcome, 'failure') }}
+        run: exit 1
+  smoke:
+    name: Smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: maintenance
+          POSTGRES_PASSWORD: maintenance
+          POSTGRES_DB: maintenance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maintenance -d maintenance"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://maintenance:maintenance@localhost:5432/maintenance?schema=public
+      JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
+      ALLOW_DEMO_SEED: "true"
+      DEMO_SEED_DATABASE_NAME: maintenance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 796ae8de25600686a83cbdb3e7d638b05737ee13
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npx tsx scripts/assert-sql-invariants.ts
+      - run: npm run db:seed
+      # Isolated DB for sectors/shifts/my-work (preload rewrites DATABASE_URL by name).
+      - name: Prepare maintenance_p1_test
+        env:
+          PGPASSWORD: maintenance
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          set +e
+          OUT=$(psql -h localhost -U maintenance -d postgres -c "CREATE DATABASE maintenance_p1_test OWNER maintenance;" 2>&1)
+          EC=$?
+          set -e
+          if [ $EC -ne 0 ]; then
+            echo "$OUT" | grep -qi "already exists" || { echo "$OUT"; exit 1; }
+          fi
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10" \
+            npx prisma migrate deploy
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10" \
+            DEMO_SEED_DATABASE_NAME=maintenance_p1_test \
+            npm run db:seed
+          # Write .env.p1_test without heredoc indent leakage (YAML-safe).
+          printf '%s\n' \
+            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
+            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
+            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
+            'WEB_ORIGIN=http://127.0.0.1:5173' \
+            > .env.p1_test
+      - run: npm run prove:p1-isolation
+        continue-on-error: true
+      - run: npm run test:scenarios
+        continue-on-error: true
+      - run: npm test
+        continue-on-error: true
+      - run: npm run test:cleaning-lifecycle
+        continue-on-error: true
+      - run: npm run test:readiness
+        continue-on-error: true
+      - run: npm run test:tickets-lifecycle
+        continue-on-error: true
+      - run: npm run test:plan
+        continue-on-error: true
+      - run: npm run test:sectors
+        continue-on-error: true
+        env:
+          EXPECTED_TEST_DATABASE: maintenance_p1_test
+      - run: npm run test:shifts
+        continue-on-error: true
+        env:
+          EXPECTED_TEST_DATABASE: maintenance_p1_test
+      - run: npm run test:my-work
+        continue-on-error: true
+        env:
+          EXPECTED_TEST_DATABASE: maintenance_p1_test
+      - run: npm run test:attendance
+        continue-on-error: true
+      - run: npm run test:cards
+        continue-on-error: true
+      - run: npm run db:seed
+      - run: npx tsx scripts/smoke-ticket-lifecycle-idempotency.ts
+        continue-on-error: true
+      - run: npx tsx scripts/smoke-cleaning-atomic.ts
+        continue-on-error: true
+      - run: npx tsx scripts/smoke-invitation-atomic.ts
+        continue-on-error: true
+      - run: npx tsx scripts/smoke-invitation-role.ts
+        continue-on-error: true
+      - run: npm run smoke:attendance:isolated
+        continue-on-error: true
+      - run: npx tsx scripts/smoke-maintenance-atomic.ts
+        continue-on-error: true
+      - run: npx tsx scripts/smoke-daily-plan-atomic.ts
+        continue-on-error: true
+      - run: npx tsx scripts/smoke-data-scope.ts
+        continue-on-error: true
+
+      - name: Fail job when any verification step failed
+        if: ${{ !cancelled() && contains(steps.*.outcome, 'failure') }}
+        run: exit 1
+  smoke-audit-upgrade:
+    name: Smoke audit upgrade
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: maintenance
+          POSTGRES_PASSWORD: maintenance
+          POSTGRES_DB: maintenance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maintenance -d maintenance"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://maintenance:maintenance@localhost:5432/maintenance?schema=public
+      JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 796ae8de25600686a83cbdb3e7d638b05737ee13
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsx scripts/smoke-legacy-audit-upgrade.ts
+        continue-on-error: true
+
+      - name: Fail job when any verification step failed
+        if: ${{ !cancelled() && contains(steps.*.outcome, 'failure') }}
+        run: exit 1
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: maintenance
+          POSTGRES_PASSWORD: maintenance
+          POSTGRES_DB: maintenance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maintenance -d maintenance"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://maintenance:maintenance@localhost:5432/maintenance?schema=public
+      JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
+      WEB_ORIGIN: http://127.0.0.1:5173
+      PORT: "4000"
+      # Many UI logins + live polls from one runner exceed production IP budgets.
+      E2E_DISABLE_RATE_LIMIT: "1"
+      ALLOW_DEMO_SEED: "true"
+      DEMO_SEED_DATABASE_NAME: maintenance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 796ae8de25600686a83cbdb3e7d638b05737ee13
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            api/package-lock.json
+            web/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install API
+        working-directory: api
+        run: |
+          npm ci
+          npx prisma generate
+          npx prisma migrate deploy
+          npm run db:seed
+
+      - name: Prepare isolated P1 database for Playwright
+        working-directory: api
+        env:
+          PGPASSWORD: maintenance
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          set +e
+          OUT=$(psql -h localhost -U maintenance -d postgres -c "CREATE DATABASE maintenance_p1_test OWNER maintenance;" 2>&1)
+          EC=$?
+          set -e
+          if [ $EC -ne 0 ]; then
+            echo "$OUT" | grep -qi "already exists" || { echo "$OUT"; exit 1; }
+          fi
+          # Main Playwright webServer uses registerP1TestEnv → requires .env.p1_test first.
+          printf '%s\n' \
+            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
+            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
+            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
+            'WEB_ORIGIN=http://127.0.0.1:5173' \
+            > .env.p1_test
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" npx prisma migrate deploy
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" DEMO_SEED_DATABASE_NAME=maintenance_p1_test node --import ./tests/registerP1TestEnv.mjs --import tsx prisma/seed.ts
+          npm run prove:p1-isolation
+
+      - name: Install Web
+        working-directory: web
+        run: npm ci
+
+      - name: Install E2E
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright
+        continue-on-error: true
+        working-directory: e2e
+        run: npm test
+
+      - name: Point P1 env at scenario web origin
+        working-directory: api
+        run: |
+          printf '%s\n' \
+            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
+            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
+            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
+            'WEB_ORIGIN=http://127.0.0.1:5185' \
+            > .env.p1_test
+
+      - name: Run isolated browser integrations and workflows
+        continue-on-error: true
+        working-directory: e2e
+        run: |
+          npm run typecheck:scenarios
+          npm run test:scenarios
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
+
+      - name: Fail job when any verification step failed
+        if: ${{ !cancelled() && contains(steps.*.outcome, 'failure') }}
+        run: exit 1
+
+  containers:
+    name: Container verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [api, web]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 796ae8de25600686a83cbdb3e7d638b05737ee13
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate production Compose
+        run: docker compose --env-file .env.production.example -f compose.prod.yml config --quiet
+      - name: Build production images
+        id: build_images
+        run: |
+          docker build --target api -t maintenance-api:${GITHUB_SHA} ./api
+          docker build --target migrate -t maintenance-migrate:${GITHUB_SHA} ./api
+          docker build --target bootstrap -t maintenance-bootstrap:${GITHUB_SHA} ./api
+          docker build --target owner-bootstrap -t maintenance-owner:${GITHUB_SHA} ./api
+          docker build --target web -t maintenance-web:${GITHUB_SHA} ./web
+      - name: Verify runtime Prisma client
+        run: docker run --rm --entrypoint node maintenance-api:${GITHUB_SHA} -e "const {PrismaClient}=require('@prisma/client'); if(!PrismaClient) process.exit(1); console.log('Prisma client available')"
+      - name: Verify edge routing and monitoring delivery in isolated containers
+        run: API_IMAGE=maintenance-api:${GITHUB_SHA} WEB_IMAGE=maintenance-web:${GITHUB_SHA} node scripts/verify-containers.mjs
+      - name: Scan API image
+        if: ${{ always() && steps.build_images.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: maintenance-api:${{ github.sha }}
+          format: json
+          output: trivy-api.json
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+      - name: Summarize API vulnerability paths
+        if: always()
+        run: |
+          node - trivy-api.json <<'NODE'
+          const fs = require('node:fs');
+          const path = process.argv[2];
+          if (!fs.existsSync(path)) {
+            console.log('Trivy API JSON report was not created');
+            process.exit(0);
+          }
+          const report = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const groups = new Map();
+          for (const result of report.Results ?? []) {
+            for (const item of result.Vulnerabilities ?? []) {
+              if (!['HIGH', 'CRITICAL'].includes(item.Severity)) continue;
+              const key = [result.Type, result.Target, item.PkgName, item.InstalledVersion, item.PkgPath, item.Severity].join('|');
+              const group = groups.get(key) ?? {
+                type: result.Type, target: result.Target, package: item.PkgName,
+                installed: item.InstalledVersion, path: item.PkgPath ?? null,
+                severity: item.Severity, advisories: []
+              };
+              group.advisories.push({ id: item.VulnerabilityID, fixed: item.FixedVersion || null });
+              groups.set(key, group);
+            }
+          }
+          console.log(JSON.stringify([...groups.values()], null, 2));
+          NODE
+      - name: Upload API Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-api-json
+          path: trivy-api.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Scan web image
+        if: ${{ always() && steps.build_images.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: maintenance-web:${{ github.sha }}
+          format: json
+          output: trivy-web.json
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+      - name: Summarize web vulnerability paths
+        if: always()
+        run: |
+          node - trivy-web.json <<'NODE'
+          const fs = require('node:fs');
+          const path = process.argv[2];
+          if (!fs.existsSync(path)) {
+            console.log('Trivy web JSON report was not created');
+            process.exit(0);
+          }
+          const report = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const groups = new Map();
+          for (const result of report.Results ?? []) {
+            for (const item of result.Vulnerabilities ?? []) {
+              if (!['HIGH', 'CRITICAL'].includes(item.Severity)) continue;
+              const key = [result.Type, result.Target, item.PkgName, item.InstalledVersion, item.PkgPath, item.Severity].join('|');
+              const group = groups.get(key) ?? {
+                type: result.Type, target: result.Target, package: item.PkgName,
+                installed: item.InstalledVersion, path: item.PkgPath ?? null,
+                severity: item.Severity, advisories: []
+              };
+              group.advisories.push({ id: item.VulnerabilityID, fixed: item.FixedVersion || null });
+              groups.set(key, group);
+            }
+          }
+          console.log(JSON.stringify([...groups.values()], null, 2));
+          NODE
+      - name: Upload web Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-web-json
+          path: trivy-web.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 796ae8de25600686a83cbdb3e7d638b05737ee13
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  dependency-review:
+    name: Dependency review (PR)
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.7.0
+    with:
+      scan-args: |-
+        --lockfile=./api/package-lock.json
+        --lockfile=./web/package-lock.json
+        --lockfile=./e2e/package-lock.json
+      fail-on-vuln: true
+      upload-sarif: false
+
+  # P2-T06: OSV on push-to-main (PR-only dependency-review left a main-branch gap).
+  osv-main:
+    name: OSV scanner (main)
+    if: github.event_name == 'push'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.7.0
+    with:
+      scan-args: |-
+        --lockfile=./api/package-lock.json
+        --lockfile=./web/package-lock.json
+        --lockfile=./e2e/package-lock.json
+      fail-on-vuln: true
+      upload-sarif: false
+
+
+  mutations:
+    name: Mutation tests (${{ matrix.component }}, ${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        component: [api, web]
+        mode: [targeted, full]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: maintenance
+          POSTGRES_PASSWORD: maintenance
+          POSTGRES_DB: maintenance_p1_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maintenance -d maintenance_p1_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10
+      P1_TEST_DATABASE_URL: postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10
+      EXPECTED_TEST_DATABASE: maintenance_p1_test
+      JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
+      WEB_ORIGIN: http://127.0.0.1:5173
+      ALLOW_DEMO_SEED: "true"
+      DEMO_SEED_DATABASE_NAME: maintenance_p1_test
+    defaults:
+      run:
+        working-directory: ${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 796ae8de25600686a83cbdb3e7d638b05737ee13
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ${{ matrix.component }}/package-lock.json
+      - run: npm ci
+      - name: Prepare API test database
+        if: matrix.component == 'api'
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+          npm run db:seed
+          printf '%s\n' \
+            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
+            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
+            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
+            'WEB_ORIGIN=http://127.0.0.1:5173' \
+            > .env.p1_test
+      - name: Run mutation tests
+        run: |
+          if [ "${{ matrix.mode }}" = "full" ]; then
+            npm run test:mutation:full
+          else
+            npm run test:mutation
+          fi
+      - name: Upload mutation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-${{ matrix.component }}-${{ matrix.mode }}
+          path: ${{ matrix.component }}/reports/
+          if-no-files-found: warn
+          retention-days: 14
