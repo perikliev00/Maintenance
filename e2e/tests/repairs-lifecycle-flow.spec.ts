@@ -142,7 +142,8 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
       .toBe(true);
 
     await openNav(page, /Контрол|Control/);
-    const controlCard = page.locator("li").filter({ hasText: stamp });
+    // Control cards show building+number + catalog title, not clarification stamp.
+    const controlCard = page.locator("li").filter({ hasText: room.number });
     await expect(controlCard).toBeVisible({ timeout: 20_000 });
     await expect(controlCard.getByRole("button", { name: "Reopen" })).toBeVisible({
       timeout: 20_000,
