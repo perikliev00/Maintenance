@@ -15,9 +15,10 @@ test.describe("revoke action UI", () => {
     const original = await getRoleGrants(ownerToken, "supervisor");
 
     try {
+      const markDirty = /Маркирай като мръсна|Mark dirty/;
       await uiLogin(page, USERS.supervisor);
       await openNav(page, /Стаи|Rooms/);
-      await expect(page.getByRole("button", { name: "Mark dirty" }).first()).toBeVisible({
+      await expect(page.getByRole("button", { name: markDirty }).first()).toBeVisible({
         timeout: 20_000,
       });
 
@@ -36,7 +37,7 @@ test.describe("revoke action UI", () => {
       await page.reload();
       await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
       await openNav(page, /Стаи|Rooms/);
-      await expect(page.getByRole("button", { name: "Mark dirty" })).toHaveCount(
+      await expect(page.getByRole("button", { name: markDirty })).toHaveCount(
         0,
       );
     } finally {

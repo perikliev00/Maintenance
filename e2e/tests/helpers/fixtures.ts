@@ -299,10 +299,36 @@ export async function createAndStartCleaningTask(
   ).toBeTruthy();
   const task = create.body as { id: string; version: number };
   const hk = await apiLogin(USERS.housekeeper);
-  const started = await apiPost(hk.token, `/cleaning/tasks/${task.id}/start`, {
+  let started = await apiPost(hk.token, `/cleaning/tasks/${task.id}/start`, {
     commandId: crypto.randomUUID(),
     expectedVersion: task.version,
   });
+  // Parallel E2E may leave the shared demo HK with a running session — complete it and retry once.
+  if (
+    started.status === 409 &&
+    JSON.stringify(started.body).includes("already has a running session")
+  ) {
+    const ops = await apiGet(token, "/operations/live");
+    if (ops.status === 200) {
+      const sessions = (
+        ops.body as {
+          runningSessions?: Array<{ id: string; employeeId?: string }>;
+        }
+      ).runningSessions ?? [];
+      for (const session of sessions) {
+        if (session.employeeId === housekeeperEmployeeId) {
+          await apiPost(token, `/cleaning/sessions/${session.id}/complete`, {
+            commandId: crypto.randomUUID(),
+            notes: "e2e clear shared HK session",
+          });
+        }
+      }
+    }
+    started = await apiPost(hk.token, `/cleaning/tasks/${task.id}/start`, {
+      commandId: crypto.randomUUID(),
+      expectedVersion: task.version,
+    });
+  }
   // First start returns 201; idempotent replay returns 200.
   expect(
     started.status,

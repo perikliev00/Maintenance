@@ -39,15 +39,27 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     );
     expect(optionValues.length).toBeGreaterThan(0);
     await optionSelect.selectOption(optionValues[0]!);
-    await page.getByLabel(/Заглавие|Title/).fill(stamp);
+    const optionLabel = await optionSelect.locator("option:checked").textContent();
+    // Title is catalog-driven; stamp goes in the optional clarification field.
+    await page.getByLabel(/Уточнение|Clarification/i).fill(stamp);
     await page.getByRole("button", { name: /Докладвай|Report/i }).click();
     await expect(page.getByText(stamp)).toBeVisible({ timeout: 15_000 });
 
-    const list = await apiGet(token, "/maintenance/tickets?status=open&limit=50");
+    const list = await apiGet(
+      token,
+      `/maintenance/tickets?status=open&locationId=${room.id}&limit=50`,
+    );
     expect(list.status).toBe(200);
-    const tickets = list.body as Array<{ id: string; title: string; status: string }>;
-    const ticket = tickets.find((t) => t.title === stamp || t.title.includes(stamp));
-    expect(ticket, `ticket with title ${stamp}`).toBeTruthy();
+    const tickets = list.body as Array<{
+      id: string;
+      title: string;
+      description?: string | null;
+      status: string;
+    }>;
+    const ticket = tickets.find(
+      (t) => t.description === stamp || t.description?.includes(stamp),
+    );
+    expect(ticket, `ticket with clarification ${stamp}`).toBeTruthy();
 
     await apiPost(token, `/maintenance/tickets/${ticket!.id}/assign`, {
       assigneeId: techId,
@@ -58,7 +70,8 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     await uiLogin(page, USERS.technician, DEMO_PASSWORD);
     await openNav(page, /Повреди|Repairs/);
 
-    const ticketRow = () => page.locator("tr").filter({ hasText: stamp });
+    const rowMatch = ticket!.title || optionLabel || stamp;
+    const ticketRow = () => page.locator("tr").filter({ hasText: rowMatch! });
     const startBtn = /Старт|Start/;
     const waitBtn = /Изчакай|Wait/;
     const resumeBtn = /Продължи|Resume/;

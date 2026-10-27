@@ -16,7 +16,18 @@ let server: Awaited<ReturnType<typeof listenApp>>["server"];
 let ownerToken: string;
 let hkToken: string;
 let optionId: string;
-const commands = () => ({ commandId: randomUUID(), type: "ticket.report", payload: { locationId: world.locationAId, issueOptionId: optionId, blocksRoom: false } });
+const commands = (overrides: Record<string, unknown> = {}) => ({
+  commandId: randomUUID(),
+  type: "ticket.report",
+  payload: {
+    locationId: world.locationAId,
+    issueOptionId: optionId,
+    blocksRoom: false,
+    // Keep priority normal so resolve does not require notes unless tests opt in.
+    priority: "normal",
+    ...overrides,
+  },
+});
 
 describe("P1 sync HTTP and PostgreSQL", () => {
   before(async () => {
@@ -99,10 +110,15 @@ describe("P1 sync HTTP and PostgreSQL", () => {
     const row = await prisma.maintenanceTicket.findUniqueOrThrow({ where: { commandId: command.commandId } });
     assert.equal(row.reportedByEmployeeId, world.owner.employeeId);
     const fallbackId = randomUUID();
+    // Use location B so option-based duplicate detection does not reject the control write.
     const acceptedFallback = await fetch(`${api}/maintenance/tickets`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: `session=${session.token}; csrf=${csrf}`, "X-CSRF-Token": csrf, "X-Offline-User": world.owner.userId },
-      body: JSON.stringify({ ...command.payload, commandId: fallbackId }),
+      body: JSON.stringify({
+        ...command.payload,
+        locationId: world.locationBId,
+        commandId: fallbackId,
+      }),
     });
     assert.equal(acceptedFallback.status, 201);
     assert.equal((await prisma.maintenanceTicket.findUniqueOrThrow({ where: { commandId: fallbackId } })).reportedByEmployeeId, world.owner.employeeId);
@@ -149,6 +165,8 @@ describe("P1 sync HTTP and PostgreSQL", () => {
       { locationId: world.locationAId, issueOptionId: optionId, priority: "invented" },
       { locationId: { toString: "bad" }, issueOptionId: optionId },
     ]) {
+      // Isolate each iteration from prior successful reports on the same option.
+      await resetCleaningWork(prisma, world);
       const invalid = { commandId: randomUUID(), type: "ticket.report", payload };
       const good = commands();
       const res = await postJson(api, ownerToken, "/sync/push", { commands: [invalid, good] });
@@ -215,7 +233,15 @@ describe("P1 sync HTTP and PostgreSQL", () => {
     const reported = await postJson(api, ownerToken, "/sync/push", { commands: [commands()] });
     assert.equal(reported.status, 200); const ticketId = (reported.body as any).results[0].data.ticket.id;
     await prisma.maintenanceTicket.update({ where: { id: ticketId }, data: { status: "assigned", assigneeId: world.owner.employeeId } });
-    const batch = ["ticket.start", "ticket.wait", "ticket.resume", "ticket.resolve"].map(type => ({ commandId: randomUUID(), type, payload: { ticketId }, clientTime: "2026-01-01T00:00:00Z" }));
+    const batch = ["ticket.start", "ticket.wait", "ticket.resume", "ticket.resolve"].map(type => ({
+      commandId: randomUUID(),
+      type,
+      payload:
+        type === "ticket.resolve"
+          ? { ticketId, resolutionNotes: "scenario resolve" }
+          : { ticketId },
+      clientTime: "2026-01-01T00:00:00Z",
+    }));
     const res = await postJson(api, ownerToken, "/sync/push", { commands: batch }); assert.equal(res.status, 200);
     assert.deepEqual((res.body as any).results.map((r: any) => r.status), ["ok", "ok", "ok", "ok"]);
     assert.deepEqual((res.body as any).results.map((r: any) => r.data.status), ["in_progress", "waiting", "in_progress", "resolved"]);
