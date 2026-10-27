@@ -134,6 +134,8 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
       assignedEmployeeId: hk2.employeeId,
       reason: "T-SEC-62b reassign",
       actorEmployeeId: world.manager.employeeId,
+      actorRole: Role.manager,
+      forceDespiteAvailability: true,
     });
 
     const row = await prisma.cleaningTask.findUniqueOrThrow({
@@ -166,6 +168,8 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
       assignedEmployeeId: world.housekeeper.employeeId,
       reason: "T-SEC-62c",
       actorEmployeeId: world.manager.employeeId,
+      actorRole: Role.manager,
+      forceDespiteAvailability: true,
     });
 
     const row = await prisma.cleaningTask.findUniqueOrThrow({
@@ -199,6 +203,8 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
       assignedEmployeeId: world.housekeeper.employeeId,
       reason: "T-SEC-62e",
       actorEmployeeId: world.manager.employeeId,
+      actorRole: Role.manager,
+      forceDespiteAvailability: true,
     });
 
     const row = await prisma.cleaningTask.findUniqueOrThrow({

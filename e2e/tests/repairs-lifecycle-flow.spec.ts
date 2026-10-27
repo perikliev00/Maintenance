@@ -43,22 +43,33 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     // Title is catalog-driven; stamp goes in the optional clarification field.
     await page.getByLabel(/Уточнение|Clarification/i).fill(stamp);
     await page.getByRole("button", { name: /Докладвай|Report/i }).click();
-    await expect(page.getByText(stamp)).toBeVisible({ timeout: 15_000 });
 
-    const list = await apiGet(
-      token,
-      `/maintenance/tickets?status=open&locationId=${room.id}&limit=50`,
-    );
-    expect(list.status).toBe(200);
-    const tickets = list.body as Array<{
+    // List shows catalog title, not clarification — confirm create via API.
+    type TicketRow = {
       id: string;
       title: string;
       description?: string | null;
       status: string;
-    }>;
-    const ticket = tickets.find(
-      (t) => t.description === stamp || t.description?.includes(stamp),
-    );
+    };
+    let ticket: TicketRow | undefined;
+    await expect
+      .poll(
+        async () => {
+          const list = await apiGet(
+            token,
+            `/maintenance/tickets?status=open&locationId=${room.id}&limit=50`,
+          );
+          if (list.status !== 200) return false;
+          const tickets = list.body as TicketRow[];
+          ticket = tickets.find(
+            (t) =>
+              t.description === stamp || t.description?.includes(stamp),
+          );
+          return Boolean(ticket);
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(true);
     expect(ticket, `ticket with clarification ${stamp}`).toBeTruthy();
 
     await apiPost(token, `/maintenance/tickets/${ticket!.id}/assign`, {

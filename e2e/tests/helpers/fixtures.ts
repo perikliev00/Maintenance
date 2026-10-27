@@ -303,7 +303,7 @@ export async function createAndStartCleaningTask(
     commandId: crypto.randomUUID(),
     expectedVersion: task.version,
   });
-  // Parallel E2E may leave the shared demo HK with a running session — complete it and retry once.
+  // Prior Playwright tests may leave the shared demo HK with a running session.
   if (
     started.status === 409 &&
     JSON.stringify(started.body).includes("already has a running session")
@@ -312,15 +312,22 @@ export async function createAndStartCleaningTask(
     if (ops.status === 200) {
       const sessions = (
         ops.body as {
-          runningSessions?: Array<{ id: string; employeeId?: string }>;
+          activeSessions?: Array<{
+            sessionId: string;
+            employee?: { id?: string };
+          }>;
         }
-      ).runningSessions ?? [];
+      ).activeSessions ?? [];
       for (const session of sessions) {
-        if (session.employeeId === housekeeperEmployeeId) {
-          await apiPost(token, `/cleaning/sessions/${session.id}/complete`, {
-            commandId: crypto.randomUUID(),
-            notes: "e2e clear shared HK session",
-          });
+        if (session.employee?.id === housekeeperEmployeeId) {
+          await apiPost(
+            hk.token,
+            `/cleaning/sessions/${session.sessionId}/complete`,
+            {
+              commandId: crypto.randomUUID(),
+              notes: "e2e clear shared HK session",
+            },
+          );
         }
       }
     }
