@@ -23,12 +23,20 @@ export const API_BASE =
 type ApiError = {
   error?: string;
   message?: string;
+  details?: unknown;
+  existingTicket?: unknown;
+  match?: unknown;
+  suggestReopenTicketId?: unknown;
 };
 
 /** Thrown by `parseJson` / `apiFetch` so callers can distinguish HTTP vs network. */
 export class ApiRequestError extends Error {
   readonly kind: "http" | "network";
   readonly status?: number;
+  /** Machine-readable API error code (e.g. duplicate_active). */
+  readonly code?: string;
+  /** Structured error details from the API body. */
+  readonly details?: unknown;
   /** Set when a 401 triggered /auth/refresh during this request. */
   refreshOutcome?: RefreshOutcome;
   /** True when identity is lost (refresh rejected, or 401/403 with no refresh context). */
@@ -39,6 +47,8 @@ export class ApiRequestError extends Error {
     opts: {
       kind: "http" | "network";
       status?: number;
+      code?: string;
+      details?: unknown;
       refreshOutcome?: RefreshOutcome;
       authRejected?: boolean;
       cause?: unknown;
@@ -48,6 +58,8 @@ export class ApiRequestError extends Error {
     this.name = "ApiRequestError";
     this.kind = opts.kind;
     this.status = opts.status;
+    this.code = opts.code;
+    this.details = opts.details;
     this.refreshOutcome = opts.refreshOutcome;
     this.authRejected = opts.authRejected;
   }
@@ -108,9 +120,21 @@ export async function parseJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = data as ApiError;
     const message = body.message ?? body.error ?? `HTTP ${res.status}`;
+    // Prefer nested details; duplicate payloads may also be top-level.
+    const details =
+      body.details ??
+      (body.existingTicket || body.match
+        ? {
+            existingTicket: body.existingTicket,
+            match: body.match,
+            suggestReopenTicketId: body.suggestReopenTicketId,
+          }
+        : undefined);
     const err = new ApiRequestError(message, {
       kind: "http",
       status: res.status,
+      code: typeof body.error === "string" ? body.error : undefined,
+      details,
     });
     // Attach last refresh outcome so bootstrap can decide outbox wipe vs keep.
     if (res.status === 401 || res.status === 403) {

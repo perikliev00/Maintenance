@@ -316,14 +316,32 @@ export async function drainQueue(deps: DrainQueueDeps = {}): Promise<void> {
       if (!ownsBinding()) return;
       if (batch.ok) {
         // Apply each per-command result (delete / conflict / retry).
+        const seen = new Set<string>();
         for (const result of batch.results) {
           const item = sending.find((p) => p.commandId === result.commandId);
           if (!item) continue;
+          seen.add(item.commandId);
           await applySyncResult(item, result, ownsBinding, putFn, deleteFn);
+        }
+        // Missing per-command results must still advance retries (do not strand forever).
+        for (const item of sending) {
+          if (seen.has(item.commandId)) continue;
+          await applySyncResult(
+            item,
+            {
+              commandId: item.commandId,
+              status: "error",
+              message: "Temporary command failure",
+              retryable: true,
+            },
+            ownsBinding,
+            putFn,
+            deleteFn,
+          );
         }
         const remaining = await listFn(userId);
         if (!ownsBinding()) return;
-        // Includes unconfirmed/missing results, recovered to pending in finally.
+        // Includes retryable failures (and any leftover sending recovered in finally).
         pendingRetry ||= sending.some(item => remaining.some(row =>
           row.id === item.id && (row.status === "pending" || row.status === "sending")));
         if (pendingRetry) return;

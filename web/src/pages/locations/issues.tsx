@@ -176,7 +176,7 @@ type ReportIssueButtonProps = {
 };
 
 /**
- * Opens the issue dialog for a location, defaulting blocksRoom to true.
+ * Opens the issue dialog for a location; blocksRoom starts false until catalog defaults apply.
  */
 export function ReportIssueButton({
   busy,
@@ -191,10 +191,10 @@ export function ReportIssueButton({
       className="ghost"
       disabled={busy}
       onClick={() => {
-        // Seed dialog state: clear title, default to blocking.
+        // Seed dialog state: clear title; catalog option select applies blocksRoom.
         setIssueLocationId(locationId);
         setIssueTitle("");
-        setIssueBlocks(true);
+        setIssueBlocks(false);
       }}
     >
       Report issue

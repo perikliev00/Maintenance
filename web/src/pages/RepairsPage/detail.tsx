@@ -9,7 +9,13 @@ import type {
   MaintenanceTicket,
   Room,
 } from "../../api/client";
-import { locLabel, t } from "./helpers";
+import {
+  isArchivedLocation,
+  locLabel,
+  priorityLabel,
+  statusLabel,
+  t,
+} from "./helpers";
 
 export type TicketEventRow = {
   id: string;
@@ -26,8 +32,10 @@ type DetailProps = {
   locationId: string;
   onLocationIdChange: (value: string) => void;
   issueOptionId: string;
+  /** Display-only catalog title applied when an option is selected. */
   title: string;
-  onTitleChange: (value: string) => void;
+  description: string;
+  onDescriptionChange: (value: string) => void;
   priority: string;
   onPriorityChange: (value: string) => void;
   blocksRoom: boolean;
@@ -53,7 +61,8 @@ export function Detail({
   onLocationIdChange,
   issueOptionId,
   title,
-  onTitleChange,
+  description,
+  onDescriptionChange,
   priority,
   onPriorityChange,
   blocksRoom,
@@ -102,18 +111,27 @@ export function Detail({
             >
               {options.map((o) => (
                 <option key={o.id} value={o.id}>
-                  {o.nameBg}
+                  {locale === "en" ? o.nameEn : o.nameBg}
                 </option>
               ))}
             </select>
           </label>
-          {/* Form field. */}
+          {title ? (
+            <p className="muted">
+              {t(locale, "Заглавие", "Title")}: <strong>{title}</strong>
+            </p>
+          ) : null}
           <label>
-            {t(locale, "Заглавие", "Title")}
-            {/* Text/checkbox input. */}
-            <input
-              value={title}
-              onChange={(e) => onTitleChange(e.target.value)}
+            {t(locale, "Уточнение (опционално)", "Clarification (optional)")}
+            <textarea
+              value={description}
+              onChange={(e) => onDescriptionChange(e.target.value)}
+              rows={2}
+              placeholder={t(
+                locale,
+                "Допълнителни детайли…",
+                "Additional details…",
+              )}
             />
           </label>
           {/* Form field. */}
@@ -124,10 +142,10 @@ export function Detail({
               value={priority}
               onChange={(e) => onPriorityChange(e.target.value)}
             >
-              <option value="low">low</option>
-              <option value="normal">normal</option>
-              <option value="high">high</option>
-              <option value="urgent">urgent</option>
+              <option value="low">{priorityLabel(locale, "low")}</option>
+              <option value="normal">{priorityLabel(locale, "normal")}</option>
+              <option value="high">{priorityLabel(locale, "high")}</option>
+              <option value="urgent">{priorityLabel(locale, "urgent")}</option>
             </select>
           </label>
           {/* Whether the new ticket should block room readiness. */}
@@ -136,10 +154,34 @@ export function Detail({
             <input
               type="checkbox"
               checked={blocksRoom}
-              onChange={(e) => onBlocksRoomChange(e.target.checked)}
+              onChange={(e) => {
+                const next = e.target.checked;
+                if (
+                  next &&
+                  !window.confirm(
+                    t(
+                      locale,
+                      "Стаята ще остане „не готова“ за настаняване, докато този проблем е отворен. Потвърждавате ли?",
+                      "The room will stay not-ready for occupancy while this issue is open. Confirm?",
+                    ),
+                  )
+                ) {
+                  return;
+                }
+                onBlocksRoomChange(next);
+              }}
             />
             {t(locale, "Блокира стая", "Blocks room")}
           </label>
+          {blocksRoom && (
+            <p className="warn-inline" role="status">
+              {t(
+                locale,
+                "Стаята няма да е готова за настаняване, докато проблемът е отворен.",
+                "The room will not be ready for occupancy while this issue is open.",
+              )}
+            </p>
+          )}
           {/* Submit disabled while the parent mutation/outbox write is in flight. */}
           <button type="submit" disabled={submitting}>
             {t(locale, "Докладвай", "Report")}
@@ -160,6 +202,23 @@ export function Detail({
           <h2>{t(locale, "Хронология", "Timeline")}</h2>
           <p className="muted">
             {locLabel(selected)} · {selected.title}
+            {isArchivedLocation(selected)
+              ? ` · ${t(locale, "архивирана локация", "archived location")}`
+              : ""}
+            {selected.blocksRoom
+              ? ` · ${t(locale, "блокира стая", "blocks room")}`
+              : ""}
+            {selected.assignee?.fullName
+              ? ` · ${t(locale, "изпълнител", "assignee")}: ${selected.assignee.fullName}`
+              : ` · ${t(locale, "без изпълнител", "unassigned")}`}
+          </p>
+          <p>
+            <span className={`pill status-${selected.status}`}>
+              {statusLabel(locale, selected.status)}
+            </span>{" "}
+            <span className="muted">
+              {priorityLabel(locale, selected.priority)}
+            </span>
           </p>
           {/* List of items. */}
           <ul className="event-list">
@@ -167,8 +226,10 @@ export function Detail({
               <li key={ev.id}>
                 <strong>
                   {/* Show transition arrow only when fromStatus is present. */}
-                  {ev.fromStatus ? `${ev.fromStatus} → ` : ""}
-                  {ev.toStatus}
+                  {ev.fromStatus
+                    ? `${statusLabel(locale, ev.fromStatus)} → `
+                    : ""}
+                  {statusLabel(locale, ev.toStatus)}
                 </strong>
                 <span className="muted">
                   {" "}

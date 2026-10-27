@@ -277,8 +277,11 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     await reportTicket(prisma, world, {
       locationId: world.locationBId,
       commandId: createId,
+      allowDuplicate: true,
     });
-    const { ticket: t3 } = await reportTicket(prisma, world);
+    const { ticket: t3 } = await reportTicket(prisma, world, {
+      allowDuplicate: true,
+    });
     await advanceTicketTo(world, t3.id, "assigned");
     try {
       await startMaintenanceTicket({
@@ -300,6 +303,8 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
       blocksRoom: false,
       reportedByEmployeeId: world.owner.employeeId,
       commandId: cid,
+      allowDuplicate: true,
+      duplicateOverrideReason: "idempotency fingerprint fixture",
     });
     try {
       await createMaintenanceTicket({

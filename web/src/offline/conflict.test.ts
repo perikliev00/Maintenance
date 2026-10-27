@@ -95,6 +95,46 @@ describe("decideSyncResult", () => {
     assert.equal(patch.lastError, "error");
     assert.equal(patch.conflictCode, null);
   });
+
+  it("marks permanent validation errors failed without further auto-retry", () => {
+    const patch = decideSyncResult(
+      {
+        status: "error",
+        code: "validation",
+        message: "Invalid command payload",
+        retryable: false,
+      },
+      0,
+      8,
+    );
+    assert.equal(patch.status, "failed");
+    assert.equal(patch.lastError, "Invalid command payload");
+  });
+
+  it("keeps temporary failures pending until max retries then fails", () => {
+    const mid = decideSyncResult(
+      {
+        status: "error",
+        message: "Temporary command failure",
+        retryable: true,
+      },
+      2,
+      8,
+    );
+    assert.equal(mid.status, "pending");
+    assert.equal(mid.retries, 3);
+    const last = decideSyncResult(
+      {
+        status: "error",
+        message: "Temporary command failure",
+        retryable: true,
+      },
+      7,
+      8,
+    );
+    assert.equal(last.status, "failed");
+    assert.equal(last.retries, 8);
+  });
 });
 
 describe("rebaseBodyWithCurrentVersion", () => {

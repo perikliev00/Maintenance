@@ -2,7 +2,9 @@
  * Dispatch one sync command by type and map AppError status to SyncCommandResult.
  * 403 → forbidden, 409 → conflict; unknown types → error.
  */
+import { Prisma } from "@prisma/client";
 import { AppError } from "../../errors";
+import { safeErrorMessage } from "../../observability";
 import { z } from "zod";
 import type { AuthUser } from "../../middleware/auth";
 import { resolveDataScope } from "../dataScope";
@@ -24,18 +26,66 @@ import type { SyncCommand, SyncCommandResult } from "./types";
 
 const id = z.string().min(1);
 const version = z.number().int().positive().optional();
+const ticketReportSchema = z
+  .object({
+    locationId: id,
+    issueOptionId: id.optional(),
+    categoryId: id.optional(),
+    title: z.string().optional(),
+    description: z.string().max(4000).optional(),
+    priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+    blocksRoom: z.boolean().optional(),
+    allowDuplicate: z.boolean().optional(),
+    duplicateOverrideReason: z.string().max(1000).optional(),
+    confirmSimilar: z.boolean().optional(),
+  })
+  .refine(
+    (data) =>
+      (Boolean(data.issueOptionId) && !data.categoryId) ||
+      (!data.issueOptionId && Boolean(data.categoryId)),
+    { message: "Provide exactly one of issueOptionId or categoryId" },
+  );
+
 const payloadSchemas: Record<string, z.ZodTypeAny> = {
   "cleaning.start": z.object({ taskId: id, expectedVersion: version }),
-  "cleaning.complete": z.object({ sessionId: id, expectedVersion: version, notes: z.string().optional() }),
-  "ticket.report": z.object({ locationId: id, issueOptionId: id.optional(), categoryId: id.optional(), title: z.string().optional(), priority: z.enum(["low", "normal", "high", "urgent"]).optional(), blocksRoom: z.boolean().optional() }),
+  "cleaning.complete": z.object({
+    sessionId: id,
+    expectedVersion: version,
+    notes: z.string().optional(),
+  }),
+  "ticket.report": ticketReportSchema,
   "ticket.start": z.object({ ticketId: id }),
   "ticket.wait": z.object({ ticketId: id, reason: z.string().optional() }),
   "ticket.resume": z.object({ ticketId: id }),
-  "ticket.resolve": z.object({ ticketId: id, resolutionNotes: z.string().optional() }),
+  "ticket.resolve": z.object({
+    ticketId: id,
+    resolutionNotes: z.string().optional(),
+  }),
   "ticket.assign": z.object({ ticketId: id, assigneeId: id }),
   "ticket.close": z.object({ ticketId: id }),
   "ticket.reopen": z.object({ ticketId: id, reason: z.string().optional() }),
 };
+
+/** Prisma codes that usually mean the database is temporarily unavailable. */
+const TRANSIENT_PRISMA_CODES = new Set([
+  "P1001",
+  "P1002",
+  "P1008",
+  "P1017",
+  "P2024",
+  "P2034", // write conflict / deadlock — safe to retry with same commandId
+]);
+
+/** Prisma codes that will not succeed on blind retry of the same payload. */
+const PERMANENT_PRISMA_CODES = new Set([
+  "P2002", // unique constraint (unhandled by domain idempotency)
+  "P2003", // foreign key
+  "P2004", // database constraint
+  "P2011", // null constraint
+  "P2012", // missing required value
+  "P2014", // required relation violation
+  "P2025", // record not found
+]);
 
 /**
  * Resolve the user's data scope once, then hand off to a typed handler.
@@ -46,9 +96,17 @@ export async function applyCommand(
   cmd: SyncCommand,
 ): Promise<SyncCommandResult> {
   try {
-    const schema = Object.hasOwn(payloadSchemas, cmd.type) ? payloadSchemas[cmd.type] : undefined;
+    const schema = Object.hasOwn(payloadSchemas, cmd.type)
+      ? payloadSchemas[cmd.type]
+      : undefined;
     if (schema && !schema.safeParse(cmd.payload).success) {
-      return { commandId: cmd.commandId, status: "error", code: "validation", message: "Invalid command payload", retryable: false };
+      return {
+        commandId: cmd.commandId,
+        status: "error",
+        code: "validation",
+        message: "Invalid command payload",
+        retryable: false,
+      };
     }
     // Scope once per command so handlers share the same sector/assignment view.
     const scope = await resolveDataScope(user);
@@ -92,6 +150,7 @@ export async function applyCommand(
           commandId: cmd.commandId,
           status: "forbidden",
           message: err.message,
+          code: err.code,
         };
       }
       if (err.status === 409) {
@@ -111,6 +170,58 @@ export async function applyCommand(
         retryable: err.status === 408 || err.status === 429 || err.status >= 500,
       };
     }
+
+    console.error(
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: "error",
+        service: "maintenance-api",
+        event: "sync_command_failed",
+        commandId: cmd.commandId,
+        type: cmd.type,
+        error: safeErrorMessage(err),
+      }),
+    );
+
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (
+        TRANSIENT_PRISMA_CODES.has(err.code) ||
+        !PERMANENT_PRISMA_CODES.has(err.code)
+      ) {
+        return {
+          commandId: cmd.commandId,
+          status: "error",
+          message: "Temporary command failure",
+          code: err.code,
+          retryable: true,
+        };
+      }
+      // Unique / FK / data conflicts after domain handlers are permanent for the client.
+      return {
+        commandId: cmd.commandId,
+        status: "error",
+        message:
+          err.code === "P2003" || err.code === "P2025"
+            ? "Referenced record was not found"
+            : "Command could not be applied",
+        code: err.code,
+        retryable: false,
+      };
+    }
+
+    if (
+      err instanceof Prisma.PrismaClientInitializationError ||
+      err instanceof Prisma.PrismaClientRustPanicError ||
+      err instanceof Prisma.PrismaClientUnknownRequestError
+    ) {
+      return {
+        commandId: cmd.commandId,
+        status: "error",
+        message: "Temporary command failure",
+        retryable: true,
+      };
+    }
+
     // Unexpected throws become opaque error results (batch continues).
     return {
       commandId: cmd.commandId,

@@ -31,12 +31,20 @@ import {
   subscribeOffline,
   type ConnMode,
   type QueueStats,
-// Offline / online path.
+  // Offline / online path.
 } from "../../offline";
 import { Detail, type TicketEventRow } from "./detail";
 import { Filters } from "./filters";
-import { locLabel, t } from "./helpers";
+import {
+  isArchivedLocation,
+  locLabel,
+  priorityLabel,
+  statusLabel,
+  t,
+} from "./helpers";
 import { OfflineConnBadge } from "./offlineChrome";
+
+const PAGE_SIZE = 50;
 
 type Props = {
   user: AuthUser;
@@ -53,6 +61,9 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   const [categories, setCategories] = useState<MaintenanceCategoryRow[]>([]);
   const [options, setOptions] = useState<IssueOptionRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -74,8 +85,9 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   const [locationId, setLocationId] = useState("");
   const [issueOptionId, setIssueOptionId] = useState("");
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
-  const [blocksRoom, setBlocksRoom] = useState(true);
+  const [blocksRoom, setBlocksRoom] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const reportInFlight = useRef(false);
   const locationRef = useRef(locationId);
@@ -94,32 +106,45 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
 
   const requestRevision = useRef(0);
 
+  const buildTicketParams = useCallback(
+    (cursor?: string | null) => {
+      const params: Parameters<typeof fetchTickets>[0] & {
+        paginated: true;
+        cursor?: string;
+      } = {
+        limit: PAGE_SIZE,
+        paginated: true,
+        status: statusFilter as "open" | "all" | "resolved",
+        slaBreached: slaOnly || undefined,
+        blocksRoom: blocksOnly || undefined,
+      };
+      if (cursor) params.cursor = cursor;
+      // Branch: conditional gate.
+      if (assigneeFilter === "mine") params.mine = true;
+      // Else-if branch.
+      else if (assigneeFilter !== "all") params.assigneeId = assigneeFilter;
+      return params;
+    },
+    [statusFilter, assigneeFilter, slaOnly, blocksOnly],
+  );
+
   /** Ticket list + catalog; people for assign are loaded separately when allowed. */
   const refresh = useCallback(async () => {
     const revision = ++requestRevision.current;
     setLoading(true);
     setError(null);
     try {
-      const params: Parameters<typeof fetchTickets>[0] = {
-        limit: 100,
-        status: statusFilter as "open" | "all" | "resolved",
-        slaBreached: slaOnly || undefined,
-        blocksRoom: blocksOnly || undefined,
-      };
-      // Branch: conditional gate.
-      if (assigneeFilter === "mine") params.mine = true;
-      // Else-if branch.
-      else if (assigneeFilter !== "all") params.assigneeId = assigneeFilter;
-
-      const [ticketData, roomData, catData, optData] = await Promise.all([
-        fetchTickets(params),
+      const [ticketPage, roomData, catData, optData] = await Promise.all([
+        fetchTickets(buildTicketParams()),
         fetchRooms(),
         fetchMaintenanceCategories(),
         fetchIssueOptions(),
       ]);
       if (revision !== requestRevision.current) return;
       // State transition.
-      setTickets(ticketData);
+      setTickets(ticketPage.items);
+      setNextCursor(ticketPage.nextCursor);
+      setTotalCount(ticketPage.total);
       // State transition.
       setRooms(roomData);
       // State transition.
@@ -137,7 +162,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
         // State transition.
         setIssueOptionId(optData[0].id);
         // State transition.
-        setTitle(optData[0].nameBg);
+        setTitle(locale === "en" ? optData[0].nameEn : optData[0].nameBg);
         // Branch: conditional gate.
         if (optData[0].defaultPriority) setPriority(optData[0].defaultPriority);
         // Branch: conditional gate.
@@ -153,7 +178,26 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     } finally {
       if (revision === requestRevision.current) setLoading(false);
     }
-  }, [statusFilter, assigneeFilter, slaOnly, blocksOnly]);
+  }, [buildTicketParams, locale]);
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const page = await fetchTickets(buildTicketParams(nextCursor));
+      setTickets((prev) => {
+        const seen = new Set(prev.map((row) => row.id));
+        return [...prev, ...page.items.filter((row) => !seen.has(row.id))];
+      });
+      setNextCursor(page.nextCursor);
+      setTotalCount(page.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load more");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextCursor, loadingMore, buildTicketParams]);
 
   const refreshInBackground = useCallback(() => {
     // Branch: conditional gate.
@@ -209,18 +253,17 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
       .catch(() => undefined);
   }, [canAssign]);
 
-  const liveAt = useLiveRefresh(
-    refresh,
-    {
-      enabled: true,
-      busy: busyId !== null || submitting,
-      eventTypes: ["ticket.changed", "location.changed"],
-    },
-  );
+  const liveAt = useLiveRefresh(refresh, {
+    enabled: true,
+    busy: busyId !== null || submitting || loadingMore,
+    eventTypes: ["ticket.changed", "location.changed"],
+  });
 
   useEffect(() => {
     void refresh();
-    return () => { requestRevision.current++; };
+    return () => {
+      requestRevision.current++;
+    };
   }, [refresh]);
 
   // Effect: sync props/state to side effects.
@@ -236,15 +279,19 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     // Fire-and-forget async call.
     void fetchTicketEvents(selectedId)
       // Promise then handler.
-      .then((rows) => !cancelled &&
-        // State transition.
-        setEvents(
-          rows as TicketEventRow[],
-        ),
+      .then(
+        (rows) =>
+          !cancelled &&
+          // State transition.
+          setEvents(rows as TicketEventRow[]),
       )
       // Promise catch handler.
-      .catch(() => { if (!cancelled) setEvents([]); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setEvents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedId]);
 
   const selected = useMemo(
@@ -272,7 +319,8 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
       const result = await reportTicketQueued({
         locationId,
         issueOptionId,
-        title: title.trim() || undefined,
+        // Keep catalog title from option; clarification goes in description.
+        description: description.trim() || undefined,
         priority,
         blocksRoom,
       });
@@ -281,6 +329,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
         const optimistic: MaintenanceTicket = {
           id: `local-${crypto.randomUUID()}`,
           title: title.trim() || "Queued report",
+          description: description.trim() || null,
           category: "queued",
           priority,
           blocksRoom,
@@ -310,6 +359,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
         };
         // State transition.
         setTickets((prev) => [optimistic, ...prev]);
+        setTotalCount((n) => n + 1);
         // State transition.
         setMessage(
           t(locale, "Докладът е в опашката", "Report queued for sync"),
@@ -320,7 +370,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
         refreshInBackground();
       }
       // State transition.
-      setTitle("");
+      setDescription("");
     } catch (err) {
       // State transition.
       setError(err instanceof Error ? err.message : "Report failed");
@@ -341,14 +391,11 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     // Branch: conditional gate.
     if (opt) {
       // State transition.
-      setTitle(opt.nameBg);
+      setTitle(locale === "en" ? opt.nameEn : opt.nameBg);
       // Branch: conditional gate.
       if (opt.defaultPriority) setPriority(opt.defaultPriority);
-      // Branch: conditional gate.
-      if (opt.defaultBlocksRoom != null) {
-        // State transition.
-        setBlocksRoom(opt.defaultBlocksRoom);
-      }
+      // Catalog default wins; otherwise leave room unblocked.
+      setBlocksRoom(opt.defaultBlocksRoom ?? false);
     }
   }
 
@@ -407,11 +454,18 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
           <section className="panel">
             <div className="panel-header">
               <h2>
-                {t(locale, "Тикети", "Tickets")} ({tickets.length})
+                {t(locale, "Тикети", "Tickets")}{" "}
+                <span className="muted repairs-count">
+                  {t(
+                    locale,
+                    `(${tickets.length} от ${totalCount})`,
+                    `(${tickets.length} of ${totalCount})`,
+                  )}
+                </span>
               </h2>
             </div>
             <div className="table-wrap">
-              <table className="data-table">
+              <table className="data-table repairs-table">
                 <thead>
                   <tr>
                     <th>{t(locale, "Стая", "Room")}</th>
@@ -430,24 +484,54 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                       className={selectedId === ticket.id ? "selected" : ""}
                       onClick={() => setSelectedId(ticket.id)}
                     >
-                      <td>{locLabel(ticket)}</td>
+                      <td>
+                        {locLabel(ticket)}
+                        {isArchivedLocation(ticket) ? (
+                          <span className="pill repairs-archived">
+                            {t(locale, "архив", "archived")}
+                          </span>
+                        ) : null}
+                      </td>
                       <td>
                         {ticket.title}
-                        {/* Render branch: ticket.blocksRoom ? " ⚠" : "" */}
-                        {ticket.blocksRoom ? " ⚠" : ""}
+                        {ticket.blocksRoom ? (
+                          <span
+                            className="pill repairs-blocking"
+                            title={t(locale, "Блокира стая", "Blocks room")}
+                          >
+                            {t(locale, "блокира", "blocking")}
+                          </span>
+                        ) : null}
                       </td>
                       <td>
                         <span className={`pill status-${ticket.status}`}>
-                          {ticket.status}
+                          {statusLabel(locale, ticket.status)}
                         </span>
                       </td>
-                      <td>{ticket.priority}</td>
-                      <td>{ticket.assignee?.fullName ?? "—"}</td>
+                      <td>
+                        <span className={`pill priority-${ticket.priority}`}>
+                          {priorityLabel(locale, ticket.priority)}
+                        </span>
+                      </td>
+                      <td>
+                        {ticket.assignee?.fullName ?? (
+                          <span className="muted">
+                            {t(locale, "Неназначен", "Unassigned")}
+                          </span>
+                        )}
+                      </td>
                       <td>
                         {ticket.slaBreached ? (
-                          <span className="pill status-rework">breach</span>
+                          <span className="pill status-rework">
+                            {t(locale, "просрочен", "breached")}
+                          </span>
                         ) : ticket.dueAt ? (
-                          new Date(ticket.dueAt).toLocaleString()
+                          <span
+                            title={new Date(ticket.dueAt).toLocaleString()}
+                            className="repairs-sla-due"
+                          >
+                            {new Date(ticket.dueAt).toLocaleString()}
+                          </span>
                         ) : (
                           "—"
                         )}
@@ -456,6 +540,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                         <TicketLifecycleActions
                           ticket={ticket}
                           busy={busyId === ticket.id}
+                          locale={locale}
                           // Permission / capability gate.
                           canResolve={canResolve}
                           onBusy={setBusyId}
@@ -481,6 +566,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                             ticket.status === "assigned") && (
                             <select
                               defaultValue=""
+                              aria-label={t(locale, "Назначи", "Assign")}
                               disabled={busyId === ticket.id}
                               onChange={(e) => {
                                 const assigneeId = e.target.value;
@@ -553,7 +639,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                                 .finally(() => setBusyId(null));
                             }}
                           >
-                            Close
+                            {t(locale, "Затвори", "Close")}
                           </button>
                         )}
                       </td>
@@ -562,6 +648,20 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
                 </tbody>
               </table>
             </div>
+            {nextCursor ? (
+              <div className="repairs-load-more">
+                <button
+                  type="button"
+                  className="subtle"
+                  disabled={loadingMore}
+                  onClick={() => void loadMore()}
+                >
+                  {loadingMore
+                    ? t(locale, "Зареждане…", "Loading…")
+                    : t(locale, "Зареди още", "Load more")}
+                </button>
+              </div>
+            ) : null}
           </section>
 
           <Detail
@@ -572,7 +672,8 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
             onLocationIdChange={setLocationId}
             issueOptionId={issueOptionId}
             title={title}
-            onTitleChange={setTitle}
+            description={description}
+            onDescriptionChange={setDescription}
             priority={priority}
             onPriorityChange={setPriority}
             blocksRoom={blocksRoom}

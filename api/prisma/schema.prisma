@@ -430,6 +430,8 @@ model MaintenanceTicket {
   locationId             String
   location               Location             @relation(fields: [locationId], references: [id])
   title                  String
+  /** Optional clarification; canonical issue name stays in `title`. */
+  description            String?
   issueOptionId          String?
   issueOption            IssueOption?         @relation(fields: [issueOptionId], references: [id])
   maintenanceCategoryId  String?
@@ -459,6 +461,12 @@ model MaintenanceTicket {
   closedByEmployeeId     String?
   closedBy               Employee?            @relation("TicketCloser", fields: [closedByEmployeeId], references: [id])
   commandId              String?              @unique
+  /**
+   * Stable duplicate identity for custom (non-option) reports:
+   * `custom:<categoryId>:<normalizedTitle>`. Option-based tickets use the
+   * partial unique index on (locationId, issueOptionId) among open statuses.
+   */
+  duplicateIdentityKey   String?
   reopenEvents           TicketReopenEvent[]
   events                 TicketEvent[]
   createdAt              DateTime             @default(now())
@@ -470,6 +478,7 @@ model MaintenanceTicket {
   @@index([dueAt])
   @@index([categoryKey])
   @@index([assigneeId, status])
+  @@index([locationId, duplicateIdentityKey, status])
 }
 
 /// Append-only ticket lifecycle log; unique `commandId` enables offline replay without double transitions.

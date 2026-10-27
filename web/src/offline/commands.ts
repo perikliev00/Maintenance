@@ -108,10 +108,14 @@ export function reportTicketQueued(
   input: {
     locationId: string;
     title?: string;
+    description?: string;
     issueOptionId?: string;
     categoryId?: string;
     priority?: string;
-    blocksRoom: boolean;
+    blocksRoom?: boolean;
+    allowDuplicate?: boolean;
+    duplicateOverrideReason?: string;
+    confirmSimilar?: boolean;
   },
   run: RunOrEnqueue,
 ): Promise<QueuedResult> {
@@ -119,11 +123,19 @@ export function reportTicketQueued(
   return run("ticket.report", `${API_BASE}/maintenance/tickets`, {
     commandId: crypto.randomUUID(),
     locationId: input.locationId,
-    blocksRoom: input.blocksRoom,
+    ...(input.blocksRoom !== undefined ? { blocksRoom: input.blocksRoom } : {}),
     ...(input.title?.trim() ? { title: input.title.trim() } : {}),
+    ...(input.description?.trim()
+      ? { description: input.description.trim() }
+      : {}),
     ...(input.issueOptionId ? { issueOptionId: input.issueOptionId } : {}),
     ...(input.categoryId ? { categoryId: input.categoryId } : {}),
     ...(input.priority ? { priority: input.priority } : {}),
+    ...(input.allowDuplicate ? { allowDuplicate: true } : {}),
+    ...(input.duplicateOverrideReason?.trim()
+      ? { duplicateOverrideReason: input.duplicateOverrideReason.trim() }
+      : {}),
+    ...(input.confirmSimilar ? { confirmSimilar: true } : {}),
   });
 }
 

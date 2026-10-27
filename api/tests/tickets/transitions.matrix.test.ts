@@ -73,7 +73,10 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
 
   it("T-TKT-02a: assign refused from in_progress/waiting/resolved/closed (P1-38)", async () => {
     for (const target of ["in_progress", "waiting"] as const) {
-      const { ticket } = await reportTicket(prisma, world);
+      // Parallel actives of the same catalog option are blocked by design.
+      const { ticket } = await reportTicket(prisma, world, {
+        allowDuplicate: true,
+      });
       await advanceTicketTo(world, ticket.id, target);
       const before = await snapshotSla(ticket.id);
       try {
@@ -90,11 +93,14 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
       assert.deepEqual(after, before);
     }
 
-    const { ticket: resolvedT } = await reportTicket(prisma, world);
+    const { ticket: resolvedT } = await reportTicket(prisma, world, {
+      allowDuplicate: true,
+    });
     await advanceTicketTo(world, resolvedT.id, "in_progress");
     await resolveMaintenanceTicket({
       ticketId: resolvedT.id,
       resolvedByEmployeeId: world.technician.employeeId,
+      resolutionNotes: "matrix resolve",
       commandId: randomUUID(),
     });
     let before = await snapshotSla(resolvedT.id);
@@ -285,7 +291,9 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
 
     // waiting: start/wait/close/reopen refused; resume+resolve allowed (tested elsewhere)
     {
-      const { ticket } = await reportTicket(prisma, world);
+      const { ticket } = await reportTicket(prisma, world, {
+        allowDuplicate: true,
+      });
       await advanceTicketTo(world, ticket.id, "waiting");
       await expectRefuse(ticket.id, "start", "from waiting");
       await expectRefuse(ticket.id, "wait", "from waiting");
@@ -295,11 +303,14 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
 
     // resolved: wait/resume/resolve/start/close(ok)/reopen(ok) — refuse wait/resume/resolve/start
     {
-      const { ticket } = await reportTicket(prisma, world);
+      const { ticket } = await reportTicket(prisma, world, {
+        allowDuplicate: true,
+      });
       await advanceTicketTo(world, ticket.id, "in_progress");
       await resolveMaintenanceTicket({
         ticketId: ticket.id,
         resolvedByEmployeeId: world.technician.employeeId,
+        resolutionNotes: "matrix resolve",
         commandId: randomUUID(),
       });
       await expectRefuse(ticket.id, "start", "from resolved");
@@ -310,11 +321,14 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
 
     // closed: wait/resume/resolve/start/close refused
     {
-      const { ticket } = await reportTicket(prisma, world);
+      const { ticket } = await reportTicket(prisma, world, {
+        allowDuplicate: true,
+      });
       await advanceTicketTo(world, ticket.id, "in_progress");
       await resolveMaintenanceTicket({
         ticketId: ticket.id,
         resolvedByEmployeeId: world.technician.employeeId,
+        resolutionNotes: "matrix resolve",
         commandId: randomUUID(),
       });
       await closeMaintenanceTicket({
@@ -330,7 +344,9 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
 
     // assigned: resolve/resume/close/reopen refused (wait already covered in T-TKT-04)
     {
-      const { ticket } = await reportTicket(prisma, world);
+      const { ticket } = await reportTicket(prisma, world, {
+        allowDuplicate: true,
+      });
       await advanceTicketTo(world, ticket.id, "assigned");
       await expectRefuse(ticket.id, "resolve", "from assigned");
       await expectRefuse(ticket.id, "resume", "from assigned");

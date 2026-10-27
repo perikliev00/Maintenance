@@ -230,6 +230,30 @@ jobs:
           npx prisma migrate deploy
           npm run db:seed
 
+      - name: Prepare isolated P1 database for Playwright
+        working-directory: api
+        env:
+          PGPASSWORD: maintenance
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          set +e
+          OUT=$(psql -h localhost -U maintenance -d postgres -c "CREATE DATABASE maintenance_p1_test OWNER maintenance;" 2>&1)
+          EC=$?
+          set -e
+          if [ $EC -ne 0 ]; then
+            echo "$OUT" | grep -qi "already exists" || { echo "$OUT"; exit 1; }
+          fi
+          # Main Playwright webServer uses registerP1TestEnv → requires .env.p1_test first.
+          printf '%s\n' \
+            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
+            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
+            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
+            'WEB_ORIGIN=http://127.0.0.1:5173' \
+            > .env.p1_test
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" npx prisma migrate deploy
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" DEMO_SEED_DATABASE_NAME=maintenance_p1_test node --import ./tests/registerP1TestEnv.mjs --import tsx prisma/seed.ts
+          npm run prove:p1-isolation
+
       - name: Install Web
         working-directory: web
         run: npm ci
@@ -244,22 +268,15 @@ jobs:
         working-directory: e2e
         run: npm test
 
-      - name: Prepare isolated scenario database
+      - name: Point P1 env at scenario web origin
         working-directory: api
-        env:
-          PGPASSWORD: maintenance
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-          psql -h localhost -U maintenance -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE maintenance_p1_test OWNER maintenance;"
           printf '%s\n' \
             'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
             'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
             'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
             'WEB_ORIGIN=http://127.0.0.1:5185' \
             > .env.p1_test
-          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" npx prisma migrate deploy
-          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" DEMO_SEED_DATABASE_NAME=maintenance_p1_test node --import ./tests/registerP1TestEnv.mjs --import tsx prisma/seed.ts
-          npm run prove:p1-isolation
 
       - name: Run isolated browser integrations and workflows
         working-directory: e2e

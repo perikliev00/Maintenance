@@ -13,6 +13,11 @@ const apiHealthURL =
 /** When unset, start API + Vite locally (reuse if already running outside CI). */
 const startServers = process.env.E2E_START_SERVERS !== "0";
 
+/**
+ * Main Playwright suite must use the P1 isolated test database — never ambient
+ * api/.env (which may point at a seeded or production-like DB). Matches scenario
+ * E2E: registerP1TestEnv.mjs enforces DATABASE_URL → maintenance_p1_test.
+ */
 export default defineConfig({
   testDir: "./tests",
   testIgnore: "**/scenarios/**",
@@ -38,7 +43,10 @@ export default defineConfig({
   webServer: startServers
     ? [
         {
-          command: "npx tsx src/index.ts",
+          // Fail closed: P1 register redirects dotenv .env → .env.p1_test and
+          // rejects non-maintenance_p1_test database names.
+          command:
+            "node --import ./tests/registerP1TestEnv.mjs ./node_modules/tsx/dist/cli.mjs src/index.ts",
           cwd: apiDir,
           url: apiHealthURL,
           reuseExistingServer: !process.env.CI,

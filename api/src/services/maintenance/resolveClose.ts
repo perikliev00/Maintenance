@@ -79,6 +79,18 @@ export async function resolveMaintenanceTicket(input: {
           `Cannot resolve ticket in status ${ticket.status}`,
         );
       }
+      // Blocking / high-risk tickets require a meaningful repair note.
+      const requiresNotes =
+        ticket.blocksRoom ||
+        ticket.priority === "high" ||
+        ticket.priority === "urgent";
+      if (requiresNotes && !notes) {
+        throw new AppError(
+          400,
+          "validation",
+          "resolutionNotes required for blocking or high/urgent tickets",
+        );
+      }
       // Non-owners cannot resolve someone else's assignment.
       if (
         !input.bypassAssigneeCheck &&

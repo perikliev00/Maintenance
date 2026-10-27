@@ -279,6 +279,7 @@ export const LIVE_AUDIT_ACTIONS = [
   "cleaning.task.start",
   "location.mark_dirty",
   "ticket.create",
+  "ticket.duplicate_override",
   "ticket.assign",
   "ticket.start",
   "ticket.wait",

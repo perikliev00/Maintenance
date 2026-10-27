@@ -23,16 +23,28 @@ export type TicketWithRelations = Prisma.MaintenanceTicketGetPayload<{
 export type CreateMaintenanceTicketInput = {
   locationId: string;
   title?: string;
+  /** Optional clarification; canonical issue name stays in title. */
+  description?: string | null;
   issueOptionId?: string;
   categoryId?: string;
   priority?: Priority;
-  blocksRoom: boolean;
+  /**
+   * When omitted, catalog `defaultBlocksRoom` is applied (else false).
+   * Explicit false always wins over catalog default.
+   */
+  blocksRoom?: boolean;
   reportedByEmployeeId: string;
   /** Client command id for offline/idempotent create (unique on ticket). */
   commandId?: string;
   dueAt?: Date;
   /** Testable clock; defaults to wall clock. */
   now?: Date;
+  /** Create a second active ticket despite an exact duplicate. */
+  allowDuplicate?: boolean;
+  /** Required when allowDuplicate is true; stored in audit. */
+  duplicateOverrideReason?: string | null;
+  /** Proceed despite a probable (similar) duplicate warning. */
+  confirmSimilar?: boolean;
 };
 
 export type TicketEventPayload = Prisma.InputJsonValue | undefined;

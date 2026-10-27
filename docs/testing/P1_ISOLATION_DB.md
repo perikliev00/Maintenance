@@ -43,3 +43,41 @@ Postgres service and writes `.env.p1_test` for the job.
 - `assertTestDatabase` / `EXPECTED_TEST_DATABASE=maintenance_p1_test` must pass
   before mutating tests proceed.
 - Full ticket lifecycle: `npm run test:tickets-lifecycle` (serial, isolation preload).
+
+## Main Playwright E2E isolation
+
+`e2e/playwright.config.ts` starts the API with
+`node --import ./tests/registerP1TestEnv.mjs … src/index.ts`, the same fail-closed
+preload as scenario E2E. It must **not** load ambient `api/.env` against the
+working `maintenance` seed DB.
+
+If `reuseExistingServer` is true and an API is already listening on `:4000`
+without P1 isolation, Playwright will reuse it — stop that process or set
+`CI=1` / `reuseExistingServer: false` so the isolated webServer starts.
+
+## Safe cleanup of E2E stamps (manual, non-destructive by default)
+
+E2E suites stamp titles like `E2E-R-<timestamp>` and may create rooms with
+`E2E…` numbers on the first hierarchy floor. **ANNEX** is intentional demo
+seed geography (`MAIN` / `ANNEX` / `ROYAL`), not a test namespace — do not delete
+ANNEX locations as “test litter.”
+
+Never run automatic destructive cleanup against production or the working seed
+DB. When cleaning the isolated `maintenance_p1_test` database after local E2E:
+
+```sql
+-- Inspect only (safe)
+SELECT id, title, status, "openedAt"
+FROM "MaintenanceTicket"
+WHERE title LIKE 'E2E-R-%'
+ORDER BY "openedAt" DESC
+LIMIT 50;
+
+-- Optional delete ONLY on maintenance_p1_test after review:
+-- DELETE FROM "TicketEvent" WHERE "ticketId" IN (
+--   SELECT id FROM "MaintenanceTicket" WHERE title LIKE 'E2E-R-%'
+-- );
+-- DELETE FROM "MaintenanceTicket" WHERE title LIKE 'E2E-R-%';
+```
+
+Prefer re-seeding `maintenance_p1_test` over ad-hoc deletes when unsure.

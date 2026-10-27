@@ -14,10 +14,12 @@ export type ConflictDetails = {
   assignedEmployeeId?: string | null;
 };
 
-/** Codes where rebase cannot succeed (ownership / scope lost). */
+/** Codes where rebase cannot succeed (ownership / scope lost / duplicates). */
 export const NON_REBASEABLE_CODES = new Set([
   "assignee_conflict",
   "out_of_scope",
+  "duplicate_active",
+  "probable_duplicate",
 ]);
 
 /** Narrow unknown sync `details` into typed conflict fields (best-effort). */

@@ -74,7 +74,7 @@ export function LocationsPage({
   const [issueOptionId, setIssueOptionId] = useState("");
   const [issueCategoryId, setIssueCategoryId] = useState("");
   const [issueTitle, setIssueTitle] = useState("");
-  const [issueBlocks, setIssueBlocks] = useState(true);
+  const [issueBlocks, setIssueBlocks] = useState(false);
   // Expanded detail panel location id.
   const [detailLocationId, setDetailLocationId] = useState<string | null>(null);
 

@@ -47,6 +47,61 @@ function typeLabel(locale: "bg" | "en", type: QueuedAction["type"]): string {
   return locale === "en" ? pair[1] : pair[0];
 }
 
+/** Map opaque/server sync errors into actionable localized copy. */
+function formatQueueError(locale: "bg" | "en", message: string): string {
+  const normalized = message.trim();
+  if (/^Temporary command failure$/i.test(normalized)) {
+    return t(
+      locale,
+      "Временна грешка при синхронизация. Натиснете „Опитай пак“ — действието няма да се дублира.",
+      "Temporary sync error. Tap Retry — the action will not be duplicated.",
+    );
+  }
+  if (/^Invalid command payload$/i.test(normalized)) {
+    return t(
+      locale,
+      "Невалидни данни в командата. Отхвърлете я и извършете действието отново.",
+      "Invalid command payload. Dismiss it and perform the action again.",
+    );
+  }
+  if (/^Referenced record was not found$/i.test(normalized)) {
+    return t(
+      locale,
+      "Свързаният запис липсва (стая/тикет). Отхвърлете командата или проверете данните.",
+      "A related record is missing (room/ticket). Dismiss the command or check the data.",
+    );
+  }
+  if (/^Command could not be applied$/i.test(normalized)) {
+    return t(
+      locale,
+      "Командата не може да бъде приложена. Проверете състоянието и опитайте отново или я отхвърлете.",
+      "The command could not be applied. Check state, then retry or dismiss.",
+    );
+  }
+  if (/^Unknown command type/i.test(normalized)) {
+    return t(
+      locale,
+      "Непознат тип команда. Обновете приложението или отхвърлете записа.",
+      "Unknown command type. Update the app or dismiss this entry.",
+    );
+  }
+  if (/active (duplicate )?ticket already exists/i.test(normalized)) {
+    return t(
+      locale,
+      "Вече има активен тикет за същия проблем. Отхвърлете командата или докладвайте с изрично потвърждение онлайн.",
+      "An active ticket already exists for this issue. Dismiss the command or report with an explicit override online.",
+    );
+  }
+  if (/related open ticket exists/i.test(normalized)) {
+    return t(
+      locale,
+      "Възможен свързан тикет. Потвърдете онлайн, че това е отделен проблем, или отхвърлете командата.",
+      "A related open ticket may exist. Confirm online that this is a separate issue, or dismiss the command.",
+    );
+  }
+  return normalized;
+}
+
 /** One-line summary of what the local outbox row intended to do. */
 function localIntentSummary(
   locale: "bg" | "en",
@@ -181,11 +236,19 @@ export function OutboxIssuesPanel({
         <ul className="outbox-issue-list">
           {items.map((item) => {
             const details = parseConflictDetails(item.conflictDetails);
-            const message =
-              item.conflictMessage ?? item.lastError ?? item.type;
+            const message = formatQueueError(
+              locale,
+              item.conflictMessage ?? item.lastError ?? item.type,
+            );
             const rebaseable =
               item.status === "conflict" &&
               canRebaseConflict(item.conflictCode, item.conflictDetails);
+            const existingTicketId =
+              item.conflictDetails &&
+              typeof item.conflictDetails === "object" &&
+              !Array.isArray(item.conflictDetails) &&
+              (item.conflictDetails as { existingTicket?: { id?: string } })
+                .existingTicket?.id;
             // Early / value return.
             return (
               <li key={item.id} className="outbox-issue-item">
@@ -201,6 +264,12 @@ export function OutboxIssuesPanel({
                     {new Date(item.updatedAt).toLocaleString()}
                   </span>
                   <span>{message}</span>
+                  {existingTicketId && (
+                    <span className="muted">
+                      {t(locale, "Съществуващ тикет", "Existing ticket")}:{" "}
+                      <code>{existingTicketId.slice(0, 10)}…</code>
+                    </span>
+                  )}
                   {item.status === "conflict" && (
                     <>
                       <span className="muted">

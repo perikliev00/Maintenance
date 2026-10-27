@@ -9,7 +9,7 @@ import {
   resolveTicketQueued,
   startTicketQueued,
   waitTicketQueued,
-// Offline / online path.
+  // Offline / online path.
 } from "../offline";
 import type { MaintenanceTicket } from "../api/client";
 
@@ -20,14 +20,61 @@ export type TicketLifecycleDone = {
 };
 
 type Props = {
-  ticket: Pick<MaintenanceTicket, "id" | "status" | "assignee">;
+  ticket: Pick<MaintenanceTicket, "id" | "status" | "assignee"> &
+    Partial<Pick<MaintenanceTicket, "blocksRoom" | "priority">>;
   busy: boolean;
   /** Permission gate: no lifecycle buttons when false. */
   canResolve: boolean;
+  locale?: "bg" | "en";
   onDone: (result: TicketLifecycleDone) => void;
   onError: (message: string) => void;
   onBusy: (id: string | null) => void;
 };
+
+function requiresResolutionNotes(
+  ticket: Partial<Pick<MaintenanceTicket, "blocksRoom" | "priority">>,
+): boolean {
+  return (
+    ticket.blocksRoom === true ||
+    ticket.priority === "high" ||
+    ticket.priority === "urgent"
+  );
+}
+
+function promptResolutionNotes(
+  locale: "bg" | "en",
+  required: boolean,
+): string | null {
+  const notes = window.prompt(
+    required
+      ? t(
+          locale,
+          "Описание на решението (задължително за блокиращи/високи приоритети)",
+          "Resolution notes (required for blocking/high-priority tickets)",
+        )
+      : t(
+          locale,
+          "Описание на решението (опционално)",
+          "Resolution notes (optional)",
+        ),
+  );
+  if (notes === null) return null;
+  if (required && !notes.trim()) {
+    window.alert(
+      t(
+        locale,
+        "Моля, въведете описание на ремонта.",
+        "Please enter a repair note.",
+      ),
+    );
+    return null;
+  }
+  return notes;
+}
+
+function t(locale: "bg" | "en", bg: string, en: string) {
+  return locale === "en" ? en : bg;
+}
 
 /**
  * TicketLifecycleActions React component / page.
@@ -36,6 +83,7 @@ export function TicketLifecycleActions({
   ticket,
   busy,
   canResolve,
+  locale = "bg",
   onDone,
   onError,
   onBusy,
@@ -69,7 +117,7 @@ export function TicketLifecycleActions({
 
   // Early / value return.
   return (
-    <div className="actions" style={{ marginTop: "0.5rem", gap: "0.35rem" }}>
+    <div className="actions ticket-lifecycle-actions">
       {/* assigned → start work */}
       {ticket.status === "assigned" && (
         <button
@@ -80,13 +128,13 @@ export function TicketLifecycleActions({
             // Fire-and-forget async call.
             void run(
               () => startTicketQueued(ticket.id),
-              "Работата е стартирана",
-              "Старт в опашката",
+              t(locale, "Работата е стартирана", "Work started"),
+              t(locale, "Старт в опашката", "Start queued"),
               "in_progress",
             )
           }
         >
-          Start
+          {t(locale, "Старт", "Start")}
         </button>
       )}
       {/* in_progress → wait or resolve */}
@@ -98,38 +146,45 @@ export function TicketLifecycleActions({
             disabled={busy}
             onClick={() => {
               // null means Cancel — abort without enqueueing.
-              const reason = window.prompt("Причина за изчакване (опционално)");
+              const reason = window.prompt(
+                t(
+                  locale,
+                  "Причина за изчакване (опционално)",
+                  "Waiting reason (optional)",
+                ),
+              );
               // Branch: conditional gate.
               if (reason === null) return;
               // Fire-and-forget async call.
               void run(
                 () => waitTicketQueued(ticket.id, reason),
-                "Тикетът е на изчакване",
-                "Изчакване в опашката",
+                t(locale, "Тикетът е на изчакване", "Ticket is waiting"),
+                t(locale, "Изчакване в опашката", "Wait queued"),
                 "waiting",
               );
             }}
           >
-            Wait
+            {t(locale, "Изчакай", "Wait")}
           </button>
           <button
             type="button"
             className="subtle"
             disabled={busy}
             onClick={() => {
-              const notes = window.prompt("Описание на решението (опционално)");
-              // Branch: conditional gate.
+              const notes = promptResolutionNotes(
+                locale,
+                requiresResolutionNotes(ticket),
+              );
               if (notes === null) return;
-              // Fire-and-forget async call.
               void run(
                 () => resolveTicketQueued(ticket.id, notes),
-                "Проблемът е решен",
-                "Решение в опашката",
+                t(locale, "Проблемът е решен", "Issue resolved"),
+                t(locale, "Решение в опашката", "Resolve queued"),
                 "resolved",
               );
             }}
           >
-            Resolve
+            {t(locale, "Реши", "Resolve")}
           </button>
         </>
       )}
@@ -144,32 +199,33 @@ export function TicketLifecycleActions({
               // Fire-and-forget async call.
               void run(
                 () => resumeTicketQueued(ticket.id),
-                "Работата е възобновена",
-                "Възобновяване в опашката",
+                t(locale, "Работата е възобновена", "Work resumed"),
+                t(locale, "Възобновяване в опашката", "Resume queued"),
                 "in_progress",
               )
             }
           >
-            Resume
+            {t(locale, "Продължи", "Resume")}
           </button>
           <button
             type="button"
             className="subtle"
             disabled={busy}
             onClick={() => {
-              const notes = window.prompt("Описание на решението (опционално)");
-              // Branch: conditional gate.
+              const notes = promptResolutionNotes(
+                locale,
+                requiresResolutionNotes(ticket),
+              );
               if (notes === null) return;
-              // Fire-and-forget async call.
               void run(
                 () => resolveTicketQueued(ticket.id, notes),
-                "Проблемът е решен",
-                "Решение в опашката",
+                t(locale, "Проблемът е решен", "Issue resolved"),
+                t(locale, "Решение в опашката", "Resolve queued"),
                 "resolved",
               );
             }}
           >
-            Resolve
+            {t(locale, "Реши", "Resolve")}
           </button>
         </>
       )}

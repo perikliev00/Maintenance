@@ -162,6 +162,10 @@ export async function reportTicket(
     issueOptionId?: string;
     categoryId?: string;
     title?: string;
+    description?: string;
+    /** When true, bypass exact duplicate prevention (tests that need parallel actives). */
+    allowDuplicate?: boolean;
+    duplicateOverrideReason?: string;
   } = {},
 ) {
   const option = opts.issueOptionId
@@ -174,11 +178,16 @@ export async function reportTicket(
     issueOptionId: opts.issueOptionId ?? option?.id,
     categoryId: opts.categoryId,
     title: opts.title,
+    description: opts.description,
     blocksRoom: opts.blocksRoom ?? false,
     reportedByEmployeeId: world.owner.employeeId,
     priority: opts.priority ?? Priority.normal,
     commandId: opts.commandId ?? randomUUID(),
     now: opts.now,
+    allowDuplicate: opts.allowDuplicate,
+    duplicateOverrideReason:
+      opts.duplicateOverrideReason ??
+      (opts.allowDuplicate ? "test parallel active ticket" : undefined),
   });
 }
 

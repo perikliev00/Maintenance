@@ -59,20 +59,39 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     await openNav(page, /Повреди|Repairs/);
 
     const ticketRow = () => page.locator("tr").filter({ hasText: stamp });
+    const startBtn = /Старт|Start/;
+    const waitBtn = /Изчакай|Wait/;
+    const resumeBtn = /Продължи|Resume/;
+    const resolveBtn = /Реши|Resolve/;
+    const closeBtn = /Затвори|Close/;
     await expect(ticketRow()).toBeVisible({ timeout: 25_000 });
-    await ticketRow().getByRole("button", { name: "Start" }).click();
-    await expect(ticketRow().getByRole("button", { name: "Wait" })).toBeVisible({
+    await ticketRow().getByRole("button", { name: startBtn }).click();
+    await expect(ticketRow().getByRole("button", { name: waitBtn })).toBeVisible({
       timeout: 15_000,
     });
-    await ticketRow().getByRole("button", { name: "Wait" }).click();
-    await expect(ticketRow().getByRole("button", { name: "Resume" })).toBeVisible({
+    await ticketRow().getByRole("button", { name: waitBtn }).click();
+    await expect(ticketRow().getByRole("button", { name: resumeBtn })).toBeVisible({
       timeout: 15_000,
     });
-    await ticketRow().getByRole("button", { name: "Resume" }).click();
-    await expect(ticketRow().getByRole("button", { name: "Resolve" })).toBeVisible({
+    await ticketRow().getByRole("button", { name: resumeBtn }).click();
+    await expect(ticketRow().getByRole("button", { name: resolveBtn })).toBeVisible({
       timeout: 15_000,
     });
-    await ticketRow().getByRole("button", { name: "Resolve" }).click();
+    await ticketRow().getByRole("button", { name: resolveBtn }).click();
+    // Confirm server persistence (UI may paint an optimistic pill before POST settles).
+    await expect
+      .poll(
+        async () => {
+          const list = await apiGet(
+            token,
+            "/maintenance/tickets?status=resolved&limit=100",
+          );
+          const rows = list.body as Array<{ id: string; status: string }>;
+          return rows.some((r) => r.id === ticket!.id && r.status === "resolved");
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(true);
 
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
@@ -83,10 +102,20 @@ test.describe("E2E-02 repairs lifecycle flow", () => {
     await expect(statusFilter).toBeVisible();
     await statusFilter.selectOption("resolved");
     await expect(ticketRow()).toBeVisible({ timeout: 20_000 });
-    await expect(ticketRow().getByRole("button", { name: "Close" })).toBeVisible({
+    await expect(ticketRow().getByRole("button", { name: closeBtn })).toBeVisible({
       timeout: 20_000,
     });
-    await ticketRow().getByRole("button", { name: "Close" }).click();
+    await ticketRow().getByRole("button", { name: closeBtn }).click();
+    await expect
+      .poll(
+        async () => {
+          const list = await apiGet(token, "/maintenance/tickets?status=all&limit=100");
+          const rows = list.body as Array<{ id: string; status: string }>;
+          return rows.find((r) => r.id === ticket!.id)?.status === "closed";
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(true);
 
     await openNav(page, /Контрол|Control/);
     const controlCard = page.locator("li").filter({ hasText: stamp });

@@ -41,13 +41,16 @@ export async function handleTicketReport(
   // Location must be in the caller's data scope.
   const locationId = String(cmd.payload.locationId ?? "");
   await assertCanAccessLocation(scope, locationId);
-  // blocksRoom drives sellability / readiness until the ticket is resolved.
-  const blocksRoom = Boolean(cmd.payload.blocksRoom);
   // Narrow payload fields; commandId enables create idempotency.
+  // blocksRoom omitted → catalog default inside createMaintenanceTicket.
   const result = await createMaintenanceTicket({
     locationId,
     title:
       typeof cmd.payload.title === "string" ? cmd.payload.title : undefined,
+    description:
+      typeof cmd.payload.description === "string"
+        ? cmd.payload.description
+        : undefined,
     issueOptionId:
       typeof cmd.payload.issueOptionId === "string"
         ? cmd.payload.issueOptionId
@@ -60,7 +63,22 @@ export async function handleTicketReport(
       typeof cmd.payload.priority === "string"
         ? (cmd.payload.priority as Priority)
         : undefined,
-    blocksRoom,
+    blocksRoom:
+      typeof cmd.payload.blocksRoom === "boolean"
+        ? cmd.payload.blocksRoom
+        : undefined,
+    allowDuplicate:
+      typeof cmd.payload.allowDuplicate === "boolean"
+        ? cmd.payload.allowDuplicate
+        : undefined,
+    duplicateOverrideReason:
+      typeof cmd.payload.duplicateOverrideReason === "string"
+        ? cmd.payload.duplicateOverrideReason
+        : undefined,
+    confirmSimilar:
+      typeof cmd.payload.confirmSimilar === "boolean"
+        ? cmd.payload.confirmSimilar
+        : undefined,
     reportedByEmployeeId: user.employeeId,
     commandId: cmd.commandId,
   });

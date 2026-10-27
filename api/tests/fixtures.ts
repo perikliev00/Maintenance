@@ -157,6 +157,16 @@ export async function cleanupEmployeeGraph(
     },
   });
 
+  // Ticket creates may notify ops recipients; clear before employee delete.
+  await prisma.notification.deleteMany({
+    where: {
+      OR: [
+        { recipientEmployeeId: { in: ids } },
+        { actorEmployeeId: { in: ids } },
+      ],
+    },
+  });
+
   await prisma.user.deleteMany({ where: { employeeId: { in: ids } } });
   await prisma.employee.deleteMany({ where: { id: { in: ids } } });
 }

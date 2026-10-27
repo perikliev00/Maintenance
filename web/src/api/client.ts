@@ -91,6 +91,7 @@ export {
   type MaintenanceCategoryRow,
   type MaintenanceTicket,
   type SlaPolicyRow,
+  type TicketListPage,
 } from "./maintenanceApi";
 
 // Rooms / locations / QR API.

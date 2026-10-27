@@ -188,7 +188,7 @@ export function ActivePanel({
       {view === "audit" && (
         <AuditPage user={user} locale={locale} />
       )}
-      {view === "home" && <HomePage user={user} />}
+      {view === "home" && <HomePage user={user} locale={locale} />}
       {view === "rooms" && (
         <RoomsPage
           user={user}

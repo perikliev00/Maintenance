@@ -2,7 +2,7 @@
  * Reception-style home: open tickets list + quick issue report form.
  * Live-refreshes on ticket/location/cleaning events; resolve actions gated by role.
  */
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   canPerformAction,
   fetchIssueOptions,
@@ -16,20 +16,65 @@ import {
   type MaintenanceTicket,
   type Room,
 } from "../api/client";
+import { parseDuplicateReportError } from "../api/duplicateReport";
 import { TicketLifecycleActions } from "../components/TicketLifecycleActions";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
+
 type Props = {
   user: AuthUser;
+  locale?: "bg" | "en";
 };
 
+function t(locale: "bg" | "en", bg: string, en: string) {
+  return locale === "en" ? en : bg;
+}
+
 /** Localize an ISO timestamp for the open-tickets list. */
-function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString();
+function formatWhen(iso: string, locale: "bg" | "en"): string {
+  return new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "bg-BG");
+}
+
+function formatDue(iso: string, locale: "bg" | "en"): string {
+  return new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "bg-BG", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function priorityLabel(locale: "bg" | "en", priority: string): string {
+  const map: Record<string, [string, string]> = {
+    low: ["нисък", "low"],
+    normal: ["нормален", "normal"],
+    high: ["висок", "high"],
+    urgent: ["спешен", "urgent"],
+  };
+  const pair = map[priority];
+  return pair ? (locale === "en" ? pair[1] : pair[0]) : priority;
+}
+
+function statusLabel(locale: "bg" | "en", status: string): string {
+  const map: Record<string, [string, string]> = {
+    new: ["нов", "new"],
+    assigned: ["назначен", "assigned"],
+    in_progress: ["в работа", "in progress"],
+    waiting: ["изчаква", "waiting"],
+    resolved: ["решен", "resolved"],
+    closed: ["затворен", "closed"],
+  };
+  const pair = map[status];
+  return pair ? (locale === "en" ? pair[1] : pair[0]) : status;
 }
 
 /** Prefer bilingual category label; fall back to legacy key fields. */
-function ticketCategoryLabel(ticket: MaintenanceTicket): string {
+function ticketCategoryLabel(
+  ticket: MaintenanceTicket,
+  locale: "bg" | "en",
+): string {
+  if (locale === "en") {
+    return ticket.categoryLabelEn ?? ticket.category ?? ticket.categoryKey ?? "—";
+  }
   return ticket.categoryLabelBg ?? ticket.category ?? ticket.categoryKey ?? "—";
 }
 
@@ -37,10 +82,9 @@ function ticketCategoryLabel(ticket: MaintenanceTicket): string {
  * Reception home: open tickets + quick report form.
  * Seeds room/category/option selects on first successful refresh.
  */
-export function HomePage({ user }: Props) {
-  // Open ticket feed for the left panel.
+export function HomePage({ user, locale: localeProp }: Props) {
+  const locale = localeProp ?? "bg";
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
-  // Report-form selects and catalog.
   const [rooms, setRooms] = useState<Room[]>([]);
   const [categories, setCategories] = useState<MaintenanceCategoryRow[]>([]);
   const [issueOptions, setIssueOptions] = useState<IssueOptionRow[]>([]);
@@ -48,33 +92,55 @@ export function HomePage({ user }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // Busy id for TicketLifecycleActions on a single ticket.
+  const submitInFlight = useRef(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
-  // Quick-report form drafts.
   const [locationId, setLocationId] = useState("");
   const [pickMode, setPickMode] = useState<"option" | "custom">("option");
   const [issueOptionId, setIssueOptionId] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  /** Canonical title (option name or custom problem title). */
   const [title, setTitle] = useState("");
+  /** Optional clarification — stored separately from title. */
+  const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
-  const [blocksRoom, setBlocksRoom] = useState(true);
-  // Permission gate for TicketLifecycleActions on each open ticket.
-  const canResolve = canPerformAction(user, "tickets.resolve");
+  const [blocksRoom, setBlocksRoom] = useState(false);
+  const [catalogDefaultPriority, setCatalogDefaultPriority] = useState<
+    string | null
+  >(null);
+  const [pendingDuplicate, setPendingDuplicate] = useState<{
+    code: "duplicate_active" | "probable_duplicate";
+    message: string;
+    existingId: string | null;
+    matchReason: string | null;
+  } | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
 
-  /** Apply catalog option defaults (priority / blocksRoom) into the form. */
+  const canResolve = canPerformAction(user, "tickets.resolve");
+  const canReport = canPerformAction(user, "tickets.report");
+
+  const selectedRoom = useMemo(
+    () => rooms.find((r) => r.id === locationId),
+    [rooms, locationId],
+  );
+
+  const priorityUnusual =
+    catalogDefaultPriority != null &&
+    priority !== catalogDefaultPriority &&
+    pickMode === "option";
+
   const applyOption = useCallback((opt: IssueOptionRow) => {
     setIssueOptionId(opt.id);
     setTitle(opt.nameBg);
+    setDescription("");
+    setCatalogDefaultPriority(opt.defaultPriority);
     if (opt.defaultPriority) setPriority(opt.defaultPriority);
     if (opt.defaultBlocksRoom !== null && opt.defaultBlocksRoom !== undefined) {
       setBlocksRoom(opt.defaultBlocksRoom);
+    } else {
+      setBlocksRoom(false);
     }
   }, []);
 
-  /**
-   * Parallel fetch of tickets, rooms, and catalog for the form.
-   * Seeds empty selects once so the form is immediately usable.
-   */
   const refresh = useCallback(async () => {
     const [ticketData, roomData, catData, optData] = await Promise.all([
       fetchTickets({ limit: 20, status: "open" }),
@@ -86,7 +152,6 @@ export function HomePage({ user }: Props) {
     setRooms(roomData);
     setCategories(catData);
     setIssueOptions(optData);
-    // Seed selects once when empty so the form is immediately usable.
     if (!locationId && roomData[0]) {
       setLocationId(roomData[0].id);
     }
@@ -98,14 +163,12 @@ export function HomePage({ user }: Props) {
     }
   }, [locationId, categoryId, issueOptionId, applyOption]);
 
-  // Skip live refresh while initial load or a local mutation is in flight.
   const liveAt = useLiveRefresh(refresh, {
     enabled: !loading,
     busy: submitting || resolvingId !== null,
     eventTypes: ["ticket.changed", "location.changed", "cleaning.changed"],
   });
 
-  // Mount-only initial load (refresh identity is intentionally omitted).
   useEffect(() => {
     (async () => {
       try {
@@ -113,7 +176,11 @@ export function HomePage({ user }: Props) {
         setError(null);
         await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load home");
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(locale, "Неуспешно зареждане", "Failed to load home"),
+        );
       } finally {
         setLoading(false);
       }
@@ -121,250 +188,483 @@ export function HomePage({ user }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /**
-   * Online reportIssue from the quick form (catalog or custom).
-   * Validates location and custom title before the network call.
-   */
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    // Validation gates before the network call.
-    if (!locationId) return;
+  function confirmBlocksRoomChange(next: boolean): boolean {
+    if (!next) return true;
+    return window.confirm(
+      t(
+        locale,
+        "Стаята ще остане „не готова“ за настаняване, докато този проблем е отворен. Потвърждавате ли?",
+        "The room will stay not-ready for occupancy while this issue is open. Confirm?",
+      ),
+    );
+  }
+
+  async function submitReport(opts?: {
+    allowDuplicate?: boolean;
+    confirmSimilar?: boolean;
+    duplicateOverrideReason?: string;
+  }) {
+    if (!locationId || !canReport || submitInFlight.current) return;
     if (pickMode === "custom" && !title.trim()) return;
+    if (pickMode === "option" && !issueOptionId) return;
+
+    if (blocksRoom && !opts?.allowDuplicate && !opts?.confirmSimilar) {
+      // Already confirmed via checkbox change; no second prompt on submit.
+    }
+
+    submitInFlight.current = true;
     setSubmitting(true);
     setError(null);
     setMessage(null);
     try {
-      // Catalog path vs free-text custom with categoryId.
-      if (pickMode === "option" && issueOptionId) {
-        await reportIssue({
-          locationId,
-          issueOptionId,
-          title: title.trim() || undefined,
-          priority,
-          blocksRoom,
-        });
-      } else {
-        await reportIssue({
-          locationId,
-          title: title.trim(),
-          categoryId,
-          priority,
-          blocksRoom,
-        });
-      }
-      setTitle("");
-      setMessage("Проблемът е добавен");
+      const payload = {
+        locationId,
+        priority,
+        blocksRoom,
+        description: description.trim() || undefined,
+        allowDuplicate: opts?.allowDuplicate,
+        confirmSimilar: opts?.confirmSimilar,
+        duplicateOverrideReason: opts?.duplicateOverrideReason,
+        ...(pickMode === "option" && issueOptionId
+          ? {
+              issueOptionId,
+              // Keep catalog title; clarification goes in description.
+              title: undefined as string | undefined,
+            }
+          : {
+              title: title.trim(),
+              categoryId,
+            }),
+      };
+
+      await reportIssue(payload);
+      setDescription("");
+      if (pickMode === "custom") setTitle("");
+      setPendingDuplicate(null);
+      setOverrideReason("");
+      setMessage(t(locale, "Проблемът е добавен", "Issue reported"));
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to report issue");
+      const dup = parseDuplicateReportError(err);
+      if (dup) {
+        setPendingDuplicate({
+          code: dup.code,
+          message: dup.message,
+          existingId: dup.existingTicket?.id ?? null,
+          matchReason: dup.matchReason,
+        });
+        setError(null);
+      } else {
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(locale, "Неуспешно докладване", "Failed to report issue"),
+        );
+      }
     } finally {
       setSubmitting(false);
+      submitInFlight.current = false;
     }
   }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    await submitReport();
+  }
+
   return (
     <main className="content">
       <header className="page-header">
         <div>
-          <h1>Home</h1>
-          <p>Отворени проблеми и бързо докладване</p>
+          <h1>{t(locale, "Начало", "Home")}</h1>
+          <p>
+            {t(
+              locale,
+              "Отворени проблеми и бързо докладване",
+              "Open issues and quick reporting",
+            )}
+          </p>
         </div>
       </header>
-      {/* Error / success feedback. */}
       {error && <div className="error banner">{error}</div>}
       {message && <div className="ok banner">{message}</div>}
-      {/* Loading gate vs two-column home grid. */}
       {loading ? (
-        <p className="muted">Loading…</p>
+        <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
       ) : (
         <div className="home-grid">
-          {/* Open tickets feed with lifecycle actions. */}
           <section className="panel home-feed">
             <div className="panel-header">
-              <h2>Последни проблеми</h2>
+              <h2>{t(locale, "Последни проблеми", "Recent issues")}</h2>
               <button type="button" className="ghost" onClick={() => refresh()}>
-                Refresh
+                {t(locale, "Обнови", "Refresh")}
               </button>
-              {/* Live stamp when soft refresh last succeeded. */}
               {liveAt && (
                 <span className="muted live-stamp" title={liveAt}>
-                  live
+                  {t(locale, "на живо", "live")}
                 </span>
               )}
             </div>
-            {/* Empty vs ticket cards. */}
             {tickets.length === 0 ? (
-              <p className="muted">Няма отворени проблеми.</p>
+              <p className="muted">
+                {t(locale, "Няма отворени проблеми.", "No open issues.")}
+              </p>
             ) : (
               <ul className="issue-feed">
-                {tickets.map((ticket) => (
-                  <li
-                    key={ticket.id}
-                    className={`issue-card priority-${ticket.priority}`}
-                  >
-                    <div className="issue-card-top">
-                      <strong>
-                        {ticket.location.floor.building.code} {ticket.location.number}
-                      </strong>
-                      <span className={`pill priority-${ticket.priority}`}>
-                        {ticket.priority}
-                      </span>
-                      {/* Blocking-readiness pill when ticket blocks the room. */}
-                      {ticket.blocksRoom && (
-                        <span className="pill ready-not_ready">blocks room</span>
-                      )}
-                    </div>
-                    <p className="issue-title">{ticket.title}</p>
-                    <div className="issue-meta muted">
-                      <span>
-                        {ticket.reportedBy.fullName} ({ticket.reportedBy.employeeNumber})
-                      </span>
-                      <span>{formatWhen(ticket.openedAt)}</span>
-                      <span>
-                        {ticketCategoryLabel(ticket)} · {ticket.status}
-                      </span>
-                      {/* Assignee chip when present. */}
-                      {ticket.assignee && (
-                        <span>→ {ticket.assignee.fullName}</span>
-                      )}
-                    </div>
-                    {/* Resolve/start/hold gated by canResolve. */}
-                    <TicketLifecycleActions
-                      ticket={ticket}
-                      busy={resolvingId === ticket.id}
-                      canResolve={canResolve}
-                      onBusy={setResolvingId}
-                      onDone={(result) => {
-                        setMessage(result.message);
-                        setError(null);
-                        void refresh();
-                      }}
-                      onError={(msg) => setError(msg)}
-                    />
-                  </li>
-                ))}
+                {tickets.map((ticket) => {
+                  const overdue =
+                    ticket.slaBreached ||
+                    (ticket.dueAt &&
+                      new Date(ticket.dueAt).getTime() < Date.now());
+                  return (
+                    <li
+                      key={ticket.id}
+                      className={`issue-card priority-${ticket.priority}`}
+                    >
+                      <div className="issue-card-top">
+                        <strong>
+                          {ticket.location.floor.building.code}{" "}
+                          {ticket.location.number}
+                        </strong>
+                        <span className={`pill priority-${ticket.priority}`}>
+                          {priorityLabel(locale, ticket.priority)}
+                        </span>
+                        <span className={`pill status-${ticket.status}`}>
+                          {statusLabel(locale, ticket.status)}
+                        </span>
+                        {ticket.blocksRoom && (
+                          <span className="pill repairs-blocking">
+                            {t(locale, "блокира стая", "blocks room")}
+                          </span>
+                        )}
+                      </div>
+                      <p className="issue-title">{ticket.title}</p>
+                      {ticket.description ? (
+                        <p className="issue-description muted">
+                          {ticket.description}
+                        </p>
+                      ) : null}
+                      <div className="issue-meta muted">
+                        <span>
+                          {ticket.reportedBy.fullName} (
+                          {ticket.reportedBy.employeeNumber})
+                        </span>
+                        <span>{formatWhen(ticket.openedAt, locale)}</span>
+                        <span>
+                          {ticketCategoryLabel(ticket, locale)}
+                        </span>
+                        {ticket.assignee ? (
+                          <span>
+                            {t(locale, "Изпълнител", "Assignee")}:{" "}
+                            {ticket.assignee.fullName}
+                          </span>
+                        ) : (
+                          <span>
+                            {t(locale, "Без изпълнител", "Unassigned")}
+                          </span>
+                        )}
+                        {ticket.dueAt && (
+                          <span
+                            className={overdue ? "sla-overdue" : undefined}
+                            title={formatWhen(ticket.dueAt, locale)}
+                          >
+                            {t(locale, "Срок", "Due")}:{" "}
+                            {formatDue(ticket.dueAt, locale)}
+                            {overdue
+                              ? ` · ${t(locale, "просрочен", "overdue")}`
+                              : ""}
+                          </span>
+                        )}
+                      </div>
+                      <TicketLifecycleActions
+                        ticket={ticket}
+                        busy={resolvingId === ticket.id}
+                        canResolve={canResolve}
+                        locale={locale}
+                        onBusy={setResolvingId}
+                        onDone={(result) => {
+                          setMessage(result.message);
+                          setError(null);
+                          void refresh();
+                        }}
+                        onError={(msg) => setError(msg)}
+                      />
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
-          {/* Quick report form: catalog option or custom free text. */}
+
           <section className="panel home-form">
-            <h2>Добави проблем</h2>
-            <form className="report-form" onSubmit={handleSubmit}>
-              <label>
-                Стая
-                <select
-                  value={locationId}
-                  onChange={(e) => setLocationId(e.target.value)}
-                  required
-                >
-                  {rooms.map((room) => (
-                    <option key={room.id} value={room.id}>
-                      {room.buildingCode} {room.number} (fl. {room.floor})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Тип сигнал
-                <select
-                  value={pickMode}
-                  onChange={(e) =>
-                    setPickMode(e.target.value as "option" | "custom")
-                  }
-                >
-                  <option value="option">От каталог</option>
-                  <option value="custom">Друго (свободен текст)</option>
-                </select>
-              </label>
-              {/* Catalog option select vs custom title + category. */}
-              {pickMode === "option" ? (
+            <h2>{t(locale, "Добави проблем", "Report issue")}</h2>
+            {!canReport ? (
+              <p className="muted">
+                {t(
+                  locale,
+                  "Нямате право да докладвате проблеми.",
+                  "You do not have permission to report issues.",
+                )}
+              </p>
+            ) : (
+              <form className="report-form" onSubmit={handleSubmit}>
                 <label>
-                  Опция
+                  {t(locale, "Стая", "Room")}
                   <select
-                    value={issueOptionId}
-                    onChange={(e) => {
-                      const opt = issueOptions.find((o) => o.id === e.target.value);
-                      if (opt) applyOption(opt);
-                    }}
+                    value={locationId}
+                    onChange={(e) => setLocationId(e.target.value)}
                     required
                   >
-                    {issueOptions.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.nameBg}
+                    {rooms.map((room) => (
+                      <option key={room.id} value={room.id}>
+                        {room.buildingCode} {room.number} (
+                        {t(locale, "ет.", "fl.")} {room.floor})
                       </option>
                     ))}
                   </select>
                 </label>
-              ) : (
-                <>
+                {selectedRoom && (
+                  <p className="room-identity muted" aria-live="polite">
+                    {t(locale, "Избрана локация", "Selected location")}:{" "}
+                    <strong>
+                      {selectedRoom.buildingCode} ·{" "}
+                      {t(locale, "етаж", "floor")} {selectedRoom.floor} ·{" "}
+                      {selectedRoom.number}
+                    </strong>
+                  </p>
+                )}
+                <label>
+                  {t(locale, "Тип сигнал", "Report type")}
+                  <select
+                    value={pickMode}
+                    onChange={(e) =>
+                      setPickMode(e.target.value as "option" | "custom")
+                    }
+                  >
+                    <option value="option">
+                      {t(locale, "От каталог", "From catalog")}
+                    </option>
+                    <option value="custom">
+                      {t(locale, "Друго (свободен текст)", "Custom free text")}
+                    </option>
+                  </select>
+                </label>
+                {pickMode === "option" ? (
                   <label>
-                    Описание / проблем
-                    <textarea
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      rows={4}
-                      required
-                      placeholder="Кратко описание на повредата…"
-                    />
-                  </label>
-                  <label>
-                    Категория
+                    {t(locale, "Опция", "Option")}
                     <select
-                      value={categoryId}
-                      onChange={(e) => setCategoryId(e.target.value)}
+                      value={issueOptionId}
+                      onChange={(e) => {
+                        const opt = issueOptions.find(
+                          (o) => o.id === e.target.value,
+                        );
+                        if (opt) applyOption(opt);
+                      }}
                       required
                     >
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.nameBg}
+                      {issueOptions.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {locale === "en" ? o.nameEn : o.nameBg}
                         </option>
                       ))}
                     </select>
                   </label>
-                </>
-              )}
-              {/* Optional clarification only in catalog pick mode. */}
-              {pickMode === "option" && (
+                ) : (
+                  <>
+                    <label>
+                      {t(locale, "Заглавие / проблем", "Title / problem")}
+                      <textarea
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        rows={3}
+                        required
+                        placeholder={t(
+                          locale,
+                          "Кратко описание на повредата…",
+                          "Short description of the defect…",
+                        )}
+                      />
+                    </label>
+                    <label>
+                      {t(locale, "Категория", "Category")}
+                      <select
+                        value={categoryId}
+                        onChange={(e) => setCategoryId(e.target.value)}
+                        required
+                      >
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {locale === "en" ? c.nameEn : c.nameBg}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                )}
                 <label>
-                  Уточнение (опционално)
+                  {t(locale, "Уточнение (опционално)", "Clarification (optional)")}
                   <textarea
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
                     rows={2}
-                    placeholder="Допълнителни детайли…"
+                    placeholder={t(
+                      locale,
+                      "Допълнителни детайли…",
+                      "Additional details…",
+                    )}
                   />
                 </label>
-              )}
-              <label>
-                Приоритет
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
+                <label>
+                  {t(locale, "Приоритет", "Priority")}
+                  <select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
+                  >
+                    <option value="low">{priorityLabel(locale, "low")}</option>
+                    <option value="normal">
+                      {priorityLabel(locale, "normal")}
+                    </option>
+                    <option value="high">{priorityLabel(locale, "high")}</option>
+                    <option value="urgent">
+                      {priorityLabel(locale, "urgent")}
+                    </option>
+                  </select>
+                </label>
+                {priorityUnusual && (
+                  <p className="warn-inline" role="status">
+                    {t(
+                      locale,
+                      `Необичаен приоритет за тази опция (каталог: ${catalogDefaultPriority}).`,
+                      `Unusual priority for this option (catalog default: ${catalogDefaultPriority}).`,
+                    )}
+                  </p>
+                )}
+                <label className="checkbox-inline">
+                  <input
+                    type="checkbox"
+                    checked={blocksRoom}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      if (!confirmBlocksRoomChange(next)) return;
+                      setBlocksRoom(next);
+                    }}
+                  />
+                  {t(
+                    locale,
+                    "Блокира готовността на стаята",
+                    "Blocks room readiness",
+                  )}
+                </label>
+                {blocksRoom && (
+                  <p className="warn-inline" role="status">
+                    {t(
+                      locale,
+                      "Стаята няма да е готова за настаняване, докато проблемът е отворен.",
+                      "The room will not be ready for occupancy while this issue is open.",
+                    )}
+                  </p>
+                )}
+
+                {pendingDuplicate && (
+                  <div className="duplicate-warning" role="alert">
+                    <p>
+                      <strong>
+                        {pendingDuplicate.code === "duplicate_active"
+                          ? t(
+                              locale,
+                              "Вече има активен тикет",
+                              "An active ticket already exists",
+                            )
+                          : t(
+                              locale,
+                              "Възможен свързан тикет",
+                              "Possible related ticket",
+                            )}
+                      </strong>
+                    </p>
+                    <p className="muted">
+                      {pendingDuplicate.matchReason ?? pendingDuplicate.message}
+                    </p>
+                    {pendingDuplicate.existingId && (
+                      <p>
+                        {t(locale, "Съществуващ тикет", "Existing ticket")}:{" "}
+                        <code>{pendingDuplicate.existingId.slice(0, 10)}…</code>
+                      </p>
+                    )}
+                    {pendingDuplicate.code === "probable_duplicate" && (
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() =>
+                          void submitReport({ confirmSimilar: true })
+                        }
+                      >
+                        {t(
+                          locale,
+                          "Потвърди — това е друг проблем",
+                          "Confirm — this is a different issue",
+                        )}
+                      </button>
+                    )}
+                    {pendingDuplicate.code === "duplicate_active" && (
+                      <>
+                        <label>
+                          {t(
+                            locale,
+                            "Причина за дублиране",
+                            "Override reason",
+                          )}
+                          <input
+                            value={overrideReason}
+                            onChange={(e) => setOverrideReason(e.target.value)}
+                            placeholder={t(
+                              locale,
+                              "Защо е отделен проблем?",
+                              "Why is this a separate issue?",
+                            )}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          disabled={submitting || !overrideReason.trim()}
+                          onClick={() =>
+                            void submitReport({
+                              allowDuplicate: true,
+                              duplicateOverrideReason: overrideReason.trim(),
+                            })
+                          }
+                        >
+                          {t(
+                            locale,
+                            "Създай въпреки дубликата",
+                            "Create despite duplicate",
+                          )}
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => setPendingDuplicate(null)}
+                    >
+                      {t(locale, "Отмени", "Dismiss")}
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={
+                    submitting ||
+                    !locationId ||
+                    (pickMode === "option" ? !issueOptionId : !title.trim())
+                  }
                 >
-                  <option value="low">low</option>
-                  <option value="normal">normal</option>
-                  <option value="high">high</option>
-                  <option value="urgent">urgent</option>
-                </select>
-              </label>
-              <label className="checkbox-inline">
-                <input
-                  type="checkbox"
-                  checked={blocksRoom}
-                  onChange={(e) => setBlocksRoom(e.target.checked)}
-                />
-                Блокира готовността на стаята
-              </label>
-              <button
-                type="submit"
-                disabled={
-                  submitting ||
-                  !locationId ||
-                  (pickMode === "option" ? !issueOptionId : !title.trim())
-                }
-              >
-                {submitting ? "Запис…" : "Добави проблем"}
-              </button>
-            </form>
+                  {submitting
+                    ? t(locale, "Запис…", "Saving…")
+                    : t(locale, "Добави проблем", "Add issue")}
+                </button>
+              </form>
+            )}
           </section>
         </div>
       )}

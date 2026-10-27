@@ -1,14 +1,11 @@
 /**
- * Open a new maintenance ticket: category snapshot, SLA dueAt, event, notifications.
+ * Open a new maintenance ticket: validation, duplicate prevention, category
+ * snapshot, SLA dueAt, event, notifications.
  */
 import { Priority, TicketStatus } from "@prisma/client";
 import { prisma } from "../../db";
 import { AppError } from "../../errors";
-import {
-  getActiveIssueOption,
-  resolveCategorySnapshot,
-  snapshotFromCategory,
-} from "../issueCatalog";
+import { recordAudit } from "../audit";
 import { recipientsForLocationOps } from "../notifications";
 import { resolveSlaForPriority } from "../slaPolicies";
 import {
@@ -16,75 +13,92 @@ import {
   replayCreateCommand,
   type CreateCommandKey,
 } from "./commands";
+import {
+  detectDuplicates,
+  duplicateLockKey,
+  lockDuplicateIdentity,
+  storedDuplicateIdentityKey,
+  type ExistingTicketSummary,
+} from "./duplicateDetection";
 import { writeTicketEvent } from "./events";
 import { formatMaintenanceTicket } from "./format";
 import { notifyTicketEvent, publishTicketChanged } from "./notify";
 import { isP2002 } from "./prismaConflicts";
 import { ticketInclude, type CreateMaintenanceTicketInput } from "./types";
+import { validateMaintenanceReport } from "./validation/report";
+
+function duplicateDetails(
+  existing: ExistingTicketSummary,
+  match: { kind: "exact" | "probable"; identityKey: string; reason: string },
+  suggestReopenTicketId?: string | null,
+) {
+  return {
+    existingTicket: {
+      id: existing.id,
+      status: existing.status,
+      title: existing.title,
+      description: existing.description,
+      locationId: existing.locationId,
+      priority: existing.priority,
+      blocksRoom: existing.blocksRoom,
+      assigneeId: existing.assigneeId,
+      reportedByEmployeeId: existing.reportedByEmployeeId,
+      openedAt: existing.openedAt.toISOString(),
+    },
+    match,
+    ...(suggestReopenTicketId
+      ? { suggestReopenTicketId }
+      : {}),
+  };
+}
 
 /**
  * Creates a ticket (or returns the existing one for the same commandId).
  * Category labels are snapshotted at create so later catalog edits do not rewrite history.
  *
- * @param input.locationId - Room/common-area catalog id.
- * @param input.issueOptionId - Preset option (mutually exclusive with categoryId).
- * @param input.categoryId - Bare category when no issue option is selected.
- * @param input.commandId - Offline sync idempotency key (optional).
- * @param input.reportedByEmployeeId - Reporter stamped on the ticket row.
- * @param input.now - Optional clock for deterministic dueAt (tests).
+ * Exact active duplicates are rejected unless `allowDuplicate` + reason.
+ * Probable (similar) duplicates require `confirmSimilar`.
  */
 export async function createMaintenanceTicket(input: CreateMaintenanceTicketInput) {
   const now = input.now ?? new Date();
 
-  // Exactly one of issueOptionId / categoryId is required (validated before replay
-  // so contradictory payloads still 400 even when commandId is present).
-  if (input.issueOptionId && input.categoryId) {
-    throw new AppError(
-      400,
-      "validation",
-      "Provide either issueOptionId or categoryId, not both",
-    );
-  }
-  if (!input.issueOptionId && !input.categoryId) {
-    throw new AppError(
-      400,
-      "validation",
-      "issueOptionId or categoryId is required",
-    );
-  }
+  const validated = await validateMaintenanceReport({
+    locationId: input.locationId,
+    title: input.title,
+    description: input.description,
+    issueOptionId: input.issueOptionId,
+    categoryId: input.categoryId,
+    priority: input.priority,
+    blocksRoom: input.blocksRoom,
+    allowDuplicate: input.allowDuplicate,
+    duplicateOverrideReason: input.duplicateOverrideReason,
+    confirmSimilar: input.confirmSimilar,
+  });
 
-  // Mutable defaults filled from issue option when present.
-  let title = input.title?.trim() ?? "";
-  let priority = input.priority ?? Priority.normal;
-  const blocksRoom = input.blocksRoom;
-  let issueOptionId: string | null = null;
-  let snapshot;
+  const {
+    title,
+    description,
+    priority,
+    blocksRoom,
+    issueOptionId,
+    categoryId,
+    snapshot,
+    allowDuplicate,
+    duplicateOverrideReason,
+    confirmSimilar,
+  } = validated;
 
-  if (input.issueOptionId) {
-    const option = await getActiveIssueOption(input.issueOptionId);
-    issueOptionId = option.id;
-    snapshot = snapshotFromCategory(option.maintenanceCategory);
-    if (!title) {
-      title = option.nameBg;
-    }
-    if (input.priority === undefined && option.defaultPriority) {
-      priority = option.defaultPriority;
-    }
-  } else {
-    snapshot = await resolveCategorySnapshot(input.categoryId!, true);
-  }
-
-  if (!title) {
-    throw new AppError(400, "validation", "title is required");
-  }
+  // For fingerprint / duplicate identity, categoryId is the catalog category id.
+  const createCategoryId = input.categoryId ?? null;
 
   const createKey: CreateCommandKey = {
     kind: "create",
     locationId: input.locationId,
     reportedByEmployeeId: input.reportedByEmployeeId,
     issueOptionId: input.issueOptionId ?? null,
-    categoryId: input.categoryId ?? null,
+    categoryId: createCategoryId,
     title,
+    description,
     priority,
     blocksRoom,
   };
@@ -93,12 +107,49 @@ export async function createMaintenanceTicket(input: CreateMaintenanceTicketInpu
   const replayed = await replayCreateCommand(input.commandId, createKey);
   if (replayed) return replayed;
 
-  // Location must exist (archived rooms may still open tickets).
-  const location = await prisma.location.findUnique({
-    where: { id: input.locationId },
+  const identityKey = duplicateLockKey({
+    locationId: input.locationId,
+    issueOptionId,
+    categoryId: categoryId!,
+    title,
   });
-  if (!location) {
-    throw new AppError(404, "not_found", "Room not found");
+
+  const dupIdentityStored = storedDuplicateIdentityKey({
+    issueOptionId,
+    categoryId: categoryId!,
+    title,
+  });
+
+  // Pre-check outside the lock for fast rejection (rechecked under lock).
+  const pre = await detectDuplicates({
+    locationId: input.locationId,
+    issueOptionId,
+    categoryId: categoryId!,
+    title,
+    description,
+  });
+
+  if (pre.exactActive && !allowDuplicate) {
+    throw new AppError(
+      409,
+      "duplicate_active",
+      pre.match?.reason ?? "An active duplicate ticket already exists",
+      duplicateDetails(pre.exactActive, pre.match!),
+    );
+  }
+
+  if (pre.probableActive && !confirmSimilar && !allowDuplicate) {
+    throw new AppError(
+      409,
+      "probable_duplicate",
+      pre.match?.reason ??
+        "A related open ticket exists; confirm to create anyway",
+      duplicateDetails(
+        pre.probableActive,
+        pre.match!,
+        pre.suggestReopen?.id,
+      ),
+    );
   }
 
   const sla = await resolveSlaForPriority(priority);
@@ -109,10 +160,67 @@ export async function createMaintenanceTicket(input: CreateMaintenanceTicketInpu
 
   try {
     const ticket = await prisma.$transaction(async (tx) => {
+      await lockDuplicateIdentity(tx, identityKey);
+
+      // Peer may have committed the same commandId while we waited for the lock.
+      if (input.commandId) {
+        const byCommand = await tx.maintenanceTicket.findUnique({
+          where: { commandId: input.commandId },
+          include: ticketInclude,
+        });
+        if (byCommand) {
+          return {
+            created: byCommand,
+            suggestReopenId: null,
+            idempotent: true as const,
+          };
+        }
+      }
+
+      const underLock = await detectDuplicates(
+        {
+          locationId: input.locationId,
+          issueOptionId,
+          categoryId: categoryId!,
+          title,
+          description,
+        },
+        tx,
+      );
+
+      if (underLock.exactActive && !allowDuplicate) {
+        throw new AppError(
+          409,
+          "duplicate_active",
+          underLock.match?.reason ??
+            "An active duplicate ticket already exists",
+          duplicateDetails(underLock.exactActive, underLock.match!),
+        );
+      }
+
+      if (
+        underLock.probableActive &&
+        !confirmSimilar &&
+        !allowDuplicate
+      ) {
+        throw new AppError(
+          409,
+          "probable_duplicate",
+          underLock.match?.reason ??
+            "A related open ticket exists; confirm to create anyway",
+          duplicateDetails(
+            underLock.probableActive,
+            underLock.match!,
+            underLock.suggestReopen?.id,
+          ),
+        );
+      }
+
       const created = await tx.maintenanceTicket.create({
         data: {
           locationId: input.locationId,
           title,
+          description,
           issueOptionId,
           maintenanceCategoryId: snapshot.maintenanceCategoryId,
           categoryKey: snapshot.categoryKey,
@@ -123,6 +231,7 @@ export async function createMaintenanceTicket(input: CreateMaintenanceTicketInpu
           status: TicketStatus.new,
           reportedByEmployeeId: input.reportedByEmployeeId,
           commandId: input.commandId,
+          duplicateIdentityKey: dupIdentityStored,
           dueAt,
           slaPolicyId: sla.policyId,
           slaHoursSnapshot: sla.hours,
@@ -130,7 +239,6 @@ export async function createMaintenanceTicket(input: CreateMaintenanceTicketInpu
         include: ticketInclude,
       });
 
-      // Initial timeline event carries commandId + create fingerprint for P1-45/46.
       await writeTicketEvent(tx, {
         ticketId: created.id,
         locationId: created.locationId,
@@ -141,52 +249,126 @@ export async function createMaintenanceTicket(input: CreateMaintenanceTicketInpu
         payload: {
           priority,
           blocksRoom,
+          description,
+          duplicateOverride: allowDuplicate
+            ? {
+                reason: duplicateOverrideReason,
+                existingTicketId: underLock.exactActive?.id ?? null,
+              }
+            : null,
+          confirmSimilar: confirmSimilar || null,
+          suggestReopenTicketId: underLock.suggestReopen?.id ?? null,
           _commandFingerprint: createPayloadFingerprint(createKey),
         },
       });
 
-      return created;
+      if (allowDuplicate) {
+        await recordAudit(
+          {
+            actorEmployeeId: input.reportedByEmployeeId,
+            action: "ticket.duplicate_override",
+            entityType: "ticket",
+            entityId: created.id,
+            locationId: created.locationId,
+            reason: duplicateOverrideReason,
+            after: {
+              existingTicketId: underLock.exactActive?.id ?? underLock.probableActive?.id ?? null,
+              identityKey,
+            },
+            summary: `Duplicate override: ${duplicateOverrideReason}`,
+          },
+          tx,
+        );
+      }
+
+      return {
+        created,
+        suggestReopenId: underLock.suggestReopen?.id ?? null,
+        idempotent: false as const,
+      };
     });
 
-    publishTicketChanged(ticket);
-    {
-      const opsRecipients = await recipientsForLocationOps(
-        ticket.locationId,
-        "tickets.assign",
-      );
-      const liveRecipients =
-        priority === Priority.urgent || blocksRoom
-          ? await recipientsForLocationOps(
-              ticket.locationId,
-              "operations.view_live",
-            )
-          : [];
-      const recipients = [...new Set([...opsRecipients, ...liveRecipients])];
-      const locNum = ticket.location?.number ?? "?";
-      const urgency =
-        priority === Priority.urgent || blocksRoom
-          ? priority === Priority.urgent && blocksRoom
-            ? "Urgent blocking ticket"
-            : priority === Priority.urgent
-              ? "Urgent ticket"
-              : "Blocking ticket"
-          : "New ticket";
-      await notifyTicketEvent({
-        type: "ticket.created",
-        title: urgency,
-        body: `${locNum}: ${ticket.title}`,
-        ticket,
-        actorEmployeeId: input.reportedByEmployeeId,
-        recipientEmployeeIds: recipients,
-        dedupeKey: `ticket.created:${ticket.id}`,
-      });
+    if (!ticket.idempotent) {
+      publishTicketChanged(ticket.created);
+      {
+        const opsRecipients = await recipientsForLocationOps(
+          ticket.created.locationId,
+          "tickets.assign",
+        );
+        const liveRecipients =
+          priority === Priority.urgent || blocksRoom
+            ? await recipientsForLocationOps(
+                ticket.created.locationId,
+                "operations.view_live",
+              )
+            : [];
+        const recipients = [...new Set([...opsRecipients, ...liveRecipients])];
+        const locNum = ticket.created.location?.number ?? "?";
+        const urgency =
+          priority === Priority.urgent || blocksRoom
+            ? priority === Priority.urgent && blocksRoom
+              ? "Urgent blocking ticket"
+              : priority === Priority.urgent
+                ? "Urgent ticket"
+                : "Blocking ticket"
+            : "New ticket";
+        await notifyTicketEvent({
+          type: "ticket.created",
+          title: urgency,
+          body: `${locNum}: ${ticket.created.title}`,
+          ticket: ticket.created,
+          actorEmployeeId: input.reportedByEmployeeId,
+          recipientEmployeeIds: recipients,
+          dedupeKey: `ticket.created:${ticket.created.id}`,
+        });
+      }
     }
-    return { ticket: formatMaintenanceTicket(ticket), idempotent: false };
+
+    const formatted = formatMaintenanceTicket(ticket.created);
+    return {
+      ticket: ticket.suggestReopenId
+        ? { ...formatted, suggestReopenTicketId: ticket.suggestReopenId }
+        : formatted,
+      idempotent: ticket.idempotent,
+    };
   } catch (err) {
+    if (err instanceof AppError) throw err;
+
     // Concurrent first-writes of the same commandId: treat as idempotent replay.
     if (input.commandId && isP2002(err)) {
-      const again = await replayCreateCommand(input.commandId, createKey);
-      if (again) return again;
+      const targets = (err as { meta?: { target?: string | string[] } }).meta
+        ?.target;
+      const targetList = Array.isArray(targets)
+        ? targets
+        : typeof targets === "string"
+          ? [targets]
+          : [];
+      const isCommandId =
+        targetList.includes("commandId") ||
+        targetList.some((t) => String(t).includes("commandId"));
+
+      if (isCommandId) {
+        const again = await replayCreateCommand(input.commandId, createKey);
+        if (again) return again;
+      }
+
+      // Partial unique active-option index — concurrent exact duplicate.
+      const existing = await detectDuplicates({
+        locationId: input.locationId,
+        issueOptionId,
+        categoryId: categoryId!,
+        title,
+        description,
+      });
+      if (existing.exactActive) {
+        throw new AppError(
+          409,
+          "duplicate_active",
+          existing.match?.reason ??
+            "An active duplicate ticket already exists",
+          duplicateDetails(existing.exactActive, existing.match!),
+        );
+      }
     }
     throw err;
   }

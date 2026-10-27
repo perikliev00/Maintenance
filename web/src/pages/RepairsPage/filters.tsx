@@ -1,6 +1,6 @@
 /** Status / assignee / SLA / blocks filters for the ticket list query. */
 import type { Person } from "../../api/client";
-import { t } from "./helpers";
+import { statusLabel, t } from "./helpers";
 
 type FiltersProps = {
   locale: "bg" | "en";
@@ -44,9 +44,11 @@ export function Filters({
           <option value="open">{t(locale, "Отворени", "Open")}</option>
           <option value="all">{t(locale, "Всички", "All")}</option>
           <option value="resolved">{t(locale, "Решени", "Resolved")}</option>
-          <option value="assigned">assigned</option>
-          <option value="in_progress">in_progress</option>
-          <option value="waiting">waiting</option>
+          <option value="assigned">{statusLabel(locale, "assigned")}</option>
+          <option value="in_progress">
+            {statusLabel(locale, "in_progress")}
+          </option>
+          <option value="waiting">{statusLabel(locale, "waiting")}</option>
         </select>
       </label>
       {/* Assignee filter: all / mine / concrete employee. */}
@@ -73,7 +75,7 @@ export function Filters({
           checked={slaOnly}
           onChange={(e) => onSlaOnlyChange(e.target.checked)}
         />
-        SLA
+        {t(locale, "Просрочен SLA", "SLA breached")}
       </label>
       {/* Restrict list to tickets that block room readiness. */}
       <label className="check">
@@ -82,7 +84,7 @@ export function Filters({
           checked={blocksOnly}
           onChange={(e) => onBlocksOnlyChange(e.target.checked)}
         />
-        {t(locale, "Блокиращи", "Blocking")}
+        {t(locale, "Блокиращи стая", "Blocking room")}
       </label>
     </div>
   );

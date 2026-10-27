@@ -37,6 +37,7 @@ export type CreateCommandKey = {
   issueOptionId?: string | null;
   categoryId?: string | null;
   title?: string | null;
+  description?: string | null;
   priority?: string | null;
   blocksRoom: boolean;
 };
@@ -77,6 +78,7 @@ export function createPayloadFingerprint(key: CreateCommandKey): string {
     issueOptionId: key.issueOptionId ?? null,
     categoryId: key.categoryId ?? null,
     title: key.title ?? null,
+    description: key.description ?? null,
     priority: key.priority ?? null,
     blocksRoom: key.blocksRoom,
   };

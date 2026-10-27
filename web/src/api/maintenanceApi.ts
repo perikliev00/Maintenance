@@ -29,6 +29,8 @@ export type IssueOptionRow = {
 export type MaintenanceTicket = {
   id: string;
   title: string;
+  /** Optional clarification; canonical issue name stays in title. */
+  description?: string | null;
   category: string;
   categoryKey?: string;
   categoryLabelBg?: string;
@@ -45,6 +47,8 @@ export type MaintenanceTicket = {
   location: {
     id: string;
     number: string;
+    /** Present on ticket payloads; archived rooms appear in history views. */
+    catalogStatus?: string;
     floor: { number: number; building: { code: string; name: string } };
   };
   reportedBy: {
@@ -68,20 +72,30 @@ export type MaintenanceTicket = {
     employeeNumber: string;
   } | null;
   slaBreached?: boolean;
+  /** Present when create succeeded after a prior closed ticket for the same identity. */
+  suggestReopenTicketId?: string | null;
+};
+
+export type ReportIssueInput = {
+  locationId: string;
+  title?: string;
+  description?: string;
+  issueOptionId?: string;
+  categoryId?: string;
+  priority?: string;
+  blocksRoom?: boolean;
+  allowDuplicate?: boolean;
+  duplicateOverrideReason?: string;
+  confirmSimilar?: boolean;
+  /** Stable idempotency key; minted when omitted. */
+  commandId?: string;
 };
 
 /**
  * Create a ticket online. Sends a fresh `commandId` for server idempotency.
  * For offline-capable reporting use `reportTicketQueued` from `../offline`.
  */
-export async function reportIssue(input: {
-  locationId: string;
-  title?: string;
-  issueOptionId?: string;
-  categoryId?: string;
-  priority?: string;
-  blocksRoom: boolean;
-}) {
+export async function reportIssue(input: ReportIssueInput) {
   // Online path always mint a fresh commandId for server idempotency.
   const res = await apiFetch(`${API_BASE}/maintenance/tickets`, {
     method: "POST",
@@ -89,7 +103,7 @@ export async function reportIssue(input: {
     // Serialize request body.
     body: JSON.stringify({
       ...input,
-      commandId: crypto.randomUUID(),
+      commandId: input.commandId ?? crypto.randomUUID(),
     }),
   });
   // Return value / early exit.
@@ -263,11 +277,13 @@ export async function reorderIssueOptions(ids: string[]): Promise<IssueOptionRow
   return parseJson(res);
 }
 
-/**
- * List tickets with optional status / assignee / SLA / blocksRoom filters.
- * `blocksRoom` uses `"1"`/`"0"` query encoding (not bare boolean strings).
- */
-export async function fetchTickets(params?: {
+export type TicketListPage = {
+  items: MaintenanceTicket[];
+  nextCursor: string | null;
+  total: number;
+};
+
+type FetchTicketsParams = {
   limit?: number;
   status?: "open" | "all" | "resolved" | string;
   locationId?: string;
@@ -276,7 +292,28 @@ export async function fetchTickets(params?: {
   priority?: string;
   slaBreached?: boolean;
   blocksRoom?: boolean;
-}): Promise<MaintenanceTicket[]> {
+  /** Opaque keyset cursor from a prior paginated response. */
+  cursor?: string;
+  /**
+   * When true (or when `cursor` is set), returns `{ items, nextCursor, total }`.
+   * Legacy callers omit this and still receive a bare ticket array.
+   */
+  paginated?: boolean;
+};
+
+/**
+ * List tickets with optional status / assignee / SLA / blocksRoom filters.
+ * `blocksRoom` uses `"1"`/`"0"` query encoding (not bare boolean strings).
+ */
+export async function fetchTickets(
+  params: FetchTicketsParams & { paginated: true },
+): Promise<TicketListPage>;
+export async function fetchTickets(
+  params?: FetchTicketsParams,
+): Promise<MaintenanceTicket[]>;
+export async function fetchTickets(
+  params?: FetchTicketsParams,
+): Promise<MaintenanceTicket[] | TicketListPage> {
   const search = new URLSearchParams();
   // Branch: conditional gate.
   if (params?.limit) search.set("limit", String(params.limit));
@@ -296,6 +333,9 @@ export async function fetchTickets(params?: {
   if (params?.blocksRoom === true) search.set("blocksRoom", "1");
   // Branch: conditional gate.
   if (params?.blocksRoom === false) search.set("blocksRoom", "0");
+  if (params?.cursor) search.set("cursor", params.cursor);
+  const wantPage = Boolean(params?.paginated || params?.cursor);
+  if (wantPage) search.set("paginated", "1");
   // Optional query suffix.
   const qs = search.toString();
   // Authenticated HTTP request.
