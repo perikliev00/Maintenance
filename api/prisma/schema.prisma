@@ -463,8 +463,8 @@ model MaintenanceTicket {
   commandId              String?              @unique
   /**
    * Stable duplicate identity for custom (non-option) reports:
-   * `custom:<categoryId>:<normalizedTitle>`. Option-based tickets use the
-   * partial unique index on (locationId, issueOptionId) among open statuses.
+   * `custom:<categoryId>:<normalizedTitle>`. Option-based tickets are guarded
+   * by app-level detectDuplicates + advisory locks (allowDuplicate overrides).
    */
   duplicateIdentityKey   String?
   reopenEvents           TicketReopenEvent[]

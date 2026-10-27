@@ -233,6 +233,8 @@ export async function createBlockingTicket(
     issueOptionId: opt.id,
     blocksRoom: true,
     commandId: crypto.randomUUID(),
+    allowDuplicate: true,
+    duplicateOverrideReason: "e2e createBlockingTicket fixture",
   });
   expect(
     res.status === 200 || res.status === 201,

@@ -307,6 +307,17 @@ export async function resetCleaningWork(
     },
     data: { status: TaskStatus.cancelled },
   });
+
+  // Clear open tickets so option-based duplicate detection does not leak across cases.
+  await prisma.ticketReopenEvent.deleteMany({
+    where: { ticket: { locationId: { in: locationIds } } },
+  });
+  await prisma.ticketEvent.deleteMany({
+    where: { ticket: { locationId: { in: locationIds } } },
+  });
+  await prisma.maintenanceTicket.deleteMany({
+    where: { locationId: { in: locationIds } },
+  });
 }
 
 export async function cleanupCleaningWorld(

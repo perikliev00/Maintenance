@@ -19,7 +19,9 @@ COPY --from=build /app/dist /srv
 # SEC-005 / B1: create the unprivileged user; the upstream image runs as root.
 # Compose adds
 # NET_BIND_SERVICE so :80/:443 still work after cap_drop ALL.
-RUN addgroup -S -g 1000 caddy \
+# Patch Alpine packages in the pinned Caddy base (brotli/curl HIGH CVEs).
+RUN apk upgrade --no-cache \
+ && addgroup -S -g 1000 caddy \
  && adduser -S -D -H -u 1000 -G caddy caddy \
  && mkdir -p /data /config \
  && chown -R caddy:caddy /srv /etc/caddy /data /config
