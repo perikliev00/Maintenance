@@ -148,11 +148,29 @@ export async function cleanupEmployeeGraph(
   await prisma.authSession.deleteMany({
     where: { user: { employeeId: { in: ids } } },
   });
+  // Clear invite → device links before deleting devices / users.
+  await prisma.invitation.updateMany({
+    where: {
+      OR: [
+        { employeeId: { in: ids } },
+        { createdBy: { employeeId: { in: ids } } },
+      ],
+    },
+    data: { consumedDeviceId: null },
+  });
   await prisma.device.deleteMany({
     where: {
       OR: [
         { employeeId: { in: ids } },
         { user: { employeeId: { in: ids } } },
+      ],
+    },
+  });
+  await prisma.invitation.deleteMany({
+    where: {
+      OR: [
+        { employeeId: { in: ids } },
+        { createdBy: { employeeId: { in: ids } } },
       ],
     },
   });
@@ -165,6 +183,19 @@ export async function cleanupEmployeeGraph(
         { actorEmployeeId: { in: ids } },
       ],
     },
+  });
+
+  await prisma.auditEvent.deleteMany({
+    where: {
+      OR: [
+        { actorEmployeeId: { in: ids } },
+        { entityType: "employee", entityId: { in: ids } },
+      ],
+    },
+  });
+
+  await prisma.cleaningTask.deleteMany({
+    where: { assignedEmployeeId: { in: ids } },
   });
 
   await prisma.user.deleteMany({ where: { employeeId: { in: ids } } });

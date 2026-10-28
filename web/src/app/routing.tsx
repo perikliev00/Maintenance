@@ -1,7 +1,7 @@
 /**
  * Pre-shell routing via location hash, plus panel switcher for the shell.
  *
- * Hash routes: `#/activate` (invite), `#/room-qr/:token` (scan deep-link).
+ * Hash routes: `#/activate` (invite redeem). Legacy `#/room-qr/...` is cleared.
  * Until `authReady`, render nothing to avoid a login flash over a valid cookie.
  */
 import { useEffect, useState, type ReactNode } from "react";
@@ -25,7 +25,6 @@ import { AttendancePage } from "../pages/AttendancePage";
 import { CardsPage } from "../pages/CardsPage";
 import { HousekeepingPage } from "../pages/HousekeepingPage";
 import { NotificationsPage } from "../pages/NotificationsPage";
-import { RoomQrPage } from "../pages/RoomQrPage";
 import {
   landingForUser,
   type AuthUser,
@@ -47,7 +46,7 @@ type AppRoutingProps = {
   children: ReactNode;
 };
 
-/** Gate login / activate / room-QR before rendering the authenticated shell. */
+/** Gate login / activate before rendering the authenticated shell. */
 export function AppRouting({
   authReady,
   signedIn,
@@ -76,12 +75,15 @@ export function AppRouting({
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Clear retired room-QR deep links so old stickers land on the normal shell.
+  useEffect(() => {
+    if (hash.startsWith("#/room-qr/")) {
+      window.location.hash = "";
+    }
+  }, [hash]);
+
   // Hash deep-links checked before the authenticated shell.
   const isActivateRoute = hash.startsWith("#/activate");
-  const roomQrMatch = hash.match(/^#\/room-qr\/([^/?#]+)/);
-  const roomQrToken = roomQrMatch?.[1]
-    ? decodeURIComponent(roomQrMatch[1])
-    : null;
 
   // Avoid login flash while bootstrap is still resolving cookies.
   if (!authReady) {
@@ -136,22 +138,6 @@ export function AppRouting({
     );
   }
 
-  // QR deep-link overlays the shell (signed-in scan flow).
-  if (roomQrToken) {
-    // Return value / early exit.
-    return (
-      <div className={`app-shell theme-${theme}`}>
-        <RoomQrPage
-          user={user}
-          token={roomQrToken}
-          onClose={() => {
-            window.location.hash = "";
-          }}
-        />
-      </div>
-    );
-  }
-
   // Authenticated shell (sidebar + ActivePanel) from App.tsx.
   return children;
 }
@@ -203,7 +189,7 @@ export function ActivePanel({
           locale={locale}
         />
       )}
-      {view === "team" && <TeamPage user={user} />}
+      {view === "team" && <TeamPage user={user} locale={locale} />}
       {view === "live" && (
         <LiveBoardPage user={user} locale={locale} />
       )}

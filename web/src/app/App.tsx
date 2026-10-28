@@ -1,6 +1,6 @@
 /**
  * Authenticated shell: sidebar / mobile nav, theme + logout controls, and the
- * active panel. Pre-auth routes (login, activate, room QR) are handled by
+ * active panel. Pre-auth routes (login, activate) are handled by
  * `AppRouting` before this shell renders.
  */
 import { useEffect, useState } from "react";

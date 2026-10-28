@@ -36,6 +36,7 @@ import { ensureTaskCycleForStart } from "./cycles";
 import { applyLocationCleaningStatusIfCurrent } from "./locationStatus";
 // Module dependency import.
 import { lockSession, lockTask } from "./locks";
+import { healOrphanIfTaskCycleCurrent } from "../locations/reconcileCleaningStatus";
 // Module dependency import.
 import { assertCleaningCommandPayloadMatch } from "./idempotency";
 // Module dependency import.
@@ -424,12 +425,19 @@ export async function completeCleaningSession(input: {
       });
 
       // Soft cycle guard: close the session even if superseded; never overwrite a newer cycle.
-      await applyLocationCleaningStatusIfCurrent(
+      const locationUpdated = await applyLocationCleaningStatusIfCurrent(
         tx,
         updatedTask.locationId,
         task.cleaningCycle,
         nextCleaningStatus,
       );
+      if (!locationUpdated) {
+        await healOrphanIfTaskCycleCurrent(
+          tx,
+          updatedTask.locationId,
+          task.cleaningCycle,
+        );
+      }
 
       // Audit completion with resulting task status and notes.
       await recordAudit({
@@ -666,13 +674,20 @@ export async function cancelCleaningSession(input: {
         });
 
         // Soft cycle guard: never overwrite a newer location cycle/status.
-        await applyLocationCleaningStatusIfCurrent(
+        const locationUpdated = await applyLocationCleaningStatusIfCurrent(
           tx,
           task.locationId,
           task.cleaningCycle,
           CleaningStatus.dirty,
           { onlyIfStatus: CleaningStatus.in_progress },
         );
+        if (!locationUpdated) {
+          await healOrphanIfTaskCycleCurrent(
+            tx,
+            task.locationId,
+            task.cleaningCycle,
+          );
+        }
       }
 
       // Audit cancellation with resulting task status and notes.

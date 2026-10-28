@@ -75,6 +75,7 @@ export type Action =
   | "people.view"
   | "people.change_role"
   | "people.invite"
+  | "people.manage_access"
   | "control.access"
   | "settings.manage"
   | "permissions.manage"
@@ -191,6 +192,24 @@ export function isOwner(role: Role): boolean {
   return role === "owner";
 }
 
+/** Privileged accounts (owner/admin) — mirrors server `isPrivilegedRole`. */
+export function isPrivilegedRole(role: Role): boolean {
+  return role === "owner" || role === "admin";
+}
+
+/**
+ * Whether the actor may manage access (block/archive/device revoke) for a
+ * target role. Non-owners cannot manage owner/admin targets.
+ */
+export function canManagePersonAccess(
+  actorRole: Role,
+  targetRole: Role | null,
+): boolean {
+  if (targetRole == null) return true;
+  if (isPrivilegedRole(targetRole) && !isOwner(actorRole)) return false;
+  return true;
+}
+
 /** Client-side mirror of server registry (offline / stale session fallback). */
 export function panelsForRole(role: Role): Panel[] {
   // Branch: conditional gate.
@@ -257,7 +276,7 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
   // Branch: conditional gate.
   if (action === "people.view") return canViewTeam(user.role);
   // Branch: conditional gate.
-  if (action === "people.invite") {
+  if (action === "people.invite" || action === "people.manage_access") {
     // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
   }

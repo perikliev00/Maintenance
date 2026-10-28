@@ -1,5 +1,5 @@
 /**
- * Housekeeping admin: location catalog, sectors, shifts/roster, and QR print.
+ * Housekeeping admin: location catalog, sectors, and shifts/roster.
  * Tabs/actions gated by rooms.manage / sectors.manage / shifts.manage.
  * Supervisors editing sectors have supervisor select locked to themselves.
  */
@@ -26,23 +26,21 @@ import {
   type ShiftRow,
 } from "../api/client";
 import { LocationCatalogPanel } from "../components/LocationCatalogPanel";
-import { LocationQrPanel } from "../components/LocationQrPanel";
 import { SectorPanel } from "../components/SectorPanel";
 import { ShiftPanel } from "../components/ShiftPanel";
 
 type Props = { user: AuthUser };
 
-type Tab = "catalog" | "sectors" | "shifts" | "qr";
+type Tab = "catalog" | "sectors" | "shifts";
 
 const TABS: Array<{ id: Tab; bg: string; en: string }> = [
   { id: "catalog", bg: "Каталог", en: "Catalog" },
   { id: "sectors", bg: "Сектори", en: "Sectors" },
   { id: "shifts", bg: "Смени", en: "Shifts" },
-  { id: "qr", bg: "QR кодове", en: "QR codes" },
 ];
 
 /**
- * Housekeeping admin page: location catalog, sectors, shifts/roster, QR print.
+ * Housekeeping admin page: location catalog, sectors, shifts/roster.
  * Tabs/actions gated by rooms.manage / sectors.manage / shifts.manage.
  */
 export function HousekeepingPage({ user }: Props) {
@@ -76,9 +74,6 @@ export function HousekeepingPage({ user }: Props) {
   const [sectorCode, setSectorCode] = useState("");
   const [sectorNameBg, setSectorNameBg] = useState("");
   const [sectorNameEn, setSectorNameEn] = useState("");
-  // QR tab filter + preview room.
-  const [qrFilter, setQrFilter] = useState("");
-  const [previewQr, setPreviewQr] = useState<Room | null>(null);
   const [sectorSupervisorId, setSectorSupervisorId] = useState("");
   const [sectorActive, setSectorActive] = useState(true);
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
@@ -349,8 +344,8 @@ export function HousekeepingPage({ user }: Props) {
           <h1>{label("Почистване", "Housekeeping")}</h1>
           <p>
             {label(
-              "Каталог помещения, сектори, смени и QR за оперативното разпределение.",
-              "Location catalog, sectors, shifts and QR for operational assignment.",
+              "Каталог помещения, сектори и смени за оперативното разпределение.",
+              "Location catalog, sectors and shifts for operational assignment.",
             )}
           </p>
         </div>
@@ -488,17 +483,6 @@ export function HousekeepingPage({ user }: Props) {
         />
       )}
 
-      {/* QR print/preview tab — no manage gate (read of rooms). */}
-      {tab === "qr" && (
-        <LocationQrPanel
-          label={label}
-          rooms={rooms}
-          filter={qrFilter}
-          preview={previewQr}
-          onFilterChange={setQrFilter}
-          onPreviewChange={setPreviewQr}
-        />
-      )}
     </main>
   );
 }

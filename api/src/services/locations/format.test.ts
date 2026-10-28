@@ -23,7 +23,6 @@ function baseLocation(
     occupancy: Occupancy.vacant,
     cleaningStatus: CleaningStatus.verified_clean,
     serviceStatus: ServiceStatus.in_service,
-    qrToken: "qr-1",
     floor: {
       number: 1,
       name: "Floor 1",

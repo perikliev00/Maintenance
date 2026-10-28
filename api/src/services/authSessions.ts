@@ -87,9 +87,12 @@ export async function createSessionWithClient(
   input: CreateSessionInput,
 ): Promise<SessionTokens> {
   // Load user inside the same client (tx-safe for invite redeem).
-  const user = await client.user.findUnique({ where: { id: input.userId } });
-  // Inactive / missing users cannot obtain sessions.
-  if (!user || !user.isActive) {
+  const user = await client.user.findUnique({
+    where: { id: input.userId },
+    include: { employee: { select: { archivedAt: true } } },
+  });
+  // Inactive / archived / missing users cannot obtain sessions.
+  if (!user || !user.isActive || user.employee.archivedAt) {
     throw new AppError(401, "unauthorized", "User not found or inactive");
   }
 
@@ -131,7 +134,7 @@ export async function rotateRefresh(
   const hash = hashRefreshToken(refreshToken);
   const existing = await prisma.authSession.findUnique({
     where: { refreshTokenHash: hash },
-    include: { user: true },
+    include: { user: { include: { employee: { select: { archivedAt: true } } } } },
   });
 
   // Unknown hash → invalid refresh (do not leak whether it ever existed).
@@ -160,8 +163,8 @@ export async function rotateRefresh(
     throw new AppError(401, "unauthorized", "Refresh token expired");
   }
 
-  // Deactivated users lose all sessions.
-  if (!existing.user.isActive) {
+  // Deactivated or archived users lose all sessions.
+  if (!existing.user.isActive || existing.user.employee.archivedAt) {
     await revokeAllForUser(existing.userId);
     throw new AppError(401, "unauthorized", "User inactive");
   }
@@ -279,6 +282,7 @@ export async function assertSessionActive(sessionId: string, userId: string, db:
           role: true,
           email: true,
           employeeId: true,
+          employee: { select: { archivedAt: true } },
         },
       },
     },
@@ -295,8 +299,8 @@ export async function assertSessionActive(sessionId: string, userId: string, db:
   if (session.expiresAt.getTime() <= Date.now()) {
     throw new AppError(401, "unauthorized", "Session expired");
   }
-  // Deactivated accounts cannot keep using an otherwise-valid session.
-  if (!session.user.isActive) {
+  // Deactivated or archived accounts cannot keep using an otherwise-valid session.
+  if (!session.user.isActive || session.user.employee.archivedAt) {
     throw new AppError(401, "unauthorized", "User inactive");
   }
   return session;

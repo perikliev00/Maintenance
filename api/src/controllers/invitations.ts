@@ -90,15 +90,9 @@ export async function issue(req: Request, res: Response, next: NextFunction) {
         details: parsed.error.flatten(),
       });
     }
-    // Origin used when building invite links for email/UI copy.
-    const origin =
-      typeof req.headers.origin === "string" && req.headers.origin
-        ? req.headers.origin
-        : process.env.WEB_ORIGIN ?? "http://localhost:5173";
     const result = await issueInvitation(
       { userId: req.user!.userId, role: req.user!.role },
       parsed.data,
-      origin,
     );
     return res.status(201).json(result);
   } catch (err) {
@@ -151,7 +145,10 @@ export async function revokeDevice(
   next: NextFunction,
 ) {
   try {
-    const updated = await revokeDeviceById(req.params.id);
+    const updated = await revokeDeviceById(req.params.id, {
+      employeeId: req.user!.employeeId,
+      role: req.user!.role,
+    });
     return res.json(updated);
   } catch (err) {
     return next(err);

@@ -84,7 +84,6 @@ async function main() {
         role: Role.admin,
         department: "Housekeeping",
       },
-      "http://localhost:5173",
     );
 
     const pending = await prisma.user.findUniqueOrThrow({
@@ -164,7 +163,6 @@ async function main() {
         role: Role.housekeeper,
         department: "Housekeeping",
       },
-      "http://localhost:5173",
     );
 
     const result = await redeemInvitation({
@@ -212,7 +210,6 @@ async function main() {
     const issued = await issueInvitation(
       actor,
       { kind: "existing", employeeId: employee.id },
-      "http://localhost:5173",
     );
     assert(
       issued.invitation.role === Role.technician,
@@ -263,7 +260,6 @@ async function main() {
           email: `smoke.role.blocked.${suffix}@meridian.local`,
           role: Role.housekeeper,
         },
-        "http://localhost:5173",
       );
       const pending = await prisma.user.findUniqueOrThrow({
         where: { email: issued.invitation.email },
@@ -360,7 +356,6 @@ async function main() {
           email: `smoke.role.used.${suffix}@meridian.local`,
           role: Role.housekeeper,
         },
-        "http://localhost:5173",
       );
       await redeemInvitation({
         code: issued.code,

@@ -153,6 +153,44 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     assert.equal(after.number, loc.number);
   });
 
+  it("T-SCOPE-LOC-02: OOS GET detail has no cleaningStatus side effects", async () => {
+    const { token } = await loginBearer(
+      api,
+      fx.supervisorA.email,
+      fx.password,
+    );
+    const original = await prisma.location.findUniqueOrThrow({
+      where: { id: fx.locBId },
+      select: { cleaningStatus: true },
+    });
+    // Seed an orphan status that a GET-side reconcile would previously "heal".
+    await prisma.location.update({
+      where: { id: fx.locBId },
+      data: { cleaningStatus: "in_progress" },
+    });
+
+    assertOutOfScope(
+      await getJson(api, token, `/rooms/${fx.locBId}`),
+      "GET room detail",
+    );
+
+    const after = await prisma.location.findUniqueOrThrow({
+      where: { id: fx.locBId },
+      select: { cleaningStatus: true },
+    });
+    assert.equal(
+      after.cleaningStatus,
+      "in_progress",
+      "OOS GET must not mutate cleaningStatus",
+    );
+
+    // Restore fixture status for later tests.
+    await prisma.location.update({
+      where: { id: fx.locBId },
+      data: { cleaningStatus: original.cleaningStatus },
+    });
+  });
+
   it("T-SCOPE-TKT-01: OOS ticket lifecycle denied", async () => {
     const { token } = await loginBearer(
       api,

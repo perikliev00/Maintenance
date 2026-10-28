@@ -285,6 +285,11 @@ export async function runLockInactiveUsers(deps: RunLockInactiveUsersDeps = {}) 
       // Close open SSE / refresh sessions under the live-access User lock.
       if (!deps.claimDb) {
         await revokeAllForUser(user.id);
+        // Bump access-state version so stale Team lifecycle actions conflict.
+        await prisma.employee.updateMany({
+          where: { user: { is: { id: user.id } } },
+          data: { accessVersion: { increment: 1 } },
+        });
       }
 
       // Audit only successful locks (system actor).

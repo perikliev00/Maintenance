@@ -86,6 +86,18 @@ export function LoginPage({ onLogin, theme, onToggleTheme }: Props) {
         <button type="submit" disabled={loading}>
           {loading ? "Signing in…" : "Sign in"}
         </button>
+        <p className="muted small" style={{ marginTop: "0.75rem" }}>
+          Have an invitation code?{" "}
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              window.location.hash = "#/activate";
+            }}
+          >
+            Activate device
+          </button>
+        </p>
         {/* Seed-user hint for local demos. */}
         <div className="demo-hint">
           <div>Demo: owner / manager / supervisor / admin /</div>

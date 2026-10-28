@@ -74,7 +74,6 @@ Readiness **не е един статус**, а композиция от няк
 | Сектори / смени (панел Почистване) | ✅ | Почистване / `/sectors`, `/shifts`; ростер `GET/PUT /shifts/roster`; `CleaningTask.shiftId` |
 | Snapshot сектор + отговорник на задача | ✅ | `CleaningTask.sectorId` / `sectorSupervisorEmployeeId` |
 | Data scope „мои сектори“ (супервайзър) | ✅ | `dataScope` + Live/Plan/Rooms/Results/Analytics + ticket create, sync push, sectors (own), live audit/SSE |
-| QR за помещения | ✅ | таб QR + `#/room-qr/:token` (само identify) |
 | Присъствие (attendance) | ✅ | Присъствие / `/attendance` |
 | Analytics — резултати по камериер | ✅ | Резултати / `/cleaning/results` |
 | Умна аналитика (S14, §9) | ✅ | Аналитика / `/analytics/summary` |
@@ -501,8 +500,6 @@ Auth: httpOnly cookies (`session` access JWT ~15m, `refresh` ~14d) + CSRF double
 | POST | `/locations/:id/restore` | `rooms.manage` |
 | PATCH | `/locations/:id/occupancy` | `rooms.set_occupancy` — само стаи |
 | PATCH | `/locations/:id/service-status` | `rooms.set_service_status` |
-| GET | `/locations/:id/qr` | `sectors.manage` — payload + scan URL |
-| GET | `/locations/by-qr/:token` | auth — идентифицира помещение (без auto start/complete) |
 
 UI: каталог в Почистване → Каталог; occupancy/service в detail drawer на Стаи / Общи части.
 
@@ -556,7 +553,7 @@ Stream tickets и отворени SSE връзки са вързани към �
 
 Housekeeping analytics (`GET /analytics/summary?domain=housekeeping`): същите дефиниции върху `completedAt`; плюс `distinctRooms` и валидни/изключени минути; breakdown `byServiceType` + `byPriority`; P50/P90 върху валидни сесии.
 
-### Сектори / смени / QR
+### Сектори / смени
 
 | Method | Path | Право |
 |---|---|---|
@@ -568,8 +565,6 @@ Housekeeping analytics (`GET /analytics/summary?domain=housekeeping`): същи�
 | GET/PUT | `/shifts/roster?hotelDate=` | `shifts.manage` — дневен ростер employee↔shift |
 
 `CleaningTask.shiftId` — планирана смяна при create/reassign/дневен план. `EmployeeShiftRoster` — кой е на коя смяна за хотелска дата (капацитет). My Work филтрира по ростер смяна (задачи без смяна остават видими).
-
-Scan UI: `#/room-qr/:token`. Печат: таб QR в Почистване. Каталог/QR endpoints: виж **Locations** по-горе.
 
 ### Operations (Live board S09)
 
@@ -726,7 +721,6 @@ maintenance/
 - Физически encoder адаптер за карти (хардуер)
 - Нови роли (напр. `hk_lead`)
 - UI бутони изцяло от `actions[]` (без ad-hoc role if-ове)
-- QR scan → confirm start/complete (сега само идентификация)
 - Реални PMS/Clock импорт адаптери (скелетът `DailyPlanImportBatch` / JobRun е наличен)
 
 ---

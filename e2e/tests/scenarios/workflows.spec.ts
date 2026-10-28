@@ -11,14 +11,13 @@ async function room(page: Page, suffix: string) {
   return mutation(page, "POST", "/locations", { floorId: hierarchy[0].floors[0].id, number: `SC-${suffix}-${Date.now()}`, occupancy: "vacant", kind: "room" });
 }
 test("P1-85 P1-89 P1-129 P2-48 real invitation UI suppresses repeat submit and activates with cookie-only secrets", async ({ page, browser }) => {
-  await page.route("https://api.qrserver.com/**", route => route.abort());
   await uiLogin(page, USERS.owner); await openNav(page, /Екип|Team/); await page.getByRole("button", { name: "Onboarding", exact: true }).click();
   const id = crypto.randomUUID(); const email = `${id}@e2e.test`;
-  await page.getByLabel("Full name", { exact: true }).fill(`Scenario ${id}`); await page.getByLabel("Employee number", { exact: true }).fill(id); await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel(/Име|Full name/, { exact: true }).fill(`Scenario ${id}`); await page.getByLabel(/Служебен номер|Employee number/, { exact: true }).fill(id); await page.getByLabel("Email", { exact: true }).fill(email);
   let release!: () => void; const gate = new Promise<void>(r => { release = r; }); let requests = 0;
   await page.route("**/api/invitations", async route => { if (route.request().method() !== "POST") return route.continue(); requests++; await gate; await route.fulfill({ response: await route.fetch() }); });
-  await page.getByRole("button", { name: "Issue code", exact: true }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
-  await expect.poll(() => requests).toBe(1); await expect(page.getByRole("button", { name: "Issuing…" })).toBeDisabled(); release();
+  await page.getByRole("button", { name: /Издай код|Issue code/, exact: true }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+  await expect.poll(() => requests).toBe(1); await expect(page.getByRole("button", { name: /Издаване|Issuing/ })).toBeDisabled(); release();
   await expect(page.locator(".invite-code")).toBeVisible(); const code = (await page.locator(".invite-code").textContent())!.trim(); expect(requests).toBe(1);
   const rejected = await page.request.post("/api/auth/login", { data: { email, password: "scenario-password" } }); expect(rejected.status()).toBe(403);
   const context = await browser.newContext(); const activation = await context.newPage();
@@ -38,6 +37,37 @@ test("P1-85 P1-89 P1-129 P2-48 real invitation UI suppresses repeat submit and a
     expect(readable).not.toContain("scenario-password"); expect(readable).not.toMatch(/"(?:passwordHash|accessToken|refreshToken)"|session=eyJ|refresh=/);
     for (const name of ["session", "refresh"]) expect((await context.cookies()).find(c => c.name === name)?.httpOnly).toBe(true);
   } finally { await context.close(); }
+});
+test("invitation activate from login screen with manual code entry (no QR, no hash prefill)", async ({ page, browser }) => {
+  await uiLogin(page, USERS.owner); await openNav(page, /Екип|Team/); await page.getByRole("button", { name: "Onboarding", exact: true }).click();
+  const id = crypto.randomUUID(); const email = `${id}@e2e.manual.test`;
+  await page.getByLabel(/Име|Full name/, { exact: true }).fill(`Manual ${id}`);
+  await page.getByLabel(/Служебен номер|Employee number/, { exact: true }).fill(`M-${id.slice(0, 8)}`);
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByRole("button", { name: /Издай код|Issue code/, exact: true }).click();
+  await expect(page.locator(".invite-code")).toBeVisible();
+  const code = (await page.locator(".invite-code").textContent())!.trim();
+  expect(code.length).toBeGreaterThan(4);
+
+  const context = await browser.newContext();
+  const activation = await context.newPage();
+  try {
+    await activation.goto("http://127.0.0.1:5185/");
+    await expect(activation.getByRole("button", { name: /Вход|Sign in/, exact: true })).toBeVisible();
+    await activation.getByRole("button", { name: "Activate device", exact: true }).click();
+    await expect(activation).toHaveURL(/#\/activate(?!\?)/);
+    await expect(activation.getByRole("heading", { name: "Activate device" })).toBeVisible();
+    await expect(activation.getByLabel("Invitation code", { exact: true })).toHaveValue("");
+    await activation.getByLabel("Invitation code", { exact: true }).fill(code);
+    await activation.getByLabel(/Password.*required for first activation/).fill("manual-activate-1");
+    await activation.getByLabel("Confirm password", { exact: true }).fill("manual-activate-1");
+    const response = activation.waitForResponse(r => r.url().includes("/invitations/redeem") && r.status() === 200);
+    await activation.getByRole("button", { name: "Activate", exact: true }).click();
+    await response;
+    await expect(activation.getByRole("navigation", { name: "Main" })).toBeVisible();
+  } finally {
+    await context.close();
+  }
 });
 test("P1-95 P1-97 P1-109 P1-110 real queued report reloads then single-flight sync replaces optimistic row", async ({ page }) => {
   await uiLogin(page, USERS.owner); const target = await room(page, "OFFLINE"); await openNav(page, /Повреди|Repairs/);
@@ -117,14 +147,17 @@ test("P2-25 disabling current module selects allowed panel and remains hidden af
     await page.reload(); await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible(); await expect(page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: /Присъствие|Attendance/ })).toHaveCount(0);
   } finally { await mutation(page, "PATCH", "/settings/modules", { value: original, reason: "scenario restore" }); }
 });
-test("P2-46 active QR deep link opens exact room without any mutation", async ({ page }) => {
-  await uiLogin(page, USERS.owner); const target = await room(page, "QR");
-  const before = await (await page.request.get(`/api/locations/by-qr/${target.qrToken}`)).json();
-  const tasks = await (await page.request.get(`/api/cleaning/tasks?locationId=${target.id}`)).json(); let mutations = 0;
-  page.on("request", request => { if (request.url().includes("/api/") && ["POST", "PATCH", "DELETE"].includes(request.method())) mutations++; });
-  await page.goto(`/#/room-qr/${target.qrToken}`); await expect(page.getByRole("heading", { name: new RegExp(target.number) })).toBeVisible();
-  expect(mutations).toBe(0); expect(await (await page.request.get(`/api/locations/by-qr/${target.qrToken}`)).json()).toEqual(before);
-  expect(await (await page.request.get(`/api/cleaning/tasks?locationId=${target.id}`)).json()).toEqual(tasks);
+test("P2-46 legacy room-QR hash clears without calling retired by-qr API", async ({ page }) => {
+  await uiLogin(page, USERS.owner);
+  let byQrHits = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/locations/by-qr/")) byQrHits++;
+  });
+  await page.goto("/#/room-qr/legacy-retired-token");
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.location.hash)).not.toMatch(/room-qr/);
+  expect(byQrHits).toBe(0);
+  expect((await page.request.get("/api/locations/by-qr/legacy-retired-token")).status()).toBe(404);
 });
 test("P2-53 app logout aborts its shared live stream and never reconnects", async ({ page }) => {
   const streams: import("@playwright/test").Request[] = []; const finished = new Set<import("@playwright/test").Request>();

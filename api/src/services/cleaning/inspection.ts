@@ -26,6 +26,7 @@ import { assertTaskOwnsCleaningCycle } from "./cycles";
 import { applyLocationCleaningStatusIfCurrent } from "./locationStatus";
 // Row lock to serialize inspect vs reassign/start.
 import { lockTask } from "./locks";
+import { healOrphanIfTaskCycleCurrent } from "../locations/reconcileCleaningStatus";
 // Same commandId with different task/inspector/decision → conflict (P1-26).
 import { assertCleaningCommandPayloadMatch } from "./idempotency";
 // Map unique commandId races to idempotent replay.
@@ -159,12 +160,20 @@ export async function inspectCleaningTask(input: {
           include: taskInclude,
         });
         // Soft cycle guard: never overwrite a newer location cycle.
-        const locationUpdated = await applyLocationCleaningStatusIfCurrent(
+        let locationUpdated = await applyLocationCleaningStatusIfCurrent(
           tx,
           task.locationId,
           task.cleaningCycle,
           CleaningStatus.verified_clean,
         );
+        if (!locationUpdated) {
+          const healed = await healOrphanIfTaskCycleCurrent(
+            tx,
+            task.locationId,
+            task.cleaningCycle,
+          );
+          locationUpdated = healed != null;
+        }
         // Audit note when location was left unchanged due to stale cycle.
         await recordAudit({
           actorEmployeeId: input.inspectorEmployeeId,
@@ -204,12 +213,20 @@ export async function inspectCleaningTask(input: {
         include: taskInclude,
       });
       // Soft cycle guard: never overwrite a newer location cycle.
-      const locationUpdated = await applyLocationCleaningStatusIfCurrent(
+      let locationUpdated = await applyLocationCleaningStatusIfCurrent(
         tx,
         task.locationId,
         task.cleaningCycle,
         CleaningStatus.dirty,
       );
+      if (!locationUpdated) {
+        const healed = await healOrphanIfTaskCycleCurrent(
+          tx,
+          task.locationId,
+          task.cleaningCycle,
+        );
+        locationUpdated = healed != null;
+      }
       // Audit includes findings in the summary when present.
       await recordAudit({
         actorEmployeeId: input.inspectorEmployeeId,

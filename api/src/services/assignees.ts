@@ -27,12 +27,13 @@ export const MAINTENANCE_ASSIGNEE_MESSAGE =
 
 /** Employee row shape used for eligibility checks (user may be missing). */
 export type AssigneeEmployee = {
+  archivedAt?: Date | null;
   user: { role: Role; isActive: boolean } | null;
 } | null;
 
 /**
- * True when the employee has an active user account in `allowedRoles`.
- * Missing employee/user or inactive accounts always return false.
+ * True when the employee has an active, non-archived user account in `allowedRoles`.
+ * Missing employee/user or inactive/archived accounts always return false.
  */
 export function employeeIsEligibleAssignee(
   employee: AssigneeEmployee,
@@ -41,6 +42,7 @@ export function employeeIsEligibleAssignee(
   // Must have a linked active user whose role is in the domain allow-list.
   return (
     employee != null &&
+    !employee.archivedAt &&
     employee.user != null &&
     employee.user.isActive &&
     allowedRoles.includes(employee.user.role)
@@ -133,9 +135,10 @@ export async function assertActiveWorkStarter(
 
 /** Active housekeepers for assignee pickers (id / name / number only). */
 export async function listActiveHousekeepers() {
-  // Picker list — only active users in CLEANING_ASSIGNEE_ROLES.
+  // Picker list — only active, non-archived users in CLEANING_ASSIGNEE_ROLES.
   return prisma.employee.findMany({
     where: {
+      archivedAt: null,
       user: { role: { in: [...CLEANING_ASSIGNEE_ROLES] }, isActive: true },
     },
     select: { id: true, fullName: true, employeeNumber: true },

@@ -41,11 +41,11 @@ invitationsRouter.post(
   invitationsController.revoke,
 );
 
-// GET /devices/ — list activated devices (people.invite gate).
+// GET /devices/ — list activated devices (people.manage_access gate).
 devicesRouter.get(
   "/",
   requireAuth,
-  requireAction("people.invite"),
+  requireAction("people.manage_access"),
   invitationsController.listDevices,
 );
 
@@ -53,6 +53,6 @@ devicesRouter.get(
 devicesRouter.post(
   "/:id/revoke",
   requireAuth,
-  requireAction("people.invite"),
+  requireAction("people.manage_access"),
   invitationsController.revokeDevice,
 );

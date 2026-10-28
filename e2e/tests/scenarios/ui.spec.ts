@@ -27,14 +27,6 @@ test("P2-45 changing day clears deferred confirmation and ignores late apply res
   await expect(page.getByRole("button", { name: /Потвърди отложените/ })).toHaveCount(0);
   await expect(page.getByTestId("message")).toBeEmpty();
 });
-test("P2-47 QR retoken to denied room removes previously visible private identity", async ({ page }) => {
-  const response = await page.request.get("/api/rooms"); const rooms = await response.json(); const room = rooms[0];
-  await page.route("**/api/locations/by-qr/*", route => route.request().url().endsWith("/A") ? route.fulfill({ json: { location: room, qr: { buildingCode: "PRIVATE", number: "PRIVATE-ROOM-A", floor: 1, kind: "room", qrToken: "A" } } }) : route.fulfill({ status: 404, json: { error: "not_found", message: "Unknown or inactive location QR" } }));
-  await mount(page, "qr"); await expect(page.getByRole("heading", { name: "PRIVATE PRIVATE-ROOM-A" })).toBeVisible();
-  await page.evaluate(() => (window as any).screenHarness.props({ token: "denied" }));
-  await expect(page.getByText("Unknown or inactive location QR")).toBeVisible();
-  await expect(page.getByText("PRIVATE PRIVATE-ROOM-A")).toHaveCount(0);
-});
 test("P2-43 plan day B stays visible after delayed day A response", async ({ page }) => {
   const original = await (await page.request.get("/api/daily-plan?hotelDate=2000-01-01")).json();
   await page.route("**/api/rooms", route => route.fulfill({ json: [] }));

@@ -10,6 +10,11 @@ import { prisma } from "../../db";
 import { AppError } from "../../errors";
 import { assignableRolesFor } from "../../permissions";
 import { publish } from "../../events/bus";
+import {
+  lockEmployeeRowsForUpdate,
+  lockEmployeesForLiveAccess,
+  lockUsersForLiveAccess,
+} from "../liveAccessLocks";
 import { getSetting } from "../settings";
 import { generateInviteCode, hashInviteCode } from "./codes";
 import { expireStaleInvitations, mapInvitation } from "./map";
@@ -59,17 +64,15 @@ export type IssueInvitationInput =
     };
 
 /**
- * Issue an invitation code (plaintext returned once) and QR payload URL.
+ * Issue an invitation code (plaintext returned once).
  * TTL comes from access.invitationTtlHours. Only the code hash is persisted.
  *
  * @param actor - Issuer user id + role for assignable-role checks.
  * @param input - New employee onboarding or existing-employee re-invite.
- * @param qrBaseUrl - WEB origin used to build the activate deep link.
  */
 export async function issueInvitation(
   actor: { userId: string; role: Role },
   input: IssueInvitationInput,
-  qrBaseUrl: string,
 ) {
   // TTL from access settings; plaintext code returned once to the issuer.
   const access = await getSetting("access");
@@ -91,12 +94,10 @@ export async function issueInvitation(
 
     if (input.kind === "new") {
       assertAssignableRole(actor.role, input.role);
-      // Unique employee number / email before insert.
       const existingNumber = await tx.employee.findUnique({
         where: { employeeNumber: input.employeeNumber },
       });
       if (existingNumber) {
-        // Employee numbers are globally unique in the catalog.
         throw new AppError(
           409,
           "conflict",
@@ -107,11 +108,9 @@ export async function issueInvitation(
         where: { email: input.email.toLowerCase() },
       });
       if (existingEmail) {
-        // One user row per email — block duplicate invites.
         throw new AppError(409, "conflict", "Email already exists");
       }
 
-      // HR record first; user row links via employeeId.
       const employee = await tx.employee.create({
         data: {
           fullName: input.fullName.trim(),
@@ -119,8 +118,7 @@ export async function issueInvitation(
           department: input.department?.trim() || null,
         },
       });
-      // Placeholder password until redeem sets a real one; not activated yet.
-      await tx.user.create({
+      const createdUser = await tx.user.create({
         data: {
           employeeId: employee.id,
           email: input.email.trim().toLowerCase(),
@@ -130,34 +128,44 @@ export async function issueInvitation(
           isActive: true,
         },
       });
-      // Carry ids forward for the invitation row insert.
+      // Lock newly created rows in protocol order before invite insert.
+      await lockUsersForLiveAccess(tx, [createdUser.id]);
+      await lockEmployeeRowsForUpdate(tx, [employee.id]);
+
       employeeId = employee.id;
       role = input.role;
       email = input.email.trim().toLowerCase();
     } else {
-      // Re-invite existing employee — revoke prior issued codes.
-      // Load employee + optional linked user for role/email resolution.
+      // Lock person rows before archived/blocked/role checks (anti-TOCTOU vs lifecycle).
+      await lockEmployeesForLiveAccess(tx, [input.employeeId]);
+      await lockEmployeeRowsForUpdate(tx, [input.employeeId]);
+
       const employee = await tx.employee.findUnique({
         where: { id: input.employeeId },
         include: { user: true },
       });
       if (!employee) {
-        // Unknown employeeId on the re-invite path.
         throw new AppError(404, "not_found", "Employee not found");
       }
 
+      if (employee.archivedAt) {
+        throw new AppError(
+          400,
+          "validation",
+          "Cannot invite an archived employee",
+        );
+      }
+
       if (employee.user) {
-        // Account already exists — reuse stored role/email.
         if (!employee.user.isActive) {
-          // Blocked users must not receive a fresh activation code.
           throw new AppError(400, "validation", "Cannot invite a blocked account");
         }
+        // Re-check privileges against the locked current role (role-change race).
         assertAssignableRole(actor.role, employee.user.role);
         employeeId = employee.id;
         role = employee.user.role;
         email = employee.user.email;
       } else {
-        // Employee without login yet — caller must supply email + role.
         if (!input.email || !input.role) {
           throw new AppError(
             400,
@@ -170,11 +178,9 @@ export async function issueInvitation(
           where: { email: input.email.toLowerCase() },
         });
         if (existingEmail) {
-          // Email taken by another employee's user row.
           throw new AppError(409, "conflict", "Email already exists");
         }
-        // Create pending user; redeem will set the real password.
-        await tx.user.create({
+        const createdUser = await tx.user.create({
           data: {
             employeeId: employee.id,
             email: input.email.trim().toLowerCase(),
@@ -187,17 +193,21 @@ export async function issueInvitation(
             isActive: true,
           },
         });
-        // New pending user on an existing employee record.
+        // Take the new User lock so concurrent writers see the same order.
+        await lockUsersForLiveAccess(tx, [createdUser.id]);
+        await tx.employee.update({
+          where: { id: employee.id },
+          data: { accessVersion: { increment: 1 } },
+        });
         employeeId = employee.id;
         role = input.role;
         email = input.email.trim().toLowerCase();
       }
     }
 
-    // Ensure only one issued invite is live per employee.
+    // Serialized under Employee(+User) locks → at most one issued invite.
     await revokeIssuedForEmployee(tx, employeeId);
 
-    // Persist hash only — plaintext `code` is returned to the caller once.
     return tx.invitation.create({
       data: {
         codeHash,
@@ -216,9 +226,6 @@ export async function issueInvitation(
     });
   });
 
-  // Deep-link for QR / share; code is query-encoded.
-  const qrPayload = `${qrBaseUrl.replace(/\/$/, "")}/#/activate?code=${encodeURIComponent(code)}`;
-
   // People admin list should refresh.
   publish("people.changed");
 
@@ -226,7 +233,6 @@ export async function issueInvitation(
   return {
     invitation: mapInvitation(invitation),
     code,
-    qrPayload,
     expiresAt: expiresAt.toISOString(),
   };
 }

@@ -74,7 +74,6 @@ Readiness is **not a single status** — it is composed from several independent
 | Sectors / shifts (Housekeeping panel) | ✅ | Housekeeping / `/sectors`, `/shifts`; roster `GET/PUT /shifts/roster`; `CleaningTask.shiftId` |
 | Task sector + supervisor snapshot | ✅ | `CleaningTask.sectorId` / `sectorSupervisorEmployeeId` |
 | Supervisor “my sectors” data scope | ✅ | `dataScope` + Live/Plan/Rooms/Results/Analytics + ticket create, sync push, sectors (own), live audit/SSE |
-| Room QR codes | ✅ | QR tab + `#/room-qr/:token` (identify only) |
 | Attendance (S13) | ✅ | Attendance / `/attendance` |
 | Analytics — housekeeper results | ✅ | Results / `/cleaning/results` |
 | Smart analytics (S14, §9) | ✅ | Analytics / `/analytics/summary` |
@@ -502,8 +501,6 @@ Auth: httpOnly cookies (`session` access JWT ~15m, `refresh` ~14d) + CSRF double
 | POST | `/locations/:id/restore` | `rooms.manage` |
 | PATCH | `/locations/:id/occupancy` | `rooms.set_occupancy` — rooms only |
 | PATCH | `/locations/:id/service-status` | `rooms.set_service_status` |
-| GET | `/locations/:id/qr` | `sectors.manage` — payload + scan URL |
-| GET | `/locations/by-qr/:token` | auth — identify location (no auto start/complete) |
 
 UI: catalog under Housekeeping → Catalog; occupancy/service in the Rooms / Common areas detail drawer.
 
@@ -724,9 +721,7 @@ After the current foundation (not built yet):
 - Physical card encoder adapter (hardware)
 - New roles (e.g. `hk_lead`)
 - Drive all UI buttons from `actions[]` (no ad-hoc role ifs)
-- QR scan → confirm start/complete (identify only today)
 - Live PMS/Clock import adapters (`DailyPlanImportBatch` / JobRun skeleton exists)
-- QR scan → confirm start/complete (currently identify only)
 
 ---
 

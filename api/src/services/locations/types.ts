@@ -110,7 +110,6 @@ export type LocationForMap = {
   occupancy: string;
   cleaningStatus: string;
   serviceStatus: string;
-  qrToken: string;
   floor: {
     number: number;
     name: string;

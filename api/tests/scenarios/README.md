@@ -17,7 +17,7 @@ The ordinary Playwright config excludes this directory so these tests do not
 accidentally run against the normal development API. CI runs both configurations.
 
 `auth`, `sync`, `notifications`, `jobs`, `analytics`, `attendance`, `catalog-settings`,
-`qr`, `rollback`, and `sse` suites exercise actual PostgreSQL and/or HTTP. Lock
+`qr` (sync ownership residual), `rollback`, and `sse` suites exercise actual PostgreSQL and/or HTTP. Lock
 tests observe real PostgreSQL waiters, including indirect blocker chains. SQL
 faults prove writes reached the intended point and are removed in teardown.
 `scheduler.test.ts` isolates timer lifecycle with controlled timers.

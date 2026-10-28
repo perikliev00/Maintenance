@@ -1,13 +1,37 @@
 /**
  * Activated device listing and revocation (also revokes auth sessions for the device).
+ * Client DTOs omit fingerprint (not an identity proof in the UI).
+ * Revoke enforces the same privileged-target policy as people lifecycle.
  */
+import type { Role } from "@prisma/client";
 import { prisma } from "../../db";
 import { AppError } from "../../errors";
-import { revokeAllForDevice } from "../authSessions";
+import { publish } from "../../events/bus";
+import { recordAudit } from "../audit";
+import { lockUsersForLiveAccess } from "../liveAccessLocks";
+import { canManagePersonAccess } from "../people/lifecycle";
+
+/** Public device row for Team / admin UIs (no fingerprint). */
+export type DeviceDto = {
+  id: string;
+  label: string;
+  employeeId: string;
+  userId: string;
+  fullName: string;
+  employeeNumber: string;
+  email: string;
+  role: string;
+  activatedAt: string;
+  lastSeenAt: string;
+};
+
+export type DeviceRevokeActor = {
+  employeeId: string;
+  role: Role;
+};
 
 /** List non-revoked devices, optionally filtered to one employee. */
-export async function listDevices(employeeId?: string) {
-  // Active devices only; optional employee filter for people detail views.
+export async function listDevices(employeeId?: string): Promise<DeviceDto[]> {
   const devices = await prisma.device.findMany({
     where: {
       revokedAt: null,
@@ -19,11 +43,9 @@ export async function listDevices(employeeId?: string) {
     },
     orderBy: { activatedAt: "desc" },
   });
-  // Flatten employee/user joins into the devices admin DTO.
   return devices.map((d) => ({
     id: d.id,
     label: d.label,
-    fingerprint: d.fingerprint,
     employeeId: d.employeeId,
     userId: d.userId,
     fullName: d.employee.fullName,
@@ -35,25 +57,76 @@ export async function listDevices(employeeId?: string) {
   }));
 }
 
-/** Revoke a device and all of its active auth sessions. */
-export async function revokeDevice(id: string) {
-  const device = await prisma.device.findUnique({ where: { id } });
-  if (!device) {
-    throw new AppError(404, "not_found", "Device not found");
-  }
-  // Idempotent revoke would hide mistakes; surface conflict instead.
-  if (device.revokedAt) {
-    throw new AppError(409, "conflict", "Device already revoked");
-  }
-  // Stamp revokedAt so listDevices stops returning this row.
-  const updated = await prisma.device.update({
-    where: { id },
-    data: { revokedAt: new Date() },
+/**
+ * Revoke a device and all of its active auth sessions in one transaction.
+ * Idempotent conflict when already revoked. Privilege checked under User lock.
+ */
+export async function revokeDevice(
+  id: string,
+  actor: DeviceRevokeActor,
+): Promise<{ id: string; revokedAt: string; revokedOwnDevice: boolean }> {
+  const result = await prisma.$transaction(async (tx) => {
+    const device = await tx.device.findUnique({ where: { id } });
+    if (!device) {
+      throw new AppError(404, "not_found", "Device not found");
+    }
+    if (device.revokedAt) {
+      throw new AppError(409, "conflict", "Device already revoked");
+    }
+
+    await lockUsersForLiveAccess(tx, [device.userId]);
+
+    const owner = await tx.user.findUnique({
+      where: { id: device.userId },
+      select: { id: true, role: true },
+    });
+    if (!owner) {
+      throw new AppError(404, "not_found", "Device owner not found");
+    }
+    if (!canManagePersonAccess(actor.role, owner.role)) {
+      throw new AppError(
+        403,
+        "forbidden",
+        "Cannot manage access for owner/admin accounts",
+      );
+    }
+
+    const now = new Date();
+    const updated = await tx.device.updateMany({
+      where: { id, revokedAt: null },
+      data: { revokedAt: now },
+    });
+    if (updated.count === 0) {
+      throw new AppError(409, "conflict", "Device already revoked");
+    }
+
+    await tx.authSession.updateMany({
+      where: { deviceId: id, revokedAt: null },
+      data: { revokedAt: now },
+    });
+
+    await recordAudit(
+      {
+        actorEmployeeId: actor.employeeId,
+        action: "device.revoke",
+        entityType: "device",
+        entityId: id,
+        before: { revokedAt: null, employeeId: device.employeeId },
+        after: { revokedAt: now.toISOString() },
+        summary: `Revoked device registration ${device.label}`,
+      },
+      tx,
+    );
+
+    const revokedOwnDevice = actor.employeeId === device.employeeId;
+
+    return {
+      id,
+      revokedAt: now.toISOString(),
+      revokedOwnDevice,
+    };
   });
-  // Kill refresh tokens / sessions bound to this device fingerprint.
-  await revokeAllForDevice(id);
-  return {
-    id: updated.id,
-    revokedAt: updated.revokedAt!.toISOString(),
-  };
+
+  publish("people.changed");
+  return result;
 }

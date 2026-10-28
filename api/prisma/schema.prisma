@@ -152,8 +152,6 @@ model Location {
   /** Monotonic generation; only the current cycle may change cleaningStatus. */
   cleaningCycle      Int                 @default(0)
   serviceStatus      ServiceStatus       @default(in_service)
-  /** Stable token for room QR identify payload (§4.2 / Phase B). */
-  qrToken            String              @unique @default(cuid())
   cleaningTasks      CleaningTask[]
   maintenanceTickets MaintenanceTicket[]
   dailyPlanEntries   DailyPlanEntry[]
@@ -172,6 +170,10 @@ model Employee {
   employeeNumber          String                   @unique
   fullName                String
   department              String?
+  /// Soft-removal from the active roster; history and links are kept.
+  archivedAt              DateTime?
+  /// Monotonic access-state revision for optimistic concurrency (block/unblock/archive/restore/role).
+  accessVersion           Int                      @default(0)
   user                    User?
   devices                 Device[]
   invitations             Invitation[]
@@ -201,6 +203,8 @@ model Employee {
   notificationsReceived   Notification[]           @relation("NotificationRecipient")
   notificationsActed      Notification[]           @relation("NotificationActor")
   createdAt               DateTime                 @default(now())
+
+  @@index([archivedAt])
 }
 
 /// Login account bound 1:1 to an Employee. Role is authoritative in DB (JWT is re-checked against session).

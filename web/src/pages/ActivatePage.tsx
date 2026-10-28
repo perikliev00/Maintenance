@@ -36,7 +36,7 @@ export function ActivatePage({
   onToggleTheme,
   onBackToLogin,
 }: Props) {
-  // Prefill once from the hash so QR deep-links land with the code filled.
+  // Prefill once from the hash so shared activate links land with the code filled.
   const initialCode = useMemo(() => readCodeFromHash(), []);
   // Local React state.
   const [code, setCode] = useState(initialCode);

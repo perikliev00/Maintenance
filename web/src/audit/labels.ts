@@ -121,6 +121,16 @@ const ACTION_LABELS: Record<string, Labeled> = {
     bg: "Заключен неактивен потребител",
     en: "Inactive user locked",
   },
+  "people.block": { bg: "Блокиран служител", en: "Employee blocked" },
+  "people.unblock": { bg: "Отблокиран служител", en: "Employee unblocked" },
+  "people.archive": {
+    bg: "Архивиран служител",
+    en: "Employee archived",
+  },
+  "people.restore": {
+    bg: "Възстановен служител",
+    en: "Employee restored",
+  },
   "session.overdue_detected": {
     bg: "Открита просрочена сесия",
     en: "Overdue session detected",

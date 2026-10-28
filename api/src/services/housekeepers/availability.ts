@@ -285,6 +285,7 @@ export async function listAvailableHousekeepers(input: {
 
   const housekeepers = await db.employee.findMany({
     where: {
+      archivedAt: null,
       user: { role: { in: [...CLEANING_ASSIGNEE_ROLES] }, isActive: true },
       ...(excludeEmployeeId ? { id: { not: excludeEmployeeId } } : {}),
     },
@@ -523,10 +524,12 @@ export async function evaluateEmployeeAvailability(
       id: true,
       fullName: true,
       employeeNumber: true,
+      archivedAt: true,
       user: { select: { role: true, isActive: true } },
     },
   });
   if (
+    employee?.archivedAt ||
     !employee?.user?.isActive ||
     !CLEANING_ASSIGNEE_ROLES.includes(employee.user.role)
   ) {

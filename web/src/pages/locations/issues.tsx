@@ -11,6 +11,8 @@ import { TicketLifecycleActions } from "../../components/TicketLifecycleActions"
 import { LocationIssueDialog } from "../../components/LocationIssueDialog";
 import { parseDuplicateReportError } from "../../api/duplicateReport";
 import { reportTicketQueued } from "../../offline";
+import { statusLabel as repairStatusLabel } from "../RepairsPage/helpers";
+import { boardT, type BoardLocale } from "./labels";
 
 type Priority = "low" | "normal" | "high" | "urgent";
 
@@ -29,6 +31,7 @@ function asPriority(value: string | null | undefined): Priority {
 type IssueDialogHostProps = {
   issueLocationId: string;
   unitLabel: string;
+  locale: BoardLocale;
   pickMode: "option" | "custom";
   optionId: string;
   categoryId: string;
@@ -54,6 +57,7 @@ type IssueDialogHostProps = {
 export function IssueDialogHost({
   issueLocationId,
   unitLabel,
+  locale,
   pickMode,
   optionId,
   categoryId,
@@ -78,6 +82,7 @@ export function IssueDialogHost({
   return (
     <LocationIssueDialog
       unitLabel={unitLabel}
+      locale={locale}
       pickMode={pickMode}
       optionId={optionId}
       categoryId={categoryId}
@@ -150,10 +155,11 @@ export function IssueDialogHost({
 
 type IssuesCellProps = {
   location: Room;
-  busy: boolean;
+  busyIds: ReadonlySet<string>;
   canResolve: boolean;
-  locale: "bg" | "en";
-  setBusyId: (id: string | null) => void;
+  locale: BoardLocale;
+  beginBusy: (id: string) => boolean;
+  endBusy: (id: string) => void;
   setMessage: (message: string | null) => void;
   setError: (error: string | null) => void;
   refresh: () => Promise<void>;
@@ -162,10 +168,11 @@ type IssuesCellProps = {
 
 export function IssuesCell({
   location,
-  busy,
+  busyIds,
   canResolve,
   locale,
-  setBusyId,
+  beginBusy,
+  endBusy,
   setMessage,
   setError,
   refresh,
@@ -180,10 +187,10 @@ export function IssuesCell({
       <div className="issue-summary">
         <span>
           {blocking}{" "}
-          {locale === "en" ? "blocking" : "блокиращи"}
+          {boardT(locale, "блокиращи", "blocking")}
           {" · "}
           {nonBlocking}{" "}
-          {locale === "en" ? "other" : "други"}
+          {boardT(locale, "други", "other")}
         </span>
         {onOpenRepairs && (blocking > 0 || nonBlocking > 0) && (
           <button
@@ -194,7 +201,7 @@ export function IssuesCell({
               onOpenRepairs(location.id);
             }}
           >
-            {locale === "en" ? "View all" : "Виж всички"}
+            {boardT(locale, "Виж всички", "View all")}
           </button>
         )}
       </div>
@@ -211,15 +218,17 @@ export function IssuesCell({
               onClick={(e) => e.stopPropagation()}
             >
               <div>
-                {issue.title} · {issue.status}
+                {issue.title} · {repairStatusLabel(locale, issue.status)}
               </div>
               <TicketLifecycleActions
                 ticket={issue}
-                busy={busy}
+                busy={busyIds.has(issue.id)}
                 canResolve={canResolve}
+                locale={locale}
                 onBusy={(id) => {
-                  if (id) setBusyId(location.id);
-                  else setBusyId(null);
+                  if (id) return beginBusy(issue.id);
+                  endBusy(issue.id);
+                  return true;
                 }}
                 onDone={(result) => {
                   setMessage(result.message);
@@ -232,7 +241,7 @@ export function IssuesCell({
           {blocking > location.blockingIssues.length && (
             <div className="muted">
               +{blocking - location.blockingIssues.length}{" "}
-              {locale === "en" ? "more" : "още"}
+              {boardT(locale, "още", "more")}
             </div>
           )}
         </>
@@ -245,28 +254,23 @@ type ReportIssueButtonProps = {
   busy: boolean;
   locationId: string;
   label: string;
-  setIssueLocationId: (id: string | null) => void;
-  setIssueTitle: (title: string) => void;
-  setIssueBlocks: (blocks: boolean) => void;
+  onOpen: (locationId: string) => void;
 };
 
 export function ReportIssueButton({
   busy,
   locationId,
   label,
-  setIssueLocationId,
-  setIssueTitle,
-  setIssueBlocks,
+  onOpen,
 }: ReportIssueButtonProps) {
   return (
     <button
       type="button"
       className="ghost"
       disabled={busy}
-      onClick={() => {
-        setIssueLocationId(locationId);
-        setIssueTitle("");
-        setIssueBlocks(false);
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(locationId);
       }}
     >
       {label}

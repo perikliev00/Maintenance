@@ -80,6 +80,10 @@ export async function initializeRequiredDefaults() {
     { role: "admin", kind: GrantKind.action, key: "cleaning.start" },
     { role: "admin", kind: GrantKind.action, key: "cleaning.complete" },
   ]);
+  await applyCatalogGrantSeed("grants.actions.people.manage_access.v1", [
+    { role: "manager", kind: GrantKind.action, key: "people.manage_access" },
+    { role: "admin", kind: GrantKind.action, key: "people.manage_access" },
+  ]);
   await ensureDefaultSlaPolicies();
   setBootstrapComplete(true);
 }

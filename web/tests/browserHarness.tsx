@@ -4,7 +4,6 @@ import { useLiveRefresh } from "../src/hooks/useLiveRefresh";
 import { PlanPage } from "../src/pages/plan/PlanPage";
 import { ImportPanel } from "../src/pages/plan/ImportPanel";
 import { DepartureEffectsPanel } from "../src/pages/plan/DepartureEffectsPanel";
-import { RoomQrPage } from "../src/pages/RoomQrPage";
 import { CardsPage } from "../src/pages/CardsPage";
 import { AttendancePage } from "../src/pages/AttendancePage";
 import { LiveBoardPage } from "../src/pages/LiveBoardPage";
@@ -24,7 +23,6 @@ export function mountScreen(name: string, user: any) {
     const [error, setError] = useState<string | null>(null); const [message, setMessage] = useState<string | null>(null);
     let content: React.ReactNode;
     if (name === "plan") content = <PlanPage user={user} />;
-    else if (name === "qr") content = <RoomQrPage user={user} token={props.token} onClose={() => {}} />;
     else if (name === "cards") content = <CardsPage user={user} />;
     else if (name === "attendance") content = <AttendancePage user={user} />;
     else if (name === "live") content = <LiveBoardPage user={user} locale="en" />;

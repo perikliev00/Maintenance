@@ -37,3 +37,18 @@ export async function lockEmployeesForLiveAccess(
     ORDER BY id FOR UPDATE
   `;
 }
+
+/** Lock Employee rows (covers employees without a User account). */
+export async function lockEmployeeRowsForUpdate(
+  tx: Tx,
+  employeeIds: readonly (string | null | undefined)[],
+): Promise<void> {
+  const ids = [
+    ...new Set(employeeIds.filter((id): id is string => Boolean(id))),
+  ].sort();
+  if (!ids.length) return;
+  await tx.$executeRaw`
+    SELECT id FROM "Employee" WHERE id IN (${Prisma.join(ids)})
+    ORDER BY id FOR UPDATE
+  `;
+}

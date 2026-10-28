@@ -2,7 +2,7 @@
  * Rooms / Common-areas operational board: cleaning workflow, issues,
  * overdue sessions, reassignment modal, filters, and detail audit.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCommonAreas,
   fetchHousekeepers,
@@ -12,12 +12,12 @@ import {
   fetchMaintenanceCategories,
   type IssueOptionRow,
   type MaintenanceCategoryRow,
-  type OverdueSession,
   type Room,
 } from "../../api/client";
 import { ScopeHint } from "../../components/ScopeHint";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import { LocationDetailPanel, useLocationAudit } from "./audit";
+import { addBusyId, removeBusyId } from "./busyIds";
 import {
   applyRoomFilters,
   EMPTY_ROOM_FILTERS,
@@ -25,10 +25,19 @@ import {
   type RoomBoardFilters,
 } from "./filters";
 import { IssueDialogHost, asPriority, type Priority } from "./issues";
+import { buildIssueFormDefaults } from "./issueFormDefaults";
 import { boardT, type BoardLocale } from "./labels";
 import { AssigneeToolbar, OverdueSessionsPanel } from "./lifecycle";
+import { LocationRepairsPanel } from "./LocationRepairsPanel";
 import { LocationRow } from "./locationRow";
 import { makeOccupancyHandlers } from "./occupancy";
+import {
+  INITIAL_OVERDUE_STATE,
+  applyOverdueFetchResult,
+  overdueFilterReliable,
+  overdueLoading,
+  type OverdueState,
+} from "./overdueState";
 import { locationPagePermissions } from "./permissions";
 import { ReassignDialog } from "./ReassignDialog";
 import type { LocationsPageProps } from "./types";
@@ -69,7 +78,9 @@ export function LocationsPage({
     publicSettings?.flags.allow_reception_reassign !== false;
 
   const [locations, setLocations] = useState<Room[]>([]);
-  const [overdue, setOverdue] = useState<OverdueSession[]>([]);
+  const [overdueState, setOverdueState] = useState<OverdueState>(
+    INITIAL_OVERDUE_STATE,
+  );
   const [housekeepers, setHousekeepers] = useState<
     Array<{ id: string; fullName: string; employeeNumber: string }>
   >([]);
@@ -77,8 +88,11 @@ export function LocationsPage({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set());
   const [issueLocationId, setIssueLocationId] = useState<string | null>(null);
+  const [repairsLocationId, setRepairsLocationId] = useState<string | null>(
+    null,
+  );
   const [issueCategories, setIssueCategories] = useState<
     MaintenanceCategoryRow[]
   >([]);
@@ -94,23 +108,96 @@ export function LocationsPage({
   const [detailLocationId, setDetailLocationId] = useState<string | null>(null);
   const [reassignLocation, setReassignLocation] = useState<Room | null>(null);
   const [filters, setFilters] = useState<RoomBoardFilters>(EMPTY_ROOM_FILTERS);
+  const refreshRevision = useRef(0);
+  const overdueRevision = useRef(0);
+  const overdueAbortRef = useRef<AbortController | null>(null);
+  const busyIdsRef = useRef<Set<string>>(new Set());
 
-  /** Only one overlay at a time — detail / issue / reassign never stack. */
+  const beginBusy = useCallback((id: string) => {
+    if (busyIdsRef.current.has(id)) return false;
+    busyIdsRef.current = addBusyId(busyIdsRef.current, id);
+    setBusyIds(busyIdsRef.current);
+    return true;
+  }, []);
+
+  const endBusy = useCallback((id: string) => {
+    busyIdsRef.current = removeBusyId(busyIdsRef.current, id);
+    setBusyIds(busyIdsRef.current);
+  }, []);
+
+  /** Only one overlay at a time — detail / issue / reassign / repairs never stack. */
   const openDetail = useCallback((id: string | null) => {
     setIssueLocationId(null);
     setReassignLocation(null);
+    setRepairsLocationId(null);
     setDetailLocationId(id);
   }, []);
   const openIssue = useCallback((id: string | null) => {
     setDetailLocationId(null);
     setReassignLocation(null);
+    setRepairsLocationId(null);
     setIssueLocationId(id);
   }, []);
   const openReassign = useCallback((location: Room | null) => {
     setDetailLocationId(null);
     setIssueLocationId(null);
+    setRepairsLocationId(null);
     setReassignLocation(location);
   }, []);
+  const openRepairs = useCallback((locationId: string | null) => {
+    setDetailLocationId(null);
+    setIssueLocationId(null);
+    setReassignLocation(null);
+    setRepairsLocationId(locationId);
+  }, []);
+
+  const applyIssueDefaults = useCallback(
+    (
+      pickMode: "option" | "custom",
+      options: IssueOptionRow[],
+      optionId: string,
+      categoryId: string,
+      categories: MaintenanceCategoryRow[],
+    ) => {
+      const defaults = buildIssueFormDefaults({
+        locale,
+        pickMode,
+        options,
+        optionId,
+        categoryId,
+        categoriesFirstId: categories[0]?.id,
+      });
+      setIssuePickMode(defaults.pickMode);
+      setIssueOptionId(defaults.optionId);
+      setIssueCategoryId(defaults.categoryId);
+      setIssueTitle(defaults.title);
+      setIssueBlocks(defaults.blocksRoom);
+      setIssuePriority(defaults.priority);
+    },
+    [locale],
+  );
+
+  const openIssueForLocation = useCallback(
+    (locationId: string) => {
+      applyIssueDefaults(
+        issuePickMode,
+        issueOptions,
+        issueOptionId,
+        issueCategoryId,
+        issueCategories,
+      );
+      openIssue(locationId);
+    },
+    [
+      applyIssueDefaults,
+      issuePickMode,
+      issueOptions,
+      issueOptionId,
+      issueCategoryId,
+      issueCategories,
+      openIssue,
+    ],
+  );
 
   const permissions = locationPagePermissions(user, isCommon);
   const {
@@ -139,15 +226,23 @@ export function LocationsPage({
     ? (locations.find((l) => l.id === detailLocationId) ?? null)
     : null;
 
+  const repairsLocation = repairsLocationId
+    ? (locations.find((l) => l.id === repairsLocationId) ?? null)
+    : null;
+
   const overdueLocationIds = useMemo(
-    () => new Set(overdue.map((s) => s.room.id)),
-    [overdue],
+    () => new Set(overdueState.sessions.map((s) => s.room.id)),
+    [overdueState.sessions],
   );
 
-  const filteredLocations = useMemo(
-    () => applyRoomFilters(locations, filters, overdueLocationIds),
-    [locations, filters, overdueLocationIds],
-  );
+  const filteredLocations = useMemo(() => {
+    const base = applyRoomFilters(locations, filters, overdueLocationIds);
+    // When overdue data is unreliable, overdueOnly must not pretend completeness.
+    if (filters.overdueOnly && !overdueFilterReliable(overdueState)) {
+      return base;
+    }
+    return base;
+  }, [locations, filters, overdueLocationIds, overdueState]);
 
   const buildingOptions = useMemo(
     () => uniqueSorted(locations.map((l) => l.buildingCode)),
@@ -165,24 +260,75 @@ export function LocationsPage({
     [locations],
   );
 
-  const refresh = useCallback(async () => {
-    setError(null);
-    const data = isCommon ? await fetchCommonAreas() : await fetchRooms();
-    setLocations(data);
-    if (canReviewOverdue) {
+  const loadOverdue = useCallback(
+    async (locationIds: Set<string>, externalSignal?: AbortSignal) => {
+      if (!canReviewOverdue) return;
+      overdueAbortRef.current?.abort();
+      const ac = new AbortController();
+      overdueAbortRef.current = ac;
+      const onExternalAbort = () => ac.abort();
+      externalSignal?.addEventListener("abort", onExternalAbort);
+      const revision = ++overdueRevision.current;
+      setOverdueState((prev) => overdueLoading(prev));
       try {
-        const sessions = await fetchOverdueSessions();
-        const ids = new Set(data.map((l) => l.id));
-        setOverdue(sessions.filter((s) => ids.has(s.room.id)));
-      } catch {
-        setOverdue([]);
+        const sessions = await fetchOverdueSessions({ signal: ac.signal });
+        if (ac.signal.aborted) return;
+        const filtered = sessions.filter((s) => locationIds.has(s.room.id));
+        setOverdueState((prev) => {
+          const next = applyOverdueFetchResult(
+            overdueRevision.current,
+            revision,
+            { ok: true, sessions: filtered },
+            prev,
+          );
+          return next ?? prev;
+        });
+      } catch (err) {
+        if (ac.signal.aborted) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        const message =
+          err instanceof Error
+            ? err.message
+            : boardT(
+                locale,
+                "Неуспешна проверка за просрочени сесии",
+                "Failed to check overdue sessions",
+              );
+        setOverdueState((prev) => {
+          const next = applyOverdueFetchResult(
+            overdueRevision.current,
+            revision,
+            { ok: false, message },
+            prev,
+          );
+          return next ?? prev;
+        });
+      } finally {
+        externalSignal?.removeEventListener("abort", onExternalAbort);
       }
+    },
+    [canReviewOverdue, locale],
+  );
+
+  const refresh = useCallback(async () => {
+    const revision = ++refreshRevision.current;
+    setError(null);
+    try {
+      const data = isCommon ? await fetchCommonAreas() : await fetchRooms();
+      if (revision !== refreshRevision.current) return;
+      setLocations(data);
+      if (canReviewOverdue) {
+        await loadOverdue(new Set(data.map((l) => l.id)));
+      }
+    } catch (err) {
+      if (revision !== refreshRevision.current) return;
+      setError(err instanceof Error ? err.message : "Refresh failed");
     }
-  }, [canReviewOverdue, isCommon]);
+  }, [canReviewOverdue, isCommon, loadOverdue]);
 
   const liveAt = useLiveRefresh(refresh, {
     enabled: !loading,
-    busy: busyId !== null,
+    busy: busyIds.size > 0,
     eventTypes: [
       "location.changed",
       "cleaning.changed",
@@ -204,16 +350,10 @@ export function LocationsPage({
         if (signal.aborted) return;
         setLocations(data);
         if (canReviewOverdue) {
-          try {
-            const sessions = await fetchOverdueSessions({ signal });
-            if (signal.aborted) return;
-            const ids = new Set(data.map((l) => l.id));
-            setOverdue(sessions.filter((s) => ids.has(s.room.id)));
-          } catch (err) {
-            if (signal.aborted) return;
-            if (err instanceof DOMException && err.name === "AbortError") return;
-            setOverdue([]);
-          }
+          await loadOverdue(
+            new Set(data.map((l) => l.id)),
+            signal,
+          );
         }
         const [cats, opts] = await Promise.all([
           fetchMaintenanceCategories({ signal }),
@@ -222,15 +362,9 @@ export function LocationsPage({
         if (signal.aborted) return;
         setIssueCategories(cats);
         setIssueOptions(opts);
-        if (opts[0]) {
-          setIssueOptionId(opts[0].id);
-          setIssueTitle(opts[0].nameBg);
-          if (opts[0].defaultBlocksRoom != null) {
-            setIssueBlocks(opts[0].defaultBlocksRoom);
-          }
-          setIssuePriority(asPriority(opts[0].defaultPriority));
+        if (opts[0] || cats[0]) {
+          applyIssueDefaults("option", opts, opts[0]?.id ?? "", cats[0]?.id ?? "", cats);
         }
-        if (cats[0]) setIssueCategoryId(cats[0].id);
         if (canShowAssigneeToolbar || canReassign) {
           const hk = await fetchHousekeepers({ signal });
           if (signal.aborted) return;
@@ -251,11 +385,20 @@ export function LocationsPage({
     })();
     return () => {
       ac.abort();
+      overdueAbortRef.current?.abort();
+      overdueRevision.current += 1;
     };
-  }, [canShowAssigneeToolbar, canReassign, canReviewOverdue, isCommon]);
+  }, [
+    applyIssueDefaults,
+    canShowAssigneeToolbar,
+    canReassign,
+    canReviewOverdue,
+    isCommon,
+    loadOverdue,
+  ]);
 
   async function runAction(locationId: string, action: () => Promise<void>) {
-    setBusyId(locationId);
+    if (!beginBusy(locationId)) return;
     setError(null);
     setMessage(null);
     try {
@@ -264,7 +407,7 @@ export function LocationsPage({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
     } finally {
-      setBusyId(null);
+      endBusy(locationId);
     }
   }
 
@@ -282,6 +425,15 @@ export function LocationsPage({
   ) {
     setFilters((prev) => ({ ...prev, [key]: value }));
   }
+
+  const overdueFilterHint =
+    filters.overdueOnly && !overdueFilterReliable(overdueState)
+      ? boardT(
+          locale,
+          "Филтърът „Просрочени“ използва непълни или остарели данни.",
+          "The Overdue filter is using incomplete or outdated data.",
+        )
+      : null;
 
   return (
     <main className="content">
@@ -307,6 +459,7 @@ export function LocationsPage({
 
       {canShowAssigneeToolbar && (
         <AssigneeToolbar
+          locale={locale}
           assigneeId={assigneeId}
           setAssigneeId={setAssigneeId}
           housekeepers={housekeepers}
@@ -321,7 +474,11 @@ export function LocationsPage({
           <input
             value={filters.q}
             onChange={(e) => patchFilter("q", e.target.value)}
-            placeholder={boardT(locale, "Номер на стая", "Room number")}
+            placeholder={
+              isCommon
+                ? boardT(locale, "Име на зона", "Zone name")
+                : boardT(locale, "Номер на стая", "Room number")
+            }
           />
         </label>
         <label>
@@ -451,6 +608,9 @@ export function LocationsPage({
             type="checkbox"
             checked={filters.overdueOnly}
             onChange={(e) => patchFilter("overdueOnly", e.target.checked)}
+            disabled={
+              overdueState.status === "error" && !overdueState.stale
+            }
           />
           {boardT(locale, "Просрочени", "Overdue")}
         </label>
@@ -463,19 +623,30 @@ export function LocationsPage({
         </button>
       </div>
 
+      {overdueFilterHint && (
+        <div className="warn banner" role="status">
+          {overdueFilterHint}
+        </div>
+      )}
+
       {canReviewOverdue && showOverdueBanner && (
         <OverdueSessionsPanel
+          locale={locale}
           overdueSessionMinutes={
             publicSettings?.operations.overdueSessionMinutes ?? 240
           }
-          overdue={overdue}
+          overdueState={overdueState}
           unitLabel={unitLabel}
           unitLabelCap={unitLabelCap}
-          busyId={busyId}
-          setBusyId={setBusyId}
+          busyIds={busyIds}
+          beginBusy={beginBusy}
+          endBusy={endBusy}
           setError={setError}
           setMessage={setMessage}
           refresh={refresh}
+          onRetry={() => {
+            void loadOverdue(new Set(locations.map((l) => l.id)));
+          }}
         />
       )}
 
@@ -486,6 +657,7 @@ export function LocationsPage({
         <IssueDialogHost
           issueLocationId={issueLocationId}
           unitLabel={unitLabel}
+          locale={locale}
           pickMode={issuePickMode}
           optionId={issueOptionId}
           categoryId={issueCategoryId}
@@ -494,14 +666,21 @@ export function LocationsPage({
           priority={issuePriority}
           options={issueOptions}
           categories={issueCategories}
-          onPickModeChange={setIssuePickMode}
+          onPickModeChange={(mode) => {
+            setIssuePickMode(mode);
+            applyIssueDefaults(
+              mode,
+              issueOptions,
+              issueOptionId,
+              issueCategoryId,
+              issueCategories,
+            );
+          }}
           onOptionIdChange={(id, opt) => {
             setIssueOptionId(id);
             if (opt) {
-              setIssueTitle(opt.nameBg);
-              if (opt.defaultBlocksRoom != null) {
-                setIssueBlocks(opt.defaultBlocksRoom);
-              }
+              setIssueTitle(locale === "en" ? opt.nameEn : opt.nameBg);
+              setIssueBlocks(opt.defaultBlocksRoom ?? false);
               setIssuePriority(asPriority(opt.defaultPriority));
             }
           }}
@@ -509,7 +688,10 @@ export function LocationsPage({
           onTitleChange={setIssueTitle}
           onBlocksRoomChange={setIssueBlocks}
           onPriorityChange={setIssuePriority}
-          onCancel={() => openIssue(null)}
+          onCancel={() => {
+            setIssueTitle("");
+            openIssue(null);
+          }}
           runAction={runAction}
           setMessage={setMessage}
           setError={setError}
@@ -532,6 +714,22 @@ export function LocationsPage({
         />
       )}
 
+      {repairsLocation && (
+        <LocationRepairsPanel
+          locationId={repairsLocation.id}
+          locationLabel={`${repairsLocation.buildingCode} ${repairsLocation.number}`}
+          locale={locale}
+          canResolve={permissions.canResolve}
+          busyIds={busyIds}
+          beginBusy={beginBusy}
+          endBusy={endBusy}
+          setMessage={setMessage}
+          setError={setError}
+          onClose={() => openRepairs(null)}
+          onChanged={refresh}
+        />
+      )}
+
       {loading ? (
         <p className="muted">
           {boardT(locale, "Зареждане…", "Loading…")}
@@ -545,7 +743,7 @@ export function LocationsPage({
           <table className="rooms-board-table">
             <thead>
               <tr>
-                <th>{boardT(locale, "Стая", "Room")}</th>
+                <th>{unitLabelCap}</th>
                 <th>{boardT(locale, "Готовност", "Readiness")}</th>
                 <th>{boardT(locale, "Изпълнител", "Assignee")}</th>
                 <th>{boardT(locale, "Почистване", "Cleaning")}</th>
@@ -567,17 +765,18 @@ export function LocationsPage({
                   unitLabelCap={unitLabelCap}
                   dueHours={dueHours}
                   assigneeId={assigneeId}
-                  busyId={busyId}
+                  busy={busyIds.has(loc.id)}
+                  busyIds={busyIds}
                   detailLocationId={detailLocationId}
                   permissions={permissions}
                   canReassignEffective={canReassignEffective}
                   setDetailLocationId={openDetail}
-                  setBusyId={setBusyId}
+                  beginBusy={beginBusy}
+                  endBusy={endBusy}
                   setMessage={setMessage}
                   setError={setError}
-                  setIssueLocationId={openIssue}
-                  setIssueTitle={setIssueTitle}
-                  setIssueBlocks={setIssueBlocks}
+                  onOpenIssue={openIssueForLocation}
+                  onOpenRepairs={(id) => openRepairs(id)}
                   onReassignClick={openReassign}
                   runAction={runAction}
                   refresh={refresh}
@@ -595,7 +794,7 @@ export function LocationsPage({
           events={detailEvents}
           loading={detailLoading}
           auditError={detailAuditError}
-          busy={busyId === detailLocation.id}
+          busy={busyIds.has(detailLocation.id)}
           canSetOccupancy={canSetOccupancy}
           canSetServiceStatus={canSetServiceStatus}
           onClose={() => openDetail(null)}

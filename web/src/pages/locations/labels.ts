@@ -42,6 +42,13 @@ const TASK_STATUS: Record<string, [string, string]> = {
   cancelled: ["Отказана", "Cancelled"],
 };
 
+const PRIORITY: Record<string, [string, string]> = {
+  low: ["Нисък", "Low"],
+  normal: ["Нормален", "Normal"],
+  high: ["Висок", "High"],
+  urgent: ["Спешен", "Urgent"],
+};
+
 const REASON: Record<string, [string, string]> = {
   archived: ["Архивирана", "Archived"],
   occupancy_unknown: ["Неизвестна заетост", "Occupancy unknown"],
@@ -84,11 +91,15 @@ export function taskStatusLabel(locale: BoardLocale, value: string): string {
   return mapLabel(locale, TASK_STATUS, value);
 }
 
+export function priorityLabel(locale: BoardLocale, value: string): string {
+  return mapLabel(locale, PRIORITY, value);
+}
+
 export function reasonLabel(locale: BoardLocale, value: string): string {
   return mapLabel(locale, REASON, value);
 }
 
-/** Derive the next operational action hint for a room row. */
+/** Derive the next operational action hint for a room/zone row. */
 export function nextActionLabel(
   locale: BoardLocale,
   location: {
@@ -100,6 +111,7 @@ export function nextActionLabel(
       assignee: { fullName: string } | null;
     } | null;
   },
+  opts?: { isCommon?: boolean },
 ): string {
   const task = location.activeTask;
   if (task?.runningSession) {
@@ -117,5 +129,7 @@ export function nextActionLabel(
   if (location.readiness === "ready") {
     return boardT(locale, "Готова", "Ready");
   }
-  return boardT(locale, "Прегледай стаята", "Review room");
+  return opts?.isCommon
+    ? boardT(locale, "Прегледай зоната", "Review zone")
+    : boardT(locale, "Прегледай стаята", "Review room");
 }

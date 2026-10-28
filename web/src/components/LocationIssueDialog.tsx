@@ -11,8 +11,15 @@ import type {
   MaintenanceCategoryRow,
 } from "../api/client";
 
+type Locale = "bg" | "en";
+
+function t(locale: Locale, bg: string, en: string): string {
+  return locale === "en" ? en : bg;
+}
+
 type Props = {
   unitLabel: string;
+  locale?: Locale;
   pickMode: "option" | "custom";
   optionId: string;
   categoryId: string;
@@ -38,6 +45,7 @@ type Props = {
  */
 export function LocationIssueDialog({
   unitLabel,
+  locale = "bg",
   pickMode,
   optionId,
   categoryId,
@@ -86,22 +94,26 @@ export function LocationIssueDialog({
           onSubmit();
         }}
       >
-        <h3>Report issue</h3>
+        <h3>{t(locale, "Докладвай проблем", "Report issue")}</h3>
         <label>
-          Type
+          {t(locale, "Тип", "Type")}
           <select
             value={pickMode}
             onChange={(e) =>
               onPickModeChange(e.target.value as "option" | "custom")
             }
           >
-            <option value="option">From catalog</option>
-            <option value="custom">Custom</option>
+            <option value="option">
+              {t(locale, "От каталог", "From catalog")}
+            </option>
+            <option value="custom">
+              {t(locale, "Свободен текст", "Custom")}
+            </option>
           </select>
         </label>
         {pickMode === "option" ? (
           <label>
-            Option
+            {t(locale, "Опция", "Option")}
             <select
               value={optionId}
               onChange={(e) => {
@@ -112,7 +124,7 @@ export function LocationIssueDialog({
             >
               {options.map((o) => (
                 <option key={o.id} value={o.id}>
-                  {o.nameBg}
+                  {locale === "en" ? o.nameEn : o.nameBg}
                 </option>
               ))}
             </select>
@@ -120,7 +132,7 @@ export function LocationIssueDialog({
         ) : (
           <>
             <label>
-              Title
+              {t(locale, "Заглавие", "Title")}
               <input
                 value={title}
                 onChange={(e) => onTitleChange(e.target.value)}
@@ -128,7 +140,7 @@ export function LocationIssueDialog({
               />
             </label>
             <label>
-              Category
+              {t(locale, "Категория", "Category")}
               <select
                 value={categoryId}
                 onChange={(e) => onCategoryIdChange(e.target.value)}
@@ -136,7 +148,7 @@ export function LocationIssueDialog({
               >
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.nameBg}
+                    {locale === "en" ? c.nameEn : c.nameBg}
                   </option>
                 ))}
               </select>
@@ -144,7 +156,7 @@ export function LocationIssueDialog({
           </>
         )}
         <label>
-          Priority
+          {t(locale, "Приоритет", "Priority")}
           <select
             value={priority}
             onChange={(e) =>
@@ -153,10 +165,10 @@ export function LocationIssueDialog({
               )
             }
           >
-            <option value="low">Low</option>
-            <option value="normal">Normal</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
+            <option value="low">{t(locale, "Нисък", "Low")}</option>
+            <option value="normal">{t(locale, "Нормален", "Normal")}</option>
+            <option value="high">{t(locale, "Висок", "High")}</option>
+            <option value="urgent">{t(locale, "Спешен", "Urgent")}</option>
           </select>
         </label>
         <label className="checkbox">
@@ -165,13 +177,17 @@ export function LocationIssueDialog({
             checked={blocksRoom}
             onChange={(e) => onBlocksRoomChange(e.target.checked)}
           />
-          Blocks {unitLabel} readiness
+          {t(
+            locale,
+            `Блокира готовността на ${unitLabel}`,
+            `Blocks ${unitLabel} readiness`,
+          )}
         </label>
         <div className="modal-actions">
           <button type="button" className="ghost" onClick={onCancel}>
-            Cancel
+            {t(locale, "Отказ", "Cancel")}
           </button>
-          <button type="submit">Submit</button>
+          <button type="submit">{t(locale, "Изпрати", "Submit")}</button>
         </div>
       </form>
     </div>,

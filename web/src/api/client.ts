@@ -25,11 +25,13 @@ export {
   ALL_ROLES,
   assignableRolesFor,
   // Permission / capability gate (SEC-003: do not re-export legacy role helpers).
+  canManagePersonAccess,
   canPerformAction,
   canViewControl,
   canViewTeam,
   filterPanelsByModules,
   isOwner,
+  isPrivilegedRole,
   landingForRole,
   landingForUser,
   panelsForRole,
@@ -98,7 +100,7 @@ export {
   type TicketListPage,
 } from "./maintenanceApi";
 
-// Rooms / locations / QR API.
+// Rooms / locations API.
 // Re-export public API surface.
 export {
   archiveLocation,
@@ -109,17 +111,13 @@ export {
   fetchRooms,
   markCommonAreaDirty,
   markRoomDirty,
-  resolveLocationByQr,
   restoreLocation,
-  roomQrImageUrl,
-  roomQrScanUrl,
   setLocationOccupancy,
   setLocationServiceStatus,
   updateLocation,
   type LocationHierarchyBuilding,
   type LocationKind,
   type LocationOccupancy,
-  type LocationQrPayload,
   type LocationServiceStatus,
   type Room,
 } from "./locationsApi";
@@ -152,17 +150,28 @@ export {
 // People & invitations API.
 // Re-export public API surface.
 export {
+  archivePerson,
+  blockPerson,
   deviceFingerprint,
+  fetchEmployeeDevices,
   fetchHousekeepers,
   fetchInvitations,
   fetchPeople,
+  fetchPeoplePage,
+  fetchPerson,
   issueInvitation,
   redeemInvitation,
+  restorePerson,
+  revokeEmployeeDevice,
   revokeInvitation,
+  unblockPerson,
   updatePersonRole,
   type Invitation,
   type IssuedInvitation,
+  type PeoplePage,
   type Person,
+  type PersonStatus,
+  type RegisteredDevice,
 } from "./peopleApi";
 
 // Daily plan API.

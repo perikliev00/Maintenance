@@ -223,7 +223,8 @@ async function main() {
     {
       floorId: mainFloors[1].id,
       number: "Gym",
-      cleaningStatus: CleaningStatus.in_progress,
+      // Keep status aligned with active work — no cleaning task is seeded for Gym.
+      cleaningStatus: CleaningStatus.dirty,
       serviceStatus: ServiceStatus.in_service,
     },
     {

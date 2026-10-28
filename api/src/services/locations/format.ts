@@ -59,7 +59,6 @@ export function mapLocation(location: LocationForMap) {
     occupancy: location.occupancy,
     cleaningStatus: location.cleaningStatus,
     serviceStatus: location.serviceStatus,
-    qrToken: location.qrToken,
     sector,
     readiness,
     readinessReasons: reasons,

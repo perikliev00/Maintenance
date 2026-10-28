@@ -1,6 +1,6 @@
 /**
  * Location catalog admin handlers: hierarchy, CRUD-ish updates, occupancy /
- * service status, QR, archive/restore. Most mutations assert DataScope access.
+ * service status, archive/restore. Most mutations assert DataScope access.
  */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod/v3";
@@ -10,23 +10,23 @@ import {
   ServiceStatus,
 } from "@prisma/client";
 import {
-  assertCanAccessLocation,
   locationWhere,
   resolveDataScope,
 } from "../services/dataScope";
+import { recordAudit } from "../services/audit";
 import {
   archiveLocation,
   createLocation,
-  findLocationByQrToken,
   getLocationHierarchy,
   listLocationsCatalog,
   loadScopedLocation,
-  locationQrPayload,
   mapLocation,
+  reconcileOrphanCleaningStatusForLocation,
   restoreLocation,
   setLocationOccupancy,
   setLocationServiceStatus,
   updateLocation,
+  findLocationById,
 } from "../services/locations";
 
 // Zod field / transform.
@@ -39,35 +39,6 @@ const serviceStatusSchema = z.enum([
   "out_of_service",
   "unknown",
 ]);
-
-/** Resolve a room/common-area QR token to location identity (no auto start). */
-export async function byQr(req: Request, res: Response, next: NextFunction) {
-  // Try block for fallible work.
-  try {
-    // Look up by QR token (not location id).
-    const location = await findLocationByQrToken(req.params.token);
-    // Archived / unknown tokens are indistinguishable 404s.
-    if (!location || location.catalogStatus !== "active") {
-      // Return value / early exit.
-      return res.status(404).json({
-        error: "not_found",
-        message: "Unknown or inactive location QR",
-      });
-    }
-    // Caller must be in scope for this location.
-    const scope = await resolveDataScope(req.user!);
-    // Assert access / permission.
-    await assertCanAccessLocation(scope, location.id);
-    // JSON success response.
-    return res.json({
-      location: mapLocation(location),
-      qr: locationQrPayload(location),
-    });
-  } catch (err) {
-    // Forward error to Express.
-    return next(err);
-  }
-}
 
 /** GET /locations/hierarchy — building/floor/room tree for admin UI. */
 export async function hierarchy(
@@ -227,6 +198,44 @@ export async function setServiceStatus(
   }
 }
 
+/**
+ * POST /locations/:id/reconcile-cleaning-status — explicit orphan status heal.
+ * Requires rooms.manage + data-scope access; never runs on GET.
+ */
+export async function reconcileCleaningStatus(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const scope = await resolveDataScope(req.user!);
+    await loadScopedLocation(scope, req.params.id);
+    const result = await reconcileOrphanCleaningStatusForLocation(req.params.id);
+    await recordAudit({
+      actorEmployeeId: req.user!.employeeId,
+      action: "location.reconcile_cleaning_status",
+      entityType: "location",
+      entityId: req.params.id,
+      locationId: req.params.id,
+      after: {
+        updated: result.updated,
+        cleaningStatus: result.cleaningStatus,
+      },
+      summary: result.updated
+        ? `Reconciled cleaning status to ${result.cleaningStatus}`
+        : "Cleaning status already consistent",
+    });
+    const location = await findLocationById(req.params.id);
+    return res.json({
+      updated: result.updated,
+      cleaningStatus: result.cleaningStatus,
+      location: location ? mapLocation(location) : null,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 /** POST /locations/:id/archive — soft-archive a location. */
 export async function archive(req: Request, res: Response, next: NextFunction) {
   // Try block for fallible work.
@@ -261,24 +270,6 @@ export async function restore(req: Request, res: Response, next: NextFunction) {
     );
     // JSON success response.
     return res.json(mapLocation(location));
-  } catch (err) {
-    // Forward error to Express.
-    return next(err);
-  }
-}
-
-/** GET /locations/:id/qr — QR payload for an active location in scope. */
-export async function qr(req: Request, res: Response, next: NextFunction) {
-  // Try block for fallible work.
-  try {
-    // Build data-scope filter.
-    const scope = await resolveDataScope(req.user!);
-    // activeOnly: archived locations do not get QR payloads.
-    const location = await loadScopedLocation(scope, req.params.id, {
-      activeOnly: true,
-    });
-    // JSON success response.
-    return res.json(locationQrPayload(location));
   } catch (err) {
     // Forward error to Express.
     return next(err);

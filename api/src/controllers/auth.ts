@@ -77,8 +77,8 @@ export async function login(req: Request, res: Response, next: NextFunction) {
       where: { email: parsed.data.email },
       include: { employee: true },
     });
-    // Same 401 for missing vs inactive to avoid account enumeration.
-    if (!user || !user.isActive) {
+    // Same 401 for missing vs inactive/archived to avoid account enumeration.
+    if (!user || !user.isActive || user.employee.archivedAt) {
       return res.status(401).json({ error: "unauthorized", message: "Invalid credentials" });
     }
 
@@ -221,8 +221,8 @@ export async function me(req: Request, res: Response) {
     where: { id: req.user!.userId },
     include: { employee: true },
   });
-  // Missing or blocked accounts cannot use /me.
-  if (!user || !user.isActive) {
+  // Missing, blocked, or archived accounts cannot use /me.
+  if (!user || !user.isActive || user.employee.archivedAt) {
     return res.status(401).json({
       error: "unauthorized",
       message: !user ? "User not found" : "Account blocked",

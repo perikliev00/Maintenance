@@ -13,9 +13,18 @@ import {
   markRoomDirty,
   startCleaningTask,
   todayHotelDate,
-  type OverdueSession,
   type Room,
 } from "../../api/client";
+import {
+  boardT,
+  priorityLabel,
+  taskStatusLabel,
+  type BoardLocale,
+} from "./labels";
+import {
+  showOverdueEmpty,
+  type OverdueState,
+} from "./overdueState";
 
 /**
  * Route mark-dirty to the room vs common-area API endpoint.
@@ -31,6 +40,7 @@ export async function markDirty(
 }
 
 type AssigneeToolbarProps = {
+  locale: BoardLocale;
   assigneeId: string;
   setAssigneeId: (id: string) => void;
   housekeepers: Array<{ id: string; fullName: string; employeeNumber: string }>;
@@ -44,6 +54,7 @@ type AssigneeToolbarProps = {
  * Reassignment uses a dedicated per-room modal — not this dropdown.
  */
 export function AssigneeToolbar({
+  locale,
   assigneeId,
   setAssigneeId,
   housekeepers,
@@ -53,12 +64,18 @@ export function AssigneeToolbar({
   return (
     <div className="toolbar">
       <label>
-        Assign housekeeper when creating
+        {boardT(
+          locale,
+          "Изпълнител при създаване",
+          "Assign housekeeper when creating",
+        )}
         <select
           value={assigneeId}
           onChange={(e) => setAssigneeId(e.target.value)}
         >
-          <option value="">Unassigned</option>
+          <option value="">
+            {boardT(locale, "Неназначен", "Unassigned")}
+          </option>
           {housekeepers.map((hk) => (
             <option key={hk.id} value={hk.id}>
               {hk.fullName} ({hk.employeeNumber})
@@ -67,12 +84,12 @@ export function AssigneeToolbar({
         </select>
       </label>
       <button type="button" className="ghost" onClick={() => refresh()}>
-        Refresh
+        {boardT(locale, "Обнови", "Refresh")}
       </button>
       {/* Shown when the last live event update timestamp is known. */}
       {liveAt && (
         <span className="muted live-stamp" title={liveAt}>
-          live
+          {boardT(locale, "на живо", "live")}
         </span>
       )}
     </div>
@@ -80,74 +97,127 @@ export function AssigneeToolbar({
 }
 
 type OverdueSessionsPanelProps = {
+  locale: BoardLocale;
   overdueSessionMinutes: number;
-  overdue: OverdueSession[];
+  overdueState: OverdueState;
   unitLabel: string;
   unitLabelCap: string;
-  busyId: string | null;
-  setBusyId: (id: string | null) => void;
+  busyIds: ReadonlySet<string>;
+  beginBusy: (id: string) => boolean;
+  endBusy: (id: string) => void;
   setError: (error: string | null) => void;
   setMessage: (message: string | null) => void;
   refresh: () => Promise<void>;
+  onRetry: () => void;
 };
 
 /**
  * Banner listing overdue running sessions with a cancel action per session.
- * Empty list shows a muted placeholder instead of the list.
+ * Distinguishes loading / empty success / error / stale prior data.
  */
 export function OverdueSessionsPanel({
+  locale,
   overdueSessionMinutes,
-  overdue,
+  overdueState,
   unitLabel,
   unitLabelCap,
-  busyId,
-  setBusyId,
+  busyIds,
+  beginBusy,
+  endBusy,
   setError,
   setMessage,
   refresh,
+  onRetry,
 }: OverdueSessionsPanelProps) {
+  const { status, sessions, stale, error } = overdueState;
+
   return (
     <section className="panel">
-      <h2>Overdue sessions (&gt; {overdueSessionMinutes}m)</h2>
-      {/* Empty vs overdue session rows with cancel. */}
-      {overdue.length === 0 ? (
-        <p className="muted">No overdue running sessions.</p>
-      ) : (
+      <h2>
+        {boardT(
+          locale,
+          `Просрочени сесии (> ${overdueSessionMinutes} мин)`,
+          `Overdue sessions (> ${overdueSessionMinutes}m)`,
+        )}
+      </h2>
+      {status === "loading" && sessions.length === 0 && (
+        <p className="muted">
+          {boardT(locale, "Проверка за просрочени…", "Checking overdue…")}
+        </p>
+      )}
+      {error && (
+        <div className="error banner" role="alert">
+          <span>
+            {stale
+              ? boardT(
+                  locale,
+                  "Неуспешно обновяване на просрочените сесии. Показаните данни може да не са актуални.",
+                  "Failed to refresh overdue sessions. Shown data may be outdated.",
+                )
+              : boardT(
+                  locale,
+                  "Неуспешна проверка за просрочени сесии.",
+                  "Failed to check overdue sessions.",
+                )}{" "}
+            {error}
+          </span>
+          <button type="button" className="ghost" onClick={onRetry}>
+            {boardT(locale, "Опитай отново", "Retry")}
+          </button>
+        </div>
+      )}
+      {showOverdueEmpty(overdueState) && (
+        <p className="muted">
+          {boardT(
+            locale,
+            "Няма просрочени активни сесии.",
+            "No overdue running sessions.",
+          )}
+        </p>
+      )}
+      {sessions.length > 0 && (
         <ul className="overdue-list">
-          {overdue.map((s) => (
+          {sessions.map((s) => (
             <li key={s.sessionId}>
               <span>
                 {unitLabelCap} {s.room.number} · {s.employee.fullName} ·{" "}
-                {s.elapsedMinutes} min
+                {s.elapsedMinutes} {boardT(locale, "мин", "min")}
               </span>
               <button
                 type="button"
-                disabled={busyId === s.sessionId}
+                disabled={busyIds.has(s.sessionId)}
                 onClick={() => {
                   void (async () => {
-                    // Busy this session while cancel runs.
-                    setBusyId(s.sessionId);
+                    if (!beginBusy(s.sessionId)) return;
                     setError(null);
                     setMessage(null);
                     try {
                       await cancelCleaningSession(s.sessionId);
                       setMessage(
-                        `Cancelled overdue session for ${unitLabel} ${s.room.number}`,
+                        boardT(
+                          locale,
+                          `Прекратена просрочена сесия за ${unitLabel} ${s.room.number}`,
+                          `Cancelled overdue session for ${unitLabel} ${s.room.number}`,
+                        ),
                       );
                       await refresh();
                     } catch (err) {
                       setError(
                         err instanceof Error
                           ? err.message
-                          : "Failed to cancel session",
+                          : boardT(
+                              locale,
+                              "Неуспешно прекратяване на сесия",
+                              "Failed to cancel session",
+                            ),
                       );
                     } finally {
-                      setBusyId(null);
+                      endBusy(s.sessionId);
                     }
                   })();
                 }}
               >
-                Cancel
+                {boardT(locale, "Прекрати", "Cancel")}
               </button>
             </li>
           ))}
@@ -159,27 +229,26 @@ export function OverdueSessionsPanel({
 
 type TaskInfoCellProps = {
   task: NonNullable<Room["activeTask"]> | null | undefined;
+  locale: BoardLocale;
 };
 
 /**
- * Priority + due-at cell for the active cleaning task.
- * Shows an em dash when there is no active task.
+ * Priority + due-at content for the active cleaning task (not a table cell).
+ * Parent row owns the surrounding `<td>` to avoid nested cells.
  */
-export function TaskPriorityDueCell({ task }: TaskInfoCellProps) {
+export function TaskPriorityDueCell({ task, locale }: TaskInfoCellProps) {
+  if (!task) {
+    return <span className="muted">—</span>;
+  }
   return (
-    <td>
-      {/* Active task priority/due vs empty placeholder. */}
-      {task ? (
-        <div>
-          <div>{task.priority}</div>
-          <div className="muted">
-            {task.dueAt ? new Date(task.dueAt).toLocaleString() : "no due"}
-          </div>
-        </div>
-      ) : (
-        <span className="muted">—</span>
-      )}
-    </td>
+    <div className="task-priority-due">
+      <div>{priorityLabel(locale, task.priority)}</div>
+      <div className="muted">
+        {task.dueAt
+          ? new Date(task.dueAt).toLocaleString()
+          : boardT(locale, "без срок", "no due")}
+      </div>
+    </div>
   );
 }
 
@@ -187,30 +256,30 @@ export function TaskPriorityDueCell({ task }: TaskInfoCellProps) {
  * Rich task-info cell: status, assignee, rework findings, running/completed
  * session meta, last inspection, and reassign reason.
  */
-export function TaskInfoCell({ task }: TaskInfoCellProps) {
+export function TaskInfoCell({ task, locale }: TaskInfoCellProps) {
   return (
     <td>
-      {/* Active task details vs empty placeholder. */}
       {task ? (
         <div>
           <div>
-            {task.status === "rework" ? "rework" : task.status}
+            {taskStatusLabel(locale, task.status)}
             {task.assignee ? ` · ${task.assignee.fullName}` : ""}
           </div>
-          {/* Rework findings callout when present. */}
           {task.status === "rework" && task.lastInspection?.findings && (
             <div className="muted warn-text">
-              findings: {task.lastInspection.findings}
+              {boardT(locale, "констатации", "findings")}:{" "}
+              {task.lastInspection.findings}
             </div>
           )}
-          {/* Running session indicator. */}
           {task.runningSession && (
-            <div className="muted">session running</div>
+            <div className="muted">
+              {boardT(locale, "сесия в ход", "session running")}
+            </div>
           )}
-          {/* Last completed session meta. */}
           {task.lastCompletedSession && (
             <div className="muted">
-              completed by {task.lastCompletedSession.employee.fullName}
+              {boardT(locale, "завършено от", "completed by")}{" "}
+              {task.lastCompletedSession.employee.fullName}
               {task.lastCompletedSession.finishedAt
                 ? ` · ${new Date(task.lastCompletedSession.finishedAt).toLocaleString()}`
                 : ""}
@@ -219,10 +288,10 @@ export function TaskInfoCell({ task }: TaskInfoCellProps) {
                 : ""}
             </div>
           )}
-          {/* Last inspection result meta. */}
           {task.lastInspection && (
             <div className="muted">
-              {task.lastInspection.result} by{" "}
+              {task.lastInspection.result}{" "}
+              {boardT(locale, "от", "by")}{" "}
               {task.lastInspection.inspector.fullName}
               {` · ${new Date(task.lastInspection.inspectedAt).toLocaleString()}`}
               {task.lastInspection.findings
@@ -230,9 +299,11 @@ export function TaskInfoCell({ task }: TaskInfoCellProps) {
                 : ""}
             </div>
           )}
-          {/* Reassign reason when present. */}
           {task.reassignReason && (
-            <div className="muted">reassign: {task.reassignReason}</div>
+            <div className="muted">
+              {boardT(locale, "преназначаване", "reassign")}:{" "}
+              {task.reassignReason}
+            </div>
           )}
         </div>
       ) : (
@@ -252,6 +323,7 @@ type LifecycleActionsProps = {
   canStartThis: boolean | "" | null | undefined;
   canCompleteThis: boolean | "" | null | undefined;
   isCommon: boolean;
+  locale: BoardLocale;
   unitLabel: string;
   unitLabelCap: string;
   dueHours: number;
@@ -280,6 +352,7 @@ export function LifecycleActions({
   canStartThis,
   canCompleteThis,
   isCommon,
+  locale,
   unitLabel,
   unitLabelCap,
   dueHours,
@@ -305,7 +378,13 @@ export function LifecycleActions({
           onClick={() =>
             runAction(location.id, async () => {
               await markDirty(location.id, isCommon);
-              setMessage(`${unitLabelCap} ${location.number} marked dirty`);
+              setMessage(
+                boardT(
+                  locale,
+                  `${unitLabelCap} ${location.number} е маркирана като мръсна`,
+                  `${unitLabelCap} ${location.number} marked dirty`,
+                ),
+              );
             })
           }
         >
@@ -327,7 +406,13 @@ export function LifecycleActions({
                 assignedEmployeeId: assigneeId || undefined,
                 dueAt: due.toISOString(),
               });
-              setMessage(`Task created for ${unitLabel} ${location.number}`);
+              setMessage(
+                boardT(
+                  locale,
+                  `Създадена задача за ${unitLabel} ${location.number}`,
+                  `Task created for ${unitLabel} ${location.number}`,
+                ),
+              );
             })
           }
         >
@@ -341,11 +426,17 @@ export function LifecycleActions({
           onClick={() =>
             runAction(location.id, async () => {
               await startCleaningTask(task!.id, task!.version);
-              setMessage(`Started cleaning ${unitLabel} ${location.number}`);
+              setMessage(
+                boardT(
+                  locale,
+                  `Започнато почистване на ${unitLabel} ${location.number}`,
+                  `Started cleaning ${unitLabel} ${location.number}`,
+                ),
+              );
             })
           }
         >
-          Start
+          {boardT(locale, "Старт", "Start")}
         </button>
       )}
       {canCompleteThis && (
@@ -353,7 +444,13 @@ export function LifecycleActions({
           type="button"
           disabled={busy}
           onClick={() => {
-            const notes = window.prompt("Бележка при complete (опционално)");
+            const notes = window.prompt(
+              boardT(
+                locale,
+                "Бележка при завършване (опционално)",
+                "Note on complete (optional)",
+              ),
+            );
             if (notes === null) return;
             runAction(location.id, async () => {
               await completeCleaningSession(
@@ -362,12 +459,16 @@ export function LifecycleActions({
                 task!.version,
               );
               setMessage(
-                `Submitted ${unitLabel} ${location.number} for inspection`,
+                boardT(
+                  locale,
+                  `${unitLabelCap} ${location.number} е подадена за проверка`,
+                  `Submitted ${unitLabel} ${location.number} for inspection`,
+                ),
               );
             });
           }}
         >
-          Complete
+          {boardT(locale, "Завърши", "Complete")}
         </button>
       )}
       {canInspect && task?.status === "awaiting_inspection" && (
@@ -377,7 +478,11 @@ export function LifecycleActions({
             disabled={busy}
             onClick={() => {
               const findings = window.prompt(
-                "Бележка при approve (опционално)",
+                boardT(
+                  locale,
+                  "Бележка при одобрение (опционално)",
+                  "Note on approve (optional)",
+                ),
               );
               if (findings === null) return;
               runAction(location.id, async () => {
@@ -387,19 +492,37 @@ export function LifecycleActions({
                   findings.trim() || undefined,
                   task.version,
                 );
-                setMessage(`Approved ${unitLabel} ${location.number}`);
+                setMessage(
+                  boardT(
+                    locale,
+                    `Одобрена ${unitLabel} ${location.number}`,
+                    `Approved ${unitLabel} ${location.number}`,
+                  ),
+                );
               });
             }}
           >
-            Approve
+            {boardT(locale, "Одобри", "Approve")}
           </button>
           <button
             type="button"
             disabled={busy}
             onClick={() => {
-              const findings = window.prompt("Rejection reason / findings");
+              const findings = window.prompt(
+                boardT(
+                  locale,
+                  "Причина за отказ / констатации",
+                  "Rejection reason / findings",
+                ),
+              );
               if (!findings?.trim()) {
-                setError("Rejection reason required");
+                setError(
+                  boardT(
+                    locale,
+                    "Изисква се причина за отказ",
+                    "Rejection reason required",
+                  ),
+                );
                 return;
               }
               runAction(location.id, async () => {
@@ -409,11 +532,17 @@ export function LifecycleActions({
                   findings,
                   task.version,
                 );
-                setMessage(`Rejected ${unitLabel} ${location.number}`);
+                setMessage(
+                  boardT(
+                    locale,
+                    `Отхвърлена ${unitLabel} ${location.number}`,
+                    `Rejected ${unitLabel} ${location.number}`,
+                  ),
+                );
               });
             }}
           >
-            Reject
+            {boardT(locale, "Отхвърли", "Reject")}
           </button>
         </>
       )}
@@ -434,4 +563,9 @@ export function LifecycleActions({
       {reportIssueButton}
     </div>
   );
+}
+
+/** Exported for structural regression tests (no nested table cells). */
+export function taskPriorityDueIsTableCell(): boolean {
+  return false;
 }

@@ -10,6 +10,10 @@ import { prisma } from "../../db";
 import { AppError } from "../../errors";
 import { publish } from "../../events/bus";
 import { createSessionWithClient } from "../authSessions";
+import {
+  lockEmployeeRowsForUpdate,
+  lockEmployeesForLiveAccess,
+} from "../liveAccessLocks";
 import { capabilitiesFor } from "../roleGrants";
 import { hashInviteCode } from "./codes";
 import { expireStaleInvitations } from "./map";
@@ -55,7 +59,10 @@ export async function redeemInvitation(input: {
     throw new AppError(400, "expired", "Invitation code has expired");
   }
 
-  // Blocked accounts cannot redeem even with a valid code.
+  // Archived or blocked accounts cannot redeem even with a valid code.
+  if (inv.employee.archivedAt) {
+    throw new AppError(403, "forbidden", "Account is archived");
+  }
   const existingUser = inv.employee.user;
   if (existingUser && !existingUser.isActive) {
     // Pre-tx guard; re-checked under FOR UPDATE inside the transaction.
@@ -85,15 +92,32 @@ export async function redeemInvitation(input: {
     input.fingerprint.trim() || `anon-${randomBytes(8).toString("hex")}`;
   const deviceLabel = input.deviceLabel.trim() || "Device";
 
-  // Claim invite + user/device/session atomically under row locks.
+  // Claim invite + user/device/session atomically under User→Employee→Invitation.
   const { device, fullUser, tokens } = await prisma.$transaction(
     async (tx) => {
-      // Serialize concurrent redeems on this invitation row.
+      // Align with lifecycle/assign: User first (empty OK), then Employee, then Invitation.
+      await lockEmployeesForLiveAccess(tx, [inv.employeeId]);
+      await lockEmployeeRowsForUpdate(tx, [inv.employeeId]);
+
+      const freshEmployee = await tx.employee.findUnique({
+        where: { id: inv.employeeId },
+        include: { user: true },
+      });
+      if (!freshEmployee) {
+        throw new AppError(400, "invalid_code", "Invitation code is invalid or used");
+      }
+      if (freshEmployee.archivedAt) {
+        throw new AppError(403, "forbidden", "Account is archived");
+      }
+      const freshUser = freshEmployee.user;
+      if (freshUser && !freshUser.isActive) {
+        throw new AppError(403, "forbidden", "Account is blocked");
+      }
+
       const locked = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM "Invitation" WHERE id = ${inv.id} FOR UPDATE
       `;
       if (locked.length === 0) {
-        // Row disappeared between pre-tx read and lock (extremely rare).
         throw new AppError(400, "invalid_code", "Invitation code is invalid or used");
       }
 
@@ -109,44 +133,22 @@ export async function redeemInvitation(input: {
           consumedAt: new Date(),
         },
       });
-      // Lost claim → expired or already consumed by a peer.
       if (claimed.count === 0) {
         const current = await tx.invitation.findUnique({ where: { id: inv.id } });
         if (current && current.expiresAt.getTime() <= Date.now()) {
-          // Lost claim because TTL elapsed between read and updateMany.
-          // Stamp expired if still showing issued.
           if (current.status === InvitationStatus.issued) {
             await tx.invitation.update({
               where: { id: inv.id },
               data: { status: InvitationStatus.expired },
             });
           }
-          // Prefer expired over conflict when TTL is the root cause.
           throw new AppError(400, "expired", "Invitation code has expired");
         }
-        // Peer won the claim — surface conflict (not invalid_code).
         throw new AppError(409, "conflict", "Invitation already consumed");
       }
 
-      // Re-read user inside the TX so role/isActive/activatedAt are current
-      // (e.g. Owner may have demoted the pending user after the invite was issued).
-      await tx.$queryRaw<{ id: string }[]>`
-        SELECT id FROM "User" WHERE "employeeId" = ${inv.employeeId} FOR UPDATE
-      `;
-      const freshUser = await tx.user.findUnique({
-        where: { employeeId: inv.employeeId },
-      });
-
-      // Re-check blocked under the lock (may have changed since pre-tx read).
-      if (freshUser && !freshUser.isActive) {
-        // Owner may have blocked the account after the pre-tx read.
-        throw new AppError(403, "forbidden", "Account is blocked");
-      }
-
-      // Password hash must already be prepared for create/activate paths.
       const requirePassword = () => {
         if (!passwordHash) {
-          // Should not happen when needsUserCreate/needsActivation were true.
           throw new AppError(
             400,
             "validation",
@@ -157,6 +159,7 @@ export async function redeemInvitation(input: {
       };
 
       let userId: string;
+      let bumpedAccess = false;
       // No user row yet → create activated account from invite role/email.
       if (!freshUser) {
         const created = await tx.user.create({
@@ -170,6 +173,7 @@ export async function redeemInvitation(input: {
           },
         });
         userId = created.id;
+        bumpedAccess = true;
       } else if (!freshUser.activatedAt) {
         // Activation: keep the current User.role; never restore Invitation.role.
         const updated = await tx.user.update({
@@ -180,9 +184,36 @@ export async function redeemInvitation(input: {
           },
         });
         userId = updated.id;
+        bumpedAccess = true;
       } else {
         // Already activated — redeem only registers a new device + session.
         userId = freshUser.id;
+      }
+
+      if (bumpedAccess) {
+        await tx.employee.update({
+          where: { id: inv.employeeId },
+          data: { accessVersion: { increment: 1 } },
+        });
+      }
+
+      // Same browser re-activate: revoke prior non-revoked rows for this user
+      // fingerprint (history kept; do not merge into a foreign user's device).
+      const now = new Date();
+      const priorSameFingerprint = await tx.device.findMany({
+        where: { userId, fingerprint, revokedAt: null },
+        select: { id: true },
+      });
+      const priorIds = priorSameFingerprint.map((d) => d.id);
+      if (priorIds.length > 0) {
+        await tx.device.updateMany({
+          where: { id: { in: priorIds }, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        await tx.authSession.updateMany({
+          where: { deviceId: { in: priorIds }, revokedAt: null },
+          data: { revokedAt: now },
+        });
       }
 
       // Register this browser/device under the user (multi-device allowed).

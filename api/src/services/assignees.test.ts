@@ -37,6 +37,16 @@ describe("createCleaningTask / createDailyPlanEntry / reassignCleaningTask assig
   const roles = CLEANING_ASSIGNEE_ROLES;
   const message = CLEANING_ASSIGNEE_MESSAGE;
 
+  it("rejects an archived housekeeper even when the user is active", () => {
+    assert.equal(
+      employeeIsEligibleAssignee(
+        { archivedAt: new Date(), user: { role: Role.housekeeper, isActive: true } },
+        roles,
+      ),
+      false,
+    );
+  });
+
   it("rejects a blocked housekeeper account", () => {
     assert.equal(
       employeeIsEligibleAssignee(

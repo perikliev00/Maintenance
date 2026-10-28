@@ -4,6 +4,12 @@
 export { attachOpenIssueCounts, locationInclude } from "./types";
 export type { LocationForMap } from "./types";
 export { mapLocation } from "./format";
+export {
+  resolveOrphanCleaningStatus,
+  reconcileOrphanCleaningStatusLocked,
+  reconcileOrphanCleaningStatusForLocation,
+  healOrphanIfTaskCycleCurrent,
+} from "./reconcileCleaningStatus";
 export { loadScopedLocation } from "./access";
 export {
   DEFAULT_ACTIVE_LOCATION_LIMIT,
@@ -11,8 +17,6 @@ export {
   resolveActiveLocationLimit,
   findActiveLocations,
   findLocationById,
-  findLocationByQrToken,
-  locationQrPayload,
   getLocationHierarchy,
   listLocationsCatalog,
   createLocation,

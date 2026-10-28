@@ -299,6 +299,7 @@ type FetchTicketsParams = {
    * Legacy callers omit this and still receive a bare ticket array.
    */
   paginated?: boolean;
+  signal?: AbortSignal;
 };
 
 /**
@@ -341,6 +342,7 @@ export async function fetchTickets(
   // Authenticated HTTP request.
   const res = await apiFetch(`${API_BASE}/maintenance/tickets${qs ? `?${qs}` : ""}`, {
     headers: authHeaders(),
+    signal: params?.signal,
   });
   // Return value / early exit.
   return parseJson(res);

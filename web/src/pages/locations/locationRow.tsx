@@ -30,17 +30,18 @@ type LocationRowProps = {
   unitLabelCap: string;
   dueHours: number;
   assigneeId: string;
-  busyId: string | null;
+  busy: boolean;
+  busyIds: ReadonlySet<string>;
   detailLocationId: string | null;
   permissions: LocationPagePermissions;
   canReassignEffective: boolean;
   setDetailLocationId: (id: string | null) => void;
-  setBusyId: (id: string | null) => void;
+  beginBusy: (id: string) => boolean;
+  endBusy: (id: string) => void;
   setMessage: (message: string | null) => void;
   setError: (error: string | null) => void;
-  setIssueLocationId: (id: string | null) => void;
-  setIssueTitle: (title: string) => void;
-  setIssueBlocks: (blocks: boolean) => void;
+  onOpenIssue: (id: string) => void;
+  onOpenRepairs: (locationId: string) => void;
   onReassignClick: (location: Room) => void;
   runAction: (locationId: string, action: () => Promise<void>) => Promise<void>;
   refresh: () => Promise<void>;
@@ -55,17 +56,18 @@ export function LocationRow({
   unitLabelCap,
   dueHours,
   assigneeId,
-  busyId,
+  busy,
+  busyIds,
   detailLocationId,
   permissions,
   canReassignEffective,
   setDetailLocationId,
-  setBusyId,
+  beginBusy,
+  endBusy,
   setMessage,
   setError,
-  setIssueLocationId,
-  setIssueTitle,
-  setIssueBlocks,
+  onOpenIssue,
+  onOpenRepairs,
   onReassignClick,
   runAction,
   refresh,
@@ -80,7 +82,6 @@ export function LocationRow({
     canReportIssue,
     canResolve,
   } = permissions;
-  const busy = busyId === loc.id;
   const task = loc.activeTask;
   const isMyRunning = task?.runningSession?.employeeId === user.employeeId;
   const canStartThis =
@@ -151,21 +152,23 @@ export function LocationRow({
       </td>
       <td>
         <span className="next-action">
-          {nextActionLabel(locale, loc)}
+          {nextActionLabel(locale, loc, { isCommon })}
         </span>
-        <TaskPriorityDueCell task={task} />
+        <TaskPriorityDueCell task={task} locale={locale} />
       </td>
       <IssuesCell
         location={loc}
-        busy={busy}
+        busyIds={busyIds}
         canResolve={canResolve}
         locale={locale}
-        setBusyId={setBusyId}
+        beginBusy={beginBusy}
+        endBusy={endBusy}
         setMessage={setMessage}
         setError={setError}
         refresh={refresh}
+        onOpenRepairs={onOpenRepairs}
       />
-      <TaskInfoCell task={task} />
+      <TaskInfoCell task={task} locale={locale} />
       <td>
         <LifecycleActions
           location={loc}
@@ -177,6 +180,7 @@ export function LocationRow({
           canStartThis={canStartThis}
           canCompleteThis={canCompleteThis}
           isCommon={isCommon}
+          locale={locale}
           unitLabel={unitLabel}
           unitLabelCap={unitLabelCap}
           dueHours={dueHours}
@@ -194,9 +198,7 @@ export function LocationRow({
                 busy={busy}
                 locationId={loc.id}
                 label={boardT(locale, "Докладвай проблем", "Report issue")}
-                setIssueLocationId={setIssueLocationId}
-                setIssueTitle={setIssueTitle}
-                setIssueBlocks={setIssueBlocks}
+                onOpen={onOpenIssue}
               />
             ) : null
           }

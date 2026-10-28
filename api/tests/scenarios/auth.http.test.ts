@@ -31,7 +31,7 @@ function noSecrets(value: unknown) {
   assert.ok(!json.includes(password));
 }
 async function invite(employeeId: string) {
-  return issueInvitation({ userId: owner.userId, role: "owner" }, { kind: "existing", employeeId }, "http://test.local");
+  return issueInvitation({ userId: owner.userId, role: "owner" }, { kind: "existing", employeeId });
 }
 async function redeem(code: string, nextPassword?: string) {
   return fetch(`${api}/invitations/redeem`, {
@@ -100,7 +100,7 @@ describe("P1-85–94 invitations and real sessions", () => {
     await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION scenario_invite_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."employeeId" = '${employee.id}' AND EXISTS (SELECT 1 FROM "User" WHERE "employeeId" = NEW."employeeId") THEN RAISE EXCEPTION 'scenario_late_invitation_insert_after_user'; END IF; RETURN NEW; END $$`);
     await prisma.$executeRawUnsafe('CREATE TRIGGER scenario_invite_fail BEFORE INSERT ON "Invitation" FOR EACH ROW EXECUTE FUNCTION scenario_invite_fail()');
     try {
-      await assert.rejects(issueInvitation({ userId: owner.userId, role: "owner" }, { kind: "existing", employeeId: employee.id, email: `${randomUUID()}@scenario.test`, role: "housekeeper" }, "http://test.local"), /scenario_late_invitation_insert_after_user/);
+      await assert.rejects(issueInvitation({ userId: owner.userId, role: "owner" }, { kind: "existing", employeeId: employee.id, email: `${randomUUID()}@scenario.test`, role: "housekeeper" }), /scenario_late_invitation_insert_after_user/);
       assert.equal(await prisma.user.count({ where: { employeeId: employee.id } }), 0);
       assert.equal(await prisma.invitation.count({ where: { employeeId: employee.id } }), 0);
     } finally {

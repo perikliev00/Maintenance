@@ -1,6 +1,5 @@
 /**
  * Rooms, common areas, and location catalog REST helpers.
- * QR helpers build client-side scan URLs / image links for printed labels.
  */
 import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
 
@@ -18,7 +17,6 @@ export type Room = {
   occupancy: string;
   cleaningStatus: string;
   serviceStatus: string;
-  qrToken?: string;
   sector?: {
     id: string;
     code: string;
@@ -80,17 +78,6 @@ export type LocationServiceStatus =
   | "out_of_service"
   | "unknown";
 export type LocationKind = "room" | "common_area";
-
-export type LocationQrPayload = {
-  locationId: string;
-  qrToken: string;
-  scanUrl: string;
-  label: string;
-  kind: string;
-  buildingCode: string;
-  floor: number;
-  number: string;
-};
 
 /** Load the whole scoped board so client filters/selectors never hide later pages. */
 async function fetchActiveLocations(path: string, init?: { signal?: AbortSignal }): Promise<Room[]> {
@@ -272,33 +259,4 @@ export async function setLocationServiceStatus(
   });
   // Return value / early exit.
   return parseJson(res);
-}
-
-/** Resolve a printed QR token to a location (authenticated). */
-export async function resolveLocationByQr(
-  token: string,
-): Promise<{ location: Room; qr: LocationQrPayload }> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(
-    // Encode path/query segment.
-    `${API_BASE}/locations/by-qr/${encodeURIComponent(token)}`,
-    { headers: authHeaders() },
-  );
-  // Return value / early exit.
-  return parseJson(res);
-}
-
-/** External QR image URL for print/preview (encodes the scan deep-link). */
-export function roomQrImageUrl(scanUrl: string, size = 200): string {
-  // Third-party image service — scanUrl must already be the deep-link staff open.
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(scanUrl)}`;
-}
-
-/** In-app hash route staff open when scanning a room QR. */
-export function roomQrScanUrl(qrToken: string): string {
-  // SSR-safe: empty origin when `window` is missing.
-  const origin =
-    typeof window !== "undefined" ? window.location.origin : "";
-  // Return value / early exit.
-  return `${origin}/#/room-qr/${qrToken}`;
 }

@@ -12,6 +12,7 @@ import {
   // Offline / online path.
 } from "../offline";
 import type { MaintenanceTicket } from "../api/client";
+import { runWithBusyGate } from "./ticketBusyGate";
 
 export type TicketLifecycleDone = {
   queued: boolean;
@@ -28,7 +29,12 @@ type Props = {
   locale?: "bg" | "en";
   onDone: (result: TicketLifecycleDone) => void;
   onError: (message: string) => void;
-  onBusy: (id: string | null) => void;
+  /**
+   * Acquire/release busy for `ticket.id`.
+   * Returning `false` from acquire (`id` non-null) aborts before any API/offline work.
+   * Release (`id` null) should only clear a lock this call acquired.
+   */
+  onBusy: (id: string | null) => boolean | void;
 };
 
 function requiresResolutionNotes(
@@ -98,21 +104,30 @@ export function TicketLifecycleActions({
     queuedMessage: string,
     nextStatus: TicketLifecycleDone["nextStatus"],
   ) {
-    onBusy(ticket.id);
-    // Try block for fallible work.
-    try {
-      const result = await action();
-      // Distinguish offline enqueue copy from immediate server apply.
-      onDone({
-        queued: result.queued,
-        message: result.queued ? queuedMessage : message,
-        nextStatus,
-      });
-    } catch (err) {
-      onError(err instanceof Error ? err.message : "Action failed");
-    } finally {
-      onBusy(null);
-    }
+    const outcome = await runWithBusyGate(
+      {
+        begin: (id) => onBusy(id) !== false,
+        end: () => {
+          onBusy(null);
+        },
+      },
+      ticket.id,
+      async () => {
+        try {
+          const result = await action();
+          onDone({
+            queued: result.queued,
+            message: result.queued ? queuedMessage : message,
+            nextStatus,
+          });
+          return result;
+        } catch (err) {
+          onError(err instanceof Error ? err.message : "Action failed");
+          return null;
+        }
+      },
+    );
+    void outcome;
   }
 
   // Early / value return.
