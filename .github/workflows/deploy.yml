@@ -42,7 +42,7 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RELEASE_SHA&per_page=100" --jq '[.workflow_runs[] | select(.name == "CI" and .head_sha == env.RELEASE_SHA and .event == "push")] | any(.[]; .conclusion == "success")' | grep -qx true
 
       - name: Authenticate to GHCR for image verification
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
