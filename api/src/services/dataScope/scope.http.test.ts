@@ -27,6 +27,7 @@ import {
   patchJson,
   postJson,
   putJson,
+  putRoleGrantsJson,
   restoreRoleGrants,
   snapshotRoleGrants,
   type RoleGrantSnapshotRow,
@@ -247,12 +248,10 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
       if (!actions.includes("operations.view_live")) {
         actions.push("operations.view_live");
       }
-      const put = await putJson(
-        api,
-        ownerTok,
-        "/permissions/roles/supervisor",
-        { panels: g.panels, actions },
-      );
+      const put = await putRoleGrantsJson(api, ownerTok, "supervisor", {
+        panels: g.panels,
+        actions,
+      });
       assert.equal(put.status, 200);
 
       const { token } = await loginBearer(
@@ -311,10 +310,16 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     );
     assert.ok(idsBefore.includes(fx.locAId));
 
+    const sectorGet = await getJson(api, mgrTok, `/sectors/${fx.sectorAId}`);
+    assert.equal(sectorGet.status, 200);
+    let version = (sectorGet.body as { version: number }).version;
+
     const deact = await patchJson(api, mgrTok, `/sectors/${fx.sectorAId}`, {
       isActive: false,
+      expectedVersion: version,
     });
     assert.equal(deact.status, 200, JSON.stringify(deact.body));
+    version = (deact.body as { version: number }).version;
 
     try {
       const roomsAfter = await getJson(api, supTok, "/rooms");
@@ -331,6 +336,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     } finally {
       await patchJson(api, mgrTok, `/sectors/${fx.sectorAId}`, {
         isActive: true,
+        expectedVersion: version,
       });
     }
   });
@@ -354,10 +360,16 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     );
     assert.ok(idsBefore.includes(fx.locAId));
 
+    const sectorGet = await getJson(api, mgrTok, `/sectors/${fx.sectorAId}`);
+    assert.equal(sectorGet.status, 200);
+    let version = (sectorGet.body as { version: number }).version;
+
     const reassign = await patchJson(api, mgrTok, `/sectors/${fx.sectorAId}`, {
       primarySupervisorEmployeeId: fx.supervisorB.employeeId,
+      expectedVersion: version,
     });
     assert.equal(reassign.status, 200, JSON.stringify(reassign.body));
+    version = (reassign.body as { version: number }).version;
 
     try {
       const roomsAfter = await getJson(api, supTok, "/rooms");
@@ -374,6 +386,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     } finally {
       await patchJson(api, mgrTok, `/sectors/${fx.sectorAId}`, {
         primarySupervisorEmployeeId: fx.supervisorA.employeeId,
+        expectedVersion: version,
       });
     }
   });

@@ -3,6 +3,14 @@ import { it } from "node:test";
 import * as scheduler from "../../src/services/jobs/scheduler";
 
 /** Wait until async runOnce / execution-lock work finishes after a mock tick. */
+/** Poll real time (Date/setImmediate are not mocked) until async lock + run finish. */
+async function settledUntil(done: () => boolean, maxMs = 3000) {
+  const start = Date.now();
+  while (!done() && Date.now() - start < maxMs) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
 async function settled() {
   // setImmediate is not mocked; it runs after promise microtasks from runOnce.
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -19,8 +27,10 @@ it("P2-55 stop cancels initial and repeating jobs; double start and restart keep
     scheduler.startJobScheduler(60000, run); scheduler.startJobScheduler(60000, run);
     // Initial delay is 15s; interval is 60s from the same start instant.
     t.mock.timers.tick(14999); await settled(); assert.equal(calls, 0);
-    t.mock.timers.tick(1); await settled(); assert.equal(calls, 1, "delayed first run");
-    t.mock.timers.tick(60000); await settled(); assert.equal(calls, 2, "interval run");
+    t.mock.timers.tick(1); await settledUntil(() => calls >= 1); assert.equal(calls, 1, "delayed first run");
+    // Let the first cycle release the DB advisory lock + currentRun before the next tick.
+    await settledUntil(() => false, 500);
+    t.mock.timers.tick(60000); await settledUntil(() => calls >= 2); assert.equal(calls, 2, "interval run");
     await stop(); t.mock.timers.tick(120000); assert.equal(calls, 2);
   } finally { await stop(); t.mock.timers.reset(); }
 });

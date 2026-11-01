@@ -11,7 +11,9 @@ export type LiveEventType =
   | "ticket.changed"
   | "settings.changed"
   | "people.changed"
-  | "notification.changed";
+  | "permissions.changed"
+  | "notification.changed"
+  | "jobs.changed";
 
 export type LiveEvent = {
   type: LiveEventType;

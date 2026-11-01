@@ -157,10 +157,10 @@ export function useAuthBootstrap() {
     );
   }, [signedIn]);
 
-  // Live refresh of capabilities when settings or people change server-side.
+  // Live refresh of capabilities when settings, people, or grants change.
   useLiveRefresh(refreshPublicSettings, {
     enabled: Boolean(signedIn && user),
-    eventTypes: ["settings.changed", "people.changed"],
+    eventTypes: ["settings.changed", "people.changed", "permissions.changed"],
   });
 
   // Role panels ∩ enabled modules (null modules → no filter).

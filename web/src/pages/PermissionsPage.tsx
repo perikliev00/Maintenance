@@ -3,7 +3,7 @@
  * Only roles in `editableRoles` can be toggled; saves require a per-role reason.
  * After save, refreshes `fetchMe` so the caller's nav/grants update immediately.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ROLE_LABELS,
   fetchMe,
@@ -15,6 +15,20 @@ import {
   type PermissionMatrix,
   type Role,
 } from "../api/client";
+import { ApiRequestError } from "../api/http";
+import {
+  applySavedRoleToDraft,
+  historyStatusFromResult,
+  mergeMatrixIntoDraft,
+  type HistoryUiStatus,
+  type RoleGrantDraft,
+  type SaveFeedback,
+} from "./permissionsPageState";
+import {
+  beginPermissionsSave,
+  endPermissionsSave,
+  runPermissionsSave,
+} from "./permissionsSaveFlow";
 
 type Props = {
   user: AuthUser;
@@ -28,126 +42,111 @@ type Tab = "panels" | "actions" | "history";
  * Only roles in `editableRoles` can be toggled; saves require a per-role reason.
  */
 export function PermissionsPage({ user, onUserUpdated }: Props) {
-  // Active editor tab: panels matrix, actions matrix, or audit history.
   const [tab, setTab] = useState<Tab>("panels");
-  // Server matrix (roles, keys, editableRoles); null until first load.
   const [matrix, setMatrix] = useState<PermissionMatrix | null>(null);
-  // Editable clone of grants keyed by role.
-  const [draft, setDraft] = useState<
-    Record<string, { panels: string[]; actions: string[] }>
-  >({});
-  // Optional change-reason string collected per role before save.
+  const [draft, setDraft] = useState<Record<string, RoleGrantDraft>>({});
   const [reasonByRole, setReasonByRole] = useState<Record<string, string>>({});
-  // History rows loaded when the history tab is selected.
   const [history, setHistory] = useState<PermissionHistoryRow[]>([]);
+  const [historyStatus, setHistoryStatus] = useState<HistoryUiStatus>("idle");
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  // Role id currently mid-save (disables that column's Save button).
-  const [savingRole, setSavingRole] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<SaveFeedback | null>(null);
+  const [savingRoles, setSavingRoles] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const savingRolesRef = useRef<Set<string>>(new Set());
 
-  /**
-   * Fetch matrix and clone grants into the editable draft.
-   */
-  const refresh = useCallback(async () => {
-    const data = await fetchPermissionMatrix();
-    // State transition.
-    setMatrix(data);
-    // Deep-clone panel/action arrays so toggles do not mutate the response.
-    const next: Record<string, { panels: string[]; actions: string[] }> = {};
-    // Loop over collection.
-    for (const role of data.roles) {
-      next[role] = {
-        panels: [...(data.byRole[role]?.panels ?? [])],
-        actions: [...(data.byRole[role]?.actions ?? [])],
-      };
-    }
-    // State transition.
-    setDraft(next);
-  }, []);
+  const applyMatrix = useCallback(
+    (data: PermissionMatrix, replacedRole?: string) => {
+      setMatrix(data);
+      setDraft((prev) =>
+        mergeMatrixIntoDraft(prev, data.byRole, data.roles, replacedRole),
+      );
+    },
+    [],
+  );
 
-  // Initial matrix load on mount.
+  /** Full matrix load; optionally preserve dirty drafts except one replaced role. */
+  const refresh = useCallback(
+    async (replacedRole?: string) => {
+      const data = await fetchPermissionMatrix();
+      applyMatrix(data, replacedRole);
+      return data;
+    },
+    [applyMatrix],
+  );
+
   useEffect(() => {
     (async () => {
-      // Try block for fallible work.
       try {
-        // State transition.
         setLoading(true);
-        // State transition.
         setError(null);
-        // Await async step.
         await refresh();
       } catch (err) {
-        // State transition.
         setError(err instanceof Error ? err.message : "Failed to load matrix");
       } finally {
-        // State transition.
         setLoading(false);
       }
     })();
   }, [refresh]);
 
-  // History tab loads its own list on demand (not with the matrix).
   useEffect(() => {
-    // Skip fetch while on panels/actions tabs.
     if (tab !== "history") return;
+    let cancelled = false;
+    setHistoryStatus("loading");
+    setHistoryError(null);
     fetchPermissionHistory({ limit: 100 })
-      // Promise then handler.
-      .then(setHistory)
-      // Promise catch handler.
-      .catch((err) =>
-        // State transition.
-        setError(err instanceof Error ? err.message : "History failed"),
-      );
+      .then((rows) => {
+        if (cancelled) return;
+        setHistory(rows);
+        setHistoryStatus(historyStatusFromResult(true, rows.length));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setHistoryError(
+          err instanceof Error ? err.message : "History failed",
+        );
+        setHistoryStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [tab]);
 
-  // Roles the current user is allowed to edit (from the matrix response).
   const editableSet = useMemo(
     () => new Set(matrix?.editableRoles ?? []),
     [matrix],
   );
 
-  /**
-   * Toggle a panel or action grant in the draft for a role.
-   * Keeps `permissions` panel and `permissions.manage` action in sync.
-   */
   function toggle(role: string, kind: "panels" | "actions", key: string) {
-    // Permission gate: non-editable roles are read-only in the UI.
     if (!editableSet.has(role as Exclude<Role, "owner">)) return;
-    // State transition.
+    if (savingRolesRef.current.has(role)) return;
     setDraft((prev) => {
       const cur = prev[role] ?? { panels: [], actions: [] };
       const list = new Set(cur[kind]);
-      // Flip membership of the toggled key.
       if (list.has(key)) list.delete(key);
       else list.add(key);
 
-      // Keep permissions panel synced with permissions.manage action.
       if (kind === "actions" && key === "permissions.manage") {
         const panels = new Set(cur.panels);
-        // Branch: conditional gate.
         if (list.has("permissions.manage")) panels.add("permissions");
         else panels.delete("permissions");
-        // Early / value return.
         return {
           ...prev,
           [role]: { panels: [...panels], actions: [...list] },
         };
       }
-      // Inverse sync: toggling the permissions panel updates the manage action.
       if (kind === "panels" && key === "permissions") {
         const actions = new Set(cur.actions);
-        // Branch: conditional gate.
         if (list.has("permissions")) actions.add("permissions.manage");
         else actions.delete("permissions.manage");
-        // Early / value return.
         return {
           ...prev,
           [role]: { panels: [...list], actions: [...actions] },
         };
       }
 
-      // Default: only the toggled kind list changes.
       return {
         ...prev,
         [role]: { ...cur, [kind]: [...list] },
@@ -155,56 +154,100 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
     });
   }
 
-  /**
-   * Persist one role's draft grants, then refresh matrix and optionally caller session.
-   */
-  async function saveRole(role: string) {
-    const body = draft[role];
-    // Nothing to save if draft missing for this role.
-    if (!body) return;
-    // State transition.
-    setSavingRole(role);
-    // State transition.
-    setError(null);
-    // State transition.
-    setMessage(null);
-    // Try block for fallible work.
+  async function reloadHistoryIfVisible() {
+    if (tab !== "history") return;
+    setHistoryStatus("loading");
+    setHistoryError(null);
     try {
-      // Optional trim; empty reason becomes undefined (server may not require it).
-      await putRoleGrants(
-        role as Role,
-        body.panels,
-        body.actions,
-        reasonByRole[role]?.trim() || undefined,
-      );
-      // State transition.
-      setMessage(`Запазени права за ${ROLE_LABELS[role as Role] ?? role}`);
-      // Clear the reason field after a successful save.
-      setReasonByRole((r) => ({ ...r, [role]: "" }));
-      // Await async step.
-      await refresh();
-      // If the caller's own role (or owner) changed, refresh session grants/nav.
-      if (user.role === role || user.role === "owner") {
-        const me = await fetchMe();
-        onUserUpdated?.(me);
-      }
-      // Keep history table fresh when that tab is visible.
-      if (tab === "history") {
-        // State transition.
-        setHistory(await fetchPermissionHistory({ limit: 100 }));
-      }
+      const rows = await fetchPermissionHistory({ limit: 100 });
+      setHistory(rows);
+      setHistoryStatus(historyStatusFromResult(true, rows.length));
     } catch (err) {
-      // State transition.
-      setError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      // State transition.
-      setSavingRole(null);
+      setHistoryError(err instanceof Error ? err.message : "History failed");
+      setHistoryStatus("error");
     }
   }
 
-  // First-load gate: no matrix yet.
+  async function saveRole(role: string) {
+    const body = draft[role];
+    if (!body) return;
+
+    const started = beginPermissionsSave(savingRolesRef.current, role);
+    if (!started) return;
+    savingRolesRef.current = started;
+    setSavingRoles(new Set(savingRolesRef.current));
+    setError(null);
+    setFeedback(null);
+
+    const roleLabel = ROLE_LABELS[role as Role] ?? role;
+    try {
+      const outcome = await runPermissionsSave(
+        {
+          role,
+          roleLabel,
+          draft: body,
+          expectedVersion: matrix?.versions?.[role],
+          reason: reasonByRole[role]?.trim() || undefined,
+          savingRoles: new Set(), // already gated via beginPermissionsSave
+        },
+        {
+          put: async ({ role: r, panels, actions, expectedVersion, reason }) =>
+            putRoleGrants(r as Role, panels, actions, expectedVersion, reason),
+          refreshAfterSave: async () => {
+            if (user.role === role || user.role === "owner") {
+              const me = await fetchMe();
+              onUserUpdated?.(me);
+            }
+            await reloadHistoryIfVisible();
+          },
+          reloadOnConflict: async () => {
+            await refresh(role);
+          },
+          isConflictError: (err) =>
+            err instanceof ApiRequestError && err.status === 409,
+        },
+      );
+
+      if (outcome.skipped) {
+        setFeedback(outcome.feedback);
+        return;
+      }
+
+      if (outcome.saved) {
+        const result = outcome.saved;
+        setDraft((prev) =>
+          applySavedRoleToDraft(prev, role, {
+            panels: result.panels,
+            actions: result.actions,
+          }),
+        );
+        setMatrix((prev) =>
+          prev
+            ? {
+                ...prev,
+                byRole: {
+                  ...prev.byRole,
+                  [role]: {
+                    panels:
+                      result.panels as PermissionMatrix["byRole"][string]["panels"],
+                    actions:
+                      result.actions as PermissionMatrix["byRole"][string]["actions"],
+                  },
+                },
+                versions: { ...prev.versions, [role]: result.version },
+              }
+            : prev,
+        );
+        setReasonByRole((r) => ({ ...r, [role]: "" }));
+      }
+      setFeedback(outcome.feedback);
+    } finally {
+      savingRolesRef.current = endPermissionsSave(savingRolesRef.current, role);
+      setSavingRoles(new Set(savingRolesRef.current));
+    }
+  }
+
   if (loading && !matrix) {
-    // Early / value return.
     return (
       <main className="content">
         <p className="muted">Зареждане на матрицата…</p>
@@ -212,9 +255,7 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
     );
   }
 
-  // Hard failure: load finished without matrix data.
   if (!matrix) {
-    // Early / value return.
     return (
       <main className="content">
         <div className="error banner">{error ?? "Няма данни"}</div>
@@ -224,7 +265,6 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
 
   const roles = matrix.roles;
 
-  // Early / value return.
   return (
     <main className="content">
       <header className="page-header">
@@ -234,7 +274,6 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
         </div>
       </header>
 
-      {/* Tab strip: panels / actions / history. */}
       <div className="settings-tabs" role="tablist">
         {(
           [
@@ -256,12 +295,35 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
         ))}
       </div>
 
-      {/* Error / success banners above the matrix. */}
       {error && <div className="error banner">{error}</div>}
-      {/* Render branch: message && <div className="ok banner">message</div> */}
-      {message && <div className="ok banner">{message}</div>}
+      {feedback && (
+        <div
+          className={
+            feedback.kind === "ok" ? "ok banner" : "error banner"
+          }
+        >
+          {feedback.text}
+          {feedback.kind === "saved_refresh_failed" && (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="linkish"
+                onClick={() => {
+                  void refresh().catch((err) =>
+                    setError(
+                      err instanceof Error ? err.message : "Reload failed",
+                    ),
+                  );
+                }}
+              >
+                Презареди матрицата
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
-      {/* Editable matrix for panels or actions (not history). */}
       {tab !== "history" && (
         <section className="panel">
           <div className="table-wrap perm-matrix-wrap">
@@ -272,7 +334,6 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                   {roles.map((role) => (
                     <th key={role}>
                       {ROLE_LABELS[role]}
-                      {/* Mark columns the caller cannot edit. */}
                       {!editableSet.has(role) && (
                         <div className="muted">read-only</div>
                       )}
@@ -292,15 +353,13 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                         <code>{key}</code>
                       </td>
                       {roles.map((role) => {
-                        // Resolve checked state from the draft for this tab kind.
                         const list =
                           tab === "panels"
                             ? draft[role]?.panels ?? []
                             : draft[role]?.actions ?? [];
                         const checked = list.includes(key);
-                        // Permission / capability gate.
-                        const canEdit = editableSet.has(role);
-                        // Early / value return.
+                        const canEdit =
+                          editableSet.has(role) && !savingRoles.has(role);
                         return (
                           <td key={role} className="perm-cell">
                             <input
@@ -336,8 +395,8 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                           <input
                             placeholder="причина"
                             value={reasonByRole[role] ?? ""}
+                            disabled={savingRoles.has(role)}
                             onChange={(e) =>
-                              // State transition.
                               setReasonByRole((r) => ({
                                 ...r,
                                 [role]: e.target.value,
@@ -346,10 +405,10 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                           />
                           <button
                             type="button"
-                            disabled={savingRole === role}
+                            disabled={savingRoles.has(role)}
                             onClick={() => saveRole(role)}
                           >
-                            {savingRole === role ? "…" : "Save"}
+                            {savingRoles.has(role) ? "…" : "Save"}
                           </button>
                         </div>
                       ) : (
@@ -385,13 +444,28 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {history.length === 0 ? (
+                {historyStatus === "loading" && (
+                  <tr>
+                    <td colSpan={7} className="muted">
+                      Зареждане…
+                    </td>
+                  </tr>
+                )}
+                {historyStatus === "error" && (
+                  <tr>
+                    <td colSpan={7} className="error">
+                      {historyError ?? "Грешка при зареждане на хронологията"}
+                    </td>
+                  </tr>
+                )}
+                {historyStatus === "empty" && (
                   <tr>
                     <td colSpan={7} className="muted">
                       Няма записи
                     </td>
                   </tr>
-                ) : (
+                )}
+                {historyStatus === "success" &&
                   history.map((row) => (
                     <tr key={row.id}>
                       <td>{new Date(row.createdAt).toLocaleString()}</td>
@@ -404,8 +478,7 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                       <td>{row.actor.fullName}</td>
                       <td>{row.reason ?? "—"}</td>
                     </tr>
-                  ))
-                )}
+                  ))}
               </tbody>
             </table>
           </div>

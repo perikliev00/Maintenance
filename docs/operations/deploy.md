@@ -75,7 +75,24 @@ on completion; no application database or external webhook is used.
 
 CI builds and scans API, migration, and web images. Tag each immutable image with the commit SHA and record registry digests. Promote those same tags/digests to staging and production; do not rebuild on the target host. Keep deployment concurrency serialized so two migration jobs cannot run together. Capture the release SHA in the deployment record and dashboard annotations.
 
-The API deployment is intentionally limited to one replica until cross-process SSE events, rate limits, settings cache invalidation, and job ownership are shared.
+The API deployment is intentionally limited to one replica until cross-process SSE fan-out, rate limits, and settings cache invalidation are shared. Background **job ownership** is already multi-instance-safe via a Postgres session advisory lock (see below); that alone does not authorize scaling API replicas.
+
+## Background job lock (multi-instance)
+
+Scheduled and manual job cycles (`runWithJobExecutionLock` / `POST /jobs/run`) take a session-level Postgres advisory lock so two API processes cannot run overlapping job cycles.
+
+**Required for that lock to work:**
+
+- Point `DATABASE_URL` at **direct Postgres** or a pooler in **session** mode. **PgBouncer transaction pooling breaks session advisory locks** (lock and unlock can land on different backends; jobs may all race or never acquire).
+- The lock client forces `connection_limit=1` so try_lock / hold / unlock share one backend session. Do not strip that in a custom datasource URL.
+- Keep individual job cycles shorter than the Postgres/pool **idle session timeout**; dropping the lock session mid-run releases the advisory lock while work may still be in flight.
+- Orphaned `running` JobRun rows are abandoned after a **30 minute** stale TTL, swept on API boot and on every scheduler tick. Do not run jobs that legitimately stay `running` longer than that TTL across instances.
+
+### `DISABLE_JOB_SCHEDULER` (E2E / probes only)
+
+Set `DISABLE_JOB_SCHEDULER=1` to skip `startJobScheduler()` after bootstrap. Playwright sets this for the Audit live suite so `POST /jobs/run` is not blocked by the 15s boot cycle holding the advisory lock. The API emits a structured **warn** log `event=job_scheduler_disabled` at startup when the flag is set.
+
+**Deployed environments refuse to start** if the flag is set (`assertEnv` / `assertDisableJobSchedulerAllowed`): `NODE_ENV=production`; or **any of** `APP_ENV` / `DEPLOY_ENV` / `ENVIRONMENT` is set to a value outside the local allowlist {development, dev, test, local} (allowlist — unknown labels like `live`, `qa`, `staging-1`, `production-eu` are refused; a benign `APP_ENV=development` cannot hide `DEPLOY_ENV=staging`); or any process with `RELEASE_SHA` set (compose.prod.yml). Local/E2E (development|test, unset or local allowlist labels only) may set it. Leave unset (default) for all real deployments.
 
 ## First owner account
 

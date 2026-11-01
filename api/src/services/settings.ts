@@ -1,6 +1,8 @@
 /**
  * App settings store: Zod-validated JSON rows with a short in-process TTL cache.
  * Invalid/missing DB values fall back to DEFAULT_SETTINGS without throwing.
+ * Updates use optimistic concurrency (version CAS) so concurrent writers cannot
+ * silently clobber each other; audit `before` is read inside the same transaction.
  */
 import { LocationKind, Prisma, SessionStatus } from "@prisma/client";
 import { prisma } from "../db";
@@ -77,7 +79,18 @@ export async function getAllSettings() {
   const rows = await prisma.appSetting.findMany();
   // Index by key for O(1) lookup while iterating SETTING_KEYS order.
   const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
-  const result: Record<string, { key: string; value: unknown; updatedAt: Date; updatedByEmployeeId: string | null }> = {};
+  const result: Record<
+    string,
+    {
+      key: string;
+      value: unknown;
+      version: number;
+      updatedAt: Date;
+      updatedByEmployeeId: string | null;
+      /** False when stored JSON failed schema validation (UI should not treat defaults as saved). */
+      valueValid: boolean;
+    }
+  > = {};
   for (const key of SETTING_KEYS) {
     const row = byKey[key];
     // Validate stored JSON; fall back to default on parse failure.
@@ -85,8 +98,10 @@ export async function getAllSettings() {
     result[key] = {
       key,
       value: parsed.success ? parsed.data : DEFAULT_SETTINGS[key],
+      version: row?.version ?? 1,
       updatedAt: row?.updatedAt ?? new Date(),
       updatedByEmployeeId: row?.updatedByEmployeeId ?? null,
+      valueValid: parsed.success,
     };
   }
   return result;
@@ -124,15 +139,39 @@ export async function getPublicSettings() {
   };
 }
 
+function throwVersionConflict(input: {
+  key: SettingKey;
+  expectedVersion: number;
+  currentVersion: number;
+  currentValue: unknown;
+}) {
+  throw new AppError(
+    409,
+    "version_conflict",
+    `Setting ${input.key} was updated by another user`,
+    {
+      key: input.key,
+      expectedVersion: input.expectedVersion,
+      currentVersion: input.currentVersion,
+      currentValue: input.currentValue,
+    },
+  );
+}
+
 /**
  * Validate, persist, audit, invalidate cache, and publish settings.changed.
  * Force-clamps device_push to disabled/not_configured (no push adapter yet).
+ *
+ * Concurrency: optional `expectedVersion` enables optimistic CAS. When omitted
+ * (internal callers), the write still CAS-es against the version observed inside
+ * the transaction so `before`/`after` stay truthful under races.
  */
 export async function updateSetting(input: {
   key: string;
   value: unknown;
   actorEmployeeId: string;
   reason?: string;
+  expectedVersion?: number;
 }) {
   // Reject unknown keys before any DB work.
   if (!isSettingKey(input.key)) {
@@ -162,35 +201,99 @@ export async function updateSetting(input: {
     throw new AppError(400, "validation", "Invalid setting value", parsed.error.flatten());
   }
 
-  // Capture before snapshot for the audit row.
-  const existing = await prisma.appSetting.findUnique({ where: { key } });
-  const before = existing?.value ?? DEFAULT_SETTINGS[key];
-
-  // Upsert + audit in one transaction.
+  // Upsert + audit in one transaction; before is the locked/CAS-matched prior value.
   const updated = await prisma.$transaction(async (tx) => {
-    const row = await tx.appSetting.upsert({
-      where: { key },
-      create: {
-        key,
-        value: parsed.data as Prisma.InputJsonValue,
-        updatedByEmployeeId: input.actorEmployeeId,
-      },
-      update: {
-        value: parsed.data as Prisma.InputJsonValue,
-        updatedByEmployeeId: input.actorEmployeeId,
-      },
-    });
-    await recordAudit({
-      actorEmployeeId: input.actorEmployeeId,
-      action: "setting.update",
-      entityType: "setting",
-      entityId: key,
-      reason: input.reason,
-      before,
-      after: parsed.data,
-      summary: `Updated setting ${key}`,
-    }, tx);
-    return row;
+    const existing = await tx.appSetting.findUnique({ where: { key } });
+    const currentVersion = existing?.version ?? 0;
+    const casVersion =
+      input.expectedVersion !== undefined ? input.expectedVersion : currentVersion;
+
+    if (existing) {
+      if (input.expectedVersion !== undefined && input.expectedVersion !== currentVersion) {
+        throwVersionConflict({
+          key,
+          expectedVersion: input.expectedVersion,
+          currentVersion,
+          currentValue: existing.value,
+        });
+      }
+
+      const before = existing.value;
+      const bumped = await tx.appSetting.updateMany({
+        where: { key, version: casVersion },
+        data: {
+          value: parsed.data as Prisma.InputJsonValue,
+          version: { increment: 1 },
+          updatedByEmployeeId: input.actorEmployeeId,
+        },
+      });
+      if (bumped.count === 0) {
+        const fresh = await tx.appSetting.findUnique({ where: { key } });
+        throwVersionConflict({
+          key,
+          expectedVersion: casVersion,
+          currentVersion: fresh?.version ?? currentVersion,
+          currentValue: fresh?.value ?? existing.value,
+        });
+      }
+
+      await recordAudit(
+        {
+          actorEmployeeId: input.actorEmployeeId,
+          action: "setting.update",
+          entityType: "setting",
+          entityId: key,
+          reason: input.reason,
+          before,
+          after: parsed.data,
+          summary: `Updated setting ${key}`,
+        },
+        tx,
+      );
+
+      const row = await tx.appSetting.findUniqueOrThrow({ where: { key } });
+      return row;
+    }
+
+    // First write for this key: create; unique races surface as version_conflict.
+    try {
+      const row = await tx.appSetting.create({
+        data: {
+          key,
+          value: parsed.data as Prisma.InputJsonValue,
+          version: 1,
+          updatedByEmployeeId: input.actorEmployeeId,
+        },
+      });
+      await recordAudit(
+        {
+          actorEmployeeId: input.actorEmployeeId,
+          action: "setting.update",
+          entityType: "setting",
+          entityId: key,
+          reason: input.reason,
+          before: DEFAULT_SETTINGS[key],
+          after: parsed.data,
+          summary: `Updated setting ${key}`,
+        },
+        tx,
+      );
+      return row;
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002"
+      ) {
+        const fresh = await tx.appSetting.findUnique({ where: { key } });
+        throwVersionConflict({
+          key,
+          expectedVersion: input.expectedVersion ?? 0,
+          currentVersion: fresh?.version ?? 1,
+          currentValue: fresh?.value ?? DEFAULT_SETTINGS[key],
+        });
+      }
+      throw err;
+    }
   });
 
   // Drop stale cache entry and notify live subscribers.
@@ -199,6 +302,7 @@ export async function updateSetting(input: {
   return {
     key,
     value: parsed.data,
+    version: updated.version,
     updatedAt: updated.updatedAt,
     updatedByEmployeeId: updated.updatedByEmployeeId,
   };
@@ -233,41 +337,84 @@ export async function listSettingHistory(input: {
   }));
 }
 
+/** Best-effort count; never throws — null means UNKNOWN, not zero. */
+export async function safeEntityCount(
+  run: () => Promise<number>,
+): Promise<number | null> {
+  try {
+    return await run();
+  } catch {
+    return null;
+  }
+}
+
+/** Optional count runners for tests (inject a failing query without mocking Prisma). */
+export type SystemStatusCountFns = {
+  rooms: () => Promise<number>;
+  commonAreas: () => Promise<number>;
+  openTickets: () => Promise<number>;
+  runningSessions: () => Promise<number>;
+};
+
+function defaultSystemCountFns(): SystemStatusCountFns {
+  return {
+    rooms: () =>
+      prisma.location.count({
+        where: { kind: LocationKind.room, catalogStatus: "active" },
+      }),
+    commonAreas: () =>
+      prisma.location.count({
+        where: { kind: LocationKind.common_area, catalogStatus: "active" },
+      }),
+    openTickets: () =>
+      prisma.maintenanceTicket.count({
+        where: { status: { in: [...OPEN_TICKET_STATUSES] } },
+      }),
+    runningSessions: () =>
+      prisma.cleaningSession.count({
+        where: { status: SessionStatus.running },
+      }),
+  };
+}
+
 /** Lightweight health: DB ping + coarse entity counts for admin status pages. */
-export async function getSystemStatus() {
+export async function getSystemStatus(opts?: {
+  counts?: Partial<SystemStatusCountFns>;
+  /** Override ping; tests can force a DOWN database without killing the pool. */
+  ping?: () => Promise<void>;
+}) {
   const t0 = Date.now();
   let dbOk = false;
   let dbPingMs = 0;
+  const ping = opts?.ping ?? (async () => {
+    await prisma.$queryRaw`SELECT 1`;
+  });
   // Best-effort ping; failures still return status with ok=false.
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await ping();
     dbOk = true;
     dbPingMs = Date.now() - t0;
   } catch {
     dbPingMs = Date.now() - t0;
   }
 
-  // Parallel coarse counts for the admin status cards.
+  const runners = { ...defaultSystemCountFns(), ...opts?.counts };
+  // Independent counts so one failure cannot reject the whole diagnostic payload.
   const [rooms, commonAreas, openTickets, runningSessions] = await Promise.all([
-    prisma.location.count({
-      where: { kind: LocationKind.room, catalogStatus: "active" },
-    }),
-    prisma.location.count({
-      where: { kind: LocationKind.common_area, catalogStatus: "active" },
-    }),
-    prisma.maintenanceTicket.count({
-      where: { status: { in: [...OPEN_TICKET_STATUSES] } },
-    }),
-    prisma.cleaningSession.count({
-      where: { status: SessionStatus.running },
-    }),
+    safeEntityCount(runners.rooms),
+    safeEntityCount(runners.commonAreas),
+    safeEntityCount(runners.openTickets),
+    safeEntityCount(runners.runningSessions),
   ]);
 
+  const serverTime = new Date().toISOString();
   return {
     api: { ok: true },
     database: { ok: dbOk, pingMs: dbPingMs },
     counts: { rooms, commonAreas, openTickets, runningSessions },
-    serverTime: new Date().toISOString(),
+    serverTime,
+    /** Wall-clock of this successful diagnostic assembly (client stale markers). */
+    fetchedAt: serverTime,
     version: process.env.npm_package_version ?? "0.1.0",
   };
 }

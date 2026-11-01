@@ -19,6 +19,8 @@ export {
   findLocationById,
   getLocationHierarchy,
   listLocationsCatalog,
+  resolveCatalogListWhere,
+  catalogOrderBy,
   createLocation,
   updateLocation,
   archiveLocation,

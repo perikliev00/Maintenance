@@ -49,12 +49,19 @@ const PAGE_SIZE = 50;
 type Props = {
   user: AuthUser;
   locale?: "bg" | "en";
+  focusTicketId?: string | null;
+  onFocusConsumed?: () => void;
 };
 
 /**
  * RepairsPage React component / page.
  */
-export function RepairsPage({ user, locale = "bg" }: Props) {
+export function RepairsPage({
+  user,
+  locale = "bg",
+  focusTicketId = null,
+  onFocusConsumed,
+}: Props) {
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -74,6 +81,7 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [events, setEvents] = useState<TicketEventRow[]>([]);
   const [conn, setConn] = useState<ConnMode>("online");
+  const focusAppliedRef = useRef<string | null>(null);
   const [queueStats, setQueueStats] = useState<QueueStats>({
     pending: 0,
     sending: 0,
@@ -230,6 +238,45 @@ export function RepairsPage({ user, locale = "bg" }: Props) {
     // Fire-and-forget async call.
     void getQueueStats().then(setQueueStats);
   }, []);
+
+  // Prefer blocking filter when deep-linking a live-board blocking ticket.
+  useEffect(() => {
+    if (focusTicketId) setBlocksOnly(true);
+  }, [focusTicketId]);
+
+  // Deep-link from live board: select the concrete ticket by id (page until found).
+  useEffect(() => {
+    if (!focusTicketId || loading) return;
+    if (focusAppliedRef.current === focusTicketId) return;
+    const found = tickets.some((row) => row.id === focusTicketId);
+    if (found) {
+      focusAppliedRef.current = focusTicketId;
+      setSelectedId(focusTicketId);
+      setBlocksOnly(true);
+      onFocusConsumed?.();
+      return;
+    }
+    if (nextCursor && !loadingMore) {
+      void loadMore();
+      return;
+    }
+    focusAppliedRef.current = focusTicketId;
+    setError(
+      locale === "bg"
+        ? "Повредата не е достъпна или липсва в текущия списък."
+        : "Issue is unavailable or missing from the current list.",
+    );
+    onFocusConsumed?.();
+  }, [
+    focusTicketId,
+    loading,
+    loadingMore,
+    tickets,
+    nextCursor,
+    loadMore,
+    locale,
+    onFocusConsumed,
+  ]);
 
   // Effect: sync props/state to side effects.
   useEffect(() => {

@@ -1,4 +1,4 @@
-/** /jobs — background job run history and manual trigger (jobs.view). */
+/** /jobs — run history (jobs.view) and manual trigger (jobs.run). */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../middleware/auth";
 import * as JobsController from "../controllers/jobs";
@@ -13,10 +13,10 @@ jobsRouter.get(
   JobsController.listRuns,
 );
 
-// POST /run — manually trigger a named background job.
+// POST /run — manually trigger a named background job (least privilege).
 jobsRouter.post(
   "/run",
   requireAuth,
-  requireAction("jobs.view"),
+  requireAction("jobs.run"),
   JobsController.run,
 );

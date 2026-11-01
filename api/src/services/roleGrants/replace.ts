@@ -1,17 +1,60 @@
 /**
  * Full replace of a role's grants (deleteMany + createMany) with audit diffs.
+ * Optimistic concurrency via RoleGrantRevision; audit before-state is read
+ * under the same transaction lock (never from the TTL grant cache).
  * Refuses to leave zero non-owner roles with permissions.manage.
  */
-import { GrantKind, Role } from "@prisma/client";
+import { GrantKind, Prisma, Role } from "@prisma/client";
 import { prisma } from "../../db";
 import { AppError } from "../../errors";
-import { MATRIX_ROLES } from "../../permissions";
-import { recordAuditMany } from "../audit";
+import { publish } from "../../events/bus";
 import {
-  invalidateGrantCache,
-} from "./cache";
+  MATRIX_ROLES,
+  isAction,
+  isPanel,
+} from "../../permissions";
+import { recordAuditMany } from "../audit";
+import { invalidateGrantCache } from "./cache";
+import { diffGrantSets } from "./diff";
 import { normalizePanelsActions } from "./normalize";
-import { editableRolesFor, getGrantsForRole } from "./query";
+import { editableRolesFor } from "./query";
+
+type Tx = Prisma.TransactionClient;
+
+/** Load grants for a role from rows already locked in the transaction. */
+async function loadGrantsInTx(tx: Tx, role: Role) {
+  const rows = await tx.roleGrant.findMany({ where: { role } });
+  const panels: string[] = [];
+  const actions: string[] = [];
+  for (const row of rows) {
+    if (row.kind === GrantKind.panel && isPanel(row.key)) {
+      if (!panels.includes(row.key)) panels.push(row.key);
+    }
+    if (row.kind === GrantKind.action && isAction(row.key)) {
+      if (!actions.includes(row.key)) actions.push(row.key);
+    }
+  }
+  return { panels, actions };
+}
+
+/** Ensure a revision row exists, then lock it FOR UPDATE and return version. */
+async function lockRevision(tx: Tx, role: Role): Promise<number> {
+  await tx.$executeRaw`
+    INSERT INTO "RoleGrantRevision" (role, version, "updatedAt")
+    VALUES (CAST(${role} AS "Role"), 1, CURRENT_TIMESTAMP)
+    ON CONFLICT (role) DO NOTHING
+  `;
+  const rows = await tx.$queryRaw<{ version: number }[]>`
+    SELECT version FROM "RoleGrantRevision"
+    WHERE role = CAST(${role} AS "Role")
+    FOR UPDATE
+  `;
+  const version = rows[0]?.version;
+  if (typeof version !== "number") {
+    throw new AppError(500, "internal", "Missing role grant revision");
+  }
+  return version;
+}
 
 /**
  * Replace target role grants. Owner is immutable; actor must be allowed to edit
@@ -21,6 +64,7 @@ export async function replaceRoleGrants(input: {
   targetRole: Role;
   panels: string[];
   actions: string[];
+  expectedVersion: number;
   actorRole: Role;
   actorEmployeeId: string;
   reason?: string;
@@ -43,58 +87,69 @@ export async function replaceRoleGrants(input: {
     );
   }
 
+  if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+    throw new AppError(
+      400,
+      "validation",
+      "expectedVersion must be a positive integer",
+    );
+  }
+
   // Sanitize unknown keys and keep permissions panel ↔ manage in lockstep.
   const next = normalizePanelsActions(input.panels, input.actions);
-  const current = await getGrantsForRole(input.targetRole);
 
-  // Diff current vs next for audit rows (grant / revoke per key).
-  const panelSet = new Set(current.panels);
-  const actionSet = new Set(current.actions);
-  const nextPanelSet = new Set(next.panels);
-  const nextActionSet = new Set(next.actions);
+  // Stable advisory key so concurrent last-manage removals serialize without
+  // deadlocking on RoleGrantRevision(role A) × manage-row(role B) lock order.
+  const PERMISSIONS_MANAGE_ADVISORY = 872_014_01;
 
-  const changes: Array<{
-    kind: GrantKind;
-    key: string;
-    granted: boolean;
-  }> = [];
-
-  // Panels newly present → grant audit rows.
-  for (const p of next.panels) {
-    if (!panelSet.has(p)) changes.push({ kind: GrantKind.panel, key: p, granted: true });
-  }
-  // Panels removed → revoke audit rows.
-  for (const p of current.panels) {
-    if (!nextPanelSet.has(p)) {
-      changes.push({ kind: GrantKind.panel, key: p, granted: false });
+  const result = await prisma.$transaction(async (tx) => {
+    const nextRemovesManage = !next.actions.includes("permissions.manage");
+    if (nextRemovesManage) {
+      const hadManage = await tx.roleGrant.findFirst({
+        where: {
+          role: input.targetRole,
+          kind: GrantKind.action,
+          key: "permissions.manage",
+        },
+        select: { role: true },
+      });
+      if (hadManage) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PERMISSIONS_MANAGE_ADVISORY})`;
+      }
     }
-  }
-  // Actions newly present → grant audit rows.
-  for (const a of next.actions) {
-    if (!actionSet.has(a)) changes.push({ kind: GrantKind.action, key: a, granted: true });
-  }
-  // Actions removed → revoke audit rows.
-  for (const a of current.actions) {
-    if (!nextActionSet.has(a)) {
-      changes.push({ kind: GrantKind.action, key: a, granted: false });
+
+    const currentVersion = await lockRevision(tx, input.targetRole);
+    if (currentVersion !== input.expectedVersion) {
+      throw new AppError(
+        409,
+        "stale_state",
+        "Permission matrix changed; refresh and try again",
+        {
+          role: input.targetRole,
+          currentVersion,
+          expectedVersion: input.expectedVersion,
+        },
+      );
     }
-  }
 
-  const removingManage =
-    current.actions.includes("permissions.manage") &&
-    !next.actions.includes("permissions.manage");
+    // Serialize writers for this role even when the grant set is empty.
+    await tx.$queryRaw`
+      SELECT role FROM "RoleGrant"
+      WHERE role = CAST(${input.targetRole} AS "Role")
+      ORDER BY kind, key
+      FOR UPDATE
+    `;
 
-  // Full replace under lock so concurrent last-manage removals cannot race.
-  await prisma.$transaction(async (tx) => {
+    // Authoritative before-state for audit — never the in-process TTL cache.
+    const current = await loadGrantsInTx(tx, input.targetRole);
+    const changes = diffGrantSets(current, next);
+
+    const removingManage =
+      current.actions.includes("permissions.manage") &&
+      !next.actions.includes("permissions.manage");
+
     if (removingManage) {
-      // Serialize all permissions.manage grant mutations (composite PK, no id).
-      await tx.$queryRaw<{ role: string }[]>`
-        SELECT role FROM "RoleGrant"
-        WHERE kind = CAST('action' AS "GrantKind")
-          AND key = 'permissions.manage'
-        ORDER BY role
-        FOR UPDATE
-      `;
+      // Under the advisory lock, re-check that another non-owner still has manage.
       const otherRoles = MATRIX_ROLES.filter((r) => r !== input.targetRole);
       const others = await tx.roleGrant.findFirst({
         where: {
@@ -114,7 +169,6 @@ export async function replaceRoleGrants(input: {
     }
 
     await tx.roleGrant.deleteMany({ where: { role: input.targetRole } });
-    // Build createMany payload from the normalized next set.
     const data = [
       ...next.panels.map((key) => ({
         role: input.targetRole,
@@ -127,11 +181,10 @@ export async function replaceRoleGrants(input: {
         key,
       })),
     ];
-    // Empty grant set is allowed (except permissions.manage guard above).
     if (data.length) {
       await tx.roleGrant.createMany({ data });
     }
-    // One audit event per added/removed key.
+
     if (changes.length) {
       await recordAuditMany(
         changes.map((c) => ({
@@ -152,14 +205,25 @@ export async function replaceRoleGrants(input: {
         tx,
       );
     }
+
+    const bumped = await tx.roleGrantRevision.update({
+      where: { role: input.targetRole },
+      data: { version: { increment: 1 } },
+      select: { version: true },
+    });
+
+    return {
+      role: input.targetRole,
+      panels: next.panels,
+      actions: next.actions,
+      changes: changes.length,
+      version: bumped.version,
+    };
   });
 
   // Drop TTL cache so subsequent canPerform sees the new grants.
   invalidateGrantCache();
-  return {
-    role: input.targetRole,
-    panels: next.panels,
-    actions: next.actions,
-    changes: changes.length,
-  };
+  // Notify open sessions to refresh /auth/me capabilities.
+  publish("permissions.changed");
+  return result;
 }

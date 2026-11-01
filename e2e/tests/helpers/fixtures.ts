@@ -77,6 +77,7 @@ export async function ensureRoomInSupervisorSector(
   const sectors = sectorsRes.body as Array<{
     id: string;
     isActive: boolean;
+    version?: number;
     primarySupervisor: { id: string } | null;
     locationIds: string[];
   }>;
@@ -89,8 +90,13 @@ export async function ensureRoomInSupervisorSector(
 
   if (sector!.locationIds.includes(locationId)) return;
 
+  const detail = await apiGet(token, `/sectors/${sector!.id}`);
+  expect(detail.status).toBe(200);
+  const version = (detail.body as { version: number }).version;
+
   const put = await apiPut(token, `/sectors/${sector!.id}/locations`, {
     locationIds: [...sector!.locationIds, locationId],
+    expectedVersion: version,
   });
   expect(
     put.status,

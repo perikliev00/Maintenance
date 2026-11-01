@@ -141,39 +141,160 @@ export async function getLocationHierarchy() {
   }));
 }
 
+const CATALOG_PAGE_SIZE_DEFAULT = 25;
+const CATALOG_PAGE_SIZE_MAX = 100;
+
+type CatalogLocationRow = Prisma.LocationGetPayload<{
+  include: typeof locationInclude;
+}>;
+
+export type LocationsCatalogPage = {
+  items: CatalogLocationRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+
+function catalogBaseWhere(input: {
+  kind?: LocationKind;
+  includeArchived?: boolean;
+  scopeFilter?: Prisma.LocationWhereInput;
+}): Prisma.LocationWhereInput {
+  return {
+    AND: [
+      input.scopeFilter ?? {},
+      input.kind ? { kind: input.kind } : {},
+      input.includeArchived ? {} : { catalogStatus: CatalogStatus.active },
+    ],
+  };
+}
+
+/** Number-only filter — friendly to GIN trgm on Location.number. */
+function catalogNumberSearchWhere(q: string): Prisma.LocationWhereInput {
+  return { number: { contains: q, mode: "insensitive" } };
+}
+
+/** Broader building/floor/number OR (may Seq Scan; used as fallback). */
+function catalogBroadSearchWhere(q: string): Prisma.LocationWhereInput {
+  return {
+    OR: [
+      { number: { contains: q, mode: "insensitive" } },
+      {
+        floor: {
+          name: { contains: q, mode: "insensitive" },
+        },
+      },
+      {
+        floor: {
+          building: {
+            OR: [
+              { code: { contains: q, mode: "insensitive" } },
+              { name: { contains: q, mode: "insensitive" } },
+            ],
+          },
+        },
+      },
+    ],
+  };
+}
+
+function buildCatalogWhere(input: {
+  kind?: LocationKind;
+  includeArchived?: boolean;
+  scopeFilter?: Prisma.LocationWhereInput;
+  q?: string;
+  /** When true with q, OR across building/floor (fallback path). */
+  broadSearch?: boolean;
+}): Prisma.LocationWhereInput {
+  const q = input.q?.trim();
+  const search: Prisma.LocationWhereInput | undefined = q
+    ? input.broadSearch
+      ? catalogBroadSearchWhere(q)
+      : catalogNumberSearchWhere(q)
+    : undefined;
+  return {
+    AND: [catalogBaseWhere(input), search ?? {}],
+  };
+}
+
+/** Same orderBy listLocationsCatalog uses — exported for EXPLAIN parity tests. */
+export const catalogOrderBy: Prisma.LocationOrderByWithRelationInput[] = [
+  { catalogStatus: "asc" },
+  { floor: { building: { code: "asc" } } },
+  { floor: { number: "asc" } },
+  { number: "asc" },
+];
+
+/**
+ * Resolve the same where clause listLocationsCatalog uses (number-first, then
+ * broad). Exported so perf tests can EXPLAIN the real Prisma findMany path.
+ */
+export async function resolveCatalogListWhere(input: {
+  kind?: LocationKind;
+  includeArchived?: boolean;
+  scopeFilter?: Prisma.LocationWhereInput;
+  q?: string;
+}): Promise<Prisma.LocationWhereInput> {
+  const q = input.q?.trim();
+  let where = buildCatalogWhere({ ...input, broadSearch: false });
+  if (q) {
+    const numberHits = await prisma.location.count({ where });
+    if (numberHits === 0) {
+      where = buildCatalogWhere({ ...input, broadSearch: true });
+    }
+  }
+  return where;
+}
+
 /**
  * Paginated/filtered catalog list including archived when requested.
- *
- * @param input.kind - Optional kind filter for room vs common area admin.
- * @param input.includeArchived - When false, active catalogStatus only.
- * @param input.scopeFilter - Data-scope AND for sector-limited admins.
+ * Pass `page` for server-side OFFSET pagination; omit for the legacy full list.
  */
 export async function listLocationsCatalog(input: {
   kind?: LocationKind;
   includeArchived?: boolean;
   scopeFilter?: Prisma.LocationWhereInput;
-}) {
-  // Default hides archived; admin catalog can pass includeArchived.
-  const where: Prisma.LocationWhereInput = {
-    ...(input.scopeFilter ?? {}),
-    ...(input.kind ? { kind: input.kind } : {}),
-    ...(input.includeArchived
-      ? {}
-      : { catalogStatus: CatalogStatus.active }),
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<CatalogLocationRow[] | LocationsCatalogPage> {
+  const where = await resolveCatalogListWhere(input);
+
+  // Legacy unpaged callers (tests / older clients).
+  if (input.page === undefined && input.pageSize === undefined) {
+    return prisma.location.findMany({
+      where,
+      include: locationInclude,
+      orderBy: catalogOrderBy,
+    });
+  }
+
+  const pageSize = Math.min(
+    Math.max(input.pageSize ?? CATALOG_PAGE_SIZE_DEFAULT, 1),
+    CATALOG_PAGE_SIZE_MAX,
+  );
+  const page = Math.max(input.page ?? 1, 1);
+  const [total, items] = await Promise.all([
+    prisma.location.count({ where }),
+    prisma.location.findMany({
+      where,
+      include: locationInclude,
+      orderBy: catalogOrderBy,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return {
+    items,
+    page: Math.min(page, totalPages),
+    pageSize,
+    total,
+    totalPages,
   };
-  // Active first, then building/floor/number for stable catalog browsing.
-  // includeArchived skips the active-only catalogStatus filter.
-  return prisma.location.findMany({
-    where,
-    include: locationInclude,
-    orderBy: [
-      { catalogStatus: "asc" },
-      { floor: { building: { code: "asc" } } },
-      { floor: { number: "asc" } },
-      { number: "asc" },
-    ],
-  });
 }
+
 
 /** 404 when the floor id is unknown (create/update target). */
 async function assertFloorExists(floorId: string) {

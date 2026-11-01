@@ -8,7 +8,6 @@ import { PrismaClient, Role } from "@prisma/client";
 import { AppError } from "../../src/errors";
 import { createCleaningTask } from "../../src/services/cleaning/tasks";
 import { replaceMembership } from "../../src/services/sectors/membership";
-import { setSectorLocations } from "../../src/services/sectors/commands";
 import type { DataScope } from "../../src/services/dataScope";
 import { assertTestDatabase } from "../assertTestDatabase";
 import {
@@ -18,6 +17,7 @@ import {
   resetSectorMemberships,
   runWhileLocationLockedWithTx,
   sectorMemberIds,
+  setSectorLocationsAtHead,
   waitForBlockedByHolder,
   type SectorsWorld,
 } from "./fixtures";
@@ -73,10 +73,9 @@ function assertSettledMembershipRace(
       409,
       `rejected status must be 409, got ${err.status}: ${err.message}`,
     );
-    assert.equal(
-      err.code,
-      "conflict",
-      `rejected code must be conflict, got ${err.code}: ${err.message}`,
+    assert.ok(
+      err.code === "conflict" || err.code === "version_conflict",
+      `rejected code must be conflict|version_conflict, got ${err.code}: ${err.message}`,
     );
   }
 }
@@ -149,11 +148,11 @@ describe("sector membership concurrency (T-SEC-61)", () => {
       };
       const setA2 = [world.loc1Id, world.loc3Id];
       const setForeign = [world.loc1Id, world.loc4Id];
-      p1 = setSectorLocations(world.sectorA2Id, setA2, {
+      p1 = setSectorLocationsAtHead(prisma, world.sectorA2Id, setA2, {
         actorEmployeeId: world.manager.employeeId,
         ...auth,
       });
-      p2 = setSectorLocations(world.sectorForeignId, setForeign, {
+      p2 = setSectorLocationsAtHead(prisma, world.sectorForeignId, setForeign, {
         actorEmployeeId: world.manager.employeeId,
         ...auth,
       });
@@ -204,7 +203,7 @@ describe("sector membership concurrency (T-SEC-61)", () => {
         locationId: world.loc1Id,
         startRace: async () => {
           try {
-            return await setSectorLocations(world.sectorA2Id, [world.loc1Id], {
+            return await setSectorLocationsAtHead(prisma, world.sectorA2Id, [world.loc1Id], {
               actorEmployeeId: world.supervisorA.employeeId,
               scope: sectorsScope(world.supervisorA.employeeId, [
                 world.sectorA1Id,
@@ -284,7 +283,7 @@ describe("sector membership concurrency (T-SEC-61)", () => {
       }
       assert.ok(lockHeld && holderPid != null);
 
-      const moveP = setSectorLocations(
+      const moveP = setSectorLocationsAtHead(prisma, 
         world.sectorA2Id,
         [world.loc1Id, world.loc3Id],
         {
@@ -356,11 +355,11 @@ describe("sector membership concurrency (T-SEC-61)", () => {
       };
       const opt1 = [world.loc1Id, world.loc2Id];
       const opt2 = [world.loc1Id, world.loc5Id];
-      p1 = setSectorLocations(world.sectorA1Id, opt1, {
+      p1 = setSectorLocationsAtHead(prisma, world.sectorA1Id, opt1, {
         actorEmployeeId: world.manager.employeeId,
         ...auth,
       });
-      p2 = setSectorLocations(world.sectorA1Id, opt2, {
+      p2 = setSectorLocationsAtHead(prisma, world.sectorA1Id, opt2, {
         actorEmployeeId: world.manager.employeeId,
         ...auth,
       });

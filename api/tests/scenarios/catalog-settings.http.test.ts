@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { after, before, describe, it } from "node:test";
 import { prisma } from "../../src/db";
 import { assertTestDatabase } from "../assertTestDatabase";
-import { closeServer, getJson, listenApp, loginBearer, patchJson, postJson, putJson, requestJson, snapshotRoleGrants, restoreRoleGrants } from "../httpHarness";
+import { closeServer, getJson, listenApp, loginBearer, patchJson, postJson, putJson, putRoleGrantsJson, requestJson, snapshotRoleGrants, restoreRoleGrants } from "../httpHarness";
 import { createCleaningWorld, cleanupCleaningWorld, type CleaningWorld } from "../cleaning/fixtures";
 import { getSetting, updateSetting } from "../../src/services/settings";
 import { createMaintenanceTicket } from "../../src/services/maintenance";
@@ -49,7 +49,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     ] as const) {
       const before = await prisma.appSetting.findUniqueOrThrow({ where: { key } });
       const audits = await prisma.auditEvent.findMany({ where: { entityType: "setting", entityId: key } }); assert.ok(audits.length > 0);
-      const res = await patchJson(api, token, `/settings/${key}`, { value: invalid, reason: "invalid" }); assert.equal(res.status, 400);
+      const res = await patchJson(api, token, `/settings/${key}`, { value: invalid, reason: "invalid", expectedVersion: before.version }); assert.equal(res.status, 400);
       assert.deepEqual(await prisma.appSetting.findUniqueOrThrow({ where: { key } }), before);
       assert.deepEqual(await prisma.auditEvent.findMany({ where: { entityType: "setting", entityId: key } }), audits);
     }
@@ -57,7 +57,8 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
   it("P2-22 saved setting is immediate and survives a fresh process", async () => {
     const value = { ...operations, overdueSessionMinutes: operations.overdueSessionMinutes === 91 ? 92 : 91 };
     try {
-      assert.equal((await patchJson(api, token, "/settings/operations", { value, reason: "restart contract" })).status, 200);
+      const ver = (await prisma.appSetting.findUniqueOrThrow({ where: { key: "operations" } })).version;
+      assert.equal((await patchJson(api, token, "/settings/operations", { value, reason: "restart contract", expectedVersion: ver })).status, 200);
       assert.equal((await getSetting("operations")).overdueSessionMinutes, value.overdueSessionMinutes);
       const child = spawnSync(process.execPath, ["--import", "./tests/registerP1TestEnv.mjs", "--import", "tsx", "-e", "const {getSetting}=require('./src/services/settings'); const {prisma}=require('./src/db'); getSetting('operations').then(v=>console.log('PERSISTED',v.overdueSessionMinutes)).finally(()=>prisma.$disconnect())"], { cwd: process.cwd(), encoding: "utf8", timeout: 10000, env: process.env });
       assert.equal(child.status, 0, child.stderr); assert.match(child.stdout, new RegExp(`PERSISTED ${value.overdueSessionMinutes}`));
@@ -87,11 +88,11 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     const remove = baseline.actions.find(k => k !== "tickets.report")!;
     const next = { panels: baseline.panels, actions: baseline.actions.filter(k => k !== remove).concat(baseline.actions.includes("audit.view") ? [] : ["audit.view"]), reason: randomUUID() };
     try {
-      assert.equal((await putJson(api, token, "/permissions/roles/housekeeper", next)).status, 200);
+      assert.equal((await putRoleGrantsJson(api, token, "housekeeper", next)).status, 200);
       const history = await prisma.auditEvent.findMany({ where: { reason: next.reason } });
       assert.deepEqual(history.map(h => [h.action, h.entityId]).sort(), [["permission.grant", "housekeeper:action:audit.view"], ["permission.revoke", `housekeeper:action:${remove}`]].sort());
       assert.ok(history.every(h => h.actorEmployeeId === world.owner.employeeId));
-      assert.equal((await putJson(api, token, "/permissions/roles/housekeeper", next)).status, 200);
+      assert.equal((await putRoleGrantsJson(api, token, "housekeeper", next)).status, 200);
       assert.deepEqual(await prisma.auditEvent.findMany({ where: { reason: next.reason } }), history);
     } finally { await restoreRoleGrants(prisma, ["housekeeper"], snapshot); }
   });

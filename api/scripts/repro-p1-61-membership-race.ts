@@ -19,10 +19,10 @@ import {
   createSectorsWorld,
   membershipSnapshot,
   resetSectorMemberships,
+  setSectorLocationsAtHead,
   waitForBlockedByHolder,
   type SectorsWorld,
 } from "../tests/sectors/fixtures";
-import { setSectorLocations } from "../src/services/sectors/commands";
 import type { DataScope } from "../src/services/dataScope";
 
 dotenv.config({
@@ -82,11 +82,17 @@ async function dualClaimService(world: SectorsWorld) {
     allowCrossSectorTransfer: true,
   };
 
-  const p1 = setSectorLocations(world.sectorA2Id, [world.loc1Id, world.loc3Id], {
-    actorEmployeeId: world.manager.employeeId,
-    ...auth,
-  });
-  const p2 = setSectorLocations(
+  const p1 = setSectorLocationsAtHead(
+    prisma,
+    world.sectorA2Id,
+    [world.loc1Id, world.loc3Id],
+    {
+      actorEmployeeId: world.manager.employeeId,
+      ...auth,
+    },
+  );
+  const p2 = setSectorLocationsAtHead(
+    prisma,
     world.sectorForeignId,
     [world.loc1Id, world.loc4Id],
     {

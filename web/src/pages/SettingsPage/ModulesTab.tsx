@@ -5,13 +5,15 @@ type Props = {
   draft: Record<string, unknown>;
   setBool: (path: string, value: boolean) => void;
   label: LabelFn;
+  /** When true, toggles are read-only (e.g. in-flight PATCH). */
+  disabled?: boolean;
 };
 
 /**
  * Module-enable toggles bound to the settings draft.
  * Disabled modules are hidden from nav where a panel exists.
  */
-export function ModulesTab({ draft, setBool, label }: Props) {
+export function ModulesTab({ draft, setBool, label, disabled = false }: Props) {
   return (
     <div className="settings-form">
       <p className="muted">
@@ -24,6 +26,7 @@ export function ModulesTab({ draft, setBool, label }: Props) {
         <label key={key} className="checkbox">
           <input
             type="checkbox"
+            disabled={disabled}
             // Coerce missing draft keys to false for stable checkbox binding.
             checked={Boolean((draft as Record<string, boolean>)[key])}
             onChange={(e) => setBool(key, e.target.checked)}

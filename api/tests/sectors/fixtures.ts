@@ -4,6 +4,11 @@
 import type { PrismaClient } from "@prisma/client";
 import { Role } from "@prisma/client";
 import {
+  setSectorLocations,
+  updateSector,
+} from "../../src/services/sectors";
+import type { DataScope } from "../../src/services/dataScope";
+import {
   cleanupEmployeeGraph,
   createEmployeeWithUser,
   type EmployeeUserFixture,
@@ -479,6 +484,60 @@ export async function runWhileLocationLockedWithTx<T>(opts: {
  * so dual concurrent writers both count even when only one is directly blocked
  * by the holder.
  */
+/** Current Sector.version for CAS in service-level tests. */
+export async function currentSectorVersion(
+  prisma: PrismaClient,
+  sectorId: string,
+): Promise<number> {
+  const row = await prisma.sector.findUniqueOrThrow({
+    where: { id: sectorId },
+    select: { version: true },
+  });
+  return row.version;
+}
+
+/** updateSector with a freshly read expectedVersion (test convenience). */
+export async function updateSectorAtHead(
+  prisma: PrismaClient,
+  sectorId: string,
+  input: {
+    code?: string;
+    nameBg?: string;
+    nameEn?: string;
+    primarySupervisorEmployeeId?: string | null;
+    isActive?: boolean;
+    actorEmployeeId?: string;
+    actorUserId?: string;
+    actorRole?: Role;
+    scope?: DataScope;
+    allowCrossSectorTransfer?: boolean;
+  },
+) {
+  return updateSector(sectorId, {
+    ...input,
+    expectedVersion: await currentSectorVersion(prisma, sectorId),
+  });
+}
+
+/** setSectorLocations with a freshly read expectedVersion (test convenience). */
+export async function setSectorLocationsAtHead(
+  prisma: PrismaClient,
+  sectorId: string,
+  locationIds: string[],
+  options: {
+    actorEmployeeId?: string;
+    actorUserId?: string;
+    actorRole?: Role;
+    scope: DataScope;
+    allowCrossSectorTransfer: boolean;
+  },
+) {
+  return setSectorLocations(sectorId, locationIds, {
+    ...options,
+    expectedVersion: await currentSectorVersion(prisma, sectorId),
+  });
+}
+
 export async function waitForBlockedByHolder(
   prisma: PrismaClient,
   holderPid: number,

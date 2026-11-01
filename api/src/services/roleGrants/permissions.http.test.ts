@@ -19,10 +19,12 @@ import {
 import {
   closeServer,
   getJson,
+  getRoleGrantVersion,
   listenApp,
   loginBearer,
   postJson,
   putJson,
+  putRoleGrantsJson,
   restoreRoleGrants,
   snapshotRoleGrants,
   type RoleGrantSnapshotRow,
@@ -121,9 +123,10 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
       await snapshotRoleGrants(prisma, [Role.manager, Role.admin, Role.owner]),
     );
 
-    const denyMgr = await putJson(api, token, "/permissions/roles/manager", {
+    const denyMgr = await putRoleGrantsJson(api, token, "manager", {
       panels: ["home"],
       actions: ["rooms.view"],
+      expectedVersion: 1,
     });
     assert.equal(denyMgr.status, 403);
     assert.equal(
@@ -131,9 +134,10 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
       "You cannot edit grants for this role",
     );
 
-    const denyAdmin = await putJson(api, token, "/permissions/roles/admin", {
+    const denyAdmin = await putRoleGrantsJson(api, token, "admin", {
       panels: ["home"],
       actions: ["rooms.view"],
+      expectedVersion: 1,
     });
     assert.equal(denyAdmin.status, 403);
     assert.equal(
@@ -144,6 +148,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
     const denyOwner = await putJson(api, token, "/permissions/roles/owner", {
       panels: ["home"],
       actions: ["rooms.view"],
+      expectedVersion: 1,
     });
     assert.equal(denyOwner.status, 400);
     assert.equal(
@@ -170,7 +175,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
         "test-password-t03",
       );
       const hk = await getGrantsForRole(Role.housekeeper);
-      const ok = await putJson(api, token, "/permissions/roles/housekeeper", {
+      const ok = await putRoleGrantsJson(api, token, "housekeeper", {
         panels: hk.panels,
         actions: hk.actions,
       });
@@ -185,7 +190,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
   it("T-PERM-HTTP-01b: admin denied for manager/admin/owner", async () => {
     const { token } = await loginBearer(api, admin.email, "test-password-t03");
     const hk = await getGrantsForRole(Role.housekeeper);
-    const ok = await putJson(api, token, "/permissions/roles/housekeeper", {
+    const ok = await putRoleGrantsJson(api, token, "housekeeper", {
       panels: hk.panels,
       actions: hk.actions,
     });
@@ -211,7 +216,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
       const actions = sup.actions.includes("permissions.manage")
         ? sup.actions
         : [...sup.actions, "permissions.manage"];
-      const grant = await putJson(api, ownerTok, "/permissions/roles/supervisor", {
+      const grant = await putRoleGrantsJson(api, ownerTok, "supervisor", {
         panels,
         actions,
       });
@@ -223,9 +228,10 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
         "test-password-t03",
       );
 
-      const denyHk = await putJson(api, token, "/permissions/roles/housekeeper", {
+      const denyHk = await putRoleGrantsJson(api, token, "housekeeper", {
         panels: ["home"],
         actions: ["rooms.view"],
+        expectedVersion: 1,
       });
       assert.equal(denyHk.status, 403);
       assert.equal(
@@ -261,7 +267,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
 
       const mgrGrants = await getGrantsForRole(Role.manager);
       const { token } = await loginBearer(api, owner.email, "test-password-t03");
-      const res = await putJson(api, token, "/permissions/roles/manager", {
+      const res = await putRoleGrantsJson(api, token, "manager", {
         panels: mgrGrants.panels.filter((p) => p !== "permissions"),
         actions: mgrGrants.actions.filter((a) => a !== "permissions.manage"),
       });
@@ -336,16 +342,29 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
       const adminGrants = await getGrantsForRole(Role.admin);
       const { token } = await loginBearer(api, owner.email, "test-password-t03");
 
-      const strip = (role: "manager" | "admin", g: typeof mgrGrants) =>
-        putJson(api, token, `/permissions/roles/${role}`, {
+      const mgrVer = await getRoleGrantVersion(api, token, "manager");
+      const adminVer = await getRoleGrantVersion(api, token, "admin");
+      const strip = (
+        role: "manager" | "admin",
+        g: typeof mgrGrants,
+        expectedVersion: number,
+      ) =>
+        putRoleGrantsJson(api, token, role, {
           panels: g.panels.filter((p) => p !== "permissions"),
           actions: g.actions.filter((a) => a !== "permissions.manage"),
+          expectedVersion,
         });
 
-      const [r1, r2] = await withDatabaseBarrier(prisma, tx => tx.$queryRaw`SELECT role FROM "RoleGrant" WHERE kind = CAST('action' AS "GrantKind") AND key = 'permissions.manage' ORDER BY role FOR UPDATE`, () => Promise.all([
-        strip("manager", mgrGrants),
-        strip("admin", adminGrants),
-      ]));
+      const [r1, r2] = await withDatabaseBarrier(
+        prisma,
+        (tx) =>
+          tx.$executeRaw`SELECT pg_advisory_xact_lock(87201401)`,
+        () =>
+          Promise.all([
+            strip("manager", mgrGrants, mgrVer),
+            strip("admin", adminGrants, adminVer),
+          ]),
+      );
 
       const remaining = await prisma.roleGrant.count({
         where: {
@@ -396,7 +415,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
         "test-password-t03",
       );
       const sup = await getGrantsForRole(Role.supervisor);
-      const put = await putJson(api, ownerTok, "/permissions/roles/supervisor", {
+      const put = await putRoleGrantsJson(api, ownerTok, "supervisor", {
         panels: sup.panels,
         actions: sup.actions.filter((a) => a !== "rooms.mark_dirty"),
       });

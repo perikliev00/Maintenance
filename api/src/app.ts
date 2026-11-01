@@ -84,6 +84,11 @@ export async function initializeRequiredDefaults() {
     { role: "manager", kind: GrantKind.action, key: "people.manage_access" },
     { role: "admin", kind: GrantKind.action, key: "people.manage_access" },
   ]);
+  // NEW-05: separate manual job trigger from jobs.view (history).
+  await applyCatalogGrantSeed("grants.actions.jobs.run.manager_admin.v1", [
+    { role: "manager", kind: GrantKind.action, key: "jobs.run" },
+    { role: "admin", kind: GrantKind.action, key: "jobs.run" },
+  ]);
   await ensureDefaultSlaPolicies();
   setBootstrapComplete(true);
 }

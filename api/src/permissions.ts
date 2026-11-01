@@ -73,6 +73,7 @@ export const ALL_ACTIONS = [
   "issue_options.manage",
   "audit.view",
   "jobs.view",
+  "jobs.run",
 ] as const;
 /** Action union derived from the catalog above. */
 export type Action = (typeof ALL_ACTIONS)[number];
@@ -236,6 +237,7 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
     "issue_options.manage",
     "audit.view",
     "jobs.view",
+    "jobs.run",
   ],
   admin: [
     "rooms.view",
@@ -266,6 +268,7 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
     "issue_options.manage",
     "audit.view",
     "jobs.view",
+    "jobs.run",
   ],
 };
 

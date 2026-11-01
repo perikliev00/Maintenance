@@ -12,6 +12,8 @@ export {
   capabilitiesFor,
   editableRolesFor,
   getFullMatrix,
+  getRoleGrantVersions,
 } from "./query";
 export { replaceRoleGrants } from "./replace";
 export { listPermissionHistory } from "./history";
+export { diffGrantSets } from "./diff";

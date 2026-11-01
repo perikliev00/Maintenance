@@ -1,6 +1,16 @@
 /** Housekeeping/maintenance sector CRUD and "my sectors" for supervisors. */
 import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
 
+export type SectorLocationRef = {
+  id: string;
+  number: string;
+  kind: string;
+  catalogStatus?: string;
+  floor: number;
+  buildingCode: string;
+  building: string;
+};
+
 export type SectorRow = {
   id: string;
   propertyId: string;
@@ -8,6 +18,7 @@ export type SectorRow = {
   nameBg: string;
   nameEn: string;
   isActive: boolean;
+  version: number;
   primarySupervisor: {
     id: string;
     fullName: string;
@@ -15,14 +26,7 @@ export type SectorRow = {
   } | null;
   locationCount: number;
   locationIds: string[];
-  locations: Array<{
-    id: string;
-    number: string;
-    kind: string;
-    floor: number;
-    buildingCode: string;
-    building: string;
-  }>;
+  locations: SectorLocationRef[];
   createdAt: string;
   updatedAt: string;
 };
@@ -38,27 +42,32 @@ export type MySectorsResponse = {
   }>;
 };
 
+export type SectorSaveInput = {
+  code?: string;
+  nameBg?: string;
+  nameEn?: string;
+  primarySupervisorEmployeeId?: string | null;
+  isActive?: boolean;
+  locationIds?: string[];
+  expectedVersion?: number;
+};
+
 /** List sectors; pass `includeInactive` to show archived ones in admin UI. */
 export async function fetchSectors(
   includeInactive = false,
 ): Promise<SectorRow[]> {
-  // Optional query suffix.
   const qs = includeInactive ? "?includeInactive=true" : "";
-  // Authenticated HTTP request.
   const res = await apiFetch(`${API_BASE}/sectors${qs}`, {
     headers: authHeaders(),
   });
-  // Return value / early exit.
   return parseJson(res);
 }
 
 /** Sectors the current user supervises (for scoped housekeeping views). */
 export async function fetchMySectors(): Promise<MySectorsResponse> {
-  // Authenticated HTTP request.
   const res = await apiFetch(`${API_BASE}/sectors/mine`, {
     headers: authHeaders(),
   });
-  // Return value / early exit.
   return parseJson(res);
 }
 
@@ -71,36 +80,27 @@ export async function createSector(input: {
   locationIds?: string[];
   isActive?: boolean;
 }): Promise<SectorRow> {
-  // Authenticated HTTP request.
   const res = await apiFetch(`${API_BASE}/sectors`, {
     method: "POST",
     headers: authHeaders(),
-    // Serialize request body.
     body: JSON.stringify(input),
   });
-  // Return value / early exit.
   return parseJson(res);
 }
 
-/** Patch sector metadata (not location membership — use setSectorLocations). */
+/**
+ * Atomic sector save: metadata and optional membership in one request.
+ * Pass `expectedVersion` from the loaded row for optimistic concurrency.
+ */
 export async function updateSector(
   id: string,
-  input: {
-    code?: string;
-    nameBg?: string;
-    nameEn?: string;
-    primarySupervisorEmployeeId?: string | null;
-    isActive?: boolean;
-  },
+  input: SectorSaveInput,
 ): Promise<SectorRow> {
-  // Authenticated HTTP request.
   const res = await apiFetch(`${API_BASE}/sectors/${id}`, {
     method: "PATCH",
     headers: authHeaders(),
-    // Serialize request body.
     body: JSON.stringify(input),
   });
-  // Return value / early exit.
   return parseJson(res);
 }
 
@@ -108,14 +108,15 @@ export async function updateSector(
 export async function setSectorLocations(
   id: string,
   locationIds: string[],
+  expectedVersion: number,
 ): Promise<SectorRow> {
-  // Authenticated HTTP request.
   const res = await apiFetch(`${API_BASE}/sectors/${id}/locations`, {
     method: "PUT",
     headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({ locationIds }),
+    body: JSON.stringify({
+      locationIds,
+      expectedVersion,
+    }),
   });
-  // Return value / early exit.
   return parseJson(res);
 }

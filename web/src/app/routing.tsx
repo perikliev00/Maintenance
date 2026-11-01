@@ -150,6 +150,9 @@ type ActivePanelProps = {
   panels: Panel[];
   setView: (view: Panel) => void;
   setUser: (user: AuthUser) => void;
+  boardFocus: import("./boardFocus").BoardFocus | null;
+  onBoardFocusConsumed: () => void;
+  onNavigateToFocus: import("./boardFocus").NavigateToFocus;
 };
 
 /** Mount the page component for the current nav panel. */
@@ -161,15 +164,29 @@ export function ActivePanel({
   panels,
   setView,
   setUser,
+  boardFocus,
+  onBoardFocusConsumed,
+  onNavigateToFocus,
 }: ActivePanelProps) {
-  // Return value / early exit.
+  const locationFocus =
+    boardFocus?.type === "location" ? boardFocus : null;
+  const ticketFocus =
+    boardFocus?.type === "ticket" ? boardFocus : null;
+
   return (
     <>
       {view === "mywork" && (
         <MyWorkPage user={user} locale={locale} />
       )}
       {view === "repairs" && (
-        <RepairsPage user={user} locale={locale} />
+        <RepairsPage
+          user={user}
+          locale={locale}
+          focusTicketId={
+            ticketFocus && view === "repairs" ? ticketFocus.ticketId : null
+          }
+          onFocusConsumed={onBoardFocusConsumed}
+        />
       )}
       {view === "audit" && (
         <AuditPage user={user} locale={locale} />
@@ -180,6 +197,22 @@ export function ActivePanel({
           user={user}
           publicSettings={publicSettings}
           locale={locale}
+          focusLocationId={
+            locationFocus && locationFocus.locationKind === "room"
+              ? locationFocus.locationId
+              : null
+          }
+          focusTaskId={
+            locationFocus && locationFocus.locationKind === "room"
+              ? locationFocus.taskId ?? null
+              : null
+          }
+          focusSessionId={
+            locationFocus && locationFocus.locationKind === "room"
+              ? locationFocus.sessionId ?? null
+              : null
+          }
+          onFocusConsumed={onBoardFocusConsumed}
         />
       )}
       {view === "common" && (
@@ -187,11 +220,32 @@ export function ActivePanel({
           user={user}
           publicSettings={publicSettings}
           locale={locale}
+          focusLocationId={
+            locationFocus && locationFocus.locationKind === "common_area"
+              ? locationFocus.locationId
+              : null
+          }
+          focusTaskId={
+            locationFocus && locationFocus.locationKind === "common_area"
+              ? locationFocus.taskId ?? null
+              : null
+          }
+          focusSessionId={
+            locationFocus && locationFocus.locationKind === "common_area"
+              ? locationFocus.sessionId ?? null
+              : null
+          }
+          onFocusConsumed={onBoardFocusConsumed}
         />
       )}
       {view === "team" && <TeamPage user={user} locale={locale} />}
       {view === "live" && (
-        <LiveBoardPage user={user} locale={locale} />
+        <LiveBoardPage
+          user={user}
+          locale={locale}
+          modules={publicSettings?.modules ?? null}
+          onNavigate={onNavigateToFocus}
+        />
       )}
       {view === "plan" && <PlanPage user={user} />}
       {view === "attendance" && <AttendancePage user={user} />}
@@ -211,7 +265,6 @@ export function ActivePanel({
         <NotificationsPage
           locale={locale}
           onNavigate={(panel) => {
-            // Branch: conditional gate.
             if (panels.includes(panel)) setView(panel);
           }}
         />

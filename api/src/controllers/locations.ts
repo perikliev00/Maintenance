@@ -56,30 +56,54 @@ export async function hierarchy(
   }
 }
 
-/** GET /locations — catalog list with optional kind / includeArchived. */
+/** GET /locations — catalog list with optional kind / includeArchived / pagination. */
 export async function list(req: Request, res: Response, next: NextFunction) {
-  // Try block for fallible work.
   try {
     const kindParsed = kindSchema.optional().safeParse(req.query.kind);
-    // Branch: conditional gate.
     if (!kindParsed.success) {
-      // Return value / early exit.
       return res
         .status(400)
         .json({ error: "validation", details: kindParsed.error.flatten() });
     }
     const includeArchived = req.query.includeArchived === "true";
-    // Build data-scope filter.
+    const q =
+      typeof req.query.q === "string" ? req.query.q : undefined;
+    const pageRaw =
+      typeof req.query.page === "string" ? Number(req.query.page) : undefined;
+    const pageSizeRaw =
+      typeof req.query.pageSize === "string"
+        ? Number(req.query.pageSize)
+        : undefined;
+    const usePaging =
+      pageRaw !== undefined ||
+      pageSizeRaw !== undefined ||
+      req.query.paged === "true";
+
     const scope = await resolveDataScope(req.user!);
-    const locations = await listLocationsCatalog({
+    const result = await listLocationsCatalog({
       kind: kindParsed.data as LocationKind | undefined,
       includeArchived,
       scopeFilter: locationWhere(scope),
+      q,
+      ...(usePaging
+        ? {
+            page: Number.isFinite(pageRaw) ? pageRaw : 1,
+            pageSize: Number.isFinite(pageSizeRaw) ? pageSizeRaw : 25,
+          }
+        : {}),
     });
-    // JSON success response.
-    return res.json(locations.map(mapLocation));
+
+    if (Array.isArray(result)) {
+      return res.json(result.map(mapLocation));
+    }
+    return res.json({
+      items: result.items.map(mapLocation),
+      page: result.page,
+      pageSize: result.pageSize,
+      total: result.total,
+      totalPages: result.totalPages,
+    });
   } catch (err) {
-    // Forward error to Express.
     return next(err);
   }
 }

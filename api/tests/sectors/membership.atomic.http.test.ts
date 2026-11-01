@@ -32,6 +32,11 @@ const allLocs = (w: SectorsWorld) => [
   w.loc5Id,
 ];
 
+async function sectorVersion(sectorId: string): Promise<number> {
+  const row = await prisma.sector.findUniqueOrThrow({ where: { id: sectorId } });
+  return row.version;
+}
+
 describe("sector membership atomic HTTP (T-SEC-60)", () => {
   let world: SectorsWorld;
   let api: string;
@@ -61,7 +66,10 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
       api,
       mgr.token,
       `/sectors/${world.sectorA2Id}/locations`,
-      { locationIds: [world.loc1Id, world.loc2Id, world.loc3Id] },
+      {
+        locationIds: [world.loc1Id, world.loc2Id, world.loc3Id],
+        expectedVersion: await sectorVersion(world.sectorA2Id),
+      },
     );
     assert.equal(res.status, 200);
     const after = await membershipSnapshot(prisma, allLocs(world));
@@ -85,7 +93,10 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
       api,
       sup.token,
       `/sectors/${world.sectorA1Id}/locations`,
-      { locationIds: [world.loc1Id, world.loc4Id] },
+      {
+        locationIds: [world.loc1Id, world.loc4Id],
+        expectedVersion: await sectorVersion(world.sectorA1Id),
+      },
     );
     assert.equal(res.status, 403);
     assert.equal((res.body as { message?: string }).message, OUT_OF_SCOPE);
@@ -107,7 +118,10 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
       api,
       mgr.token,
       `/sectors/${world.sectorA1Id}/locations`,
-      { locationIds: [world.loc1Id, "nonexistent-location-id"] },
+      {
+        locationIds: [world.loc1Id, "nonexistent-location-id"],
+        expectedVersion: await sectorVersion(world.sectorA1Id),
+      },
     );
     assert.equal(res.status, 400);
     assert.equal((res.body as { error?: string }).error, "validation");
@@ -124,7 +138,10 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
       api,
       mgr.token,
       `/sectors/${world.sectorA1Id}/locations`,
-      { locationIds: [world.loc1Id] },
+      {
+        locationIds: [world.loc1Id],
+        expectedVersion: await sectorVersion(world.sectorA1Id),
+      },
     );
     assert.equal(res.status, 200);
     const after = await membershipSnapshot(prisma, [
@@ -163,7 +180,10 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
         api,
         mgr.token,
         `/sectors/${world.sectorA2Id}/locations`,
-        { locationIds: [world.loc1Id, world.loc2Id, world.loc3Id] },
+        {
+          locationIds: [world.loc1Id, world.loc2Id, world.loc3Id],
+          expectedVersion: await sectorVersion(world.sectorA2Id),
+        },
       );
       assert.notEqual(res.status, 200);
       const after = await membershipSnapshot(prisma, allLocs(world));

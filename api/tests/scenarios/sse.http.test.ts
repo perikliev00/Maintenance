@@ -7,7 +7,7 @@ import { createScopeSmokeFixture, cleanupScopeSmokeFixture, type ScopeSmokeFixtu
 import { listenApp, closeServer } from "../httpHarness";
 import { publish } from "../../src/events/bus";
 import { createSession, revokeSession } from "../../src/services/authSessions";
-import { updateSector } from "../../src/services/sectors/commands";
+import { updateSectorAtHead } from "../sectors/fixtures";
 
 let fx: ScopeSmokeFixture;
 let api: string;
@@ -75,11 +75,11 @@ it("P1-115 real open SSE authorizes sector changes and revoke/expiry before deli
         await until(() => text.includes(fx.locAId), "allowed event must arrive");
         assert.equal(text.includes(fx.locBId), false);
         // Production writers take User FOR UPDATE before scope flips.
-        await updateSector(fx.sectorAId, {
+        await updateSectorAtHead(prisma, fx.sectorAId, {
           primarySupervisorEmployeeId: fx.supervisorB.employeeId,
           actorEmployeeId: fx.manager.employeeId,
         });
-        await updateSector(fx.sectorBId, {
+        await updateSectorAtHead(prisma, fx.sectorBId, {
           primarySupervisorEmployeeId: fx.supervisorA.employeeId,
           actorEmployeeId: fx.manager.employeeId,
         });
@@ -89,11 +89,11 @@ it("P1-115 real open SSE authorizes sector changes and revoke/expiry before deli
         await until(() => text.slice(index).includes(fx.locBId), "new sector event must arrive");
         assert.equal(text.slice(index).includes(fx.locAId), false);
         await revokeSession(tokens.sessionId);
-        await updateSector(fx.sectorAId, {
+        await updateSectorAtHead(prisma, fx.sectorAId, {
           primarySupervisorEmployeeId: fx.supervisorA.employeeId,
           actorEmployeeId: fx.manager.employeeId,
         });
-        await updateSector(fx.sectorBId, {
+        await updateSectorAtHead(prisma, fx.sectorBId, {
           primarySupervisorEmployeeId: fx.supervisorB.employeeId,
           actorEmployeeId: fx.manager.employeeId,
         });

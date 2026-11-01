@@ -40,13 +40,21 @@ function checks(overrides: Partial<LiveAccessChecks> = {}): LiveAccessChecks {
 }
 
 describe("canDeliverLiveEvent", () => {
-  it("always delivers settings.changed and people.changed", async () => {
+  it("always delivers settings.changed, people.changed, permissions.changed, jobs.changed", async () => {
     assert.equal(
       await canDeliverLiveEvent(hkScope, at({ type: "settings.changed" })),
       true,
     );
     assert.equal(
       await canDeliverLiveEvent(hkScope, at({ type: "people.changed" })),
+      true,
+    );
+    assert.equal(
+      await canDeliverLiveEvent(hkScope, at({ type: "permissions.changed" })),
+      true,
+    );
+    assert.equal(
+      await canDeliverLiveEvent(hkScope, at({ type: "jobs.changed" })),
       true,
     );
   });

@@ -2,6 +2,7 @@
  * In-process setInterval scheduler for background jobs (no Redis/Bull).
  */
 import { runAllJobs } from "./orchestrator";
+import { abandonStaleRunningJobRuns } from "./runLifecycle";
 import { jobRunFinished, safeErrorMessage } from "../../observability";
 import { runWithJobExecutionLock, waitForJobExecution } from "./executionLock";
 
@@ -9,6 +10,18 @@ import { runWithJobExecutionLock, waitForJobExecution } from "./executionLock";
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 let initialTimer: ReturnType<typeof setTimeout> | null = null;
 let currentRun: Promise<void> | null = null;
+
+function warnAbandonFailed(err: unknown) {
+  console.warn(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: "warn",
+      service: "maintenance-api",
+      event: "abandon_stale_job_runs_failed",
+      error: safeErrorMessage(err),
+    }),
+  );
+}
 
 async function runOnce(run: typeof runAllJobs) {
   if (currentRun) return currentRun;
@@ -38,17 +51,29 @@ export async function stopJobScheduler() {
   await waitForJobExecution();
 }
 
-/** Start the interval loop once; subsequent calls are no-ops. */
-export function startJobScheduler(intervalMs = 5 * 60 * 1000, run = runAllJobs) {
+/**
+ * Start the interval loop once; subsequent calls are no-ops.
+ * Sweeps stale `running` JobRuns on boot and on every interval tick so crash
+ * orphans clear within TTL + one interval without waiting for another restart.
+ * @param abandon injectable for unit tests (defaults to abandonStaleRunningJobRuns).
+ */
+export function startJobScheduler(
+  intervalMs = 5 * 60 * 1000,
+  run = runAllJobs,
+  abandon: () => Promise<unknown> = abandonStaleRunningJobRuns,
+) {
   // Already started — avoid stacking intervals on hot reload / double boot.
   if (schedulerTimer) return;
+  // Boot sweep: only rows past the stale TTL (multi-instance safe).
+  void abandon().catch(warnAbandonFailed);
   // Initial delay so boot + migrate settle before the first run.
   initialTimer = setTimeout(() => {
     initialTimer = null;
     void runOnce(run);
   }, 15_000);
-  // Recurring tick at intervalMs (default 5 minutes).
+  // Recurring tick: stale sweep first, then the job cycle.
   schedulerTimer = setInterval(() => {
+    void abandon().catch(warnAbandonFailed);
     void runOnce(run);
   }, intervalMs);
 }

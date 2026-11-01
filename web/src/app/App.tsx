@@ -3,7 +3,7 @@
  * active panel. Pre-auth routes (login, activate) are handled by
  * `AppRouting` before this shell renders.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BrandMark } from "../components/BrandMark";
 import { NotificationInbox } from "../components/NotificationInbox";
 import {
@@ -12,6 +12,7 @@ import {
   ROLE_LABELS,
   type Panel,
 } from "../api/client";
+import type { BoardFocus } from "./boardFocus";
 import { NavIcon } from "./NavIcon";
 import { ActivePanel, AppRouting } from "./routing";
 import { useAuthBootstrap } from "./useAuthBootstrap";
@@ -82,13 +83,23 @@ export default function App() {
   // Local React state.
   const [navOpen, setNavOpen] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [boardFocus, setBoardFocus] = useState<BoardFocus | null>(null);
   useEffect(() => { if (user) setSignOutError(null); }, [user?.id]);
   // Locale-driven sidebar labels (BG default, EN when settings say so).
   const panelLabels = locale === "en" ? PANEL_LABELS_EN : PANEL_LABELS_BG;
 
+  const onNavigateToFocus = useCallback(
+    (panel: Panel, focus?: BoardFocus | null) => {
+      if (!panels.includes(panel)) return;
+      setBoardFocus(focus ?? null);
+      setView(panel);
+    },
+    [panels, setView],
+  );
+  const onBoardFocusConsumed = useCallback(() => setBoardFocus(null), []);
+
   // Close the mobile drawer whenever the active panel changes.
   useEffect(() => {
-    // State transition.
     setNavOpen(false);
   }, [view]);
 
@@ -253,6 +264,9 @@ export default function App() {
                 panels={panels}
                 setView={setView}
                 setUser={setUser}
+                boardFocus={boardFocus}
+                onBoardFocusConsumed={onBoardFocusConsumed}
+                onNavigateToFocus={onNavigateToFocus}
               />
             </div>
           </div>

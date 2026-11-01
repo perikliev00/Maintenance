@@ -3,7 +3,8 @@ import "dotenv/config";
 import { createServer } from "node:http";
 import { assertEnv } from "./env";
 import { createApp, initializeRequiredDefaults, setShuttingDown } from "./app";
-import { startJobScheduler, stopJobScheduler } from "./services/jobs";
+import { stopJobScheduler } from "./services/jobs";
+import { wireJobSchedulerAfterBootstrap } from "./services/jobs/schedulerBoot";
 import { prisma } from "./db";
 import { closeSseStreams } from "./controllers/events";
 import { safeErrorMessage } from "./observability";
@@ -17,7 +18,11 @@ async function main() {
   server.listen(port, "0.0.0.0", () => {
     console.log(JSON.stringify({ timestamp: new Date().toISOString(), level: "info", service: "maintenance-api", event: "listening", port, release: process.env.RELEASE_SHA ?? "unknown" }));
     startupTask = initializeRequiredDefaults()
-      .then(() => { if (!closing) startJobScheduler(); })
+      .then(() => {
+        // E2E / local probes set DISABLE_JOB_SCHEDULER=1 so manual POST /jobs/run
+        // is not blocked by the boot cycle holding the advisory lock.
+        wireJobSchedulerAfterBootstrap(closing);
+      })
       .catch(async (err) => {
         console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "fatal", service: "maintenance-api", event: "bootstrap_failed", error: safeErrorMessage(err) }));
         setShuttingDown(true);

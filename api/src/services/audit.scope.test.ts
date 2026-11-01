@@ -33,6 +33,35 @@ describe("auditScopeArgsFor", () => {
 });
 
 describe("auditEventMatchesScope", () => {
+  it("BUG-01: SLA/overdue rows without locationId are excluded from sector scope", () => {
+    const locs = ["loc-own"];
+    const sectors = ["sec-own"];
+    assert.equal(
+      auditEventMatchesScope(
+        {
+          locationId: null,
+          entityType: "maintenance_ticket",
+          entityId: "tkt-1",
+        },
+        locs,
+        sectors,
+      ),
+      false,
+    );
+    assert.equal(
+      auditEventMatchesScope(
+        {
+          locationId: "loc-own",
+          entityType: "maintenance_ticket",
+          entityId: "tkt-1",
+        },
+        locs,
+        sectors,
+      ),
+      true,
+    );
+  });
+
   it("matches in-scope location events and own sector entity rows", () => {
     const locs = ["loc-own"];
     const sectors = ["sec-own"];

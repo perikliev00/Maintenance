@@ -100,6 +100,7 @@ export function LocationRow({
 
   return (
     <tr
+      id={`location-row-${loc.id}`}
       className={`location-row-clickable${
         detailLocationId === loc.id ? " location-row-selected" : ""
       }`}

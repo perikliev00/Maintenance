@@ -148,23 +148,54 @@ export async function fetchLocationHierarchy(): Promise<
   return parseJson(res);
 }
 
+export type LocationsCatalogPage = {
+  items: Room[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+
 /** Flat location catalog; optional kind filter and archived include. */
 export async function fetchLocationsCatalog(params?: {
   kind?: LocationKind;
   includeArchived?: boolean;
+  signal?: AbortSignal;
 }): Promise<Room[]> {
   const search = new URLSearchParams();
-  // Branch: conditional gate.
   if (params?.kind) search.set("kind", params.kind);
-  // Branch: conditional gate.
   if (params?.includeArchived) search.set("includeArchived", "true");
-  // Optional query suffix.
   const qs = search.toString();
-  // Authenticated HTTP request.
   const res = await apiFetch(`${API_BASE}/locations${qs ? `?${qs}` : ""}`, {
     headers: authHeaders(),
+    signal: params?.signal,
   });
-  // Return value / early exit.
+  return parseJson(res);
+}
+
+/**
+ * Server-paginated catalog for admin UI (rooms / common areas / picker).
+ * Does not drain all pages — one PostgreSQL page per call.
+ */
+export async function fetchLocationsCatalogPage(params?: {
+  kind?: LocationKind;
+  includeArchived?: boolean;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  signal?: AbortSignal;
+}): Promise<LocationsCatalogPage> {
+  const search = new URLSearchParams();
+  search.set("paged", "true");
+  if (params?.kind) search.set("kind", params.kind);
+  if (params?.includeArchived) search.set("includeArchived", "true");
+  if (params?.q?.trim()) search.set("q", params.q.trim());
+  if (params?.page != null) search.set("page", String(params.page));
+  if (params?.pageSize != null) search.set("pageSize", String(params.pageSize));
+  const res = await apiFetch(`${API_BASE}/locations?${search}`, {
+    headers: authHeaders(),
+    signal: params?.signal,
+  });
   return parseJson(res);
 }
 

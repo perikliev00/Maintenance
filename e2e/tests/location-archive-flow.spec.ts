@@ -30,6 +30,9 @@ test.describe("E2E-03 location archive flow", () => {
       await expect(catalogTab).toBeVisible({ timeout: 20_000 });
       await catalogTab.click();
 
+      // Server pagination: search so the fixture room is on the current page.
+      const search = page.getByPlaceholder(/Номер \/ сграда|Number \/ building/i);
+      await search.fill(room.number);
       const roomCell = page.getByText(room.number, { exact: true });
       await expect(roomCell).toBeVisible({ timeout: 20_000 });
 
@@ -66,6 +69,9 @@ test.describe("E2E-03 location archive flow", () => {
       if (!(await showArchived.isChecked())) {
         await showArchived.check();
       }
+      await page
+        .getByPlaceholder(/Номер \/ сграда|Number \/ building/i)
+        .fill(room.number);
       await expect(page.getByText(room.number, { exact: true })).toBeVisible({
         timeout: 15_000,
       });

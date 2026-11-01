@@ -108,6 +108,7 @@ export {
   fetchCommonAreas,
   fetchLocationHierarchy,
   fetchLocationsCatalog,
+  fetchLocationsCatalogPage,
   fetchRooms,
   markCommonAreaDirty,
   markRoomDirty,
@@ -119,6 +120,7 @@ export {
   type LocationKind,
   type LocationOccupancy,
   type LocationServiceStatus,
+  type LocationsCatalogPage,
   type Room,
 } from "./locationsApi";
 
@@ -126,12 +128,15 @@ export {
 // Re-export public API surface.
 export {
   fetchOperationsLive,
+  fetchOperationsLiveAttention,
   type LiveActiveSession,
   type LiveAuditItem,
   type LiveBoardEmployee,
   type LiveBoardLocation,
   type LiveCompletedSession,
   type LiveNeedsAttention,
+  type AttentionPageMeta,
+  type LiveAttentionPage,
   type OperationsLive,
 } from "./operationsLiveApi";
 

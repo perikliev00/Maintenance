@@ -1004,6 +1004,38 @@ tbody tr:hover {
   margin-top: 0.25rem;
 }
 
+.housekeeping-modal {
+  width: min(720px, 100%);
+  max-height: min(92vh, 900px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.housekeeping-modal .modal-form-scroll {
+  overflow: auto;
+  max-height: min(70vh, 640px);
+  padding-right: 0.25rem;
+}
+
+.pagination-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.pagination-bar .muted {
+  margin-right: auto;
+}
+
+.location-archived-tag {
+  color: var(--danger, #b42318);
+  font-size: 0.8em;
+  margin-left: 0.35rem;
+}
+
 .reassign-modal {
   width: min(560px, 100%);
   max-height: min(90vh, 720px);
@@ -1975,6 +2007,34 @@ tbody tr:hover {
 }
 
 
+/* Live board category semantics (light + dark via theme tokens) */
+:root,
+[data-theme="dark"] {
+  --live-active: #3b82f6;
+  --live-active-bg: rgba(59, 130, 246, 0.14);
+  --live-overdue: #f59e0b;
+  --live-overdue-bg: rgba(245, 158, 11, 0.16);
+  --live-anomaly: #ef4444;
+  --live-anomaly-bg: rgba(239, 68, 68, 0.16);
+  --live-inspection: #a855f7;
+  --live-inspection-bg: rgba(168, 85, 247, 0.16);
+  --live-blocking: #ec4899;
+  --live-blocking-bg: rgba(236, 72, 153, 0.16);
+}
+
+[data-theme="light"] {
+  --live-active: #1d4ed8;
+  --live-active-bg: rgba(29, 78, 216, 0.1);
+  --live-overdue: #b45309;
+  --live-overdue-bg: rgba(245, 158, 11, 0.18);
+  --live-anomaly: #b91c1c;
+  --live-anomaly-bg: rgba(239, 68, 68, 0.12);
+  --live-inspection: #7e22ce;
+  --live-inspection-bg: rgba(168, 85, 247, 0.12);
+  --live-blocking: #be185d;
+  --live-blocking-bg: rgba(236, 72, 153, 0.12);
+}
+
 /* Live board (S09) */
 .live-board-header {
   display: flex;
@@ -2036,6 +2096,94 @@ tbody tr:hover {
   margin: 0 0 1rem;
 }
 
+.live-stat-card {
+  display: grid;
+  gap: 0.2rem;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  background: var(--surface);
+  color: inherit;
+  position: relative;
+}
+
+.live-stat-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.live-stat-card-active {
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+.live-stat-card-zero {
+  opacity: 0.72;
+}
+
+.live-stat-marker {
+  position: absolute;
+  left: 0;
+  top: 0.55rem;
+  bottom: 0.55rem;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: currentColor;
+}
+
+.live-cat-active {
+  color: var(--live-active);
+  background: var(--live-active-bg);
+  border-color: color-mix(in srgb, var(--live-active) 45%, var(--border));
+}
+
+.live-cat-overdue {
+  color: var(--live-overdue);
+  background: var(--live-overdue-bg);
+  border-color: color-mix(in srgb, var(--live-overdue) 45%, var(--border));
+}
+
+.live-cat-anomaly {
+  color: var(--live-anomaly);
+  background: var(--live-anomaly-bg);
+  border-color: color-mix(in srgb, var(--live-anomaly) 45%, var(--border));
+}
+
+.live-cat-inspection {
+  color: var(--live-inspection);
+  background: var(--live-inspection-bg);
+  border-color: color-mix(in srgb, var(--live-inspection) 45%, var(--border));
+}
+
+.live-cat-blocking {
+  color: var(--live-blocking);
+  background: var(--live-blocking-bg);
+  border-color: color-mix(in srgb, var(--live-blocking) 45%, var(--border));
+}
+
+.live-stat-card .muted,
+.live-stat-card strong {
+  color: var(--text);
+}
+
+.live-stat-card.live-cat-active .muted,
+.live-stat-card.live-cat-overdue .muted,
+.live-stat-card.live-cat-anomaly .muted,
+.live-stat-card.live-cat-inspection .muted,
+.live-stat-card.live-cat-blocking .muted {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.live-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 0 0 0.85rem;
+}
+
 .live-two-col {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -2058,12 +2206,65 @@ tbody tr:hover {
   font-size: 0.92rem;
 }
 
+.live-need {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.live-need-main {
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.live-need-inspection {
+  border-color: color-mix(in srgb, var(--live-inspection) 50%, var(--border));
+  background: color-mix(in srgb, var(--live-inspection-bg) 70%, var(--surface));
+}
+
+.live-need-overdue {
+  border-color: color-mix(in srgb, var(--live-overdue) 50%, var(--border));
+  background: color-mix(in srgb, var(--live-overdue-bg) 70%, var(--surface));
+}
+
+.live-need-blocking {
+  border-color: color-mix(in srgb, var(--live-blocking) 50%, var(--border));
+  background: color-mix(in srgb, var(--live-blocking-bg) 70%, var(--surface));
+}
+
+.live-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.live-load-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.live-row-active td {
+  background: color-mix(in srgb, var(--live-active-bg) 55%, transparent);
+}
+
 .live-row-overdue td {
-  background: color-mix(in srgb, var(--warn-bg) 35%, transparent);
+  background: color-mix(in srgb, var(--live-overdue-bg) 70%, transparent);
 }
 
 .live-row-anomaly td {
-  background: color-mix(in srgb, var(--danger-bg) 35%, transparent);
+  background: color-mix(in srgb, var(--live-anomaly-bg) 70%, transparent);
+}
+
+.badge.live-cat-active,
+.badge.live-cat-overdue,
+.badge.live-cat-anomaly,
+.badge.live-cat-inspection,
+.badge.live-cat-blocking {
+  border: 1px solid currentColor;
 }
 
 .badge {

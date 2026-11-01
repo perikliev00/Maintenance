@@ -130,14 +130,16 @@ export async function upsertSla(req: Request, res: Response, next: NextFunction)
   }
 }
 
-/** PATCH /settings/:key — update one setting value (optional reason for history). */
+/** PATCH /settings/:key — update one setting value (reason + required version CAS). */
 export async function update(req: Request, res: Response, next: NextFunction) {
   // Try block for fallible work.
   try {
-    // Zod schema for request shape.
+    // HTTP clients must send expectedVersion so stale tabs cannot last-write-wins.
+    // Internal service callers may still omit it.
     const schema = z.object({
       value: z.unknown(),
       reason: z.string().max(500).optional(),
+      expectedVersion: z.number().int().min(0),
     });
     // Parse and validate input.
     const parsed = schema.safeParse(req.body);
@@ -149,12 +151,13 @@ export async function update(req: Request, res: Response, next: NextFunction) {
         .json({ error: "validation", details: parsed.error.flatten() });
     }
 
-    // Service validates key schema and writes history.
+    // Service validates key schema, CAS version, and writes history.
     const result = await updateSetting({
       key: req.params.key,
       value: parsed.data.value,
       actorEmployeeId: req.user!.employeeId,
       reason: parsed.data.reason,
+      expectedVersion: parsed.data.expectedVersion,
     });
     // JSON success response.
     return res.json(result);

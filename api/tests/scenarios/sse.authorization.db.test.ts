@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { after, afterEach, before, describe, it } from "node:test";
 import { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../src/db";
+import { AppError } from "../../src/errors";
 import { assertTestDatabase } from "../assertTestDatabase";
 import {
   cleanupScopeSmokeFixture,
@@ -26,9 +27,9 @@ import {
   setLiveAuthorizationTestHooks,
 } from "../../src/services/liveAuthorization";
 import {
-  setSectorLocations,
-  updateSector,
-} from "../../src/services/sectors/commands";
+  setSectorLocationsAtHead,
+  updateSectorAtHead,
+} from "../sectors/fixtures";
 import { ensureDefaultRoleGrants } from "../../src/services/roleGrants";
 import type { AuthUser } from "../../src/middleware/auth";
 import type { LiveEvent } from "../../src/events/bus";
@@ -77,11 +78,11 @@ async function swapSupervisorsInTx(tx: PrismaTypes.TransactionClient) {
 }
 
 async function restoreSupervisors() {
-  await updateSector(fx.sectorAId, {
+  await updateSectorAtHead(prisma, fx.sectorAId, {
     primarySupervisorEmployeeId: fx.supervisorA.employeeId,
     actorEmployeeId: fx.manager.employeeId,
   });
-  await updateSector(fx.sectorBId, {
+  await updateSectorAtHead(prisma, fx.sectorBId, {
     primarySupervisorEmployeeId: fx.supervisorB.employeeId,
     actorEmployeeId: fx.manager.employeeId,
   });
@@ -195,7 +196,7 @@ describe("P1-115 SSE authorization serialization", () => {
     await inHook;
 
     // Delivery holds User FOR SHARE. Writer must wait — prove via lock waiters.
-    const writer = updateSector(fx.sectorAId, {
+    const writer = updateSectorAtHead(prisma, fx.sectorAId, {
       primarySupervisorEmployeeId: fx.supervisorB.employeeId,
       actorEmployeeId: fx.manager.employeeId,
     });
@@ -537,15 +538,15 @@ describe("P1-115 SSE authorization serialization", () => {
     };
 
     const delivery = authorizeLiveDelivery(user, event, () => undefined);
-    const writer = updateSector(fx.sectorAId, {
+    const writer = updateSectorAtHead(prisma, fx.sectorAId, {
       nameBg: `Sector A ${Date.now()}`,
       actorEmployeeId: fx.manager.employeeId,
     });
-    const swap = updateSector(fx.sectorAId, {
+    const swap = updateSectorAtHead(prisma, fx.sectorAId, {
       primarySupervisorEmployeeId: fx.supervisorB.employeeId,
       actorEmployeeId: fx.manager.employeeId,
     });
-    const membership = setSectorLocations(fx.sectorBId, [fx.locBId], {
+    const membership = setSectorLocationsAtHead(prisma, fx.sectorBId, [fx.locBId], {
       actorEmployeeId: fx.manager.employeeId,
       scope: {
         kind: "all",
@@ -562,12 +563,28 @@ describe("P1-115 SSE authorization serialization", () => {
       swap,
       membership,
     ]);
-    for (const s of settled) {
-      assert.equal(s.status, "fulfilled", String(s));
+    // Delivery + cross-sector membership must complete; concurrent same-sector
+    // writers may lose expectedVersion CAS (409) but must not hang.
+    assert.equal(settled[0]!.status, "fulfilled", "delivery");
+    assert.equal(settled[3]!.status, "fulfilled", "membership");
+    const sectorWrites = [settled[1]!, settled[2]!];
+    assert.ok(
+      sectorWrites.some((s) => s.status === "fulfilled"),
+      "at least one sectorA writer must succeed",
+    );
+    for (const s of sectorWrites) {
+      if (s.status === "fulfilled") continue;
+      const err = s.reason;
+      assert.ok(
+        err instanceof AppError &&
+          err.status === 409 &&
+          err.code === "version_conflict",
+        `unexpected sector write failure: ${String(err)}`,
+      );
     }
 
     // Restore membership + supervisors for fixture reuse.
-    await setSectorLocations(fx.sectorAId, [fx.locAId], {
+    await setSectorLocationsAtHead(prisma, fx.sectorAId, [fx.locAId], {
       actorEmployeeId: fx.manager.employeeId,
       scope: {
         kind: "all",
@@ -577,7 +594,7 @@ describe("P1-115 SSE authorization serialization", () => {
       },
       allowCrossSectorTransfer: true,
     });
-    await setSectorLocations(fx.sectorBId, [fx.locBId], {
+    await setSectorLocationsAtHead(prisma, fx.sectorBId, [fx.locBId], {
       actorEmployeeId: fx.manager.employeeId,
       scope: {
         kind: "all",

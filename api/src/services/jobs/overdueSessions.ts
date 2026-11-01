@@ -83,12 +83,24 @@ export async function runOverdueSessions() {
             action: "session.overdue_detected",
             entityType: "cleaning_session",
             entityId: session.id,
-            after: { taskId: session.taskId, startedAt: session.startedAt.toISOString(), overdueMinutes: operations.overdueSessionMinutes },
+            // Scope-filtered audit readers need the room; omit → invisible under sector scope.
+            locationId: session.task.locationId,
+            summary: `Overdue cleaning: ${session.task.location.number}`,
+            after: {
+              taskId: session.taskId,
+              startedAt: session.startedAt.toISOString(),
+              overdueMinutes: operations.overdueSessionMinutes,
+              locationNumber: session.task.location.number,
+              sessionId: session.id,
+            },
           }, tx);
           return true;
         });
         if (!changed) continue;
-        publish("cleaning.changed", { taskId: session.taskId });
+        publish("cleaning.changed", {
+          taskId: session.taskId,
+          locationId: session.task.locationId,
+        });
         flagged += 1;
       }
 

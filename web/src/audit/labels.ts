@@ -81,9 +81,21 @@ const ACTION_LABELS: Record<string, Labeled> = {
     bg: "Помещението е маркирано като чисто",
     en: "Location marked clean",
   },
+  "location.reconcile_cleaning_status": {
+    bg: "Синхронизиран статус на почистване",
+    en: "Cleaning status reconciled",
+  },
+  "ticket.duplicate_override": {
+    bg: "Дублирана повреда (отмяна)",
+    en: "Duplicate ticket override",
+  },
 
   "sector.create": { bg: "Създаден сектор", en: "Sector created" },
   "sector.update": { bg: "Обновен сектор", en: "Sector updated" },
+  "sector.save": {
+    bg: "Запазен сектор с помещения",
+    en: "Sector saved with locations",
+  },
   "sector.locations.set": {
     bg: "Обновени помещения в сектор",
     en: "Sector locations updated",
@@ -174,6 +186,7 @@ const ENTITY_TYPE_LABELS: Record<string, Labeled> = {
   },
   device: { bg: "Устройство", en: "Device" },
   invitation: { bg: "Покана", en: "Invitation" },
+  employee: { bg: "Служител", en: "Employee" },
 };
 
 /** Bilingual / lookup table `JOB_KEY_LABELS` (data only). */
@@ -206,6 +219,10 @@ const JOB_KEY_LABELS: Record<string, Labeled> = {
     bg: "Сканиране за аномалии в сесии",
     en: "Session anomaly scan",
   },
+  stale_open_attendance: {
+    bg: "Просрочени отворени присъствия",
+    en: "Stale open attendance",
+  },
 };
 
 /** Bilingual / lookup table `STATUS_LABELS` (data only). */
@@ -227,89 +244,148 @@ const STATUS_LABELS: Record<string, Labeled> = {
   succeeded: { bg: "успешно", en: "succeeded" },
 };
 
+/** Build filter options from a bilingual label map (keeps filters in sync). */
+function filtersFromLabels(
+  labels: Record<string, Labeled>,
+  order: string[],
+): { value: string; bg: string; en: string }[] {
+  return order
+    .filter((value) => labels[value])
+    .map((value) => ({ value, ...labels[value]! }));
+}
+
+/**
+ * Live producer actions that must remain filterable (sync with
+ * api/src/services/audit.producers.ts).
+ */
+export const REQUIRED_AUDIT_PRODUCER_ACTIONS = [
+  "ticket.create",
+  "ticket.assign",
+  "ticket.start",
+  "ticket.wait",
+  "ticket.resume",
+  "ticket.resolve",
+  "ticket.close",
+  "ticket.reopen",
+  "ticket.sla_breach",
+  "ticket.duplicate_override",
+  "cleaning.task.create",
+  "cleaning.task.start",
+  "cleaning.task.reassign",
+  "cleaning.session.complete",
+  "cleaning.session.cancel",
+  "cleaning.inspect",
+  "session.overdue_detected",
+  "location.create",
+  "location.update",
+  "location.archive",
+  "location.restore",
+  "location.set_occupancy",
+  "location.set_service_status",
+  "location.mark_dirty",
+  "location.reconcile_cleaning_status",
+  "sector.create",
+  "sector.update",
+  "sector.save",
+  "shift.roster.upsert",
+  "card.issue",
+  "card.revoke",
+  "setting.update",
+  "permission.grant",
+  "permission.revoke",
+  "adjustment.request",
+  "adjustment.review",
+  "sla_policy.upsert",
+  "user.lock_inactive",
+  "people.block",
+  "people.unblock",
+  "people.archive",
+  "people.restore",
+  "device.revoke",
+  "sync.push",
+] as const;
+
 /** Actions shown in the audit filter dropdown (friendly order). */
 export const AUDIT_ACTION_FILTERS: { value: string; bg: string; en: string }[] =
-  [
-    { value: "ticket.create", ...ACTION_LABELS["ticket.create"] },
-    { value: "ticket.assign", ...ACTION_LABELS["ticket.assign"] },
-    { value: "ticket.start", ...ACTION_LABELS["ticket.start"] },
-    { value: "ticket.wait", ...ACTION_LABELS["ticket.wait"] },
-    { value: "ticket.resume", ...ACTION_LABELS["ticket.resume"] },
-    { value: "ticket.resolve", ...ACTION_LABELS["ticket.resolve"] },
-    { value: "ticket.close", ...ACTION_LABELS["ticket.close"] },
-    { value: "ticket.reopen", ...ACTION_LABELS["ticket.reopen"] },
-    { value: "ticket.sla_breach", ...ACTION_LABELS["ticket.sla_breach"] },
-    { value: "cleaning.task.create", ...ACTION_LABELS["cleaning.task.create"] },
-    { value: "cleaning.task.start", ...ACTION_LABELS["cleaning.task.start"] },
-    {
-      value: "cleaning.task.reassign",
-      ...ACTION_LABELS["cleaning.task.reassign"],
-    },
-    {
-      value: "cleaning.session.complete",
-      ...ACTION_LABELS["cleaning.session.complete"],
-    },
-    {
-      value: "cleaning.session.cancel",
-      ...ACTION_LABELS["cleaning.session.cancel"],
-    },
-    { value: "cleaning.inspect", ...ACTION_LABELS["cleaning.inspect"] },
-    { value: "location.create", ...ACTION_LABELS["location.create"] },
-    { value: "location.update", ...ACTION_LABELS["location.update"] },
-    { value: "location.archive", ...ACTION_LABELS["location.archive"] },
-    { value: "location.restore", ...ACTION_LABELS["location.restore"] },
-    {
-      value: "location.set_occupancy",
-      ...ACTION_LABELS["location.set_occupancy"],
-    },
-    {
-      value: "location.set_service_status",
-      ...ACTION_LABELS["location.set_service_status"],
-    },
-    { value: "location.mark_dirty", ...ACTION_LABELS["location.mark_dirty"] },
-    { value: "sector.create", ...ACTION_LABELS["sector.create"] },
-    { value: "sector.update", ...ACTION_LABELS["sector.update"] },
-    { value: "sector.locations.set", ...ACTION_LABELS["sector.locations.set"] },
-    { value: "shift.roster.upsert", ...ACTION_LABELS["shift.roster.upsert"] },
-    { value: "card.issue", ...ACTION_LABELS["card.issue"] },
-    { value: "card.revoke", ...ACTION_LABELS["card.revoke"] },
-    { value: "setting.update", ...ACTION_LABELS["setting.update"] },
-    { value: "permission.grant", ...ACTION_LABELS["permission.grant"] },
-    { value: "permission.revoke", ...ACTION_LABELS["permission.revoke"] },
-    { value: "adjustment.request", ...ACTION_LABELS["adjustment.request"] },
-    { value: "adjustment.review", ...ACTION_LABELS["adjustment.review"] },
-    { value: "sla_policy.upsert", ...ACTION_LABELS["sla_policy.upsert"] },
-    { value: "user.lock_inactive", ...ACTION_LABELS["user.lock_inactive"] },
-    {
-      value: "session.overdue_detected",
-      ...ACTION_LABELS["session.overdue_detected"],
-    },
-    { value: "sync.push", ...ACTION_LABELS["sync.push"] },
-  ];
+  filtersFromLabels(ACTION_LABELS, [
+    "ticket.create",
+    "ticket.assign",
+    "ticket.start",
+    "ticket.wait",
+    "ticket.resume",
+    "ticket.resolve",
+    "ticket.close",
+    "ticket.reopen",
+    "ticket.sla_breach",
+    "ticket.duplicate_override",
+    "cleaning.task.create",
+    "cleaning.task.start",
+    "cleaning.task.reassign",
+    "cleaning.session.complete",
+    "cleaning.session.cancel",
+    "cleaning.inspect",
+    "session.start",
+    "session.complete",
+    "session.overdue_detected",
+    "task.rework",
+    "location.create",
+    "location.update",
+    "location.archive",
+    "location.restore",
+    "location.set_occupancy",
+    "location.set_service_status",
+    "location.mark_dirty",
+    "location.mark_clean",
+    "location.reconcile_cleaning_status",
+    "sector.create",
+    "sector.update",
+    "sector.save",
+    "sector.locations.set",
+    "shift.roster.upsert",
+    "card.issue",
+    "card.revoke",
+    "setting.update",
+    "permission.grant",
+    "permission.revoke",
+    "adjustment.request",
+    "adjustment.review",
+    "attendance.review",
+    "sla_policy.upsert",
+    "user.lock_inactive",
+    "people.block",
+    "people.unblock",
+    "people.archive",
+    "people.restore",
+    "device.revoke",
+    "invitation.revoke",
+    "daily_plan.import",
+    "sync.push",
+  ]);
 
 /** Entity types shown in the audit filter dropdown. */
 export const AUDIT_ENTITY_FILTERS: { value: string; bg: string; en: string }[] =
-  [
-    { value: "ticket", ...ENTITY_TYPE_LABELS.ticket },
-    { value: "maintenance_ticket", ...ENTITY_TYPE_LABELS.maintenance_ticket },
-    { value: "cleaning_task", ...ENTITY_TYPE_LABELS.cleaning_task },
-    { value: "cleaning_session", ...ENTITY_TYPE_LABELS.cleaning_session },
-    { value: "inspection", ...ENTITY_TYPE_LABELS.inspection },
-    { value: "location", ...ENTITY_TYPE_LABELS.location },
-    { value: "sector", ...ENTITY_TYPE_LABELS.sector },
-    { value: "shift_roster", ...ENTITY_TYPE_LABELS.shift_roster },
-    { value: "card", ...ENTITY_TYPE_LABELS.card },
-    { value: "access_card", ...ENTITY_TYPE_LABELS.access_card },
-    { value: "setting", ...ENTITY_TYPE_LABELS.setting },
-    { value: "role_grant", ...ENTITY_TYPE_LABELS.role_grant },
-    {
-      value: "attendance_adjustment",
-      ...ENTITY_TYPE_LABELS.attendance_adjustment,
-    },
-    { value: "user", ...ENTITY_TYPE_LABELS.user },
-    { value: "sla_policy", ...ENTITY_TYPE_LABELS.sla_policy },
-    { value: "sync_run", ...ENTITY_TYPE_LABELS.sync_run },
-  ];
+  filtersFromLabels(ENTITY_TYPE_LABELS, [
+    "ticket",
+    "maintenance_ticket",
+    "cleaning_task",
+    "cleaning_session",
+    "inspection",
+    "location",
+    "sector",
+    "shift_roster",
+    "card",
+    "access_card",
+    "setting",
+    "role_grant",
+    "attendance_adjustment",
+    "user",
+    "employee",
+    "device",
+    "invitation",
+    "sla_policy",
+    "sync_run",
+    "daily_plan_import_batch",
+  ]);
 
 /** Localized action name for list rows and filters. */
 export function actionLabel(action: string, locale: AuditLocale): string {
@@ -414,8 +490,73 @@ function formatScalar(value: unknown, locale: AuditLocale): string {
     // Return value / early exit.
     return value;
   }
-  // Return value / early exit.
-  return String(value);
+  // Arrays / objects must never fall through to String(value) → [object Object].
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return pick(locale, { bg: "(нечетима стойност)", en: "(unreadable value)" });
+  }
+}
+
+/** True when both sides are plain objects (eligible for nested path diff). */
+function bothRecords(
+  a: unknown,
+  b: unknown,
+): a is Record<string, unknown> {
+  return asRecord(a) != null && asRecord(b) != null;
+}
+
+/**
+ * Flatten nested before/after into path-prefixed lines so settings-style
+ * nested JSON (e.g. notifications.email.enabled) stays human-readable.
+ */
+function appendDiffLines(
+  lines: string[],
+  path: string,
+  fromVal: unknown,
+  toVal: unknown,
+  locale: AuditLocale,
+  depth: number,
+): void {
+  if (fromVal === undefined && toVal === undefined) return;
+  if (JSON.stringify(fromVal) === JSON.stringify(toVal)) return;
+
+  // Recurse into matching object shapes (bounded depth).
+  if (
+    depth < 6 &&
+    ((bothRecords(fromVal, toVal)) ||
+      (fromVal === undefined && asRecord(toVal)) ||
+      (toVal === undefined && asRecord(fromVal)))
+  ) {
+    const fromObj = asRecord(fromVal) ?? {};
+    const toObj = asRecord(toVal) ?? {};
+    const keys = new Set([...Object.keys(fromObj), ...Object.keys(toObj)]);
+    for (const key of keys) {
+      const childPath = path ? `${path}.${key}` : key;
+      appendDiffLines(lines, childPath, fromObj[key], toObj[key], locale, depth + 1);
+    }
+    return;
+  }
+
+  const label = path
+    .split(".")
+    .map((part) => humanizeKey(part))
+    .join(" › ");
+
+  if (fromVal !== undefined && toVal !== undefined) {
+    lines.push(
+      `${label}: ${formatScalar(fromVal, locale)} → ${formatScalar(toVal, locale)}`,
+    );
+  } else if (toVal !== undefined) {
+    lines.push(`${label}: ${formatScalar(toVal, locale)}`);
+  } else {
+    lines.push(
+      pick(locale, {
+        bg: `${label}: премахнато (${formatScalar(fromVal, locale)})`,
+        en: `${label}: removed (${formatScalar(fromVal, locale)})`,
+      }),
+    );
+  }
 }
 
 /** Readable before/after lines for the details panel. */
@@ -428,7 +569,7 @@ export function formatAuditDetails(
   const afterObj = asRecord(after);
   const lines: string[] = [];
 
-  // Branch: conditional gate.
+  // Prefer a bilingual Status line when either side carries status.
   if (beforeObj?.status !== undefined || afterObj?.status !== undefined) {
     const from =
       beforeObj?.status !== undefined
@@ -438,7 +579,6 @@ export function formatAuditDetails(
       afterObj?.status !== undefined
         ? formatScalar(afterObj.status, locale)
         : "—";
-    // Accumulate display line.
     lines.push(
       pick(locale, {
         bg: `Статус: ${from} → ${to}`,
@@ -447,50 +587,18 @@ export function formatAuditDetails(
     );
   }
 
-  // Build unique-key set.
   const keys = new Set([
-    // Enumerate object keys/entries.
     ...Object.keys(beforeObj ?? {}),
-    // Enumerate object keys/entries.
     ...Object.keys(afterObj ?? {}),
   ]);
   keys.delete("status");
 
-  // Loop over collection.
   for (const key of keys) {
-    const fromVal = beforeObj?.[key];
-    const toVal = afterObj?.[key];
-    // Branch: conditional gate.
-    if (fromVal === undefined && toVal === undefined) continue;
-    // Branch: conditional gate.
-    if (JSON.stringify(fromVal) === JSON.stringify(toVal)) continue;
-
-    const label = humanizeKey(key);
-    // Branch: conditional gate.
-    if (fromVal !== undefined && toVal !== undefined) {
-      // Accumulate display line.
-      lines.push(
-        `${label}: ${formatScalar(fromVal, locale)} → ${formatScalar(toVal, locale)}`,
-      );
-    } else if (toVal !== undefined) {
-      // Accumulate display line.
-      lines.push(`${label}: ${formatScalar(toVal, locale)}`);
-    } else {
-      // Accumulate display line.
-      lines.push(
-        pick(locale, {
-          bg: `${label}: премахнато (${formatScalar(fromVal, locale)})`,
-          en: `${label}: removed (${formatScalar(fromVal, locale)})`,
-        }),
-      );
-    }
+    appendDiffLines(lines, key, beforeObj?.[key], afterObj?.[key], locale, 0);
   }
 
-  // Branch: conditional gate.
   if (lines.length === 0 && (before != null || after != null)) {
-    // Branch: conditional gate.
     if (before != null && after == null) {
-      // Accumulate display line.
       lines.push(
         pick(locale, {
           bg: "Има записана предишна стойност",
@@ -498,15 +606,23 @@ export function formatAuditDetails(
         }),
       );
     } else if (before == null && after != null) {
-      // Accumulate display line.
-      lines.push(
-        pick(locale, {
-          bg: "Има записана нова стойност",
-          en: "New value recorded",
-        }),
-      );
+      // Non-object payload (array / primitive) — show compact JSON.
+      if (!afterObj) {
+        lines.push(
+          pick(locale, {
+            bg: `Нова стойност: ${formatScalar(after, locale)}`,
+            en: `New value: ${formatScalar(after, locale)}`,
+          }),
+        );
+      } else {
+        lines.push(
+          pick(locale, {
+            bg: "Има записана нова стойност",
+            en: "New value recorded",
+          }),
+        );
+      }
     } else {
-      // Accumulate display line.
       lines.push(
         pick(locale, {
           bg: "Промяната е записана",
@@ -516,7 +632,6 @@ export function formatAuditDetails(
     }
   }
 
-  // Return value / early exit.
   return lines;
 }
 
@@ -568,7 +683,11 @@ export function formatJobSummary(
   }
 
   // Branch: conditional gate.
-  if (jobKey === "overdue_sessions" || jobKey === "sessions.anomaly_scan") {
+  if (
+    jobKey === "overdue_sessions" ||
+    jobKey === "sessions.anomaly_scan" ||
+    jobKey === "stale_open_attendance"
+  ) {
     const scanned = obj.scanned != null ? Number(obj.scanned) : null;
     const flagged = obj.flagged != null ? Number(obj.flagged) : null;
     const parts: string[] = [];

@@ -21,6 +21,7 @@ export const sectorInclude = {
           id: true,
           number: true,
           kind: true,
+          catalogStatus: true,
           floor: {
             select: {
               number: true,
@@ -50,6 +51,7 @@ export function mapSector(
     nameBg: sector.nameBg,
     nameEn: sector.nameEn,
     isActive: sector.isActive,
+    version: sector.version,
     // Null when no primary supervisor is configured.
     primarySupervisor: sector.primarySupervisor
       ? {
@@ -65,6 +67,7 @@ export function mapSector(
       id: sl.location.id,
       number: sl.location.number,
       kind: sl.location.kind,
+      catalogStatus: sl.location.catalogStatus,
       floor: sl.location.floor.number,
       buildingCode: sl.location.floor.building.code,
       building: sl.location.floor.building.name,

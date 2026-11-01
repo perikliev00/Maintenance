@@ -53,6 +53,12 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
       const warnings = await prisma.notification.findMany({ where: { entityId: overdue.id } }); assert.ok(warnings.length > 0);
       assert.equal((await runOverdueSessions()).flagged, 0);
       assert.equal(await prisma.auditEvent.count({ where: { entityId: overdue.id, action: "session.overdue_detected" } }), 1);
+      // BUG-01: overdue audit must carry locationId for sector/location scope filters.
+      const overdueAudit = await prisma.auditEvent.findFirstOrThrow({
+        where: { entityId: overdue.id, action: "session.overdue_detected" },
+      });
+      assert.equal(overdueAudit.locationId, world.locationAId);
+      assert.match(overdueAudit.summary ?? "", /Overdue cleaning/);
       assert.deepEqual(await prisma.notification.findMany({ where: { entityId: overdue.id } }), warnings);
       await prisma.cleaningSession.updateMany({ where: { id: { in: [overdue.id, recent.id] } }, data: { status: "completed", finishedAt: new Date(now) } });
     } finally { t.mock.timers.reset(); }
@@ -99,6 +105,16 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
       await runTicketSlaBreach();
       const audits = () => prisma.auditEvent.findMany({ where: { entityId: { in: ids }, action: "ticket.sla_breach" } });
       assert.deepEqual((await audits()).map(a => a.entityId), [ids[0]]);
+      // BUG-01 / BUG-08: SLA audit must include locationId + identifiable summary.
+      const slaAudit = await prisma.auditEvent.findFirstOrThrow({
+        where: { entityId: ids[0], action: "ticket.sla_breach" },
+      });
+      assert.equal(slaAudit.locationId, world.locationBId);
+      assert.match(slaAudit.summary ?? "", /SLA:/);
+      assert.match(slaAudit.summary ?? "", /SLA control/);
+      const after = slaAudit.after as Record<string, unknown>;
+      assert.equal(after.ticketId, ids[0]);
+      assert.equal(after.locationNumber, (await prisma.location.findUniqueOrThrow({ where: { id: world.locationBId } })).number);
       // Audit defaults use the real PostgreSQL clock; anchor this fixture to the
       // controlled application clock before testing the 12-hour window.
       await prisma.auditEvent.updateMany({ where: { entityId: ids[0], action: "ticket.sla_breach" }, data: { occurredAt: new Date(now) } });
@@ -148,6 +164,33 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
       await prisma.cleaningSession.update({ where: { id: row.id }, data: { status: "completed", finishedAt: new Date(now) } }); t.mock.timers.reset();
     }
   });
+  it("BUG concurrent SLA scans within 12h still leave a single audit marker", async t => {
+    t.mock.timers.enable({ apis: ["Date"], now });
+    try {
+      const ticket = await prisma.maintenanceTicket.create({
+        data: {
+          status: "new",
+          dueAt: new Date(now - 1),
+          locationId: world.locationAId,
+          title: "Concurrent SLA",
+          categoryKey: "other",
+          categoryLabelBg: "Друго",
+          categoryLabelEn: "Other",
+          reportedByEmployeeId: world.owner.employeeId,
+          assigneeId: world.technician.employeeId,
+        },
+      });
+      await Promise.all([runTicketSlaBreach(), runTicketSlaBreach()]);
+      const rows = await prisma.auditEvent.findMany({
+        where: { entityId: ticket.id, action: "ticket.sla_breach" },
+      });
+      assert.equal(rows.length, 1, "ticket FOR UPDATE must serialize SLA audit inserts");
+      assert.equal(rows[0]!.locationId, world.locationAId);
+    } finally {
+      t.mock.timers.reset();
+    }
+  });
+
   it("P2-56 attention deduplicates awaiting+overdue task and drops terminal ticket/task", async () => {
     const terminal = await prisma.maintenanceTicket.create({ data: { locationId: world.locationBId, title: "Terminal control", categoryKey: "other", categoryLabelBg: "Друго", categoryLabelEn: "Other", status: "resolved", blocksRoom: true, reportedByEmployeeId: world.owner.employeeId } });
     const task = await prisma.cleaningTask.create({ data: { locationId: world.locationBId, hotelDate: new Date("2026-01-16"), cleaningCycle: 0, status: "awaiting_inspection", dueAt: new Date(now - 1000) } });

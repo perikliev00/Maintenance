@@ -91,14 +91,21 @@ export type RoleGrants = { panels: string[]; actions: string[] };
 export async function getRoleGrants(
   ownerToken: string,
   role: string,
-): Promise<RoleGrants> {
+): Promise<RoleGrants & { version: number }> {
   const res = await apiGet(ownerToken, "/permissions/matrix");
   expect(res.status).toBe(200);
-  const byRole = (res.body as { byRole?: Record<string, RoleGrants> }).byRole;
+  const body = res.body as {
+    byRole?: Record<string, RoleGrants>;
+    versions?: Record<string, number>;
+  };
+  const byRole = body.byRole;
   expect(byRole?.[role], `matrix missing role ${role}`).toBeTruthy();
+  const version = body.versions?.[role];
+  expect(typeof version, `matrix versions missing ${role}`).toBe("number");
   return {
     panels: [...(byRole![role].panels ?? [])],
     actions: [...(byRole![role].actions ?? [])],
+    version: version!,
   };
 }
 
@@ -108,9 +115,11 @@ export async function putRoleGrants(
   grants: RoleGrants,
   reason = "e2e restore",
 ): Promise<void> {
+  const current = await getRoleGrants(ownerToken, role);
   const res = await apiPut(ownerToken, `/permissions/roles/${role}`, {
     panels: grants.panels,
     actions: grants.actions,
+    expectedVersion: current.version,
     reason,
   });
   expect(res.status, `put grants ${role} → ${res.status}`).toBe(200);
@@ -159,6 +168,16 @@ export async function patchModulesSetting(
   value: Record<string, boolean>,
   reason = "e2e modules",
 ): Promise<void> {
-  const res = await apiPatch(token, "/settings/modules", { value, reason });
+  // Read current version so restore/setup patches do not 409 against a concurrent UI save.
+  const current = await apiGet(token, "/settings");
+  expect(current.status).toBe(200);
+  const expectedVersion = (
+    current.body as { modules?: { version?: number } }
+  ).modules?.version;
+  const res = await apiPatch(token, "/settings/modules", {
+    value,
+    reason,
+    ...(typeof expectedVersion === "number" ? { expectedVersion } : {}),
+  });
   expect(res.status, `patch modules → ${res.status}`).toBe(200);
 }

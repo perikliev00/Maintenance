@@ -22,7 +22,19 @@ export { runStaleOpenAttendance } from "./staleAttendance";
 // Sequential orchestration entry for manual/cron triggers.
 export { runAllJobs } from "./orchestrator";
 // JobRun persistence helpers and history listing.
-export { listJobRuns } from "./runLifecycle";
+export {
+  listJobRuns,
+  abandonStaleRunningJobRuns,
+  finishJobRun,
+  startJobRun,
+} from "./runLifecycle";
 // In-process interval scheduler wiring all job keys.
 export { startJobScheduler, stopJobScheduler } from "./scheduler";
+export { isJobSchedulerDisabled } from "./schedulerFlag";
+export {
+  afterBootstrapStartJobs,
+  getJobSchedulerWireBindings,
+  wireJobSchedulerAfterBootstrap,
+  JOB_SCHEDULER_DISABLED_EVENT,
+} from "./schedulerBoot";
 export { runWithJobExecutionLock, waitForJobExecution } from "./executionLock";

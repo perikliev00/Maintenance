@@ -55,6 +55,9 @@ export default defineConfig({
             ...process.env,
             // Suite logins + live polls exceed production IP budgets from one runner.
             E2E_DISABLE_RATE_LIMIT: "1",
+            // Avoid boot/interval job cycles holding the advisory lock during
+            // Audit live E2E POST /jobs/run (otherwise 409 job_already_running).
+            DISABLE_JOB_SCHEDULER: "1",
           },
         },
         {

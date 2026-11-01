@@ -11,6 +11,45 @@ function isProduction(): boolean {
 }
 
 /**
+ * Only these APP_ENV / DEPLOY_ENV / ENVIRONMENT values may coexist with
+ * DISABLE_JOB_SCHEDULER=1. Anything else (staging, live, qa, production-eu, …)
+ * is treated as a non-local deploy marker (allowlist, not denylist).
+ */
+const LOCAL_DEPLOY_LABELS = new Set([
+  "development",
+  "dev",
+  "test",
+  "local",
+]);
+
+/**
+ * DISABLE_JOB_SCHEDULER is local/E2E only. Refuse it for production, any
+ * non-local deploy label on APP_ENV/DEPLOY_ENV/ENVIRONMENT (any-of allowlist),
+ * and any deployed image that sets RELEASE_SHA (compose.prod.yml).
+ */
+export function assertDisableJobSchedulerAllowed(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (env.DISABLE_JOB_SCHEDULER !== "1") return;
+  if (env.NODE_ENV === "production") {
+    throw new Error("DISABLE_JOB_SCHEDULER cannot be enabled in production");
+  }
+  const deployLabels = [env.APP_ENV, env.DEPLOY_ENV, env.ENVIRONMENT]
+    .map((value) => (value ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  if (deployLabels.some((label) => !LOCAL_DEPLOY_LABELS.has(label))) {
+    throw new Error(
+      "DISABLE_JOB_SCHEDULER cannot be enabled in staging/production (APP_ENV/DEPLOY_ENV/ENVIRONMENT)",
+    );
+  }
+  if (env.RELEASE_SHA?.trim()) {
+    throw new Error(
+      "DISABLE_JOB_SCHEDULER cannot be enabled when RELEASE_SHA is set (deployed environment)",
+    );
+  }
+}
+
+/**
  * Fail fast on missing JWT_SECRET. In production, also reject denylisted
  * or short secrets so a copied .env.example cannot silently ship.
  */
@@ -44,6 +83,10 @@ export function assertEnv(): void {
 
   const insecure = INSECURE_JWT_SECRETS.has(secret);
   const tooShort = secret.length < MIN_JWT_SECRET_LENGTH;
+
+  // Always — not only inside the production block — so staging with
+  // NODE_ENV=development + APP_ENV/RELEASE_SHA still cannot disable jobs.
+  assertDisableJobSchedulerAllowed();
 
   if (isProduction()) {
     if (insecure) {

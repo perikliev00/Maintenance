@@ -47,6 +47,10 @@ export function LocationsPage({
   kind,
   publicSettings,
   locale: localeProp,
+  focusLocationId = null,
+  focusTaskId = null,
+  focusSessionId = null,
+  onFocusConsumed,
 }: LocationsPageProps) {
   const locale: BoardLocale =
     localeProp ?? publicSettings?.interface.locale ?? "bg";
@@ -132,6 +136,68 @@ export function LocationsPage({
     setRepairsLocationId(null);
     setDetailLocationId(id);
   }, []);
+
+  const focusAppliedRef = useRef<string | null>(null);
+  // Deep-link from live board: select the concrete location (and task/session) by id.
+  useEffect(() => {
+    if (!focusLocationId || loading) return;
+    const focusKey = `${focusLocationId}:${focusTaskId ?? ""}:${focusSessionId ?? ""}`;
+    if (focusAppliedRef.current === focusKey) return;
+    focusAppliedRef.current = focusKey;
+    const found = locations.find((l) => l.id === focusLocationId);
+    if (found) {
+      openDetail(focusLocationId);
+      // Scroll the selected row into view after paint.
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById(`location-row-${focusLocationId}`)
+          ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+      if (
+        focusTaskId &&
+        found.activeTask &&
+        found.activeTask.id !== focusTaskId
+      ) {
+        setMessage(
+          boardT(
+            locale,
+            "Помещението е отворено; задачата от таблото вече не е активна тук.",
+            "Location opened; the live-board task is no longer active here.",
+          ),
+        );
+      } else if (
+        focusSessionId &&
+        found.activeTask?.runningSession?.id &&
+        found.activeTask.runningSession.id !== focusSessionId
+      ) {
+        setMessage(
+          boardT(
+            locale,
+            "Помещението е отворено; сесията от таблото вече не е активна тук.",
+            "Location opened; the live-board session is no longer active here.",
+          ),
+        );
+      }
+    } else {
+      setError(
+        boardT(
+          locale,
+          "Помещението не е достъпно или липсва в този списък.",
+          "Location is unavailable or missing from this list.",
+        ),
+      );
+    }
+    onFocusConsumed?.();
+  }, [
+    focusLocationId,
+    focusTaskId,
+    focusSessionId,
+    loading,
+    locations,
+    openDetail,
+    onFocusConsumed,
+    locale,
+  ]);
   const openIssue = useCallback((id: string | null) => {
     setDetailLocationId(null);
     setReassignLocation(null);

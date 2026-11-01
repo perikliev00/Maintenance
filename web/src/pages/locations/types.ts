@@ -13,4 +13,10 @@ export type LocationsPageProps = {
   kind: LocationKindFilter;
   publicSettings?: PublicSettings | null;
   locale?: "bg" | "en";
+  /** Open this location detail when arriving from the live board. */
+  focusLocationId?: string | null;
+  /** Optional task/session ids from live board — used to validate/highlight. */
+  focusTaskId?: string | null;
+  focusSessionId?: string | null;
+  onFocusConsumed?: () => void;
 };

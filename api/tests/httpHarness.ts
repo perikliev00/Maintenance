@@ -120,6 +120,49 @@ export async function putJson(
   return requestJson(api, token, "PUT", pathName, payload);
 }
 
+/** Read current RoleGrantRevision version for a matrix role. */
+export async function getRoleGrantVersion(
+  api: string,
+  token: string,
+  role: string,
+): Promise<number> {
+  const matrix = await getJson(api, token, "/permissions/matrix");
+  assert.equal(matrix.status, 200, `matrix → ${matrix.status}`);
+  const versions = (matrix.body as { versions?: Record<string, number> })
+    .versions;
+  const version = versions?.[role];
+  assert.ok(
+    typeof version === "number",
+    `matrix versions missing ${role}: ${JSON.stringify(versions)}`,
+  );
+  return version;
+}
+
+/**
+ * PUT /permissions/roles/:role with the current expectedVersion from the matrix.
+ * Pass `expectedVersion` to override (stale-client / concurrency tests).
+ */
+export async function putRoleGrantsJson(
+  api: string,
+  token: string,
+  role: string,
+  body: {
+    panels: string[];
+    actions: string[];
+    reason?: string;
+    expectedVersion?: number;
+  },
+) {
+  const expectedVersion =
+    body.expectedVersion ?? (await getRoleGrantVersion(api, token, role));
+  return putJson(api, token, `/permissions/roles/${role}`, {
+    panels: body.panels,
+    actions: body.actions,
+    reason: body.reason,
+    expectedVersion,
+  });
+}
+
 export async function patchJson(
   api: string,
   token: string,

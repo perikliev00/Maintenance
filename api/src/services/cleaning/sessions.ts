@@ -16,11 +16,11 @@ import { getFlags, getOperations } from "../settings";
 // Module dependency import.
 import { recordAudit } from "../audit";
 // Module dependency import.
+import { recipientsForLocationOps } from "../notifications";
 import {
-  // Side effect: events / audit / notifications.
-  createNotifications,
-  recipientsForLocationOps,
-} from "../notifications";
+  deliverCleaningInspectionNotice,
+  enqueueCleaningInspectionNotice,
+} from "./notificationOutbox";
 // Module dependency import.
 import { taskInclude } from "../cleaningTasksQuery";
 // Module dependency import.
@@ -276,7 +276,13 @@ export async function completeCleaningSession(input: {
       existingByCommand.id === input.sessionId &&
         priorActor === input.employeeId,
     );
-    // Return result to caller.
+    // Repair undelivered inspection notices without replaying domain writes.
+    // Delivery failure must not invert the already-committed complete.
+    try {
+      await deliverCleaningInspectionNotice(input.commandId);
+    } catch {
+      // Intent remains undelivered; later replay / flush repairs.
+    }
     return { session: existingByCommand, task: existingByCommand.task, idempotent: true };
   }
 
@@ -457,70 +463,72 @@ export async function completeCleaningSession(input: {
         summary: `Completed cleaning ${updatedTask.location.number}`,
       }, tx);
 
-      // Return result to caller.
+      // Durable notice intent inside the same TX as the domain write.
+      if (nextTaskStatus === TaskStatus.awaiting_inspection) {
+        const recipients = await recipientsForLocationOps(
+          updatedTask.locationId,
+          "cleaning.inspect",
+        );
+        if (updatedTask.sectorSupervisorEmployeeId) {
+          recipients.push(updatedTask.sectorSupervisorEmployeeId);
+        }
+        await enqueueCleaningInspectionNotice(tx, input.commandId, {
+          type: "cleaning.needs_inspection",
+          title: "Inspection needed",
+          body: `Room ${updatedTask.location.number} awaiting inspection`,
+          entityType: "cleaning_task",
+          entityId: updatedTask.id,
+          locationId: updatedTask.locationId,
+          actorEmployeeId: input.employeeId,
+          recipientEmployeeIds: recipients,
+          dedupeKey: `cleaning.needs_inspection:${updatedTask.id}`,
+          payload: {
+            panel: "rooms",
+            taskId: updatedTask.id,
+            locationId: updatedTask.locationId,
+            locationNumber: updatedTask.location.number,
+          },
+        });
+      }
+
       return { session: updatedSession, task: updatedTask, idempotent: false };
     });
-    // Fresh complete — publish and optionally notify inspectors.
+
     if (!result.idempotent) {
       publish("cleaning.changed", {
         locationId: result.task.locationId,
         taskId: result.task.id,
       });
-      // Only when inspection is required and task landed in awaiting_inspection.
-      if (result.task.status === TaskStatus.awaiting_inspection) {
-        // Ops staff with cleaning.inspect for this location's scope.
-        const recipients = await recipientsForLocationOps(
-          result.task.locationId,
-          "cleaning.inspect",
-        );
-        // Also notify the sector supervisor snapshotted on the task.
-        if (result.task.sectorSupervisorEmployeeId) {
-          recipients.push(result.task.sectorSupervisorEmployeeId);
-        }
-        // Await async persistence or side effect.
-        await createNotifications({
-          type: "cleaning.needs_inspection",
-          title: "Inspection needed",
-          body: `Room ${result.task.location.number} awaiting inspection`,
-          entityType: "cleaning_task",
-          entityId: result.task.id,
-          locationId: result.task.locationId,
-          actorEmployeeId: input.employeeId,
-          recipientEmployeeIds: recipients,
-          dedupeKey: `cleaning.needs_inspection:${result.task.id}`,
-          payload: {
-            // Deep-link inspectors to cleaning panel.
-            panel: "cleaning",
-            taskId: result.task.id,
-            locationId: result.task.locationId,
-            locationNumber: result.task.location.number,
-          },
-        });
-      }
     }
-    // Return result to caller.
+    // Always attempt delivery (covers fresh complete + concurrent/idempotent replay).
+    // Delivery failure must not invert the committed complete into an API error.
+    try {
+      await deliverCleaningInspectionNotice(input.commandId);
+    } catch {
+      // Intent remains undelivered; replay / flushCleaningNotificationOutbox repairs.
+    }
     return result;
   } catch (err) {
     // Unique race on completeCommandId — treat as idempotent replay.
     if (isP2002(err)) {
-      // Await async query or service call.
       const again = await prisma.cleaningSession.findUnique({
         where: { completeCommandId: input.commandId },
         include: { task: { include: taskInclude } },
       });
-      // Guard / branch on preconditions.
       if (again) {
-        // Concurrent winner must match session + completing actor.
         const priorActor =
           again.completeActorEmployeeId ?? again.employeeId;
         assertCleaningCommandPayloadMatch(
           again.id === input.sessionId && priorActor === input.employeeId,
         );
-        // Return result to caller.
+        try {
+          await deliverCleaningInspectionNotice(input.commandId);
+        } catch {
+          // Intent remains undelivered; later replay / flush repairs.
+        }
         return { session: again, task: again.task, idempotent: true };
       }
     }
-    // Step in workflow.
     throw err;
   }
 }

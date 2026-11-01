@@ -43,6 +43,226 @@ describe("environment validation", () => {
     );
   });
 
+  it("rejects DISABLE_JOB_SCHEDULER in production", () => {
+    withEnv(
+      { ...validProduction, DISABLE_JOB_SCHEDULER: "1" },
+      () => {
+        assert.throws(() => assertEnv(), /DISABLE_JOB_SCHEDULER/);
+      },
+    );
+  });
+
+  it("rejects DISABLE_JOB_SCHEDULER when APP_ENV=staging (even if NODE_ENV=development)", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: "staging",
+        DEPLOY_ENV: undefined,
+        ENVIRONMENT: undefined,
+        RELEASE_SHA: undefined,
+      },
+      () => {
+        assert.throws(() => assertEnv(), /staging\/production/);
+      },
+    );
+  });
+
+  it("rejects DISABLE_JOB_SCHEDULER when DEPLOY_ENV=staging alone", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: undefined,
+        DEPLOY_ENV: "staging",
+        ENVIRONMENT: undefined,
+        RELEASE_SHA: undefined,
+      },
+      () => {
+        assert.throws(() => assertEnv(), /staging\/production/);
+      },
+    );
+  });
+
+  it("rejects DISABLE_JOB_SCHEDULER when ENVIRONMENT=prod alone", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: undefined,
+        DEPLOY_ENV: undefined,
+        ENVIRONMENT: "prod",
+        RELEASE_SHA: undefined,
+      },
+      () => {
+        assert.throws(() => assertEnv(), /staging\/production/);
+      },
+    );
+  });
+
+  it("rejects when APP_ENV=development but DEPLOY_ENV=staging (any-of)", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: "development",
+        DEPLOY_ENV: "staging",
+        ENVIRONMENT: undefined,
+        RELEASE_SHA: undefined,
+      },
+      () => {
+        assert.throws(() => assertEnv(), /staging\/production/);
+      },
+    );
+  });
+
+  it("rejects when APP_ENV is empty string but DEPLOY_ENV=staging", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: "",
+        DEPLOY_ENV: "staging",
+        ENVIRONMENT: undefined,
+        RELEASE_SHA: undefined,
+      },
+      () => {
+        assert.throws(() => assertEnv(), /staging\/production/);
+      },
+    );
+  });
+
+  for (const alias of [
+    "stage",
+    "stg",
+    "preprod",
+    "uat",
+    "production",
+    "live",
+    "qa",
+    "prd",
+    "production-eu",
+    "staging-1",
+  ] as const) {
+    it(`rejects DISABLE_JOB_SCHEDULER for non-local APP_ENV=${alias}`, () => {
+      withEnv(
+        {
+          NODE_ENV: "development",
+          PORT: "4000",
+          JWT_SECRET: "r".repeat(48),
+          DISABLE_JOB_SCHEDULER: "1",
+          APP_ENV: alias,
+          DEPLOY_ENV: undefined,
+          ENVIRONMENT: undefined,
+          RELEASE_SHA: undefined,
+        },
+        () => {
+          assert.throws(() => assertEnv(), /staging\/production/);
+        },
+      );
+    });
+  }
+
+  it("rejects APP_ENV=Production (case normalization)", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: "Production",
+        DEPLOY_ENV: undefined,
+        ENVIRONMENT: undefined,
+        RELEASE_SHA: undefined,
+      },
+      () => {
+        assert.throws(() => assertEnv(), /staging\/production/);
+      },
+    );
+  });
+
+  it("rejects APP_ENV with surrounding whitespace (trim)", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: " Staging ",
+        DEPLOY_ENV: undefined,
+        ENVIRONMENT: undefined,
+        RELEASE_SHA: undefined,
+      },
+      () => {
+        assert.throws(() => assertEnv(), /staging\/production/);
+      },
+    );
+  });
+
+  it("rejects DISABLE_JOB_SCHEDULER when RELEASE_SHA is set (deployed image)", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: undefined,
+        DEPLOY_ENV: undefined,
+        ENVIRONMENT: undefined,
+        RELEASE_SHA: "abc123",
+      },
+      () => {
+        assert.throws(() => assertEnv(), /RELEASE_SHA/);
+      },
+    );
+  });
+
+  it("allows DISABLE_JOB_SCHEDULER in local development without deploy markers", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: undefined,
+        DEPLOY_ENV: undefined,
+        ENVIRONMENT: undefined,
+        RELEASE_SHA: undefined,
+      },
+      () => {
+        assert.doesNotThrow(() => assertEnv());
+      },
+    );
+  });
+
+  it("allows DISABLE_JOB_SCHEDULER when APP_ENV is explicitly development", () => {
+    withEnv(
+      {
+        NODE_ENV: "development",
+        PORT: "4000",
+        JWT_SECRET: "r".repeat(48),
+        DISABLE_JOB_SCHEDULER: "1",
+        APP_ENV: "development",
+        DEPLOY_ENV: undefined,
+        ENVIRONMENT: undefined,
+        RELEASE_SHA: undefined,
+      },
+      () => {
+        assert.doesNotThrow(() => assertEnv());
+      },
+    );
+  });
+
   it("rejects malformed ports", () => {
     withEnv({ NODE_ENV: "test", PORT: "70000", JWT_SECRET: "x" }, () => {
       assert.throws(() => assertEnv(), /PORT must be/);

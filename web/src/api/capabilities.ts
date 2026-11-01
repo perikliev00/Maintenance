@@ -94,7 +94,8 @@ export type Action =
   | "shifts.manage"
   | "issue_options.manage"
   | "audit.view"
-  | "jobs.view";
+  | "jobs.view"
+  | "jobs.run";
 
 const ALL_PANELS: Panel[] = [
   "mywork",
@@ -354,7 +355,11 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
     return ["manager", "admin"].includes(user.role);
   }
   // Branch: conditional gate.
-  if (action === "audit.view" || action === "jobs.view") {
+  if (
+    action === "audit.view" ||
+    action === "jobs.view" ||
+    action === "jobs.run"
+  ) {
     // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
   }

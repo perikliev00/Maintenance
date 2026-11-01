@@ -12,7 +12,9 @@ export type LiveEventType =
   | "ticket.changed"
   | "settings.changed"
   | "people.changed"
+  | "permissions.changed"
   | "notification.changed"
+  | "jobs.changed"
   | "connected";
 
 export type LiveEvent = {
@@ -33,7 +35,9 @@ const LIVE_EVENT_TYPES = new Set<string>([
   "ticket.changed",
   "settings.changed",
   "people.changed",
+  "permissions.changed",
   "notification.changed",
+  "jobs.changed",
 ]);
 
 /**

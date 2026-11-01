@@ -11,10 +11,6 @@ import {
 } from "../../src/services/cleaning/tasks";
 import { createDailyPlanEntry } from "../../src/services/dailyPlan";
 import { replaceMembership } from "../../src/services/sectors/membership";
-import {
-  setSectorLocations,
-  updateSector,
-} from "../../src/services/sectors/commands";
 import type { DataScope } from "../../src/services/dataScope";
 import { assertTestDatabase } from "../assertTestDatabase";
 import {
@@ -22,6 +18,8 @@ import {
   createSectorsWorld,
   resetSectorMemberships,
   runWhileLocationLockedWithTx,
+  setSectorLocationsAtHead,
+  updateSectorAtHead,
   type SectorsWorld,
 } from "./fixtures";
 
@@ -88,12 +86,12 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
       world.supervisorA.employeeId,
     );
 
-    await setSectorLocations(world.sectorA2Id, [world.loc1Id, world.loc3Id], {
+    await setSectorLocationsAtHead(prisma, world.sectorA2Id, [world.loc1Id, world.loc3Id], {
       actorEmployeeId: world.manager.employeeId,
       scope: allScope(world.manager.employeeId),
       allowCrossSectorTransfer: true,
     });
-    await updateSector(world.sectorA1Id, {
+    await updateSectorAtHead(prisma, world.sectorA1Id, {
       primarySupervisorEmployeeId: world.supervisorB.employeeId,
       actorEmployeeId: world.manager.employeeId,
     });
@@ -118,12 +116,12 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
       assignedEmployeeId: world.housekeeper.employeeId,
       actorEmployeeId: world.manager.employeeId,
     });
-    await setSectorLocations(world.sectorA2Id, [world.loc1Id, world.loc3Id], {
+    await setSectorLocationsAtHead(prisma, world.sectorA2Id, [world.loc1Id, world.loc3Id], {
       actorEmployeeId: world.manager.employeeId,
       scope: allScope(world.manager.employeeId),
       allowCrossSectorTransfer: true,
     });
-    await updateSector(world.sectorA1Id, {
+    await updateSectorAtHead(prisma, world.sectorA1Id, {
       primarySupervisorEmployeeId: world.supervisorB.employeeId,
       actorEmployeeId: world.manager.employeeId,
     });
@@ -146,7 +144,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
   });
 
   it("T-SEC-62c null supervisor stays null after primary assign + reassign", async () => {
-    await updateSector(world.sectorA1Id, {
+    await updateSectorAtHead(prisma, world.sectorA1Id, {
       primarySupervisorEmployeeId: null,
       actorEmployeeId: world.manager.employeeId,
     });
@@ -159,7 +157,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     assert.equal(task.sectorId, world.sectorA1Id);
     assert.equal(task.sectorSupervisorEmployeeId, null);
 
-    await updateSector(world.sectorA1Id, {
+    await updateSectorAtHead(prisma, world.sectorA1Id, {
       primarySupervisorEmployeeId: world.supervisorA.employeeId,
       actorEmployeeId: world.manager.employeeId,
     });
@@ -189,7 +187,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     assert.equal(task.sectorId, null);
     assert.equal(task.sectorSupervisorEmployeeId, null);
 
-    await setSectorLocations(
+    await setSectorLocationsAtHead(prisma, 
       world.sectorA1Id,
       [world.loc1Id, world.loc2Id, world.loc5Id],
       {
@@ -215,12 +213,12 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
   });
 
   it("T-SEC-63a new manual task gets current snapshot", async () => {
-    await setSectorLocations(world.sectorA2Id, [world.loc1Id, world.loc3Id], {
+    await setSectorLocationsAtHead(prisma, world.sectorA2Id, [world.loc1Id, world.loc3Id], {
       actorEmployeeId: world.manager.employeeId,
       scope: allScope(world.manager.employeeId),
       allowCrossSectorTransfer: true,
     });
-    await updateSector(world.sectorA2Id, {
+    await updateSectorAtHead(prisma, world.sectorA2Id, {
       primarySupervisorEmployeeId: world.supervisorB.employeeId,
       actorEmployeeId: world.manager.employeeId,
     });
@@ -239,12 +237,12 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
   });
 
   it("T-SEC-63b daily-plan create path stamps current snapshot", async () => {
-    await setSectorLocations(world.sectorA2Id, [world.loc1Id, world.loc3Id], {
+    await setSectorLocationsAtHead(prisma, world.sectorA2Id, [world.loc1Id, world.loc3Id], {
       actorEmployeeId: world.manager.employeeId,
       scope: allScope(world.manager.employeeId),
       allowCrossSectorTransfer: true,
     });
-    await updateSector(world.sectorA2Id, {
+    await updateSectorAtHead(prisma, world.sectorA2Id, {
       primarySupervisorEmployeeId: world.supervisorB.employeeId,
       actorEmployeeId: world.manager.employeeId,
     });
@@ -281,7 +279,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
         hotelDate: new Date(`${hotelDate}T00:00:00.000Z`),
       },
     });
-    await updateSector(world.sectorForeignId, {
+    await updateSectorAtHead(prisma, world.sectorForeignId, {
       primarySupervisorEmployeeId: world.supervisorB.employeeId,
       actorEmployeeId: world.manager.employeeId,
     });
@@ -334,7 +332,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
         hotelDate: new Date(`${hotelDate}T00:00:00.000Z`),
       },
     });
-    await updateSector(world.sectorForeignId, {
+    await updateSectorAtHead(prisma, world.sectorForeignId, {
       primarySupervisorEmployeeId: world.supervisorB.employeeId,
       actorEmployeeId: world.manager.employeeId,
     });

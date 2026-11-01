@@ -6,6 +6,22 @@ async function mutation(page: Page, method: string, path: string, data?: unknown
   const res = await page.request.fetch(`/api${path}`, { method, data, headers: { "X-CSRF-Token": csrf ?? "" } });
   expect(res.ok(), `${method} ${path}: ${res.status()} ${await res.text()}`).toBe(true); return res.json();
 }
+/** PATCH /settings/:key with the current row version (required CAS token). */
+async function patchSetting(
+  page: Page,
+  key: string,
+  value: unknown,
+  reason: string,
+) {
+  const settings = await (await page.request.get("/api/settings")).json();
+  const expectedVersion = settings[key]?.version;
+  expect(typeof expectedVersion, `settings.${key}.version`).toBe("number");
+  return mutation(page, "PATCH", `/settings/${key}`, {
+    value,
+    reason,
+    expectedVersion,
+  });
+}
 async function room(page: Page, suffix: string) {
   const hierarchy = await (await page.request.get("/api/locations/hierarchy")).json();
   return mutation(page, "POST", "/locations", { floorId: hierarchy[0].floors[0].id, number: `SC-${suffix}-${Date.now()}`, occupancy: "vacant", kind: "room" });
@@ -110,17 +126,17 @@ test("P2-24 Rooms uses saved task due hours without changing an existing task", 
   await uiLogin(page, USERS.owner); const settings = await (await page.request.get("/api/settings")).json(); const original = settings.operations.value;
   const a = await room(page, "DUE-A"); const b = await room(page, "DUE-B");
   try {
-    await mutation(page, "PATCH", "/settings/operations", { value: { ...original, defaultTaskDueHours: 2 }, reason: "scenario due before" }); await page.reload(); await openNav(page, /Стаи|Rooms/);
+    await patchSetting(page, "operations", { ...original, defaultTaskDueHours: 2 }, "scenario due before"); await page.reload(); await openNav(page, /Стаи|Rooms/);
     const row = (number: string) => page.locator("tr").filter({ has: page.getByText(number, { exact: true }) });
     const beforeA = Date.now(); await row(a.number).getByRole("button", { name: "Create task", exact: true }).click();
     await expect(row(a.number).getByRole("button", { name: "Create task", exact: true })).toHaveCount(0);
     const taskA = (await (await page.request.get(`/api/cleaning/tasks?hotelDate=${new Intl.DateTimeFormat("en-CA", { timeZone: original.hotelTimezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())}`)).json()).find((t: any) => t.locationId === a.id);
     expect(Math.abs(new Date(taskA.dueAt).getTime() - beforeA - 2 * 3600000)).toBeLessThan(10000);
-    await mutation(page, "PATCH", "/settings/operations", { value: { ...original, defaultTaskDueHours: 7 }, reason: "scenario due after" }); await page.reload(); await openNav(page, /Стаи|Rooms/);
+    await patchSetting(page, "operations", { ...original, defaultTaskDueHours: 7 }, "scenario due after"); await page.reload(); await openNav(page, /Стаи|Rooms/);
     const beforeB = Date.now(); await row(b.number).getByRole("button", { name: "Create task", exact: true }).click(); await expect(row(b.number).getByRole("button", { name: "Create task", exact: true })).toHaveCount(0);
     const tasks = await (await page.request.get(`/api/cleaning/tasks?hotelDate=${taskA.hotelDate.slice(0, 10)}`)).json(); const taskB = tasks.find((t: any) => t.locationId === b.id); const old = tasks.find((t: any) => t.id === taskA.id);
     expect(Math.abs(new Date(taskB.dueAt).getTime() - beforeB - 7 * 3600000)).toBeLessThan(10000); expect(old.dueAt).toBe(taskA.dueAt);
-  } finally { await mutation(page, "PATCH", "/settings/operations", { value: original, reason: "scenario restore" }); }
+  } finally { await patchSetting(page, "operations", original, "scenario restore"); }
 });
 test("P2-48 rapid report clicks preserve one logical queued report", async ({ page }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Повреди|Repairs/);
@@ -141,11 +157,11 @@ test("P2-25 disabling current module selects allowed panel and remains hidden af
   await uiLogin(page, USERS.owner); const original = (await (await page.request.get("/api/settings")).json()).modules.value;
   try {
     await openNav(page, /Присъствие|Attendance/); await expect(page.getByRole("heading", { name: /Присъствие|Attendance/ })).toBeVisible();
-    await mutation(page, "PATCH", "/settings/modules", { value: { ...original, attendance: false }, reason: "scenario current module" });
+    await patchSetting(page, "modules", { ...original, attendance: false }, "scenario current module");
     await expect(page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: /Присъствие|Attendance/ })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: /Присъствие|Attendance/ })).toHaveCount(0);
     await page.reload(); await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible(); await expect(page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: /Присъствие|Attendance/ })).toHaveCount(0);
-  } finally { await mutation(page, "PATCH", "/settings/modules", { value: original, reason: "scenario restore" }); }
+  } finally { await patchSetting(page, "modules", original, "scenario restore"); }
 });
 test("P2-46 legacy room-QR hash clears without calling retired by-qr API", async ({ page }) => {
   await uiLogin(page, USERS.owner);

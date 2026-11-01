@@ -39,10 +39,22 @@ function allDefaultGrantRows(): CatalogGrantDelta[] {
  * Never re-inserts missing defaults for an already-populated table — revoked
  * defaults must stay revoked (presence = allow; absence = not granted).
  */
+/** Ensure RoleGrantRevision rows exist for every matrix role. */
+async function ensureRoleGrantRevisions() {
+  for (const role of MATRIX_ROLES) {
+    await prisma.$executeRaw`
+      INSERT INTO "RoleGrantRevision" (role, version, "updatedAt")
+      VALUES (CAST(${role} AS "Role"), 1, CURRENT_TIMESTAMP)
+      ON CONFLICT (role) DO NOTHING
+    `;
+  }
+}
+
 export async function ensureDefaultRoleGrants() {
   // Already seeded — do not re-insert revoked defaults.
   const total = await prisma.roleGrant.count();
   if (total > 0) {
+    await ensureRoleGrantRevisions();
     return;
   }
 
@@ -50,6 +62,7 @@ export async function ensureDefaultRoleGrants() {
   if (data.length) {
     await prisma.roleGrant.createMany({ data, skipDuplicates: true });
   }
+  await ensureRoleGrantRevisions();
   invalidateGrantCache();
 }
 

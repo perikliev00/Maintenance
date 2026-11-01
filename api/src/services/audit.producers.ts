@@ -1,0 +1,53 @@
+/**
+ * Canonical list of audit `action` strings emitted by live producers.
+ * Kept for filter/label coverage checks (producer ⊆ UI filters).
+ */
+export const KNOWN_AUDIT_PRODUCER_ACTIONS = [
+  "ticket.create",
+  "ticket.assign",
+  "ticket.start",
+  "ticket.wait",
+  "ticket.resume",
+  "ticket.resolve",
+  "ticket.close",
+  "ticket.reopen",
+  "ticket.sla_breach",
+  "ticket.duplicate_override",
+  "cleaning.task.create",
+  "cleaning.task.start",
+  "cleaning.task.reassign",
+  "cleaning.session.complete",
+  "cleaning.session.cancel",
+  "cleaning.inspect",
+  "session.overdue_detected",
+  "location.create",
+  "location.update",
+  "location.archive",
+  "location.restore",
+  "location.set_occupancy",
+  "location.set_service_status",
+  "location.mark_dirty",
+  "location.reconcile_cleaning_status",
+  "sector.create",
+  "sector.update",
+  "sector.save",
+  "shift.roster.upsert",
+  "card.issue",
+  "card.revoke",
+  "setting.update",
+  "permission.grant",
+  "permission.revoke",
+  "adjustment.request",
+  "adjustment.review",
+  "sla_policy.upsert",
+  "user.lock_inactive",
+  "people.block",
+  "people.unblock",
+  "people.archive",
+  "people.restore",
+  "device.revoke",
+  "sync.push",
+] as const;
+
+export type KnownAuditProducerAction =
+  (typeof KNOWN_AUDIT_PRODUCER_ACTIONS)[number];

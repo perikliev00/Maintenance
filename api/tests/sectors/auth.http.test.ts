@@ -105,8 +105,12 @@ describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
 
   it("T-SEC-59a supervisor PATCH primary to other → 403", async () => {
     const sup = await loginBearer(api, world.supervisorA.email, world.password);
+    const ver = (
+      await prisma.sector.findUniqueOrThrow({ where: { id: world.sectorA1Id } })
+    ).version;
     const res = await patchJson(api, sup.token, `/sectors/${world.sectorA1Id}`, {
       primarySupervisorEmployeeId: world.supervisorB.employeeId,
+      expectedVersion: ver,
     });
     assert.equal(res.status, 403);
     assert.equal((res.body as { message?: string }).message, OUT_OF_SCOPE);
@@ -118,8 +122,12 @@ describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
 
   it("T-SEC-59b supervisor PATCH primary null → 403", async () => {
     const sup = await loginBearer(api, world.supervisorA.email, world.password);
+    const ver = (
+      await prisma.sector.findUniqueOrThrow({ where: { id: world.sectorA1Id } })
+    ).version;
     const res = await patchJson(api, sup.token, `/sectors/${world.sectorA1Id}`, {
       primarySupervisorEmployeeId: null,
+      expectedVersion: ver,
     });
     assert.equal(res.status, 403);
     const row = await prisma.sector.findUniqueOrThrow({
@@ -130,8 +138,12 @@ describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
 
   it("T-SEC-59c supervisor PATCH name only → 200; primary unchanged", async () => {
     const sup = await loginBearer(api, world.supervisorA.email, world.password);
+    const ver = (
+      await prisma.sector.findUniqueOrThrow({ where: { id: world.sectorA1Id } })
+    ).version;
     const res = await patchJson(api, sup.token, `/sectors/${world.sectorA1Id}`, {
       nameBg: "Преименувано A1",
+      expectedVersion: ver,
     });
     assert.equal(res.status, 200);
     const row = await prisma.sector.findUniqueOrThrow({
@@ -139,5 +151,13 @@ describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
     });
     assert.equal(row.nameBg, "Преименувано A1");
     assert.equal(row.primarySupervisorEmployeeId, world.supervisorA.employeeId);
+  });
+
+  it("PATCH without expectedVersion → 400", async () => {
+    const mgr = await loginBearer(api, world.manager.email, world.password);
+    const res = await patchJson(api, mgr.token, `/sectors/${world.sectorA1Id}`, {
+      nameBg: "No version",
+    });
+    assert.equal(res.status, 400);
   });
 });

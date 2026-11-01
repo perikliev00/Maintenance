@@ -4,4 +4,18 @@
 export type { SectorMembershipAuth } from "./membership";
 export { assertLocationTransferAllowed } from "./membership";
 export { listSectors, listMySectors, getSector } from "./queries";
-export { createSector, updateSector, setSectorLocations } from "./commands";
+export {
+  createSector,
+  updateSector,
+  saveSector,
+  setSectorLocations,
+} from "./commands";
+export {
+  setSectorMutationTestHooks,
+  resetSectorMutationTestHooks,
+} from "./testHooks";
+export {
+  normalizeSectorFields,
+  assertValidSectorFields,
+  normalizeLocationIds,
+} from "./validation";

@@ -8,6 +8,7 @@ import { runTicketSlaBreach } from "./ticketSlaBreach";
 import { runStaleOpenAttendance } from "./staleAttendance";
 import { jobExecutionFinished } from "../../observability";
 import { flushTicketNotificationOutbox } from "../maintenance/notificationOutbox";
+import { flushCleaningNotificationOutbox } from "../cleaning/notificationOutbox";
 
 async function execute(key: string, task: () => Promise<unknown>) {
   const started = process.hrtime.bigint();
@@ -27,6 +28,10 @@ export async function runAllJobs() {
   // Accumulate per-job outcomes under stable keys for the scheduler / ops UI.
   const results: Record<string, unknown> = {};
   results.ticket_notifications = await execute("ticket_notifications", flushTicketNotificationOutbox);
+  results.cleaning_notifications = await execute(
+    "cleaning_notifications",
+    flushCleaningNotificationOutbox,
+  );
   // Lock users who have been inactive past the configured threshold.
   results.lock_inactive_users = await execute("lock_inactive_users", runLockInactiveUsers);
   // Auto-close cleaning sessions that exceeded their allowed duration.

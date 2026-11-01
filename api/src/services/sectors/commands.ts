@@ -1,80 +1,184 @@
 /**
  * Sector mutations: create/update metadata and replace location membership.
- * Membership changes go through replaceMembership (scope + transfer checks).
+ * Update accepts optional locationIds for an atomic metadata+membership save.
+ * Access is re-checked under the sector lock (BUG-11); audit before is read
+ * after locks (BUG-12); version CAS prevents lost updates (BUG-07).
  */
-import { Prisma } from "@prisma/client";
-// Module dependency import.
+import { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../db";
-// Module dependency import.
 import { AppError } from "../../errors";
-// Module dependency import.
 import { recordAudit } from "../audit";
-// Module dependency import.
 import type { DataScope } from "../dataScope";
-// Module dependency import.
+import { resolveDataScope } from "../dataScope";
+import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
 import { mapSector, sectorInclude } from "./format";
-// Module dependency import.
 import {
   replaceMembership,
   type SectorMembershipAuth,
 } from "./membership";
-// Module dependency import.
 import { getSector } from "./queries";
-// Module dependency import.
-import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
+import {
+  runAfterAccessRechecked,
+  runAfterPreTxAuth,
+  runAfterSectorLocked,
+} from "./testHooks";
+import {
+  assertValidSectorFields,
+  normalizeLocationIds,
+  normalizeSectorFields,
+} from "./validation";
 
-/**
- * Prefer explicit propertyId; otherwise the oldest property (single-property hotels).
- *
- * @param explicit - Optional property id from the create payload.
- */
+const OUT_OF_SCOPE = "Outside your permitted data scope";
+
+/** Roles allowed as primary sector supervisor. */
+const SUPERVISOR_ROLES: ReadonlySet<Role> = new Set([
+  Role.supervisor,
+  Role.manager,
+  Role.admin,
+  Role.owner,
+]);
+
+type Tx = Prisma.TransactionClient;
+
 async function resolvePropertyId(explicit?: string) {
-  // Explicit id must resolve to an existing property.
   if (explicit) {
     const property = await prisma.property.findUnique({
       where: { id: explicit },
     });
     if (!property) {
-      // propertyId on create must reference a configured property row.
       throw new AppError(404, "not_found", "Property not found");
     }
     return property.id;
   }
-  // Single-property installs omit propertyId on create.
   const first = await prisma.property.findFirst({ orderBy: { createdAt: "asc" } });
   if (!first) {
-    // Cannot create sectors without at least one property seed.
     throw new AppError(400, "validation", "No property configured");
   }
-  // Oldest property is the implicit default for single-hotel deployments.
   return first.id;
 }
 
 /**
- * Ensure supervisor employee exists when a non-null id is provided.
- *
- * @param employeeId - Nullable supervisor employee id from the patch/create.
+ * Ensure assigned primary supervisor exists, is active, and has an eligible role.
  */
-async function assertSupervisor(employeeId: string | null | undefined) {
-  // Clearing the supervisor (null/undefined) is always allowed.
+async function assertSupervisor(
+  employeeId: string | null | undefined,
+  db: Tx | typeof prisma = prisma,
+) {
   if (!employeeId) return;
-  // Existence check only — role suitability is enforced elsewhere.
-  const employee = await prisma.employee.findUnique({
+  const employee = await db.employee.findUnique({
     where: { id: employeeId },
     include: { user: true },
   });
   if (!employee) {
-    // primarySupervisorEmployeeId must be a real employee id when set.
     throw new AppError(400, "validation", "Supervisor employee not found");
+  }
+  if (employee.archivedAt) {
+    throw new AppError(
+      400,
+      "validation",
+      "Supervisor employee is archived",
+    );
+  }
+  if (!employee.user) {
+    throw new AppError(
+      400,
+      "validation",
+      "Supervisor employee has no login account",
+    );
+  }
+  if (!employee.user.isActive) {
+    throw new AppError(
+      400,
+      "validation",
+      "Supervisor account is inactive",
+    );
+  }
+  if (!SUPERVISOR_ROLES.has(employee.user.role)) {
+    throw new AppError(
+      400,
+      "validation",
+      "Primary supervisor must have a supervisory role",
+    );
   }
 }
 
+async function lockSectorNoKeyUpdate(tx: Tx, sectorId: string): Promise<void> {
+  await tx.$executeRaw`
+    SELECT id FROM "Sector" WHERE id = ${sectorId} FOR NO KEY UPDATE
+  `;
+}
+
+function throwVersionConflict(currentVersion: number, expectedVersion: number) {
+  throw new AppError(
+    409,
+    "version_conflict",
+    "Sector was updated by another user",
+    { expectedVersion, currentVersion },
+  );
+}
+
+/**
+ * Re-check sector write access under the sector lock.
+ * Allows a sector-scoped actor to deactivate their own active sector in the
+ * same transaction that still holds ownership.
+ */
+function assertSectorWriteAccessUnderLock(input: {
+  scope: DataScope;
+  sector: {
+    id: string;
+    isActive: boolean;
+    primarySupervisorEmployeeId: string | null;
+  };
+  nextIsActive?: boolean;
+}): void {
+  if (input.scope.kind === "all") return;
+  if (input.scope.kind !== "sectors") {
+    throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+  }
+  const owns =
+    input.sector.primarySupervisorEmployeeId === input.scope.employeeId;
+  if (!owns) {
+    throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+  }
+  // Still active → normal access.
+  if (input.sector.isActive) return;
+  // Already inactive: only hotel-wide actors may mutate (blocked above for sectors).
+  throw new AppError(403, "forbidden", OUT_OF_SCOPE);
+}
+
+function mapUniqueConflict(err: unknown): never {
+  if (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    err.code === "P2002"
+  ) {
+    throw new AppError(409, "conflict", "Sector code already exists");
+  }
+  throw err;
+}
+
+export type SectorSaveActor = {
+  employeeId?: string;
+  userId?: string;
+  role: Role;
+};
+
+export type SectorSaveInput = {
+  code?: string;
+  nameBg?: string;
+  nameEn?: string;
+  primarySupervisorEmployeeId?: string | null;
+  isActive?: boolean;
+  /** When provided, membership is replaced in the same transaction as metadata. */
+  locationIds?: string[];
+  /** Required — optimistic concurrency for every sector update path. */
+  expectedVersion: number;
+  actor: SectorSaveActor;
+  scope: DataScope;
+  allowCrossSectorTransfer: boolean;
+};
+
 /**
  * Create sector; optional initial locationIds run through membership auth.
- *
- * @param input.propertyId - Explicit property or implicit first property.
- * @param input.locationIds - Optional initial membership replace.
- * @param input.scope - Data scope for membership authorization.
  */
 export async function createSector(input: {
   propertyId?: string;
@@ -88,17 +192,16 @@ export async function createSector(input: {
   scope: DataScope;
   allowCrossSectorTransfer: boolean;
 }) {
-  // Resolve property (explicit or first) before creating.
   const propertyId = await resolvePropertyId(input.propertyId);
+  const fields = normalizeSectorFields({
+    code: input.code,
+    nameBg: input.nameBg,
+    nameEn: input.nameEn,
+  });
+  assertValidSectorFields(fields, { requireAll: true });
   await assertSupervisor(input.primarySupervisorEmployeeId);
-  // Codes are stored uppercase for uniqueness / display consistency.
-  const code = input.code.trim().toUpperCase();
-  if (!code) {
-    throw new AppError(400, "validation", "code is required");
-  }
+  const locationIds = normalizeLocationIds(input.locationIds ?? []);
 
-  // Membership auth for optional initial locationIds.
-  // replaceMembership enforces scope + cross-sector transfer rules.
   const auth: SectorMembershipAuth = {
     scope: input.scope,
     allowCrossSectorTransfer: input.allowCrossSectorTransfer,
@@ -107,28 +210,24 @@ export async function createSector(input: {
   try {
     const sector = await prisma.$transaction(
       async (tx) => {
-        // Live-scope serialization before any sector/membership write.
         await lockEmployeesForLiveAccess(tx, [
           input.primarySupervisorEmployeeId,
         ]);
-        // Create metadata row first; membership follows when locationIds set.
         const created = await tx.sector.create({
           data: {
             propertyId,
-            code,
-            nameBg: input.nameBg.trim(),
-            nameEn: input.nameEn.trim(),
+            code: fields.code!,
+            nameBg: fields.nameBg!,
+            nameEn: fields.nameEn!,
             primarySupervisorEmployeeId:
               input.primarySupervisorEmployeeId ?? null,
             isActive: input.isActive ?? true,
+            version: 1,
           },
         });
-        // Optional initial membership in the same transaction.
-        if (input.locationIds?.length) {
-          // Initial membership replace in the same TX as sector create.
-          await replaceMembership(tx, created.id, input.locationIds, auth);
+        if (locationIds.length) {
+          await replaceMembership(tx, created.id, locationIds, auth);
         }
-        // Reload with joins for mapSector.
         const full = await tx.sector.findUniqueOrThrow({
           where: { id: created.id },
           include: sectorInclude,
@@ -142,7 +241,8 @@ export async function createSector(input: {
             after: {
               code: created.code,
               nameBg: created.nameBg,
-              locationIds: input.locationIds ?? [],
+              locationIds,
+              version: created.version,
             },
             summary: `Created sector ${created.code}`,
           },
@@ -152,192 +252,173 @@ export async function createSector(input: {
       },
       { timeout: 20_000, maxWait: 20_000 },
     );
-    // DTO includes locations/supervisor joins from sectorInclude.
     return mapSector(sector);
   } catch (err) {
-    // Unique (propertyId, code) → friendly conflict for the UI.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
-      throw new AppError(409, "conflict", "Sector code already exists");
-    }
-    // Non-unique errors (validation from membership) propagate.
-    throw err;
+    mapUniqueConflict(err);
   }
 }
 
 /**
- * Patch sector metadata (not membership). Codes uppercased; P2002 → conflict.
- *
- * @param id - Sector primary key.
- * @param input - Partial metadata patch (not location membership).
+ * Atomic sector save: metadata (+ optional membership) under one transaction,
+ * with version CAS and in-TX access re-check.
  */
-export async function updateSector(
-  id: string,
-  input: {
-    code?: string;
-    nameBg?: string;
-    nameEn?: string;
-    primarySupervisorEmployeeId?: string | null;
-    isActive?: boolean;
-    actorEmployeeId?: string;
-  },
-) {
-  // 404 before patching; before-snapshot for audit.
-  const existing = await prisma.sector.findUnique({ where: { id } });
-  if (!existing) {
-    throw new AppError(404, "not_found", "Sector not found");
+export async function saveSector(id: string, input: SectorSaveInput) {
+  if (
+    !Number.isInteger(input.expectedVersion) ||
+    input.expectedVersion < 1
+  ) {
+    throw new AppError(
+      400,
+      "validation",
+      "expectedVersion is required for sector updates",
+    );
   }
-  // Only validate supervisor when the field is present in the patch.
+
+  await runAfterPreTxAuth({ sectorId: id, scope: input.scope });
+
+  const fields = normalizeSectorFields({
+    code: input.code,
+    nameBg: input.nameBg,
+    nameEn: input.nameEn,
+  });
+  assertValidSectorFields(fields);
   if (input.primarySupervisorEmployeeId !== undefined) {
     await assertSupervisor(input.primarySupervisorEmployeeId);
   }
+  const locationIds =
+    input.locationIds !== undefined
+      ? normalizeLocationIds(input.locationIds)
+      : undefined;
 
   try {
-    // Metadata patch + audit — membership is setSectorLocations.
-    await prisma.$transaction(async (tx) => {
-      const accessChanging =
-        input.primarySupervisorEmployeeId !== undefined ||
-        input.isActive !== undefined;
-      let lockedPrimary = existing.primarySupervisorEmployeeId;
-      if (accessChanging) {
-        // Expand until the on-row primary is stable under User FOR UPDATE.
-        for (let attempt = 0; attempt < 8; attempt += 1) {
-          const row = await tx.sector.findUnique({ where: { id } });
-          if (!row) {
-            throw new AppError(404, "not_found", "Sector not found");
-          }
-          await lockEmployeesForLiveAccess(tx, [
-            row.primarySupervisorEmployeeId,
-            input.primarySupervisorEmployeeId,
-          ]);
-          const again = await tx.sector.findUnique({ where: { id } });
-          if (
-            again &&
-            again.primarySupervisorEmployeeId === row.primarySupervisorEmployeeId
-          ) {
-            lockedPrimary = row.primarySupervisorEmployeeId;
-            break;
-          }
-          if (attempt === 7) {
-            throw new AppError(
-              409,
-              "conflict",
-              "Sector supervisor changed concurrently; retry",
-            );
-          }
-        }
-      }
-      // Partial metadata patch — membership is setSectorLocations.
-      await tx.sector.update({
-        where: { id },
-        data: {
-          ...(input.code !== undefined
-            ? { code: input.code.trim().toUpperCase() }
-            : {}),
-          ...(input.nameBg !== undefined ? { nameBg: input.nameBg.trim() } : {}),
-          ...(input.nameEn !== undefined ? { nameEn: input.nameEn.trim() } : {}),
-          ...(input.primarySupervisorEmployeeId !== undefined
-            ? {
-                primarySupervisorEmployeeId: input.primarySupervisorEmployeeId,
-              }
-            : {}),
-          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-        },
-      });
-      // Compact before/after of metadata fields only.
-      await recordAudit(
-        {
-          actorEmployeeId: input.actorEmployeeId,
-          action: "sector.update",
-          entityType: "sector",
-          entityId: id,
-          before: {
-            code: existing.code,
-            nameBg: existing.nameBg,
-            nameEn: existing.nameEn,
-            primarySupervisorEmployeeId: lockedPrimary,
-            isActive: existing.isActive,
-          },
-          after: {
-            code: input.code?.trim().toUpperCase() ?? existing.code,
-            nameBg: input.nameBg?.trim() ?? existing.nameBg,
-            nameEn: input.nameEn?.trim() ?? existing.nameEn,
-            primarySupervisorEmployeeId:
-              input.primarySupervisorEmployeeId !== undefined
-                ? input.primarySupervisorEmployeeId
-                : lockedPrimary,
-            isActive: input.isActive ?? existing.isActive,
-          },
-          summary: `Updated sector ${existing.code}`,
-        },
-        tx,
-      );
-    });
-  } catch (err) {
-    // Unique (propertyId, code) on metadata patch.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
-      throw new AppError(409, "conflict", "Sector code already exists");
-    }
-    throw err;
-  }
-
-  // Reload mapped DTO after commit.
-  return getSector(id);
-}
-
-/**
- * Authoritative membership replace for one sector (TOCTOU-safe via transaction).
- * Requires scope + allowCrossSectorTransfer for foreign/unassigned moves.
- *
- * @param id - Sector primary key.
- * @param locationIds - Full replacement membership list.
- * @param options.scope - Data scope for replaceMembership auth.
- * @param options.allowCrossSectorTransfer - Permits moving locations from other sectors.
- */
-export async function setSectorLocations(
-  id: string,
-  locationIds: string[],
-  options: {
-    actorEmployeeId?: string;
-    scope: DataScope;
-    allowCrossSectorTransfer: boolean;
-  },
-) {
-  const existing = await prisma.sector.findUnique({ where: { id } });
-  if (!existing) {
-    throw new AppError(404, "not_found", "Sector not found");
-  }
-  // Snapshot prior membership for the audit before/after.
-  // Read outside TX is OK — replaceMembership re-validates under row locks.
-  const before = await prisma.sectorLocation.findMany({
-    where: { sectorId: id },
-    select: { locationId: true },
-  });
-  const auth: SectorMembershipAuth = {
-    scope: options.scope,
-    allowCrossSectorTransfer: options.allowCrossSectorTransfer,
-  };
-  // Membership replace + audit in one transaction (TOCTOU-safe under locks).
-  try {
-    // Allow waiting on Location/Sector row locks under contention (default 5s is too short).
     await prisma.$transaction(
       async (tx) => {
-        // Sector FOR NO KEY UPDATE + Location FOR UPDATE + re-read/retry inside.
-        await replaceMembership(tx, id, locationIds, auth);
+        await lockSectorNoKeyUpdate(tx, id);
+        await runAfterSectorLocked({
+          sectorId: id,
+          scope: input.scope,
+          tx,
+        });
+
+        const existing = await tx.sector.findUnique({ where: { id } });
+        if (!existing) {
+          throw new AppError(404, "not_found", "Sector not found");
+        }
+
+        if (existing.version !== input.expectedVersion) {
+          throwVersionConflict(existing.version, input.expectedVersion);
+        }
+
+        // Live-access serialization when supervisor/active flags change.
+        const accessChanging =
+          input.primarySupervisorEmployeeId !== undefined ||
+          input.isActive !== undefined;
+        if (accessChanging) {
+          await lockEmployeesForLiveAccess(tx, [
+            existing.primarySupervisorEmployeeId,
+            input.primarySupervisorEmployeeId,
+          ]);
+        }
+
+        // Fresh scope under locks — defeats revoked-access races (BUG-11).
+        const liveScope = await resolveDataScope(
+          {
+            userId: input.actor.userId ?? "",
+            employeeId: input.actor.employeeId ?? input.scope.employeeId,
+            role: input.actor.role,
+            email: "",
+            sid: "",
+          },
+          tx,
+        );
+        // Preserve hotel-wide vs sector kind from the caller's role.
+        const effectiveScope: DataScope =
+          input.scope.kind === "all"
+            ? { ...liveScope, kind: "all", sectorIds: [] }
+            : liveScope;
+
+        assertSectorWriteAccessUnderLock({
+          scope: effectiveScope,
+          sector: existing,
+          nextIsActive: input.isActive,
+        });
+        await runAfterAccessRechecked({
+          sectorId: id,
+          scope: effectiveScope,
+          tx,
+        });
+
+        // Membership before snapshot under sector + (later) location locks.
+        const beforeLocations =
+          locationIds !== undefined
+            ? await tx.sectorLocation.findMany({
+                where: { sectorId: id },
+                select: { locationId: true },
+              })
+            : null;
+
+        const nextCode = fields.code ?? existing.code;
+        const nextNameBg = fields.nameBg ?? existing.nameBg;
+        const nextNameEn = fields.nameEn ?? existing.nameEn;
+        const nextSupervisor =
+          input.primarySupervisorEmployeeId !== undefined
+            ? input.primarySupervisorEmployeeId
+            : existing.primarySupervisorEmployeeId;
+        const nextActive =
+          input.isActive !== undefined ? input.isActive : existing.isActive;
+
+        await tx.sector.update({
+          where: { id },
+          data: {
+            code: nextCode,
+            nameBg: nextNameBg,
+            nameEn: nextNameEn,
+            primarySupervisorEmployeeId: nextSupervisor,
+            isActive: nextActive,
+            version: { increment: 1 },
+          },
+        });
+
+        if (locationIds !== undefined) {
+          const auth: SectorMembershipAuth = {
+            scope: effectiveScope,
+            allowCrossSectorTransfer: input.allowCrossSectorTransfer,
+          };
+          await replaceMembership(tx, id, locationIds, auth);
+        }
+
         await recordAudit(
           {
-            actorEmployeeId: options.actorEmployeeId,
-            action: "sector.locations.set",
+            actorEmployeeId: input.actor.employeeId,
+            action:
+              locationIds !== undefined
+                ? "sector.save"
+                : "sector.update",
             entityType: "sector",
             entityId: id,
-            before: { locationIds: before.map((b) => b.locationId) },
-            after: { locationIds },
-            summary: `Updated locations for sector ${existing.code}`,
+            before: {
+              code: existing.code,
+              nameBg: existing.nameBg,
+              nameEn: existing.nameEn,
+              primarySupervisorEmployeeId: existing.primarySupervisorEmployeeId,
+              isActive: existing.isActive,
+              version: existing.version,
+              ...(beforeLocations
+                ? {
+                    locationIds: beforeLocations.map((b) => b.locationId),
+                  }
+                : {}),
+            },
+            after: {
+              code: nextCode,
+              nameBg: nextNameBg,
+              nameEn: nextNameEn,
+              primarySupervisorEmployeeId: nextSupervisor,
+              isActive: nextActive,
+              version: existing.version + 1,
+              ...(locationIds !== undefined ? { locationIds } : {}),
+            },
+            summary: `Updated sector ${existing.code}`,
           },
           tx,
         );
@@ -349,14 +430,92 @@ export async function setSectorLocations(
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
-      throw new AppError(
-        409,
-        "conflict",
-        "Location already assigned to another sector",
-      );
+      if (String(err.meta?.target ?? "").includes("locationId")) {
+        throw new AppError(
+          409,
+          "conflict",
+          "Location already assigned to another sector",
+        );
+      }
+      throw new AppError(409, "conflict", "Sector code already exists");
     }
     throw err;
   }
-  // Reload sector DTO with fresh location membership joins.
+
   return getSector(id);
+}
+
+/**
+ * Patch sector metadata only (backward compatible). Prefer saveSector when
+ * membership should commit atomically with metadata.
+ */
+export async function updateSector(
+  id: string,
+  input: {
+    code?: string;
+    nameBg?: string;
+    nameEn?: string;
+    primarySupervisorEmployeeId?: string | null;
+    isActive?: boolean;
+    expectedVersion: number;
+    actorEmployeeId?: string;
+    actorUserId?: string;
+    actorRole?: Role;
+    /** Defaults to hotel-wide scope for internal/manager callers. */
+    scope?: DataScope;
+    allowCrossSectorTransfer?: boolean;
+  },
+) {
+  const scope: DataScope =
+    input.scope ??
+    ({
+      kind: "all",
+      employeeId: input.actorEmployeeId ?? "",
+      role: input.actorRole ?? Role.manager,
+      sectorIds: [],
+    } satisfies DataScope);
+  return saveSector(id, {
+    code: input.code,
+    nameBg: input.nameBg,
+    nameEn: input.nameEn,
+    primarySupervisorEmployeeId: input.primarySupervisorEmployeeId,
+    isActive: input.isActive,
+    expectedVersion: input.expectedVersion,
+    actor: {
+      employeeId: input.actorEmployeeId,
+      userId: input.actorUserId,
+      role: input.actorRole ?? scope.role,
+    },
+    scope,
+    allowCrossSectorTransfer: input.allowCrossSectorTransfer ?? true,
+  });
+}
+
+/**
+ * Authoritative membership replace for one sector (TOCTOU-safe via transaction).
+ * Re-checks access under the sector lock and audits after locks (BUG-11/12).
+ */
+export async function setSectorLocations(
+  id: string,
+  locationIds: string[],
+  options: {
+    actorEmployeeId?: string;
+    actorUserId?: string;
+    actorRole?: Role;
+    scope: DataScope;
+    allowCrossSectorTransfer: boolean;
+    expectedVersion: number;
+  },
+) {
+  return saveSector(id, {
+    locationIds,
+    expectedVersion: options.expectedVersion,
+    actor: {
+      employeeId: options.actorEmployeeId,
+      userId: options.actorUserId,
+      role: options.actorRole ?? options.scope.role,
+    },
+    scope: options.scope,
+    allowCrossSectorTransfer: options.allowCrossSectorTransfer,
+  });
 }

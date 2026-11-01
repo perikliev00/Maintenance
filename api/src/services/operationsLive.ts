@@ -18,8 +18,13 @@ const RECENTLY_COMPLETED_MINUTES = 60;
 const AUDIT_HOURS = 24;
 /** Max audit rows in the live feed. */
 const AUDIT_LIMIT = 40;
-/** Cap per needs-attention source query. */
-const NEEDS_ATTENTION_LIMIT = 50;
+/** Cap per needs-attention source query / page. */
+export const NEEDS_ATTENTION_LIMIT = 50;
+
+export type NeedsAttentionKind =
+  | "awaiting_inspection"
+  | "past_due"
+  | "blocking_ticket";
 
 /**
  * Compact location DTO for live cards (building + floor flattened).
@@ -31,7 +36,6 @@ function locationPayload(location: {
   kind: string;
   floor: { number: number; building: { code: string } };
 }) {
-  // Flatten nested floor.building into buildingCode + floor number.
   return {
     id: location.id,
     number: location.number,
@@ -50,7 +54,6 @@ function employeePayload(employee: {
   fullName: string;
   employeeNumber: string;
 }) {
-  // Strip unused employee columns from the live payload.
   return {
     id: employee.id,
     fullName: employee.fullName,
@@ -63,6 +66,249 @@ const locationInclude = {
   floor: { include: { building: true } },
 } as const;
 
+const taskListInclude = {
+  location: { include: locationInclude },
+  assignedEmployee: true,
+} as const;
+
+type NeedsItem = {
+  kind: NeedsAttentionKind;
+  id: string;
+  /** Stable i18n key; client localizes. Free-text ticket titles use "custom". */
+  titleKey: "inspection_needed" | "past_due" | "custom";
+  title: string;
+  location: ReturnType<typeof locationPayload>;
+  employee: ReturnType<typeof employeePayload> | null;
+  dueAt: string | null;
+  priority: string | null;
+  status: string;
+};
+
+type AttentionPageMeta = {
+  total: number;
+  returned: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+function encodeCursor(dueOrUpdatedAt: Date, id: string): string {
+  return `${dueOrUpdatedAt.toISOString()}|${id}`;
+}
+
+function decodeCursor(cursor: string | null | undefined): {
+  at: Date;
+  id: string;
+} | null {
+  if (!cursor) return null;
+  const sep = cursor.indexOf("|");
+  if (sep <= 0) return null;
+  const at = new Date(cursor.slice(0, sep));
+  const id = cursor.slice(sep + 1);
+  if (Number.isNaN(at.getTime()) || !id) return null;
+  return { at, id };
+}
+
+function taskToNeed(
+  t: {
+    id: string;
+    status: TaskStatus;
+    dueAt: Date | null;
+    priority: string;
+    location: {
+      id: string;
+      number: string;
+      kind: string;
+      floor: { number: number; building: { code: string } };
+    };
+    assignedEmployee: {
+      id: string;
+      fullName: string;
+      employeeNumber: string;
+    } | null;
+  },
+  kind: "awaiting_inspection" | "past_due",
+): NeedsItem {
+  return {
+    kind,
+    id: t.id,
+    titleKey: kind === "awaiting_inspection" ? "inspection_needed" : "past_due",
+    // Keep a stable EN fallback for older clients; UI prefers titleKey.
+    title:
+      kind === "awaiting_inspection" ? "Inspection needed" : "Past due",
+    location: locationPayload(t.location),
+    employee: t.assignedEmployee
+      ? employeePayload(t.assignedEmployee)
+      : null,
+    dueAt: t.dueAt?.toISOString() ?? null,
+    priority: t.priority,
+    status: t.status,
+  };
+}
+
+/**
+ * Page of one needs-attention kind (cursor pagination). Used by the live board
+ * "load more" path so totals stay accurate without unbounded first payloads.
+ */
+export async function getOperationsLiveAttentionPage(input: {
+  kind: NeedsAttentionKind;
+  cursor?: string | null;
+  limit?: number;
+  scopeWhere?: {
+    task?: Prisma.CleaningTaskWhereInput;
+    ticket?: Prisma.MaintenanceTicketWhereInput;
+  };
+}) {
+  const limit = Math.min(
+    Math.max(1, input.limit ?? NEEDS_ATTENTION_LIMIT),
+    NEEDS_ATTENTION_LIMIT,
+  );
+  const now = new Date();
+  const taskScope: Prisma.CleaningTaskWhereInput = {
+    AND: [input.scopeWhere?.task ?? {}, { location: { catalogStatus: "active" } }],
+  };
+  const ticketScope: Prisma.MaintenanceTicketWhereInput = {
+    AND: [
+      input.scopeWhere?.ticket ?? {},
+      { location: { catalogStatus: "active" } },
+    ],
+  };
+  const cursor = decodeCursor(input.cursor);
+
+  if (input.kind === "awaiting_inspection") {
+    const where: Prisma.CleaningTaskWhereInput = {
+      status: TaskStatus.awaiting_inspection,
+      ...taskScope,
+      ...(cursor
+        ? {
+            OR: [
+              { updatedAt: { lt: cursor.at } },
+              { updatedAt: cursor.at, id: { lt: cursor.id } },
+            ],
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      prisma.cleaningTask.findMany({
+        where,
+        include: taskListInclude,
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: limit,
+      }),
+      prisma.cleaningTask.count({
+        where: { status: TaskStatus.awaiting_inspection, ...taskScope },
+      }),
+    ]);
+    const items = rows.map((t) => taskToNeed(t, "awaiting_inspection"));
+    const last = rows[rows.length - 1];
+    return {
+      kind: input.kind as NeedsAttentionKind,
+      items,
+      total,
+      returned: items.length,
+      hasMore: rows.length === limit,
+      nextCursor: last ? encodeCursor(last.updatedAt, last.id) : null,
+    };
+  }
+
+  if (input.kind === "past_due") {
+    // Past-due work plus overdue inspections (so load-more can surface
+    // inspections that missed the newest-N awaiting page).
+    const baseWhere: Prisma.CleaningTaskWhereInput = {
+      status: {
+        in: [
+          TaskStatus.assigned,
+          TaskStatus.in_progress,
+          TaskStatus.rework,
+          TaskStatus.awaiting_inspection,
+        ],
+      },
+      dueAt: { lt: now },
+      ...taskScope,
+    };
+    const where: Prisma.CleaningTaskWhereInput = {
+      ...baseWhere,
+      ...(cursor
+        ? {
+            OR: [
+              { dueAt: { gt: cursor.at } },
+              { dueAt: cursor.at, id: { gt: cursor.id } },
+            ],
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      prisma.cleaningTask.findMany({
+        where,
+        include: taskListInclude,
+        orderBy: [{ dueAt: "asc" }, { id: "asc" }],
+        take: limit,
+      }),
+      prisma.cleaningTask.count({ where: baseWhere }),
+    ]);
+    const items = rows.map((t) => taskToNeed(t, "past_due"));
+    const last = rows[rows.length - 1];
+    return {
+      kind: input.kind,
+      items,
+      total,
+      returned: items.length,
+      hasMore: rows.length === limit,
+      nextCursor:
+        last && last.dueAt ? encodeCursor(last.dueAt, last.id) : null,
+    };
+  }
+
+  // blocking_ticket
+  const baseTicketWhere: Prisma.MaintenanceTicketWhereInput = {
+    blocksRoom: true,
+    status: { in: [...OPEN_TICKET_STATUSES] },
+    ...ticketScope,
+  };
+  const ticketWhere: Prisma.MaintenanceTicketWhereInput = {
+    ...baseTicketWhere,
+    ...(cursor
+      ? {
+          OR: [
+            { openedAt: { gt: cursor.at } },
+            { openedAt: cursor.at, id: { gt: cursor.id } },
+          ],
+        }
+      : {}),
+  };
+  const [tickets, total] = await Promise.all([
+    prisma.maintenanceTicket.findMany({
+      where: ticketWhere,
+      include: {
+        location: { include: locationInclude },
+        assignee: true,
+      },
+      orderBy: [{ priority: "desc" }, { openedAt: "asc" }, { id: "asc" }],
+      take: limit,
+    }),
+    prisma.maintenanceTicket.count({ where: baseTicketWhere }),
+  ]);
+  const items: NeedsItem[] = tickets.map((ticket) => ({
+    kind: "blocking_ticket",
+    id: ticket.id,
+    titleKey: "custom",
+    title: ticket.title,
+    location: locationPayload(ticket.location),
+    employee: ticket.assignee ? employeePayload(ticket.assignee) : null,
+    dueAt: ticket.dueAt?.toISOString() ?? null,
+    priority: ticket.priority,
+    status: ticket.status,
+  }));
+  const last = tickets[tickets.length - 1];
+  return {
+    kind: input.kind,
+    items,
+    total,
+    returned: items.length,
+    hasMore: tickets.length === limit,
+    nextCursor: last ? encodeCursor(last.openedAt, last.id) : null,
+  };
+}
+
 /**
  * Parallel fan-out of live ops queries. Overdue = session elapsed ≥ configured
  * minutes; anomaly = 2× that threshold. Empty location scope means hotel-wide.
@@ -73,22 +319,17 @@ export async function getOperationsLive(scopeWhere?: {
   session?: Prisma.CleaningSessionWhereInput;
   location?: Prisma.LocationWhereInput;
 }) {
-  // Snapshot clock used for elapsed/overdue and window cutoffs.
   const now = Date.now();
-  // Overdue minutes from operations settings.
   const operations = await getOperations();
   const overdueThresholdMinutes = operations.overdueSessionMinutes;
-  // Double the overdue window marks sessions as anomalies for supervisor triage.
   const anomalyThresholdMinutes = overdueThresholdMinutes * 2;
 
-  // Completions within the last hour appear in the recent strip.
   const recentCompletedSince = new Date(
     now - RECENTLY_COMPLETED_MINUTES * 60 * 1000,
   );
-  // Audit feed covers the last AUDIT_HOURS hours.
   const auditSince = new Date(now - AUDIT_HOURS * 60 * 60 * 1000);
+  const nowDate = new Date(now);
 
-  // Normalize optional data-scope fragments (empty object = hotel-wide).
   const taskScope: Prisma.CleaningTaskWhereInput = {
     AND: [scopeWhere?.task ?? {}, { location: { catalogStatus: "active" } }],
   };
@@ -96,12 +337,14 @@ export async function getOperationsLive(scopeWhere?: {
     AND: [scopeWhere?.ticket ?? {}, { location: { catalogStatus: "active" } }],
   };
   const sessionScope: Prisma.CleaningSessionWhereInput = {
-    AND: [scopeWhere?.session ?? {}, { task: { location: { catalogStatus: "active" } } }],
+    AND: [
+      scopeWhere?.session ?? {},
+      { task: { location: { catalogStatus: "active" } } },
+    ],
   };
   const locationScope = scopeWhere?.location ?? {};
   const hasLocationScope = Object.keys(locationScope).length > 0;
 
-  // Resolve location ids once so the audit query can filter by locationId IN.
   const scopedLocationIds = hasLocationScope
     ? (
         await prisma.location.findMany({
@@ -111,7 +354,23 @@ export async function getOperationsLive(scopeWhere?: {
       ).map((l) => l.id)
     : null;
 
-  // Fan-out the six live queries in parallel.
+  const awaitingWhere: Prisma.CleaningTaskWhereInput = {
+    status: TaskStatus.awaiting_inspection,
+    ...taskScope,
+  };
+  const pastDueWorkWhere: Prisma.CleaningTaskWhereInput = {
+    status: {
+      in: [TaskStatus.assigned, TaskStatus.in_progress, TaskStatus.rework],
+    },
+    dueAt: { lt: nowDate },
+    ...taskScope,
+  };
+  const blockingWhere: Prisma.MaintenanceTicketWhereInput = {
+    blocksRoom: true,
+    status: { in: [...OPEN_TICKET_STATUSES] },
+    ...ticketScope,
+  };
+
   const [
     runningSessions,
     recentlyCompletedRaw,
@@ -119,8 +378,10 @@ export async function getOperationsLive(scopeWhere?: {
     pastDueTasks,
     blockingTickets,
     recentAuditEvents,
+    awaitingInspectionTotal,
+    pastDueTotal,
+    blockingTicketsTotal,
   ] = await Promise.all([
-    // All currently running cleaning sessions (scoped).
     prisma.cleaningSession.findMany({
       where: { status: SessionStatus.running, ...sessionScope },
       include: {
@@ -129,7 +390,6 @@ export async function getOperationsLive(scopeWhere?: {
       },
       orderBy: { startedAt: "asc" },
     }),
-    // Recently finished sessions for the completions strip.
     prisma.cleaningSession.findMany({
       where: {
         status: SessionStatus.completed,
@@ -143,52 +403,28 @@ export async function getOperationsLive(scopeWhere?: {
       orderBy: { finishedAt: "desc" },
       take: 40,
     }),
-    // Tasks waiting on inspection (needs-attention source).
     prisma.cleaningTask.findMany({
-      where: { status: TaskStatus.awaiting_inspection, ...taskScope },
-      include: {
-        location: { include: locationInclude },
-        assignedEmployee: true,
-      },
-      orderBy: { updatedAt: "desc" },
+      where: awaitingWhere,
+      include: taskListInclude,
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       take: NEEDS_ATTENTION_LIMIT,
     }),
-    // Active tasks past their dueAt (needs-attention source).
+    // Past-due assigned/in_progress/rework only — never consume slots with inspections.
     prisma.cleaningTask.findMany({
-      where: {
-        status: {
-          in: [
-            TaskStatus.assigned,
-            TaskStatus.in_progress,
-            TaskStatus.awaiting_inspection,
-            TaskStatus.rework,
-          ],
-        },
-        dueAt: { lt: new Date(now) },
-        ...taskScope,
-      },
-      include: {
-        location: { include: locationInclude },
-        assignedEmployee: true,
-      },
-      orderBy: { dueAt: "asc" },
+      where: pastDueWorkWhere,
+      include: taskListInclude,
+      orderBy: [{ dueAt: "asc" }, { id: "asc" }],
       take: NEEDS_ATTENTION_LIMIT,
     }),
-    // Open tickets that block rooms (needs-attention source).
     prisma.maintenanceTicket.findMany({
-      where: {
-        blocksRoom: true,
-        status: { in: [...OPEN_TICKET_STATUSES] },
-        ...ticketScope,
-      },
+      where: blockingWhere,
       include: {
         location: { include: locationInclude },
         assignee: true,
       },
-      orderBy: [{ priority: "desc" }, { openedAt: "asc" }],
+      orderBy: [{ priority: "desc" }, { openedAt: "asc" }, { id: "asc" }],
       take: NEEDS_ATTENTION_LIMIT,
     }),
-    // Recent ops-relevant audit events (optionally location-scoped).
     prisma.auditEvent.findMany({
       where: {
         occurredAt: { gte: auditSince },
@@ -219,17 +455,36 @@ export async function getOperationsLive(scopeWhere?: {
       orderBy: { occurredAt: "desc" },
       take: AUDIT_LIMIT,
     }),
+    prisma.cleaningTask.count({ where: awaitingWhere }),
+    prisma.cleaningTask.count({ where: pastDueWorkWhere }),
+    prisma.maintenanceTicket.count({ where: blockingWhere }),
   ]);
 
-  // Map running sessions to DTOs with live overdue/anomaly flags.
+  // Past-due inspections outside the newest-N inspection page get a dedicated
+  // quota (not stolen from / blocked by a full past-due work page).
+  const awaitingIds = new Set(awaitingTasks.map((t) => t.id));
+  const pastDueInspectionWhere: Prisma.CleaningTaskWhereInput = {
+    status: TaskStatus.awaiting_inspection,
+    dueAt: { lt: nowDate },
+    id: { notIn: [...awaitingIds] },
+    ...taskScope,
+  };
+  const [pastDueInspectionOverflow, pastDueInspectionOverflowTotal] =
+    await Promise.all([
+      prisma.cleaningTask.findMany({
+        where: pastDueInspectionWhere,
+        include: taskListInclude,
+        orderBy: [{ dueAt: "asc" }, { id: "asc" }],
+        take: NEEDS_ATTENTION_LIMIT,
+      }),
+      prisma.cleaningTask.count({ where: pastDueInspectionWhere }),
+    ]);
+
   const activeSessions = runningSessions.map((s) => {
-    // Elapsed whole minutes since session start (floor, not round).
     const elapsedMinutes = Math.floor(
       (now - s.startedAt.getTime()) / 60_000,
     );
-    // Overdue once elapsed hits the configured operations threshold.
     const overdue = elapsedMinutes >= overdueThresholdMinutes;
-    // Anomaly = 2× overdue threshold for supervisor triage.
     const anomaly = elapsedMinutes >= anomalyThresholdMinutes;
     return {
       sessionId: s.id,
@@ -243,9 +498,7 @@ export async function getOperationsLive(scopeWhere?: {
     };
   });
 
-  // Map recent completions with duration minutes.
   const recentlyCompleted = recentlyCompletedRaw.map((s) => {
-    // finishedAt is non-null for completed sessions.
     const finishedAt = s.finishedAt!;
     const durationMinutes = Math.floor(
       (finishedAt.getTime() - s.startedAt.getTime()) / 60_000,
@@ -261,70 +514,42 @@ export async function getOperationsLive(scopeWhere?: {
     };
   });
 
-  type NeedsItem = {
-    kind: "awaiting_inspection" | "past_due" | "blocking_ticket";
-    id: string;
-    title: string;
-    location: ReturnType<typeof locationPayload>;
-    employee: ReturnType<typeof employeePayload> | null;
-    dueAt: string | null;
-    priority: string | null;
-    status: string;
-  };
-
-  // Accumulator for the needs-attention queue (capped sources above).
   const needsAttention: NeedsItem[] = [];
-  // Deduplicate across awaiting / past-due / blocking sources.
   const seenKeys = new Set<string>();
 
-  /** Deduplicate needs-attention rows by kind+id. */
   function pushNeed(item: NeedsItem) {
     const key = `${item.kind}:${item.id}`;
-    // Skip if this kind+id was already pushed.
     if (seenKeys.has(key)) return;
+    // Also prevent the same task id appearing as both inspection and past_due.
+    if (item.kind === "past_due" && seenKeys.has(`awaiting_inspection:${item.id}`)) {
+      return;
+    }
+    if (
+      item.kind === "awaiting_inspection" &&
+      seenKeys.has(`past_due:${item.id}`)
+    ) {
+      return;
+    }
     seenKeys.add(key);
     needsAttention.push(item);
   }
 
-  // Inspection queue first (higher visual priority in the UI).
   for (const t of awaitingTasks) {
-    pushNeed({
-      kind: "awaiting_inspection",
-      id: t.id,
-      title: `Inspection needed · ${t.location.number}`,
-      location: locationPayload(t.location),
-      employee: t.assignedEmployee
-        ? employeePayload(t.assignedEmployee)
-        : null,
-      dueAt: t.dueAt?.toISOString() ?? null,
-      priority: t.priority,
-      status: t.status,
-    });
+    pushNeed(taskToNeed(t, "awaiting_inspection"));
   }
-
-  // Past-due active tasks; skip those already listed as awaiting_inspection.
   for (const t of pastDueTasks) {
-    // Avoid duplicating pure awaiting_inspection rows already listed
-    if (t.status === TaskStatus.awaiting_inspection) continue;
-    pushNeed({
-      kind: "past_due",
-      id: t.id,
-      title: `Past due · ${t.location.number}`,
-      location: locationPayload(t.location),
-      employee: t.assignedEmployee
-        ? employeePayload(t.assignedEmployee)
-        : null,
-      dueAt: t.dueAt?.toISOString() ?? null,
-      priority: t.priority,
-      status: t.status,
-    });
+    pushNeed(taskToNeed(t, "past_due"));
+  }
+  for (const t of pastDueInspectionOverflow) {
+    // Visible overdue inspections that missed the inspection page.
+    pushNeed(taskToNeed(t, "past_due"));
   }
 
-  // Blocking open tickets last among needs-attention kinds.
   for (const ticket of blockingTickets) {
     pushNeed({
       kind: "blocking_ticket",
       id: ticket.id,
+      titleKey: "custom",
       title: ticket.title,
       location: locationPayload(ticket.location),
       employee: ticket.assignee ? employeePayload(ticket.assignee) : null,
@@ -334,7 +559,6 @@ export async function getOperationsLive(scopeWhere?: {
     });
   }
 
-  // Resolve room numbers for audit rows that carry a locationId.
   const locationIds = [
     ...new Set(
       recentAuditEvents
@@ -342,7 +566,6 @@ export async function getOperationsLive(scopeWhere?: {
         .filter((id): id is string => !!id),
     ),
   ];
-  // Batch-load numbers so the feed can show room without N+1 queries.
   const locationsById = new Map(
     (
       await prisma.location.findMany({
@@ -361,7 +584,6 @@ export async function getOperationsLive(scopeWhere?: {
     actorName: string | null;
   };
 
-  // Flatten audit events into the feed DTO with fallback summaries.
   const auditFeed: AuditItem[] = recentAuditEvents.map((ev) => ({
     at: ev.occurredAt.toISOString(),
     type: ev.action,
@@ -375,9 +597,57 @@ export async function getOperationsLive(scopeWhere?: {
     actorName: ev.actor?.fullName ?? null,
   }));
 
-  // Aggregate banner counts from the mapped session DTOs.
   const overdueCount = activeSessions.filter((s) => s.overdue).length;
   const anomaliesCount = activeSessions.filter((s) => s.anomaly).length;
+
+  const awaitingLast = awaitingTasks[awaitingTasks.length - 1];
+  const pastDueLast = pastDueTasks[pastDueTasks.length - 1];
+  const blockingLast = blockingTickets[blockingTickets.length - 1];
+
+  const attention: {
+    awaitingInspection: AttentionPageMeta;
+    pastDue: AttentionPageMeta;
+    blockingTickets: AttentionPageMeta;
+  } = {
+    awaitingInspection: {
+      total: awaitingInspectionTotal,
+      returned: awaitingTasks.length,
+      hasMore: awaitingTasks.length < awaitingInspectionTotal,
+      nextCursor: awaitingLast
+        ? encodeCursor(awaitingLast.updatedAt, awaitingLast.id)
+        : null,
+    },
+    pastDue: (() => {
+      const overflowReturned = pastDueInspectionOverflow.length;
+      const workReturned = pastDueTasks.length;
+      const total = pastDueTotal + pastDueInspectionOverflowTotal;
+      const returned = workReturned + overflowReturned;
+      const overflowLast =
+        pastDueInspectionOverflow[pastDueInspectionOverflow.length - 1];
+      // Prefer continuing the earlier overdue-inspection slice so remaining
+      // overflow is not skipped when work rows have later dueAt values.
+      let nextCursor: string | null = null;
+      if (overflowReturned < pastDueInspectionOverflowTotal && overflowLast?.dueAt) {
+        nextCursor = encodeCursor(overflowLast.dueAt, overflowLast.id);
+      } else if (workReturned < pastDueTotal && pastDueLast?.dueAt) {
+        nextCursor = encodeCursor(pastDueLast.dueAt, pastDueLast.id);
+      }
+      return {
+        total,
+        returned,
+        hasMore: returned < total,
+        nextCursor,
+      };
+    })(),
+    blockingTickets: {
+      total: blockingTicketsTotal,
+      returned: blockingTickets.length,
+      hasMore: blockingTickets.length < blockingTicketsTotal,
+      nextCursor: blockingLast
+        ? encodeCursor(blockingLast.openedAt, blockingLast.id)
+        : null,
+    },
+  };
 
   return {
     updatedAt: new Date(now).toISOString(),
@@ -386,13 +656,14 @@ export async function getOperationsLive(scopeWhere?: {
     activeSessions,
     recentlyCompleted,
     needsAttention,
+    attention,
     auditFeed,
     counts: {
       active: activeSessions.length,
       overdue: overdueCount,
       anomalies: anomaliesCount,
-      awaitingInspection: awaitingTasks.length,
-      blockingTickets: blockingTickets.length,
+      awaitingInspection: awaitingInspectionTotal,
+      blockingTickets: blockingTicketsTotal,
     },
   };
 }

@@ -33,8 +33,11 @@ export type SettingsBundle = Record<
   {
     key: string;
     value: unknown;
+    version: number;
     updatedAt: string;
     updatedByEmployeeId: string | null;
+    /** False when the server fell back to defaults due to corrupt stored JSON. */
+    valueValid?: boolean;
   }
 >;
 
@@ -52,12 +55,13 @@ export type SystemStatus = {
   api: { ok: boolean };
   database: { ok: boolean; pingMs: number };
   counts: {
-    rooms: number;
-    commonAreas: number;
-    openTickets: number;
-    runningSessions: number;
+    rooms: number | null;
+    commonAreas: number | null;
+    openTickets: number | null;
+    runningSessions: number | null;
   };
   serverTime: string;
+  fetchedAt?: string;
   version: string;
 };
 
@@ -121,19 +125,33 @@ export async function fetchSettingsHistory(params?: {
   return parseJson(res);
 }
 
-/** Patch one setting by key; optional reason is stored on history. */
+/**
+ * Patch one setting by key; optional reason is stored on history.
+ * Pass `expectedVersion` from the loaded bundle to enforce optimistic concurrency.
+ */
 export async function patchSetting(
   key: string,
   value: unknown,
   reason?: string,
+  expectedVersion?: number,
 ) {
   // Authenticated HTTP request.
   const res = await apiFetch(`${API_BASE}/settings/${key}`, {
     method: "PATCH",
     headers: authHeaders(),
     // Serialize request body.
-    body: JSON.stringify({ value, reason }),
+    body: JSON.stringify({
+      value,
+      reason,
+      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+    }),
   });
   // Return value / early exit.
-  return parseJson(res);
+  return parseJson<{
+    key: string;
+    value: unknown;
+    version: number;
+    updatedAt: string;
+    updatedByEmployeeId: string | null;
+  }>(res);
 }

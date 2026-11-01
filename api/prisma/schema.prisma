@@ -162,6 +162,9 @@ model Location {
 
   @@unique([floorId, number])
   @@index([kind, catalogStatus])
+  @@index([number])
+  // Also: GIN trgm on number via migration 20261101120000_location_number_trgm
+  // (pg_trgm gin_trgm_ops — not expressible as a native Prisma index).
 }
 
 /// HR identity. May exist without a User (not onboarded) or with a pending/activated login.
@@ -368,6 +371,16 @@ model CleaningSession {
   @@index([employeeId, status])
 }
 
+/// Durable inspection-notice snapshot keyed by completeCommandId (replay-safe).
+model CleaningNotificationOutbox {
+  commandId   String    @id
+  payload     Json
+  createdAt   DateTime  @default(now())
+  deliveredAt DateTime?
+
+  @@index([deliveredAt, createdAt])
+}
+
 /// Supervisor approve/reject of a completed cleaning session. `commandId` makes inspect idempotent.
 model Inspection {
   id                  String           @id @default(cuid())
@@ -535,6 +548,8 @@ model TicketReopenEvent {
 model AppSetting {
   key                   String    @id
   value                 Json
+  /// Monotonic revision for optimistic concurrency on PATCH /settings/:key.
+  version               Int       @default(1)
   updatedAt             DateTime  @updatedAt
   updatedByEmployeeId   String?
 }
@@ -757,6 +772,13 @@ model RoleGrant {
   @@index([role, kind])
 }
 
+/// Per-role optimistic concurrency token for full grant replaces.
+model RoleGrantRevision {
+  role      Role     @id
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+}
+
 /// One-shot data seed ledger. Presence of id means the named seed already ran
 /// and must not re-insert rows (admin revokes stay revoked across restarts).
 model AppliedDataSeed {
@@ -775,6 +797,8 @@ model Sector {
   primarySupervisorEmployeeId String?
   primarySupervisor           Employee?        @relation("SectorSupervisor", fields: [primarySupervisorEmployeeId], references: [id])
   isActive                    Boolean          @default(true)
+  /// Optimistic concurrency token for metadata + membership saves.
+  version                     Int              @default(1)
   locations                   SectorLocation[]
   cleaningTasks               CleaningTask[]
   createdAt                   DateTime         @default(now())

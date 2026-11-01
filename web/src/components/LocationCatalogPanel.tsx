@@ -1,220 +1,273 @@
 /**
  * CRUD panel for the location catalog (rooms / common areas).
- * Manages identity (building, floor, number, kind) and archive/restore —
- * not operational states like occupancy (those live on the Rooms board).
+ * Create/edit use centered modals; list uses server pagination.
  */
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   archiveLocation,
   createLocation,
   fetchLocationHierarchy,
-  fetchLocationsCatalog,
+  fetchLocationsCatalogPage,
   restoreLocation,
   updateLocation,
   type LocationHierarchyBuilding,
   type LocationKind,
   type Room,
 } from "../api/client";
+import { FormModal } from "./FormModal";
 
 type Props = {
   locale: "bg" | "en";
+  onCatalogChanged?: () => void;
 };
 
-/**
- * CRUD panel for the location catalog (rooms / common areas).
- * Manages identity (building, floor, number, kind) and archive/restore —
- * not operational states like occupancy.
- */
-export function LocationCatalogPanel({ locale }: Props) {
-  /**
-   * Helper `label`.
-   */
+const PAGE_SIZES = [25, 50, 100] as const;
+
+export function LocationCatalogPanel({ locale, onCatalogChanged }: Props) {
   const label = (bg: string, en: string) => (locale === "bg" ? bg : en);
 
   const [hierarchy, setHierarchy] = useState<LocationHierarchyBuilding[]>([]);
   const [locations, setLocations] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const busyRef = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [kindFilter, setKindFilter] = useState<"all" | LocationKind>("all");
   const [showArchived, setShowArchived] = useState(true);
+  const [search, setSearch] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
+  const [mode, setMode] = useState<"closed" | "create" | "edit">("closed");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [createKind, setCreateKind] = useState<LocationKind>("room");
   const [buildingId, setBuildingId] = useState("");
   const [floorId, setFloorId] = useState("");
   const [number, setNumber] = useState("");
   const [kind, setKind] = useState<LocationKind>("room");
+  const [baseline, setBaseline] = useState("");
 
-  // Floors available for the currently selected building.
   const floorsForBuilding = useMemo(() => {
-    // Early / value return.
     return hierarchy.find((b) => b.id === buildingId)?.floors ?? [];
   }, [hierarchy, buildingId]);
 
-  /** Load building/floor hierarchy + filtered catalog rows. */
-  const refresh = useCallback(async () => {
-    const [hier, locs] = await Promise.all([
-      fetchLocationHierarchy(),
-      fetchLocationsCatalog({
-        kind: kindFilter === "all" ? undefined : kindFilter,
-        includeArchived: showArchived,
-      }),
-    ]);
-    // State transition.
-    setHierarchy(hier);
-    // State transition.
-    setLocations(locs);
-    // Seed building/floor selects once when empty.
-    setBuildingId((prev) => {
-      // Branch: conditional gate.
-      if (prev) return prev;
-      // Early / value return.
-      return hier[0]?.id ?? "";
-    });
-    // State transition.
-    setFloorId((prev) => {
-      // Branch: conditional gate.
-      if (prev) return prev;
-      // Early / value return.
-      return hier[0]?.floors[0]?.id ?? "";
-    });
-  }, [kindFilter, showArchived]);
-
-  // Re-fetch when filters change; ignore late responses after unmount.
   useEffect(() => {
-    let cancelled = false;
+    const t = window.setTimeout(() => setDebouncedQ(search), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ, kindFilter, showArchived, pageSize]);
+
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      const [hier, pageResult] = await Promise.all([
+        fetchLocationHierarchy(),
+        fetchLocationsCatalogPage({
+          kind: kindFilter === "all" ? undefined : kindFilter,
+          includeArchived: showArchived,
+          q: debouncedQ,
+          page,
+          pageSize,
+          signal,
+        }),
+      ]);
+      setHierarchy(hier);
+      setLocations(pageResult.items);
+      setTotal(pageResult.total);
+      setTotalPages(pageResult.totalPages);
+      if (pageResult.page !== page) setPage(pageResult.page);
+      setBuildingId((prev) => prev || hier[0]?.id || "");
+      setFloorId((prev) => prev || hier[0]?.floors[0]?.id || "");
+    },
+    [kindFilter, showArchived, debouncedQ, page, pageSize],
+  );
+
+  useEffect(() => {
+    const ac = new AbortController();
     (async () => {
-      // Try block for fallible work.
       try {
-        // State transition.
         setLoading(true);
-        // State transition.
         setError(null);
-        // Await async step.
-        await refresh();
+        await refresh(ac.signal);
       } catch (err) {
-        // Branch: conditional gate.
-        if (!cancelled) {
-          // State transition.
-          setError(err instanceof Error ? err.message : "Load failed");
-        }
+        if (ac.signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Load failed");
       } finally {
-        // Branch: conditional gate.
-        if (!cancelled) setLoading(false);
+        if (!ac.signal.aborted) setLoading(false);
       }
     })();
-    // Early / value return.
-    return () => {
-      cancelled = true;
-    };
+    return () => ac.abort();
   }, [refresh]);
 
-  /** Clear the form back to create mode with the first building/floor. */
-  function resetForm() {
-    // State transition.
+  const dirty =
+    mode !== "closed" &&
+    JSON.stringify({ buildingId, floorId, number, kind }) !== baseline;
+
+  function closeForm(options?: { force?: boolean }) {
+    if (!options?.force && busyRef.current) return;
+    setMode("closed");
     setEditingId(null);
-    // State transition.
     setNumber("");
-    // State transition.
-    setKind("room");
-    // Branch: conditional gate.
-    if (hierarchy[0]) {
-      // State transition.
-      setBuildingId(hierarchy[0].id);
-      // State transition.
-      setFloorId(hierarchy[0].floors[0]?.id ?? "");
-    }
+    setFormError(null);
   }
 
-  /** Populate the form from an existing catalog row for editing. */
+  function startCreate(preferredKind: LocationKind) {
+    if (busyRef.current) return;
+    const building = hierarchy[0];
+    const floor = building?.floors[0];
+    setMode("create");
+    setEditingId(null);
+    setCreateKind(preferredKind);
+    setKind(preferredKind);
+    setNumber("");
+    setBuildingId(building?.id ?? "");
+    setFloorId(floor?.id ?? "");
+    setFormError(null);
+    setMessage(null);
+    setBaseline(
+      JSON.stringify({
+        buildingId: building?.id ?? "",
+        floorId: floor?.id ?? "",
+        number: "",
+        kind: preferredKind,
+      }),
+    );
+  }
+
   function startEdit(loc: Room) {
-    // State transition.
+    if (busyRef.current) return;
+    setMode("edit");
     setEditingId(loc.id);
-    // State transition.
     setNumber(loc.number);
-    // State transition.
     setKind(loc.kind === "common_area" ? "common_area" : "room");
     const building = hierarchy.find((b) =>
       b.floors.some((f) => f.id === loc.floorId),
     );
-    // Branch: conditional gate.
-    if (building) {
-      // State transition.
-      setBuildingId(building.id);
-      // State transition.
-      setFloorId(loc.floorId ?? building.floors[0]?.id ?? "");
-    } else if (loc.floorId) {
-      // State transition.
-      setFloorId(loc.floorId);
-    }
+    const nextBuilding = building?.id ?? buildingId;
+    const nextFloor = loc.floorId ?? building?.floors[0]?.id ?? "";
+    setBuildingId(nextBuilding);
+    setFloorId(nextFloor);
+    setFormError(null);
+    setMessage(null);
+    setBaseline(
+      JSON.stringify({
+        buildingId: nextBuilding,
+        floorId: nextFloor,
+        number: loc.number,
+        kind: loc.kind === "common_area" ? "common_area" : "room",
+      }),
+    );
   }
 
-  /**
-   * Helper `run`.
-   */
-  async function run(action: () => Promise<unknown>) {
-    // State transition.
+  async function runMutation(action: () => Promise<unknown>, close = false) {
+    busyRef.current = true;
     setBusy(true);
-    // State transition.
+    setFormError(null);
     setError(null);
-    // State transition.
     setMessage(null);
-    // Try block for fallible work.
     try {
-      // Await async step.
       await action();
-      // Await async step.
-      await refresh();
-      // State transition.
-      setMessage(label("Запазено", "Saved"));
+      if (close) closeForm({ force: true });
+      try {
+        await refresh();
+        setMessage(label("Запазено", "Saved"));
+        onCatalogChanged?.();
+      } catch (refreshErr) {
+        setError(
+          refreshErr instanceof Error
+            ? `${label(
+                "Записът е успешен, но обновяването се провали",
+                "Saved, but refresh failed",
+              )}: ${refreshErr.message}`
+            : label(
+                "Записът е успешен, но обновяването се провали",
+                "Saved, but refresh failed",
+              ),
+        );
+        onCatalogChanged?.();
+      }
     } catch (err) {
-      // State transition.
-      setError(err instanceof Error ? err.message : "Action failed");
+      const msg = err instanceof Error ? err.message : "Action failed";
+      if (mode !== "closed") setFormError(msg);
+      else setError(msg);
     } finally {
-      // State transition.
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
-  /**
-   * Handler `onSubmit` for user or form events.
-   */
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    // Branch: conditional gate.
-    if (!floorId || !number.trim()) return;
-    // Await async step.
-    await run(async () => {
-      // Branch: conditional gate.
+    const resolvedFloor =
+      floorId ||
+      floorsForBuilding[0]?.id ||
+      hierarchy[0]?.floors[0]?.id ||
+      "";
+    if (!resolvedFloor || !number.trim()) {
+      setFormError(
+        label(
+          "Изберете етаж и въведете номер.",
+          "Select a floor and enter a number.",
+        ),
+      );
+      return;
+    }
+    if (!floorId) setFloorId(resolvedFloor);
+    await runMutation(async () => {
       if (editingId) {
-        // Await async step.
         await updateLocation(editingId, {
-          floorId,
+          floorId: resolvedFloor,
           number: number.trim(),
           kind,
         });
       } else {
-        // Await async step.
         await createLocation({
-          floorId,
+          floorId: resolvedFloor,
           number: number.trim(),
           kind,
         });
       }
-      resetForm();
-    });
+    }, true);
   }
 
-  // Branch: conditional gate.
-  if (loading) {
-    return <p className="muted">{label("Зареждане…", "Loading…")}</p>;
-  }
+  const title =
+    mode === "edit"
+      ? label("Редакция на помещение", "Edit location")
+      : createKind === "common_area"
+        ? label("Добавяне на обща част", "Add common area")
+        : label("Добавяне на стая", "Add room");
 
-  // Early / value return.
   return (
     <section className="panel">
-      <h2>{label("Каталог помещения", "Location catalog")}</h2>
+      <div className="panel-header">
+        <h2>{label("Каталог помещения", "Location catalog")}</h2>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button type="button" disabled={busy} onClick={() => startCreate("room")}>
+            {label("+ Добави стая", "+ Add room")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => startCreate("common_area")}
+          >
+            {label("+ Добави обща част", "+ Add common area")}
+          </button>
+        </div>
+      </div>
       <p className="muted">
         {label(
           "Добавяне, редакция и архивиране на стаи и общи части. Оперативните статуси (заетост, out of service) се управляват от таблото Стаи / Общи части.",
@@ -222,9 +275,23 @@ export function LocationCatalogPanel({ locale }: Props) {
         )}
       </p>
 
-      {/* Render branch: error && <p className="error-banner">error</p> */}
-      {error && <p className="error-banner">{error}</p>}
-      {/* Render branch: message && <p className="ok-banner">message</p> */}
+      {error && (
+        <p className="error-banner">
+          {error}{" "}
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              setError(null);
+              void refresh().catch((err) =>
+                setError(err instanceof Error ? err.message : "Load failed"),
+              );
+            }}
+          >
+            {label("Презареди", "Reload")}
+          </button>
+        </p>
+      )}
       {message && <p className="ok-banner">{message}</p>}
 
       <div className="toolbar" style={{ gap: "0.75rem", flexWrap: "wrap" }}>
@@ -233,7 +300,6 @@ export function LocationCatalogPanel({ locale }: Props) {
           <select
             value={kindFilter}
             onChange={(e) =>
-              // State transition.
               setKindFilter(e.target.value as "all" | LocationKind)
             }
           >
@@ -252,173 +318,216 @@ export function LocationCatalogPanel({ locale }: Props) {
           />
           {label("Показвай архивирани", "Show archived")}
         </label>
-      </div>
-
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>{label("Номер", "Number")}</th>
-              <th>{label("Сграда", "Building")}</th>
-              <th>{label("Етаж", "Floor")}</th>
-              <th>{label("Вид", "Kind")}</th>
-              <th>{label("Каталог", "Catalog")}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {locations.map((loc) => (
-              <tr key={loc.id}>
-                <td>
-                  <strong>{loc.number}</strong>
-                </td>
-                <td>
-                  {loc.buildingCode}
-                  <div className="muted small">{loc.building}</div>
-                </td>
-                <td>
-                  {loc.floor}
-                  {loc.floorName ? (
-                    <div className="muted small">{loc.floorName}</div>
-                  ) : null}
-                </td>
-                <td>
-                  {loc.kind === "common_area"
-                    ? label("обща част", "common area")
-                    : label("стая", "room")}
-                </td>
-                <td>
-                  {loc.catalogStatus === "archived"
-                    ? label("архивирана", "archived")
-                    : label("активна", "active")}
-                </td>
-                <td className="actions">
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={busy}
-                    onClick={() => startEdit(loc)}
-                  >
-                    {label("Редакция", "Edit")}
-                  </button>
-                  {loc.catalogStatus === "archived" ? (
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={busy}
-                      onClick={() => run(() => restoreLocation(loc.id))}
-                    >
-                      {label("Възстанови", "Restore")}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={busy}
-                      onClick={() => run(() => archiveLocation(loc.id))}
-                    >
-                      {label("Архивирай", "Archive")}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {locations.length === 0 && (
-              <tr>
-                <td colSpan={6} className="muted">
-                  {label("Няма локации", "No locations")}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <form className="report-form" onSubmit={onSubmit}>
-        <h3>
-          {editingId
-            ? label("Редакция на помещение", "Edit location")
-            : label("Ново помещение", "New location")}
-        </h3>
         <label>
-          {label("Сграда", "Building")}
-          <select
-            value={buildingId}
-            onChange={(e) => {
-              const nextBuilding = e.target.value;
-              // State transition.
-              setBuildingId(nextBuilding);
-              const floors =
-                hierarchy.find((b) => b.id === nextBuilding)?.floors ?? [];
-              // State transition.
-              setFloorId(floors[0]?.id ?? "");
-            }}
-            required
-          >
-            {hierarchy.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.code} — {b.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {label("Етаж", "Floor")}
-          <select
-            value={floorId}
-            onChange={(e) => setFloorId(e.target.value)}
-            required
-          >
-            {floorsForBuilding.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.number}
-                {/* Render branch: f.name ? ` — $f.name` : "" */}
-                {f.name ? ` — ${f.name}` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {label("Номер / име", "Number / name")}
+          {label("Търсене", "Search")}
           <input
-            value={number}
-            onChange={(e) => setNumber(e.target.value)}
-            required
-            maxLength={64}
-            placeholder={kind === "common_area" ? "Lobby" : "101"}
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={label("Номер / сграда…", "Number / building…")}
           />
         </label>
-        <label>
-          {label("Вид", "Kind")}
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as LocationKind)}
-          >
-            <option value="room">{label("Стая", "Room")}</option>
-            <option value="common_area">
-              {label("Обща част", "Common area")}
-            </option>
-          </select>
-        </label>
-        <div className="form-actions">
-          <button type="submit" disabled={busy || !floorId}>
-            {editingId
-              ? label("Запази", "Save")
-              : label("Добави", "Add")}
-          </button>
-          {/* Render branch: editingId && ( */}
-          {editingId && (
+      </div>
+
+      {loading ? (
+        <p className="muted">{label("Зареждане…", "Loading…")}</p>
+      ) : (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{label("Номер", "Number")}</th>
+                  <th>{label("Сграда", "Building")}</th>
+                  <th>{label("Етаж", "Floor")}</th>
+                  <th>{label("Вид", "Kind")}</th>
+                  <th>{label("Каталог", "Catalog")}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map((loc) => (
+                  <tr key={loc.id}>
+                    <td>
+                      <strong>{loc.number}</strong>
+                    </td>
+                    <td>
+                      {loc.buildingCode}
+                      <div className="muted small">{loc.building}</div>
+                    </td>
+                    <td>
+                      {loc.floor}
+                      {loc.floorName ? (
+                        <div className="muted small">{loc.floorName}</div>
+                      ) : null}
+                    </td>
+                    <td>
+                      {loc.kind === "common_area"
+                        ? label("обща част", "common area")
+                        : label("стая", "room")}
+                    </td>
+                    <td>
+                      {loc.catalogStatus === "archived"
+                        ? label("архивирана", "archived")
+                        : label("активна", "active")}
+                    </td>
+                    <td className="actions">
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={busy}
+                        onClick={() => startEdit(loc)}
+                      >
+                        {label("Редакция", "Edit")}
+                      </button>
+                      {loc.catalogStatus === "archived" ? (
+                        <button
+                          type="button"
+                          className="ghost"
+                          disabled={busy}
+                          onClick={() =>
+                            runMutation(() => restoreLocation(loc.id))
+                          }
+                        >
+                          {label("Възстанови", "Restore")}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ghost"
+                          disabled={busy}
+                          onClick={() =>
+                            runMutation(() => archiveLocation(loc.id))
+                          }
+                        >
+                          {label("Архивирай", "Archive")}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {locations.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="muted">
+                      {label("Няма локации", "No locations")}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="pagination-bar">
+            <span className="muted small">
+              {label("Стр.", "Page")} {page}/{totalPages} · {total}{" "}
+              {label("общо", "total")}
+            </span>
+            <label className="muted small">
+              {label("По стр.", "Per page")}
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
               className="ghost"
-              disabled={busy}
-              onClick={resetForm}
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
-              {label("Отказ", "Cancel")}
+              {label("Предишна", "Previous")}
             </button>
-          )}
-        </div>
-      </form>
+            <button
+              type="button"
+              className="ghost"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              {label("Следваща", "Next")}
+            </button>
+          </div>
+        </>
+      )}
+
+      {mode !== "closed" && (
+        <FormModal
+          title={title}
+          busy={busy}
+          dirty={dirty}
+          error={formError}
+          submitLabel={label("Запази промените", "Save changes")}
+          cancelLabel={label("Отмени", "Cancel")}
+          onClose={closeForm}
+          onSubmit={onSubmit}
+        >
+          <label>
+            {label("Сграда", "Building")}
+            <select
+              value={buildingId}
+              onChange={(e) => {
+                const nextBuilding = e.target.value;
+                setBuildingId(nextBuilding);
+                const floors =
+                  hierarchy.find((b) => b.id === nextBuilding)?.floors ?? [];
+                setFloorId(floors[0]?.id ?? "");
+              }}
+              required
+              disabled={busy}
+            >
+              {hierarchy.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.code} — {b.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {label("Етаж", "Floor")}
+            <select
+              value={floorId}
+              onChange={(e) => setFloorId(e.target.value)}
+              required
+              disabled={busy}
+            >
+              {floorsForBuilding.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.number}
+                  {f.name ? ` — ${f.name}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {label("Номер / име", "Number / name")}
+            <input
+              value={number}
+              onChange={(e) => setNumber(e.target.value)}
+              required
+              maxLength={64}
+              disabled={busy}
+              placeholder={kind === "common_area" ? "Lobby" : "101"}
+            />
+          </label>
+          <label>
+            {label("Вид", "Kind")}
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value as LocationKind)}
+              disabled={busy}
+            >
+              <option value="room">{label("Стая", "Room")}</option>
+              <option value="common_area">
+                {label("Обща част", "Common area")}
+              </option>
+            </select>
+          </label>
+        </FormModal>
+      )}
     </section>
   );
 }

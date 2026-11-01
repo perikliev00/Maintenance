@@ -10,6 +10,7 @@ import { prisma } from "../../src/db";
 import { assertTestDatabase } from "../assertTestDatabase";
 import {
   closeServer,
+  getJson,
   listenApp,
   loginBearer,
   postJson,
@@ -21,6 +22,8 @@ import {
   type CleaningWorld,
 } from "../cleaning/fixtures";
 import { runWithJobExecutionLock } from "../../src/services/jobs/executionLock";
+import { invalidateGrantCache } from "../../src/services/roleGrants";
+import { GrantKind } from "@prisma/client";
 
 describe("POST /jobs/run shared execution lock", () => {
   let world: CleaningWorld;
@@ -76,10 +79,39 @@ describe("POST /jobs/run shared execution lock", () => {
     assert.ok(ok.body && typeof (ok.body as { flagged?: unknown }).flagged === "number");
   });
 
-  it("denies callers without jobs.view", async () => {
+  it("denies callers without jobs.run", async () => {
     const denied = await postJson(api, hkToken, "/jobs/run", {
       jobKey: "overdue_sessions",
     });
     assert.equal(denied.status, 403, JSON.stringify(denied.body));
+  });
+
+  it("NEW-05: jobs.view alone cannot POST /jobs/run", async () => {
+    await prisma.roleGrant.create({
+      data: {
+        role: "housekeeper",
+        kind: GrantKind.action,
+        key: "jobs.view",
+      },
+    });
+    invalidateGrantCache();
+    try {
+      const listed = await getJson(api, hkToken, "/jobs/runs?limit=5");
+      assert.equal(listed.status, 200, JSON.stringify(listed.body));
+
+      const denied = await postJson(api, hkToken, "/jobs/run", {
+        jobKey: "overdue_sessions",
+      });
+      assert.equal(denied.status, 403, JSON.stringify(denied.body));
+    } finally {
+      await prisma.roleGrant.deleteMany({
+        where: {
+          role: "housekeeper",
+          kind: GrantKind.action,
+          key: "jobs.view",
+        },
+      });
+      invalidateGrantCache();
+    }
   });
 });

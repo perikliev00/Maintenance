@@ -1,4 +1,4 @@
-/** Manual background-job trigger and run history (jobs.view on the route). */
+/** Manual background-job trigger (jobs.run) and run history (jobs.view). */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod/v3";
 import {

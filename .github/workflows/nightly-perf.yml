@@ -1,0 +1,76 @@
+name: Nightly catalog performance
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    # 02:15 UTC nightly
+    - cron: "15 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  locations-catalog-100k:
+    name: Locations catalog 100k (opt-in)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: maintenance
+          POSTGRES_PASSWORD: maintenance
+          POSTGRES_DB: maintenance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maintenance -d maintenance"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
+      LOCATIONS_PERF_100K: "1"
+      EXPECTED_TEST_DATABASE: maintenance_p1_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma generate
+
+      - name: Prepare maintenance_p1_test
+        env:
+          PGPASSWORD: maintenance
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          set +e
+          OUT=$(psql -h localhost -U maintenance -d postgres -c "CREATE DATABASE maintenance_p1_test OWNER maintenance;" 2>&1)
+          EC=$?
+          set -e
+          if [ $EC -ne 0 ]; then
+            echo "$OUT" | grep -qi "already exists" || { echo "$OUT"; exit 1; }
+          fi
+          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10" \
+            npx prisma migrate deploy
+          printf '%s\n' \
+            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
+            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
+            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
+            > .env.p1_test
+
+      - name: Run 1k/10k/100k catalog perf suite
+        run: node ./tests/runWithP1Isolation.mjs --test-concurrency=1 tests/scenarios/locations.catalog.perf.db.test.ts
+        env:
+          LOCATIONS_PERF_100K: "1"

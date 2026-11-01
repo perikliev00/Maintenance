@@ -55,6 +55,9 @@ export async function canDeliverLiveEvent(
     // Global invalidate pings — any authenticated subscriber may receive them.
     case "settings.changed":
     case "people.changed":
+    case "permissions.changed":
+    // Job runs are not location-scoped; the Audit jobs panel gates on jobs.view.
+    case "jobs.changed":
       return true;
 
     case "location.changed": {
