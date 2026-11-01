@@ -246,26 +246,6 @@ export async function revokeAllUsingRefreshToken(refreshToken: string): Promise<
   });
 }
 
-/** Revoke every active session bound to a device id. */
-export async function revokeAllForDevice(deviceId: string): Promise<number> {
-  // Device revoke cascades to all sessions sharing that deviceId.
-  return prisma.$transaction(async (tx) => {
-    const sessions = await tx.authSession.findMany({
-      where: { deviceId, revokedAt: null },
-      select: { userId: true },
-    });
-    await lockUsersForLiveAccess(
-      tx,
-      sessions.map((s) => s.userId),
-    );
-    const result = await tx.authSession.updateMany({
-      where: { deviceId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
-    return result.count;
-  });
-}
-
 /**
  * Validate that `sessionId` belongs to `userId`, is not revoked/expired,
  * and the user is still active. Used on authenticated requests that carry `sid`.

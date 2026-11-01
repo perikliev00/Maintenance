@@ -19,7 +19,7 @@ RESTORE_DISPOSABLE_CONFIRMED=true NODE_ENV=development scripts/verify-restore.sh
 
 The script rejects production mode, requires explicit disposable confirmation, checks that the URL database name matches, rejects common live DB names (`maintenance`, `prod`, `production`), decrypts to a mode-0600 temporary file, restores, lists the archive, and checks `"User"` + applied `_prisma_migrations`. The operator then runs the app smoke and domain integrity queries against the restored database. Record measured restore time, row/schema checks, selected backup timestamp, and any gaps. Do not point restore tooling at a production endpoint.
 
-**Measured evidence (B2, 2026-10-25):** local Docker disposable drill — see [`backup-restore-drill-2026-10-25.md`](./backup-restore-drill-2026-10-25.md). Production-sized S3 drill remains operator follow-up.
+**Measured evidence (B2, 2026-10-25):** local Docker disposable drill completed. Production-sized S3 drill remains operator follow-up.
 
 ## Retention and target
 

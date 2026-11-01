@@ -136,18 +136,6 @@ export async function fetchPeoplePage(
   return parseJson(res);
 }
 
-/** Single person detail by employee id. */
-export async function fetchPerson(
-  employeeId: string,
-  init?: { signal?: AbortSignal },
-): Promise<Person> {
-  const res = await apiFetch(`${API_BASE}/people/${employeeId}`, {
-    headers: authHeaders(),
-    signal: init?.signal,
-  });
-  return parseJson(res);
-}
-
 async function postLifecycle(
   employeeId: string,
   action: "block" | "unblock" | "archive" | "restore",

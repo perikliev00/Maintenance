@@ -13,6 +13,7 @@ import { resolveDataScope } from "../dataScope";
 import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
 import { mapSector, sectorInclude } from "./format";
 import {
+  peekSourceSectorIds,
   replaceMembership,
   type SectorMembershipAuth,
 } from "./membership";
@@ -102,10 +103,17 @@ async function assertSupervisor(
   }
 }
 
-async function lockSectorNoKeyUpdate(tx: Tx, sectorId: string): Promise<void> {
-  await tx.$executeRaw`
-    SELECT id FROM "Sector" WHERE id = ${sectorId} FOR NO KEY UPDATE
-  `;
+async function lockSectorsNoKeyUpdateSorted(
+  tx: Tx,
+  sectorIds: readonly string[],
+): Promise<string[]> {
+  const ordered = [...new Set(sectorIds)].sort();
+  for (const sectorId of ordered) {
+    await tx.$executeRaw`
+      SELECT id FROM "Sector" WHERE id = ${sectorId} FOR NO KEY UPDATE
+    `;
+  }
+  return ordered;
 }
 
 function throwVersionConflict(currentVersion: number, expectedVersion: number) {
@@ -226,7 +234,9 @@ export async function createSector(input: {
           },
         });
         if (locationIds.length) {
-          await replaceMembership(tx, created.id, locationIds, auth);
+          await replaceMembership(tx, created.id, locationIds, auth, {
+            actorEmployeeId: input.actorEmployeeId,
+          });
         }
         const full = await tx.sector.findUniqueOrThrow({
           where: { id: created.id },
@@ -290,10 +300,45 @@ export async function saveSector(id: string, input: SectorSaveInput) {
       ? normalizeLocationIds(input.locationIds)
       : undefined;
 
+  // Live-access serialization when supervisor/active flags change (R1):
+  // User locks must precede Sector locks (see liveAccessLocks.ts).
+  const accessChanging =
+    input.primarySupervisorEmployeeId !== undefined ||
+    input.isActive !== undefined;
+
   try {
     await prisma.$transaction(
       async (tx) => {
-        await lockSectorNoKeyUpdate(tx, id);
+        const lockedEmployeeIds = new Set<string>();
+        if (accessChanging) {
+          const peek = await tx.sector.findUnique({
+            where: { id },
+            select: { primarySupervisorEmployeeId: true },
+          });
+          if (!peek) {
+            throw new AppError(404, "not_found", "Sector not found");
+          }
+          const targets = [
+            peek.primarySupervisorEmployeeId,
+            input.primarySupervisorEmployeeId,
+          ].filter((employeeId): employeeId is string => Boolean(employeeId));
+          for (const employeeId of targets) lockedEmployeeIds.add(employeeId);
+          await lockEmployeesForLiveAccess(tx, targets);
+        }
+
+        // Destination (+ peeked source sectors when membership changes) in
+        // stable id order — prevents AB-BA with concurrent cross-sector moves.
+        const sectorLockTargets = [id];
+        if (locationIds !== undefined && locationIds.length) {
+          sectorLockTargets.push(
+            ...(await peekSourceSectorIds(tx, locationIds, id)),
+          );
+        }
+        const preLockedSectorIds = await lockSectorsNoKeyUpdateSorted(
+          tx,
+          sectorLockTargets,
+        );
+
         await runAfterSectorLocked({
           sectorId: id,
           scope: input.scope,
@@ -309,15 +354,20 @@ export async function saveSector(id: string, input: SectorSaveInput) {
           throwVersionConflict(existing.version, input.expectedVersion);
         }
 
-        // Live-access serialization when supervisor/active flags change.
-        const accessChanging =
-          input.primarySupervisorEmployeeId !== undefined ||
-          input.isActive !== undefined;
         if (accessChanging) {
-          await lockEmployeesForLiveAccess(tx, [
+          const needed = [
             existing.primarySupervisorEmployeeId,
             input.primarySupervisorEmployeeId,
-          ]);
+          ].filter((employeeId): employeeId is string => Boolean(employeeId));
+          // Supervisor race between peek and sector lock — fail closed / retry
+          // instead of taking User locks after Sector (deadlock with SSE).
+          if (needed.some((employeeId) => !lockedEmployeeIds.has(employeeId))) {
+            throw new AppError(
+              409,
+              "conflict",
+              "Sector access changed concurrently; retry",
+            );
+          }
         }
 
         // Fresh scope under locks — defeats revoked-access races (BUG-11).
@@ -384,7 +434,10 @@ export async function saveSector(id: string, input: SectorSaveInput) {
             scope: effectiveScope,
             allowCrossSectorTransfer: input.allowCrossSectorTransfer,
           };
-          await replaceMembership(tx, id, locationIds, auth);
+          await replaceMembership(tx, id, locationIds, auth, {
+            actorEmployeeId: input.actor.employeeId,
+            preLockedSectorIds,
+          });
         }
 
         await recordAudit(

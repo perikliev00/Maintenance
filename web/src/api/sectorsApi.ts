@@ -103,20 +103,3 @@ export async function updateSector(
   });
   return parseJson(res);
 }
-
-/** Replace the full location membership set for a sector (PUT, not patch). */
-export async function setSectorLocations(
-  id: string,
-  locationIds: string[],
-  expectedVersion: number,
-): Promise<SectorRow> {
-  const res = await apiFetch(`${API_BASE}/sectors/${id}/locations`, {
-    method: "PUT",
-    headers: authHeaders(),
-    body: JSON.stringify({
-      locationIds,
-      expectedVersion,
-    }),
-  });
-  return parseJson(res);
-}

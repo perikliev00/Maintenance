@@ -10,25 +10,6 @@ import {
   type Room,
 } from "../../api/client";
 
-/** Table header cell for occupancy — hidden on common-area boards. */
-export function OccupancyHeaderCell({ isCommon }: { isCommon: boolean }) {
-  // Common areas have no guest occupancy concept.
-  if (isCommon) return null;
-  return <th>Occupancy</th>;
-}
-
-/** Table body cell showing occupancy — hidden on common-area boards. */
-export function OccupancyCell({
-  isCommon,
-  occupancy,
-}: {
-  isCommon: boolean;
-  occupancy: Room["occupancy"];
-}) {
-  if (isCommon) return null;
-  return <td>{occupancy}</td>;
-}
-
 /**
  * Build detail-panel handlers that persist occupancy / service status
  * through the shared `runAction` busy/error wrapper.

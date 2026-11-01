@@ -348,30 +348,6 @@ export async function fetchTickets(
   return parseJson(res);
 }
 
-/** Assign (or reassign) a ticket to an employee. */
-export async function assignIssue(ticketId: string, assigneeId: string) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/tickets/${ticketId}/assign`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({ assigneeId }),
-  });
-  // Return value / early exit.
-  return parseJson(res);
-}
-
-/** Close a resolved ticket (final lifecycle step). */
-export async function closeIssue(ticketId: string) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/tickets/${ticketId}/close`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
-}
-
 /** Timeline events for one ticket (status changes, notes, SLA pauses). */
 export async function fetchTicketEvents(ticketId: string) {
   // Authenticated HTTP request.
@@ -412,24 +388,6 @@ export async function updateSlaPolicy(
     // Serialize request body.
     body: JSON.stringify(input),
   });
-  // Return value / early exit.
-  return parseJson(res);
-}
-
-/** Reopen a closed/resolved ticket; optional trimmed reason for audit. */
-export async function reopenIssue(ticketId: string, reason?: string) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(
-    `${API_BASE}/maintenance/tickets/${ticketId}/reopen`,
-    {
-      method: "POST",
-      headers: authHeaders(),
-      // Serialize request body.
-      body: JSON.stringify({
-        ...(reason?.trim() ? { reason: reason.trim() } : {}),
-      }),
-    },
-  );
   // Return value / early exit.
   return parseJson(res);
 }

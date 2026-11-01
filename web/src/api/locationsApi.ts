@@ -156,23 +156,6 @@ export type LocationsCatalogPage = {
   totalPages: number;
 };
 
-/** Flat location catalog; optional kind filter and archived include. */
-export async function fetchLocationsCatalog(params?: {
-  kind?: LocationKind;
-  includeArchived?: boolean;
-  signal?: AbortSignal;
-}): Promise<Room[]> {
-  const search = new URLSearchParams();
-  if (params?.kind) search.set("kind", params.kind);
-  if (params?.includeArchived) search.set("includeArchived", "true");
-  const qs = search.toString();
-  const res = await apiFetch(`${API_BASE}/locations${qs ? `?${qs}` : ""}`, {
-    headers: authHeaders(),
-    signal: params?.signal,
-  });
-  return parseJson(res);
-}
-
 /**
  * Server-paginated catalog for admin UI (rooms / common areas / picker).
  * Does not drain all pages — one PostgreSQL page per call.

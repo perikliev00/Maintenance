@@ -7,7 +7,6 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { PrismaClient, Role } from "@prisma/client";
 import { AppError } from "../../src/errors";
 import { createCleaningTask } from "../../src/services/cleaning/tasks";
-import { replaceMembership } from "../../src/services/sectors/membership";
 import type { DataScope } from "../../src/services/dataScope";
 import { assertTestDatabase } from "../assertTestDatabase";
 import {
@@ -195,7 +194,7 @@ describe("sector membership concurrency (T-SEC-61)", () => {
     }
   });
 
-  it("T-SEC-61b auth TOCTOU: replaceMembership in holder → supervisor 403", async () => {
+  it("T-SEC-61b auth TOCTOU: steal under Location holder → supervisor 403", async () => {
     let raceErr: unknown;
     try {
       await runWhileLocationLockedWithTx({
@@ -217,15 +216,23 @@ describe("sector membership concurrency (T-SEC-61)", () => {
           }
         },
         whileBlocked: async ({ tx }) => {
-          await replaceMembership(
-            tx,
-            world.sectorForeignId,
-            [world.loc1Id, world.loc4Id],
-            {
-              scope: allScope(),
-              allowCrossSectorTransfer: true,
-            },
-          );
+          // Steal membership under the held Location lock without taking
+          // source-sector FOR NO KEY UPDATE (R2 production path locks sources
+          // before Locations; doing that here while holding Location deadlocks
+          // the blocked supervisor writer that already holds those sectors).
+          await tx.$executeRaw`
+            SELECT id FROM "Sector" WHERE id = ${world.sectorForeignId}
+            FOR NO KEY UPDATE
+          `;
+          await tx.sectorLocation.deleteMany({
+            where: { locationId: { in: [world.loc1Id, world.loc4Id] } },
+          });
+          await tx.sectorLocation.createMany({
+            data: [
+              { sectorId: world.sectorForeignId, locationId: world.loc1Id },
+              { sectorId: world.sectorForeignId, locationId: world.loc4Id },
+            ],
+          });
         },
       });
       assert.fail("expected supervisor setSectorLocations to fail");

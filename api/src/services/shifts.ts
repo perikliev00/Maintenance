@@ -373,33 +373,3 @@ export async function upsertShiftRoster(input: {
   // Return the fresh mapped roster for the response.
   return listShiftRoster(input.hotelDate);
 }
-
-/**
- * Resolve the rostered shift id for an employee on a hotel date, or null if none.
- *
- * @param employeeId - Employee primary key.
- * @param hotelDate - YYYY-MM-DD string or UTC-midnight Date key.
- */
-export async function getEmployeeRosterShiftId(
-  employeeId: string,
-  hotelDate: string | Date,
-): Promise<string | null> {
-  // Normalize string or Date into the UTC-midnight hotelDate key.
-  const date =
-    typeof hotelDate === "string"
-      ? parseHotelDate(hotelDate)
-      : new Date(
-          Date.UTC(
-            hotelDate.getUTCFullYear(),
-            hotelDate.getUTCMonth(),
-            hotelDate.getUTCDate(),
-          ),
-        );
-  const row = await prisma.employeeShiftRoster.findUnique({
-    where: {
-      employeeId_hotelDate: { employeeId, hotelDate: date },
-    },
-    select: { shiftId: true },
-  });
-  return row?.shiftId ?? null;
-}

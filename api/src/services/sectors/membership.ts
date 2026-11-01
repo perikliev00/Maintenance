@@ -2,22 +2,27 @@
  * Sector location membership: scope checks and TOCTOU-safe replaceMembership.
  *
  * Lock protocol (Postgres):
- * 1. Sector FOR NO KEY UPDATE — serializes writers to this sector without
- *    conflicting with KEY SHARE taken by CleaningTask FK inserts, and with
- *    SSE delivery FOR SHARE on the subscriber's sectors.
+ * 1. All involved Sector rows (destination + candidate sources) FOR NO KEY
+ *    UPDATE in stable id order — serializes writers without conflicting with
+ *    KEY SHARE from CleaningTask FK inserts, and with SSE FOR SHARE.
  * 2. Location FOR UPDATE (ORDER BY id) for requested + current members.
  * 3. Re-read destination members; if any unlocked id appeared, expand locks
  *    and retry until currentMembers ⊆ lockedSet (avoids deleteMany removing
  *    a room whose Location was never locked).
  * 4. Auth re-check + writes under those locks.
+ * 5. Source sectors that lose rooms get version++ and an audit event so a
+ *    stale full-replace on the source cannot CAS-succeed and pull rooms back.
  *
  * Supervisor User FOR UPDATE is intentionally not taken here: that lock order
  * (User before Location) deadlocks Location-first holders. Live delivery
  * instead takes Sector FOR SHARE after resolving scope (see liveAuthorization).
+ * Callers that change supervisor/isActive must take User locks before Sector
+ * (see saveSector).
  */
 import { Prisma } from "@prisma/client";
 import type { Prisma as PrismaTypes } from "@prisma/client";
 import { AppError } from "../../errors";
+import { recordAudit } from "../audit";
 import type { DataScope } from "../dataScope";
 
 const OUT_OF_SCOPE = "Outside your permitted data scope";
@@ -26,6 +31,16 @@ const OUT_OF_SCOPE = "Outside your permitted data scope";
 export type SectorMembershipAuth = {
   scope: DataScope;
   allowCrossSectorTransfer: boolean;
+};
+
+export type ReplaceMembershipOptions = {
+  actorEmployeeId?: string;
+  /**
+   * Sector ids already locked by the caller in sorted order (destination +
+   * peeked sources). When set, this function will not take Sector locks again
+   * unless a new source appears — in which case it fails closed with 409.
+   */
+  preLockedSectorIds?: readonly string[];
 };
 
 /** Ensure the actor may write membership into the destination sector. */
@@ -66,13 +81,17 @@ export function assertLocationTransferAllowed(
   }
 }
 
-async function lockSectorNoKeyUpdate(
+async function lockSectorsNoKeyUpdateSorted(
   tx: PrismaTypes.TransactionClient,
-  sectorId: string,
-): Promise<void> {
-  await tx.$executeRaw`
-    SELECT id FROM "Sector" WHERE id = ${sectorId} FOR NO KEY UPDATE
-  `;
+  sectorIds: readonly string[],
+): Promise<string[]> {
+  const ordered = [...new Set(sectorIds)].sort();
+  for (const sectorId of ordered) {
+    await tx.$executeRaw`
+      SELECT id FROM "Sector" WHERE id = ${sectorId} FOR NO KEY UPDATE
+    `;
+  }
+  return ordered;
 }
 
 async function lockLocationsForUpdate(
@@ -101,6 +120,26 @@ async function currentMemberIds(
   return rows.map((r) => r.locationId);
 }
 
+/** Peek current sector owners of locations (no row locks). */
+export async function peekSourceSectorIds(
+  tx: PrismaTypes.TransactionClient,
+  locationIds: readonly string[],
+  destinationSectorId: string,
+): Promise<string[]> {
+  if (!locationIds.length) return [];
+  const memberships = await tx.sectorLocation.findMany({
+    where: { locationId: { in: [...locationIds] } },
+    select: { sectorId: true },
+  });
+  return [
+    ...new Set(
+      memberships
+        .map((m) => m.sectorId)
+        .filter((id) => id !== destinationSectorId),
+    ),
+  ];
+}
+
 /**
  * Authoritative membership replace: destination + per-location source checks
  * run inside the same transaction as the writes (TOCTOU-safe under row locks).
@@ -108,12 +147,14 @@ async function currentMemberIds(
  * - Rebalance among own sectors (kind=sectors, source in sectorIds): allowed.
  * - Unassigned / foreign / any inter-sector move for kind=all: requires
  *   allowCrossSectorTransfer.
+ * - Source sectors that lose rooms are version-bumped and audited (R2).
  */
 export async function replaceMembership(
   tx: PrismaTypes.TransactionClient,
   sectorId: string,
   locationIds: string[],
   auth: SectorMembershipAuth,
+  options: ReplaceMembershipOptions = {},
 ) {
   // Fail fast if the destination itself is outside the actor's scope.
   await assertDestinationInScope(auth.scope, sectorId);
@@ -121,8 +162,26 @@ export async function replaceMembership(
   // Deduplicate so createMany does not hit unique constraints.
   const unique = [...new Set(locationIds)];
 
-  // Serialize writers targeting this sector (compatible with CleaningTask KEY SHARE).
-  await lockSectorNoKeyUpdate(tx, sectorId);
+  const preLocked = new Set(options.preLockedSectorIds ?? []);
+  let lockedSectorIds: Set<string>;
+
+  if (options.preLockedSectorIds) {
+    if (!preLocked.has(sectorId)) {
+      throw new AppError(
+        500,
+        "internal",
+        "replaceMembership preLockedSectorIds must include the destination",
+      );
+    }
+    lockedSectorIds = preLocked;
+  } else {
+    const candidates = await peekSourceSectorIds(tx, unique, sectorId);
+    const ordered = await lockSectorsNoKeyUpdateSorted(tx, [
+      sectorId,
+      ...candidates,
+    ]);
+    lockedSectorIds = new Set(ordered);
+  }
 
   if (unique.length) {
     // Reject unknown location ids before mutating membership.
@@ -170,6 +229,9 @@ export async function replaceMembership(
     }
   }
 
+  /** locationId → source sector (excluding destination / unassigned). */
+  const detachBySource = new Map<string, string[]>();
+
   if (unique.length) {
     // Current sector for each location (null = unassigned) — under Location locks.
     const memberships = await tx.sectorLocation.findMany({
@@ -184,6 +246,29 @@ export async function replaceMembership(
     for (const locationId of unique) {
       const sourceSectorId = sourceByLocation.get(locationId) ?? null;
       assertLocationTransferAllowed(auth, sectorId, sourceSectorId);
+      if (sourceSectorId && sourceSectorId !== sectorId) {
+        const list = detachBySource.get(sourceSectorId) ?? [];
+        list.push(locationId);
+        detachBySource.set(sourceSectorId, list);
+      }
+    }
+
+    // Fail closed if a source appeared that we did not pre-lock (avoids
+    // Sector-after-Location lock expansion / AB-BA deadlock with peers).
+    for (const sourceId of detachBySource.keys()) {
+      if (!lockedSectorIds.has(sourceId)) {
+        throw new AppError(
+          409,
+          "conflict",
+          "Sector membership sources changed concurrently; retry",
+        );
+      }
+    }
+
+    // Snapshot source membership before detach (for audit before.locationIds).
+    const sourceBefore = new Map<string, string[]>();
+    for (const sourceId of detachBySource.keys()) {
+      sourceBefore.set(sourceId, await currentMemberIds(tx, sourceId));
     }
 
     // Detach these locations from any other sector before re-adding here.
@@ -193,6 +278,49 @@ export async function replaceMembership(
         sectorId: { not: sectorId },
       },
     });
+
+    // R2: bump + audit each source that lost rooms.
+    for (const [sourceId, removedIds] of detachBySource) {
+      const beforeLocations = sourceBefore.get(sourceId) ?? [];
+      const source = await tx.sector.findUnique({
+        where: { id: sourceId },
+        select: {
+          id: true,
+          code: true,
+          version: true,
+        },
+      });
+      if (!source) continue;
+
+      const afterLocations = await currentMemberIds(tx, sourceId);
+      const updated = await tx.sector.update({
+        where: { id: sourceId },
+        data: { version: { increment: 1 } },
+        select: { version: true, code: true },
+      });
+
+      await recordAudit(
+        {
+          actorEmployeeId: options.actorEmployeeId,
+          action: "sector.update",
+          entityType: "sector",
+          entityId: sourceId,
+          before: {
+            code: source.code,
+            version: source.version,
+            locationIds: beforeLocations,
+            removedLocationIds: removedIds,
+          },
+          after: {
+            code: updated.code,
+            version: updated.version,
+            locationIds: afterLocations,
+          },
+          summary: `Membership reduced on sector ${source.code} by cross-sector transfer`,
+        },
+        tx,
+      );
+    }
   }
 
   // Clear existing membership for this sector, then insert the new set.

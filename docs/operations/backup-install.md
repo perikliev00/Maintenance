@@ -70,7 +70,7 @@ export RESTORE_DATABASE_NAME=maintenance_restore_drill
 ./scripts/verify-restore.sh
 ```
 
-Record wall-clock restore time in the drill log. See `backup-restore-drill-2026-10-25.md` for the measured B2 evidence.
+Record wall-clock restore time in the drill log. B2 (2026-10-25) completed a local measured disposable drill; re-measure on staging-sized S3 dumps before go-live.
 
 ## Related
 

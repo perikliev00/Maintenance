@@ -14,29 +14,6 @@ export type OverdueSession = {
   room: { id: string; number: string; buildingCode: string; floor: number };
 };
 
-/** List cleaning tasks; `mine` scopes to the current employee. */
-export async function fetchCleaningTasks(params?: {
-  mine?: boolean;
-  hotelDate?: string;
-  status?: string;
-}): Promise<CleaningTaskRow[]> {
-  const search = new URLSearchParams();
-  // Branch: conditional gate.
-  if (params?.mine) search.set("mine", "1");
-  // Branch: conditional gate.
-  if (params?.hotelDate) search.set("hotelDate", params.hotelDate);
-  // Branch: conditional gate.
-  if (params?.status) search.set("status", params.status);
-  // Optional query suffix.
-  const qs = search.toString();
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/cleaning/tasks${qs ? `?${qs}` : ""}`, {
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
-}
-
 export type CleaningTaskRow = {
   id: string;
   locationId: string;
