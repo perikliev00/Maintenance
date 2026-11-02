@@ -93,20 +93,14 @@ export async function updateIssueOption(
   return prisma.issueOption.update({
     where: { id },
     data: {
-      ...(input.maintenanceCategoryId !== undefined
-        ? { maintenanceCategoryId: input.maintenanceCategoryId }
-        : {}),
-      ...(input.kind !== undefined ? { kind: input.kind } : {}),
-      ...(input.nameBg !== undefined ? { nameBg: input.nameBg.trim() } : {}),
-      ...(input.nameEn !== undefined ? { nameEn: input.nameEn.trim() } : {}),
-      ...(input.defaultPriority !== undefined
-        ? { defaultPriority: input.defaultPriority }
-        : {}),
-      ...(input.defaultBlocksRoom !== undefined
-        ? { defaultBlocksRoom: input.defaultBlocksRoom }
-        : {}),
-      ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
-      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      maintenanceCategoryId: input.maintenanceCategoryId,
+      kind: input.kind,
+      nameBg: input.nameBg !== undefined ? input.nameBg.trim() : undefined,
+      nameEn: input.nameEn !== undefined ? input.nameEn.trim() : undefined,
+      defaultPriority: input.defaultPriority,
+      defaultBlocksRoom: input.defaultBlocksRoom,
+      sortOrder: input.sortOrder,
+      isActive: input.isActive,
     },
     include: { maintenanceCategory: true },
   });

@@ -10,7 +10,7 @@ import * as eventsController from "../controllers/events";
 export const eventsRouter = Router();
 
 // POST /ticket — issue a short-lived SSE ticket for EventSource clients.
-eventsRouter.post("/ticket", requireAuth, eventsController.issueTicket);
+eventsRouter.post("/ticket", requireAuth, asyncHandler(eventsController.issueTicket));
 
 // GET /stream — live SSE; no requireAuth (EventSource cannot send custom headers).
 // Auth is inside stream() via Bearer, session cookie, or ?ticket=.

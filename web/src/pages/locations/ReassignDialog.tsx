@@ -11,6 +11,8 @@ import {
   type HousekeeperAvailabilityStatus,
   type Room,
 } from "../../api/client";
+import { useModalLifecycle } from "../../hooks/useModalLifecycle";
+import { t } from "../../i18n";
 
 type Locale = "bg" | "en";
 
@@ -22,10 +24,6 @@ type Props = {
   onSuccess: (message: string) => void;
   onError: (message: string) => void;
 };
-
-function t(locale: Locale, bg: string, en: string): string {
-  return locale === "en" ? en : bg;
-}
 
 function statusLabel(
   locale: Locale,
@@ -79,24 +77,7 @@ export function ReassignDialog({
     onCloseRef.current();
   }, [task, locale]);
 
-  useEffect(() => {
-    if (!task) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [task]);
+  useModalLifecycle(onClose, { enabled: !!task });
 
   async function loadSuggestions() {
     if (!task) return;

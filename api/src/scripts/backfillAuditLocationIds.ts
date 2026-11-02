@@ -1,6 +1,9 @@
 /**
  * Backfill historical SLA / overdue audit rows that were written without
  * locationId (pre BUG-01). Safe to re-run; only updates null locationId rows.
+ *
+ * One-off / ops script — not part of the request path.
+ * Run: `npx tsx src/scripts/backfillAuditLocationIds.ts` from api/.
  */
 import { prisma } from "../db";
 
@@ -36,4 +39,22 @@ export async function backfillAuditLocationIds(): Promise<AuditLocationBackfillR
     slaUpdated: Number(sla),
     overdueUpdated: Number(overdue),
   };
+}
+
+const isDirectRun =
+  typeof process.argv[1] === "string" &&
+  /backfillAuditLocationIds\.(ts|js|mjs|cjs)$/.test(process.argv[1].replace(/\\/g, "/"));
+
+if (isDirectRun) {
+  backfillAuditLocationIds()
+    .then((result) => {
+      console.log(JSON.stringify(result));
+    })
+    .catch((err) => {
+      console.error(err);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
 }

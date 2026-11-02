@@ -44,4 +44,4 @@ export const FLAG_LABELS: Record<string, string> = {
   show_overdue_banner: "Показвай overdue банер",
 };
 
-export type LabelFn = (bg: string, en: string) => string;
+export type { LabelFn } from "../../i18n";

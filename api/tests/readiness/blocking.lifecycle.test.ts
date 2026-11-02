@@ -1,6 +1,6 @@
 /**
- * T-RDY-01…04, T-RDY-07 — blocking readiness via real tickets + GET /rooms/:id.
- * Scenario IDs: P1-31, P1-32, P1-33, P1-34 (+ mark-dirty OPEN_TICKET_STATUSES).
+ * 04, — blocking readiness via real tickets + GET /rooms:id.
+ * Scenario IDs: , , , (mark-dirty OPEN_TICKET_STATUSES).
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -46,7 +46,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("readiness blocking lifecycle (T-RDY-01…04,07 / P1-31…34)", () => {
+describe("readiness blocking lifecycle (04,07 / 34)", () => {
   let world: ReadinessWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
@@ -126,7 +126,7 @@ describe("readiness blocking lifecycle (T-RDY-01…04,07 / P1-31…34)", () => {
   }
 
   for (const status of ["new", "assigned", "in_progress", "waiting"] as const) {
-    it(`T-RDY-01: blocking ${status} keeps not_ready after approved clean (P1-31)`, async () => {
+    it(`blocking ${status} keeps not_ready after approved clean`, async () => {
       await createBlockingTicketAtStatus(
         prisma,
         world,
@@ -147,7 +147,7 @@ describe("readiness blocking lifecycle (T-RDY-01…04,07 / P1-31…34)", () => {
     });
   }
 
-  it("T-RDY-02: resolving one of two blockers keeps not_ready; last → ready (P1-32/33)", async () => {
+  it("resolving one of two blockers keeps not_ready; last → ready", async () => {
     await prepareRoomBase(
       prisma,
       world.locationAId,
@@ -178,7 +178,7 @@ describe("readiness blocking lifecycle (T-RDY-01…04,07 / P1-31…34)", () => {
     assert.deepEqual(room.body.readinessReasons, []);
   });
 
-  it("T-RDY-03: after last blocker, remaining occupancy/clean/service block ready (P1-33)", async () => {
+  it("after last blocker, remaining occupancy/clean/service block ready", async () => {
     const ticket = await createBlockingTicketAtStatus(
       prisma,
       world,
@@ -249,7 +249,7 @@ describe("readiness blocking lifecycle (T-RDY-01…04,07 / P1-31…34)", () => {
     assert.equal(room.body.readiness, "ready");
   });
 
-  it("T-RDY-04: reopen blocking → not_ready; occupancy/cleaning unchanged (P1-34)", async () => {
+  it("reopen blocking → not_ready; occupancy/cleaning unchanged", async () => {
     await prepareRoomBase(
       prisma,
       world.locationAId,
@@ -287,7 +287,7 @@ describe("readiness blocking lifecycle (T-RDY-01…04,07 / P1-31…34)", () => {
     assert.equal(loc.cleaningStatus, CleaningStatus.verified_clean);
   });
 
-  it("T-RDY-07: mark-dirty response includes assigned/waiting blocking tickets", async () => {
+  it("mark-dirty response includes assigned/waiting blocking tickets", async () => {
     await prepareRoomBase(
       prisma,
       world.locationAId,

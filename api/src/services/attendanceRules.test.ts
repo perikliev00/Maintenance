@@ -662,7 +662,7 @@ describe("uniqueFlags", () => {
   });
 });
 
-describe("attendance pairing DST windows (P1-77)", () => {
+describe("attendance pairing DST windows", () => {
   it("spring-forward Sofia DST window yields workedMinutes 420", () => {
     const drafts = pairEventsToIntervalDrafts({
       events: [

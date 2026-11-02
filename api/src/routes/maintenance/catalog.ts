@@ -4,6 +4,7 @@
  */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../../middleware/auth";
+import { asyncHandler } from "../../middleware/asyncHandler";
 import * as catalogController from "../../controllers/maintenance/catalog";
 
 /** Register issue category/option catalog routes on the maintenance router. */
@@ -13,7 +14,7 @@ export function registerCatalogRoutes(router: Router): void {
     "/categories",
     requireAuth,
     requireAction("tickets.report"),
-    catalogController.listCategoriesHandler,
+    asyncHandler(catalogController.listCategoriesHandler),
   );
 
   // POST /categories — create an issue category.
@@ -21,7 +22,7 @@ export function registerCatalogRoutes(router: Router): void {
     "/categories",
     requireAuth,
     requireAction("issue_options.manage"),
-    catalogController.createCategoryHandler,
+    asyncHandler(catalogController.createCategoryHandler),
   );
 
   // PATCH /categories/:id — update an issue category.
@@ -29,7 +30,7 @@ export function registerCatalogRoutes(router: Router): void {
     "/categories/:id",
     requireAuth,
     requireAction("issue_options.manage"),
-    catalogController.updateCategoryHandler,
+    asyncHandler(catalogController.updateCategoryHandler),
   );
 
   // POST /categories/:id/archive — archive an issue category.
@@ -37,7 +38,7 @@ export function registerCatalogRoutes(router: Router): void {
     "/categories/:id/archive",
     requireAuth,
     requireAction("issue_options.manage"),
-    catalogController.archiveCategoryHandler,
+    asyncHandler(catalogController.archiveCategoryHandler),
   );
 
   // GET /issue-options — list issue options (for ticket report UI).
@@ -45,7 +46,7 @@ export function registerCatalogRoutes(router: Router): void {
     "/issue-options",
     requireAuth,
     requireAction("tickets.report"),
-    catalogController.listIssueOptionsHandler,
+    asyncHandler(catalogController.listIssueOptionsHandler),
   );
 
   // POST /issue-options/reorder — reorder issue options within a category.
@@ -53,7 +54,7 @@ export function registerCatalogRoutes(router: Router): void {
     "/issue-options/reorder",
     requireAuth,
     requireAction("issue_options.manage"),
-    catalogController.reorderIssueOptionsHandler,
+    asyncHandler(catalogController.reorderIssueOptionsHandler),
   );
 
   // POST /issue-options — create an issue option.
@@ -61,7 +62,7 @@ export function registerCatalogRoutes(router: Router): void {
     "/issue-options",
     requireAuth,
     requireAction("issue_options.manage"),
-    catalogController.createIssueOptionHandler,
+    asyncHandler(catalogController.createIssueOptionHandler),
   );
 
   // PATCH /issue-options/:id — update an issue option.
@@ -69,7 +70,7 @@ export function registerCatalogRoutes(router: Router): void {
     "/issue-options/:id",
     requireAuth,
     requireAction("issue_options.manage"),
-    catalogController.updateIssueOptionHandler,
+    asyncHandler(catalogController.updateIssueOptionHandler),
   );
 
   // POST /issue-options/:id/archive — archive an issue option.
@@ -77,6 +78,6 @@ export function registerCatalogRoutes(router: Router): void {
     "/issue-options/:id/archive",
     requireAuth,
     requireAction("issue_options.manage"),
-    catalogController.archiveIssueOptionHandler,
+    asyncHandler(catalogController.archiveIssueOptionHandler),
   );
 }

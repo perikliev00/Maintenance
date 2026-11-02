@@ -1,5 +1,7 @@
 /** UTC calendar-day helpers and period windows for analytics summaries. */
 
+import { formatHotelDate } from "../hotelTime";
+
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Truncate to UTC midnight (inclusive start of a reporting day). */
@@ -20,7 +22,7 @@ export function endOfDay(d: Date): Date {
 /** YYYY-MM-DD from a Date via ISO string (UTC day key). */
 export function isoDay(d: Date): string {
   // ISO is always UTC — matches startOfDay/endOfDay conventions.
-  return d.toISOString().slice(0, 10);
+  return formatHotelDate(d);
 }
 
 /** Remaining UTC calendar days in the month containing `now` (not including today). */

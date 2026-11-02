@@ -1,5 +1,5 @@
 /**
- * E2E-02 — Full repair cycle through Repairs UI (P1-37 happy + P1-47 history).
+ * Full repair cycle through Repairs UI (happy + history).
  */
 import { expect, test } from "@playwright/test";
 import { uiLogin, USERS, DEMO_PASSWORD } from "./helpers/auth";
@@ -11,7 +11,7 @@ import {
   prepareVacantDirtyRoom,
 } from "./helpers/fixtures";
 
-test.describe("E2E-02 repairs lifecycle flow", () => {
+test.describe("repairs lifecycle flow", () => {
   test("report → assign → start → wait → resume → resolve → close → reopen", async ({
     page,
   }) => {

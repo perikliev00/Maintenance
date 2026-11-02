@@ -1,5 +1,5 @@
 /**
- * Regression coverage for Audit page load races and partial failures (BUG-02/03/04/08).
+ * Regression coverage for Audit page load races and partial failures .
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -12,7 +12,7 @@ import {
   shouldApplyAuditRefresh,
 } from "./auditPageLogic";
 
-describe("BUG-02 stale refresh generation", () => {
+describe("stale refresh generation", () => {
   it("rejects older generations", () => {
     assert.equal(shouldApplyAuditRefresh(3, 4), false);
     assert.equal(shouldApplyAuditRefresh(4, 4), true);
@@ -38,7 +38,7 @@ describe("BUG-02 stale refresh generation", () => {
   });
 });
 
-describe("BUG-03 / BUG-04 independent section settlement", () => {
+describe("independent section settlement", () => {
   it("keeps audit rows when jobs fail", async () => {
     const events = await settleAuditFetch(Promise.resolve([{ id: "e1" }]));
     const jobs = await settleAuditFetch(Promise.reject(new Error("jobs 403")));
@@ -104,7 +104,7 @@ describe("BUG-03 / BUG-04 independent section settlement", () => {
   });
 });
 
-describe("NEW-04 events stale / clear on failure", () => {
+describe("events stale / clear on failure", () => {
   it("clears rows on initial events failure", () => {
     const decision = resolveEventsTableAfterLoad({
       initial: true,
@@ -125,7 +125,7 @@ describe("NEW-04 events stale / clear on failure", () => {
     assert.equal(decision.stale, true);
   });
 
-  it("does not clear events when only jobs fail (BUG-04)", async () => {
+  it("does not clear events when only jobs fail", async () => {
     const combined = combineAuditLoadResults({
       events: await settleAuditFetch(Promise.resolve([{ id: "e1" }])),
       jobs: await settleAuditFetch(Promise.reject(new Error("jobs down"))),
@@ -156,7 +156,7 @@ describe("NEW-04 events stale / clear on failure", () => {
   });
 });
 
-describe("BUG-08 related identity", () => {
+describe("related identity", () => {
   it("distinguishes two SLA rows with identical status/dueAt via location and title", () => {
     const label = (type: string) => (type === "maintenance_ticket" ? "Ticket" : type);
     const a = formatAuditRelated(

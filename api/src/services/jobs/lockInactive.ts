@@ -9,7 +9,7 @@ import { prisma } from "../../db";
 import { getAccess } from "../settings";
 import { recordAudit } from "../audit";
 import { revokeAllForUser } from "../authSessions";
-import { startJobRun, finishJobRun } from "./runLifecycle";
+import { startJobRun, finishJobRun, withJobRun } from "./runLifecycle";
 
 /**
  * Latest non-null activity timestamp (max of dates — not nullish coalescing).
@@ -230,8 +230,6 @@ export type RunLockInactiveUsersDeps = {
 export async function runLockInactiveUsers(deps: RunLockInactiveUsersDeps = {}) {
   // Prefer injected deps in tests; fall back to production modules.
   const accessFn = deps.getAccess ?? getAccess;
-  const start = deps.startJobRun ?? startJobRun;
-  const finish = deps.finishJobRun ?? finishJobRun;
   const audit = deps.recordAudit ?? recordAudit;
   // claimLockInactiveUser expects the prisma-shaped LockInactiveClaimDb.
   const claimDb = deps.claimDb ?? prisma;
@@ -250,71 +248,72 @@ export async function runLockInactiveUsers(deps: RunLockInactiveUsersDeps = {}) 
         },
       }));
 
-  // Standard JobRun lifecycle keyed for the jobs admin panel.
-  const run = await start("lock_inactive_users");
-  try {
-    const access = await accessFn();
-    // Feature flag: skip entirely when lockInactiveUsers is off.
-    if (!access.lockInactiveUsers) {
-      // Early exit still closes the JobRun as ok with skip reason.
-      await finish(run.id, "ok", { skipped: true, reason: "disabled" });
-      return { locked: 0, skipped: true };
-    }
-
-    // Activity older than this cutoff is considered idle.
-    const cutoff = new Date(
-      Date.now() - access.sessionIdleDays * 24 * 60 * 60 * 1000,
-    );
-    // sessionIdleDays is whole days — multiply out to milliseconds.
-
-    // Broad scan — per-user CAS claim re-validates before write.
-    const candidates = await findCandidates();
-
-    // Successful locks after claim + audit.
-    let locked = 0;
-    for (const user of candidates) {
-      // Cheap pre-filter before the CAS claim round-trip.
-      const lastActivity = latestActivityAt(activitySignalsOf(user));
-      if (lastActivity.getTime() > cutoff.getTime()) continue;
-
-      // Candidate passed in-memory idle check — attempt atomic claim.
-      // CAS path handles races with login, device sync, or activation.
-      const claim = await claimLockInactiveUser(claimDb, user.id, cutoff);
-      if (!claim.claimed) continue;
-
-      // Close open SSE / refresh sessions under the live-access User lock.
-      if (!deps.claimDb) {
-        await revokeAllForUser(user.id);
-        // Bump access-state version so stale Team lifecycle actions conflict.
-        await prisma.employee.updateMany({
-          where: { user: { is: { id: user.id } } },
-          data: { accessVersion: { increment: 1 } },
-        });
+  return withJobRun(
+    "lock_inactive_users",
+    async () => {
+      const access = await accessFn();
+      // Feature flag: skip entirely when lockInactiveUsers is off.
+      if (!access.lockInactiveUsers) {
+        return { locked: 0, skipped: true as const, reason: "disabled" };
       }
 
-      // Audit only successful locks (system actor).
-      await audit({
-        actorEmployeeId: null,
-        action: "user.lock_inactive",
-        entityType: "user",
-        entityId: user.id,
-        reason: `Idle beyond ${access.sessionIdleDays} days`,
-        before: {
-          isActive: true,
-          lastActivity: claim.lastActivity.toISOString(),
-        },
-        after: { isActive: false },
-      });
-      // Increment only after audit succeeds (lock already committed).
-      locked += 1;
-    }
+      // Activity older than this cutoff is considered idle.
+      const cutoff = new Date(
+        Date.now() - access.sessionIdleDays * 24 * 60 * 60 * 1000,
+      );
+      // sessionIdleDays is whole days — multiply out to milliseconds.
 
-    await finish(run.id, "ok", { locked, cutoff: cutoff.toISOString() });
-    return { locked, skipped: false };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await finish(run.id, "error", undefined, message);
-    // Surface failure to scheduler after JobRun error row is written.
-    throw err;
-  }
+      // Broad scan — per-user CAS claim re-validates before write.
+      const candidates = await findCandidates();
+
+      // Successful locks after claim + audit.
+      let locked = 0;
+      for (const user of candidates) {
+        // Cheap pre-filter before the CAS claim round-trip.
+        const lastActivity = latestActivityAt(activitySignalsOf(user));
+        if (lastActivity.getTime() > cutoff.getTime()) continue;
+
+        // Candidate passed in-memory idle check — attempt atomic claim.
+        // CAS path handles races with login, device sync, or activation.
+        const claim = await claimLockInactiveUser(claimDb, user.id, cutoff);
+        if (!claim.claimed) continue;
+
+        // Close open SSE / refresh sessions under the live-access User lock.
+        if (!deps.claimDb) {
+          await revokeAllForUser(user.id);
+          // Bump access-state version so stale Team lifecycle actions conflict.
+          await prisma.employee.updateMany({
+            where: { user: { is: { id: user.id } } },
+            data: { accessVersion: { increment: 1 } },
+          });
+        }
+
+        // Audit only successful locks (system actor).
+        await audit({
+          actorEmployeeId: null,
+          action: "user.lock_inactive",
+          entityType: "user",
+          entityId: user.id,
+          reason: `Idle beyond ${access.sessionIdleDays} days`,
+          before: {
+            isActive: true,
+            lastActivity: claim.lastActivity.toISOString(),
+          },
+          after: { isActive: false },
+        });
+        // Increment only after audit succeeds (lock already committed).
+        locked += 1;
+      }
+
+      return {
+        locked,
+        skipped: false as const,
+        cutoff: cutoff.toISOString(),
+      };
+    },
+    {
+      startJobRun: deps.startJobRun ?? startJobRun,
+      finishJobRun: deps.finishJobRun ?? finishJobRun,
+    },
+  );
 }

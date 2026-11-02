@@ -1,0 +1,171 @@
+.mywork-page {
+  max-width: 720px;
+}
+
+.mywork-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.mywork-conn {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.mywork-conn-online {
+  color: var(--success-text, #3dba7a);
+  background: color-mix(in srgb, var(--success-bg, #143528) 80%, transparent);
+}
+
+.mywork-conn-syncing {
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn-bg) 80%, transparent);
+}
+
+.mywork-conn-offline {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger-bg) 80%, transparent);
+}
+
+.mywork-conn-unreachable {
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--danger-bg) 55%, transparent);
+  border-color: color-mix(in srgb, var(--danger-text) 35%, var(--border));
+}
+
+.outbox-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: var(--space-3, 0.75rem);
+}
+
+.outbox-issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.outbox-issue-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
+}
+
+.outbox-issue-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.outbox-issue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.mywork-section {
+  margin: 1.25rem 0 1.75rem;
+}
+
+.mywork-section h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.mywork-cards {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.mywork-card {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel, var(--card, #152228)) 92%, transparent);
+}
+
+.mywork-card-current {
+  border-color: color-mix(in srgb, var(--accent, #3dba7a) 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #3dba7a) 25%, transparent);
+}
+
+.mywork-card-rework {
+  border-color: color-mix(in srgb, var(--warn-text) 45%, var(--border));
+}
+
+.mywork-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.mywork-findings {
+  margin: 0.4rem 0 0.6rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn-bg) 70%, transparent);
+  color: var(--warn-text);
+  font-size: 0.92rem;
+}
+
+.mywork-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.mywork-btn {
+  min-height: 3rem;
+  min-width: 8rem;
+  padding: 0.7rem 1.2rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  border-radius: 12px;
+}
+
+.mywork-btn.primary {
+  background: var(--accent, #1f6f5b);
+  color: #fff;
+  border: none;
+}
+
+.mywork-btn.primary:disabled {
+  opacity: 0.55;
+}
+
+.pill.status-rework {
+  background: color-mix(in srgb, var(--warn-bg) 85%, transparent);
+  color: var(--warn-text);
+}
+
+.pill.status-in_progress {
+  background: color-mix(in srgb, var(--accent, #1f6f5b) 25%, transparent);
+}
+
+@media (max-width: 900px) {
+  .mywork-btn {
+    flex: 1 1 auto;
+  }
+}

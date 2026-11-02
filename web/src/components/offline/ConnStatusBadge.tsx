@@ -1,17 +1,20 @@
-/** Connection badge helpers for My Work (offline / unreachable / syncing / online). */
+/** Shared offline / sync connection badge for My Work and Repairs. */
 import type { ConnMode, QueueStats } from "../../offline";
-import { t } from "./labels";
+import { t } from "../../i18n";
 
 /** CSS modifier from conn mode plus in-flight outbox counts. */
-export function connClass(conn: ConnMode, pending: number, sending: number): string {
-  // pending/sending force "syncing" even if mode briefly says online.
+export function connClass(
+  conn: ConnMode,
+  pending: number,
+  sending: number,
+): string {
   if (conn === "offline") return "offline";
   if (conn === "unreachable") return "unreachable";
   if (conn === "syncing" || pending + sending > 0) return "syncing";
   return "online";
 }
 
-/** Human banner text for the My Work connection badge. */
+/** Localized connection badge text, including inflight outbox count when syncing. */
 export function connLabel(
   locale: "bg" | "en",
   conn: ConnMode,
@@ -29,22 +32,30 @@ export function connLabel(
   return t(locale, "Онлайн", "Online");
 }
 
-/** Live connection status chip driven by offline store stats. */
+type ConnStatusBadgeProps = {
+  locale: "bg" | "en";
+  conn: ConnMode;
+  pending?: number;
+  sending?: number;
+  queueStats?: QueueStats;
+};
+
+/** Status pill showing offline/unreachable/syncing/online. */
 export function ConnStatusBadge({
   locale,
   conn,
+  pending,
+  sending,
   queueStats,
-}: {
-  locale: "bg" | "en";
-  conn: ConnMode;
-  queueStats: QueueStats;
-}) {
+}: ConnStatusBadgeProps) {
+  const p = pending ?? queueStats?.pending ?? 0;
+  const s = sending ?? queueStats?.sending ?? 0;
   return (
     <div
-      className={`mywork-conn mywork-conn-${connClass(conn, queueStats.pending, queueStats.sending)}`}
+      className={`mywork-conn mywork-conn-${connClass(conn, p, s)}`}
       role="status"
     >
-      {connLabel(locale, conn, queueStats.pending, queueStats.sending)}
+      {connLabel(locale, conn, p, s)}
     </div>
   );
 }

@@ -14,8 +14,11 @@ import { writeTicketEvent } from "./events";
 import { formatMaintenanceTicket } from "./format";
 import { loadLockedTicket } from "./locks";
 import { notifyTicketEvent, publishTicketChanged } from "./notify";
-import { isP2002 } from "./prismaConflicts";
 import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
+import {
+  catchLifecycleCommandReplay,
+  invalidTicketStatusError,
+} from "./lifecycleGuards";
 
 /**
  * Sets assignee and status=assigned. Allowed only from new or assigned
@@ -74,11 +77,7 @@ export async function assignMaintenanceTicket(input: {
         ticket.status !== TicketStatus.new &&
         ticket.status !== TicketStatus.assigned
       ) {
-        throw new AppError(
-          409,
-          "invalid_state",
-          `Cannot assign ticket in status ${ticket.status}`,
-        );
+        throw invalidTicketStatusError("assign", ticket.status);
       }
 
       // Re-check after ticket lock so a concurrent block/role change cannot slip in.
@@ -129,12 +128,12 @@ export async function assignMaintenanceTicket(input: {
     // Legacy category alias for older clients.
     return formatMaintenanceTicket(updated);
   } catch (err) {
-    if (input.commandId) {
-      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
-        const again = await replayLifecycleCommand(input.commandId, commandKey);
-        if (again) return again.ticket;
-      }
-    }
+    const again = await catchLifecycleCommandReplay(
+      err,
+      input.commandId,
+      commandKey,
+    );
+    if (again) return again.ticket;
     throw err;
   }
 }

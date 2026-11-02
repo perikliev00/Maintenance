@@ -1,5 +1,5 @@
 /**
- * T-TKT-11 / P1-47 — reopen clears current resolve/close; keeps prior history.
+ * reopen clears current resolve/close; keeps prior history.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -28,7 +28,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("ticket reopen history (T-TKT-11 / P1-47)", () => {
+describe("ticket reopen history", () => {
   let world: TicketsWorld;
 
   before(async () => {
@@ -53,7 +53,7 @@ describe("ticket reopen history (T-TKT-11 / P1-47)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-TKT-11: reopen clears current fields; prior resolve/close events remain", async () => {
+  it("reopen clears current fields; prior resolve/close events remain", async () => {
     const { ticket } = await reportTicket(prisma, world);
     await advanceTicketTo(world, ticket.id, "in_progress");
 

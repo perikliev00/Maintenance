@@ -1,5 +1,5 @@
 /**
- * E2E-01 — Cleaning, inspection, readiness with blocking repair (P1-31/33/34).
+ * Cleaning, inspection, readiness with blocking repair .
  */
 import { expect, test } from "@playwright/test";
 import { uiLogin, USERS, DEMO_PASSWORD } from "./helpers/auth";
@@ -17,7 +17,7 @@ import {
   resolveTicket,
 } from "./helpers/fixtures";
 
-test.describe("E2E-01 readiness blocking flow", () => {
+test.describe("readiness blocking flow", () => {
   test("approve clean with blocker → not_ready; resolve → ready; reopen → not_ready", async ({
     page,
   }) => {

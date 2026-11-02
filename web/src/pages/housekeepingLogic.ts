@@ -2,20 +2,10 @@
  * Pure housekeeping helpers shared by HousekeepingPage and unit tests.
  */
 
-export type SaveRefreshOutcome =
-  | "saved"
-  | "save_failed"
-  | "saved_refresh_failed";
-
-/** Classify mutation vs list-refresh results (BUG-09). */
-export function classifySaveRefreshOutcome(input: {
-  saveOk: boolean;
-  refreshOk: boolean;
-}): SaveRefreshOutcome {
-  if (!input.saveOk) return "save_failed";
-  if (!input.refreshOk) return "saved_refresh_failed";
-  return "saved";
-}
+export {
+  type SaveRefreshOutcome,
+  classifySaveRefreshOutcome,
+} from "../saveRefresh";
 
 /**
  * Supervisors with sectors.manage may edit owned sectors but must not create

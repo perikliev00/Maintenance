@@ -1,5 +1,5 @@
 /**
- * T-SH-66 — create/reassign assertActiveShiftId HTTP contracts.
+ * create/reassign assertActiveShiftId HTTP contracts.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -26,7 +26,7 @@ import {
 
 const prisma = new PrismaClient();
 
-describe("cleaning task shiftId HTTP (T-SH-66)", () => {
+describe("cleaning task shiftId HTTP", () => {
   let sectors: SectorsWorld;
   let shifts: ShiftsWorld;
   let api: string;
@@ -64,7 +64,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
     });
   });
 
-  it("T-SH-66a create with unknown shift → 404; no task", async () => {
+  it("create with unknown shift → 404; no task", async () => {
     const mgr = await loginBearer(
       api,
       sectors.manager.email,
@@ -89,7 +89,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
     );
   });
 
-  it("T-SH-66b create with inactive shift → 400 invalid_state", async () => {
+  it("create with inactive shift → 400 invalid_state", async () => {
     const mgr = await loginBearer(
       api,
       sectors.manager.email,
@@ -114,7 +114,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
     );
   });
 
-  it("T-SH-66c reassign unknown shift → 404; unchanged", async () => {
+  it("reassign unknown shift → 404; unchanged", async () => {
     const mgr = await loginBearer(
       api,
       sectors.manager.email,
@@ -134,7 +134,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
       `/cleaning/tasks/${task.id}/reassign`,
       {
         assignedEmployeeId: sectors.housekeeper.employeeId,
-        reason: "T-SH-66c",
+        reason: "unnamed case",
         shiftId: "missing-shift-id",
         expectedVersion: task.version,
       },
@@ -146,7 +146,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
     assert.equal(row.shiftId, shifts.shiftMorningId);
   });
 
-  it("T-SH-66d reassign inactive shift → 400", async () => {
+  it("reassign inactive shift → 400", async () => {
     const mgr = await loginBearer(
       api,
       sectors.manager.email,
@@ -165,7 +165,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
       `/cleaning/tasks/${task.id}/reassign`,
       {
         assignedEmployeeId: sectors.housekeeper.employeeId,
-        reason: "T-SH-66d",
+        reason: "unnamed case",
         shiftId: shifts.shiftInactiveId,
         expectedVersion: task.version,
       },
@@ -174,7 +174,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
     assert.equal((res.body as { error?: string }).error, "invalid_state");
   });
 
-  it("T-SH-66e reassign shiftId null clears", async () => {
+  it("reassign shiftId null clears", async () => {
     const mgr = await loginBearer(
       api,
       sectors.manager.email,
@@ -193,7 +193,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
       `/cleaning/tasks/${task.id}/reassign`,
       {
         assignedEmployeeId: sectors.housekeeper.employeeId,
-        reason: "T-SH-66e clear",
+        reason: "clear",
         shiftId: null,
         expectedVersion: task.version,
         // Fixture HK is off-roster; this case covers shiftId clearing, not availability.
@@ -207,7 +207,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
     assert.equal(row.shiftId, null);
   });
 
-  it("T-SH-66f reassign omit shiftId keeps previous", async () => {
+  it("reassign omit shiftId keeps previous", async () => {
     const mgr = await loginBearer(
       api,
       sectors.manager.email,
@@ -226,7 +226,7 @@ describe("cleaning task shiftId HTTP (T-SH-66)", () => {
       `/cleaning/tasks/${task.id}/reassign`,
       {
         assignedEmployeeId: sectors.housekeeper.employeeId,
-        reason: "T-SH-66f omit",
+        reason: "omit",
         expectedVersion: task.version,
         // Fixture HK is off-roster; this case covers omit-shiftId keep, not availability.
         forceDespiteAvailability: true,

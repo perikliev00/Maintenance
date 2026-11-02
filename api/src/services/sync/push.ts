@@ -4,7 +4,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../db";
-import type { AuthUser } from "../../middleware/auth";
+import type { AuthUser } from "../../auth/tokens";
 import { recordAudit } from "../audit";
 import { applyCommand } from "./applyCommand";
 import type { SyncCommand, SyncCommandResult } from "./types";

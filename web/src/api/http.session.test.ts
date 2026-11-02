@@ -39,7 +39,7 @@ it(`logout-all ${status} rejects, wipes local state, and serializes a following 
 }
 
 for (const status of [200, 401]) {
-  it(`P0-10 stale refresh ${status} cannot update or clear the next login`, async () => {
+  it(`stale refresh ${status} cannot update or clear the next login`, async () => {
     const values = new Map<string, string>([["user", JSON.stringify({ id: "A" })]]);
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
       getItem: (key: string) => values.get(key) ?? null,
@@ -74,7 +74,7 @@ for (const status of [200, 401]) {
   });
 }
 
-it("P0-10 delayed profile A cannot replace the cached profile after login B", async () => {
+it("delayed profile A cannot replace the cached profile after login B", async () => {
   const values = new Map<string, string>();
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
     getItem: (key: string) => values.get(key) ?? null,

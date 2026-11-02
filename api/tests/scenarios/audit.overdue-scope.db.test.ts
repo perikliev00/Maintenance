@@ -1,5 +1,5 @@
 /**
- * BUG-01 remainder: overdue-session audit events with locationId are visible
+ * remainder: overdue-session audit events with locationId are visible
  * under sector/location scope; foreign rooms stay hidden.
  */
 import "../preloadIsolatedTestEnv";
@@ -17,7 +17,7 @@ import { runOverdueSessions } from "../../src/services/jobs/overdueSessions";
 import { listAuditEvents } from "../../src/services/audit";
 import { getSetting, updateSetting } from "../../src/services/settings";
 
-describe("audit overdue location scope (BUG-01)", () => {
+describe("audit overdue location scope", () => {
   let world: CleaningWorld;
   let operations: Awaited<ReturnType<typeof getSetting<"operations">>>;
   const now = Date.parse("2026-02-02T12:00:00Z");

@@ -3,6 +3,7 @@
  * section loading. Framework-free so node:test can lock BUG-01/02/05–10.
  */
 import type { Role } from "../api/capabilities";
+import { mergeSavedWithRefreshFailure } from "../saveRefresh";
 
 /** Create-task assignee: distinguish never-touched from explicit Unassigned (`""`). */
 export type TaskAssigneeState =
@@ -204,10 +205,7 @@ export function mergeMutationAndRefresh(input: {
   successMessage: string;
   refreshError?: string | null;
 }): { message: string; refreshWarning: string | null } {
-  return {
-    message: input.successMessage,
-    refreshWarning: input.refreshError ?? null,
-  };
+  return mergeSavedWithRefreshFailure(input);
 }
 
 export function formatRoleConflicts(

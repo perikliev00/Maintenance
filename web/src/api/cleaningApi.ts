@@ -3,7 +3,7 @@
  * Start/complete that must work offline should use `../offline` queued wrappers;
  * those send `commandId` + optional `expectedVersion` for optimistic concurrency.
  */
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { apiGet, apiPost, buildQuery } from "./http";
 
 export type OverdueSession = {
   sessionId: string;
@@ -70,15 +70,7 @@ export async function createCleaningTask(input: {
   dueAt?: string;
   serviceType?: CleaningServiceType;
 }) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/cleaning/tasks`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify(input),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost("/cleaning/tasks", input);
 }
 
 /**
@@ -86,18 +78,10 @@ export async function createCleaningTask(input: {
  * reassignment; omit only when the caller does not have a version yet.
  */
 export async function startCleaningTask(taskId: string, expectedVersion?: number) {
-  // Fresh commandId for online-only path (offline wrappers supply their own).
-  const res = await apiFetch(`${API_BASE}/cleaning/tasks/${taskId}/start`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({
-      commandId: crypto.randomUUID(),
-      expectedVersion,
-    }),
+  return apiPost(`/cleaning/tasks/${taskId}/start`, {
+    commandId: crypto.randomUUID(),
+    expectedVersion,
   });
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /** Complete a running session; optional notes and optimistic version. */
@@ -106,19 +90,11 @@ export async function completeCleaningSession(
   notes?: string,
   expectedVersion?: number,
 ) {
-  // Omit empty notes; include expectedVersion only when the caller has one.
-  const res = await apiFetch(`${API_BASE}/cleaning/sessions/${sessionId}/complete`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({
-      commandId: crypto.randomUUID(),
-      ...(notes?.trim() ? { notes: notes.trim() } : {}),
-      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
-    }),
+  return apiPost(`/cleaning/sessions/${sessionId}/complete`, {
+    commandId: crypto.randomUUID(),
+    ...(notes?.trim() ? { notes: notes.trim() } : {}),
+    ...(expectedVersion !== undefined ? { expectedVersion } : {}),
   });
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /** Cancel a running session without marking the room cleaned. */
@@ -127,19 +103,11 @@ export async function cancelCleaningSession(
   notes?: string,
   expectedVersion?: number,
 ) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/cleaning/sessions/${sessionId}/cancel`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({
-      commandId: crypto.randomUUID(),
-      ...(notes?.trim() ? { notes: notes.trim() } : {}),
-      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
-    }),
+  return apiPost(`/cleaning/sessions/${sessionId}/cancel`, {
+    commandId: crypto.randomUUID(),
+    ...(notes?.trim() ? { notes: notes.trim() } : {}),
+    ...(expectedVersion !== undefined ? { expectedVersion } : {}),
   });
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /** Supervisor inspection: approve or reject a completed task. */
@@ -149,20 +117,12 @@ export async function inspectCleaningTask(
   findings?: string,
   expectedVersion?: number,
 ) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/cleaning/tasks/${taskId}/inspect`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({
-      commandId: crypto.randomUUID(),
-      result,
-      findings,
-      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
-    }),
+  return apiPost(`/cleaning/tasks/${taskId}/inspect`, {
+    commandId: crypto.randomUUID(),
+    result,
+    findings,
+    ...(expectedVersion !== undefined ? { expectedVersion } : {}),
   });
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /** Reassign a task to another housekeeper; reason is required for audit. */
@@ -174,23 +134,15 @@ export async function reassignCleaningTask(
   shiftId?: string | null,
   forceDespiteAvailability?: boolean,
 ) {
-  // Only send shiftId when the caller explicitly wants to change/clear it.
-  const res = await apiFetch(`${API_BASE}/cleaning/tasks/${taskId}/reassign`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({
-      assignedEmployeeId,
-      reason,
-      expectedVersion,
-      ...(shiftId !== undefined ? { shiftId } : {}),
-      ...(forceDespiteAvailability === true
-        ? { forceDespiteAvailability: true }
-        : {}),
-    }),
+  return apiPost(`/cleaning/tasks/${taskId}/reassign`, {
+    assignedEmployeeId,
+    reason,
+    expectedVersion,
+    ...(shiftId !== undefined ? { shiftId } : {}),
+    ...(forceDespiteAvailability === true
+      ? { forceDespiteAvailability: true }
+      : {}),
   });
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 export type HousekeeperAvailabilityStatus =
@@ -238,27 +190,19 @@ export async function fetchAvailableHousekeepers(params: {
   locationId: string;
   taskId?: string;
 }): Promise<AvailableHousekeepersResponse> {
-  const search = new URLSearchParams();
-  search.set("locationId", params.locationId);
-  if (params.taskId) search.set("taskId", params.taskId);
-  const res = await apiFetch(
-    `${API_BASE}/cleaning/available-housekeepers?${search.toString()}`,
-    { headers: authHeaders() },
+  return apiGet(
+    `/cleaning/available-housekeepers${buildQuery({
+      locationId: params.locationId,
+      taskId: params.taskId,
+    })}`,
   );
-  return parseJson(res);
 }
 
 /** Sessions past the overdue threshold (Control / review surfaces). */
 export async function fetchOverdueSessions(init?: {
   signal?: AbortSignal;
 }): Promise<OverdueSession[]> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/cleaning/sessions/review`, {
-    headers: authHeaders(),
-    signal: init?.signal,
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiGet("/cleaning/sessions/review", init);
 }
 
 export type CleaningServiceType =
@@ -317,25 +261,20 @@ export async function fetchCleaningResults(params: {
   pageSize?: number;
   serviceType?: CleaningServiceType | CleaningServiceType[];
 }): Promise<CleaningResultsResponse> {
-  // Build query string.
-  const q = new URLSearchParams({
-    from: params.from,
-    to: params.to,
-    page: String(params.page ?? 1),
-    pageSize: String(params.pageSize ?? 25),
-  });
-  // Normalize single vs array service types into one comma-separated query param.
+  let serviceType: string | undefined;
   if (params.serviceType) {
     const types = Array.isArray(params.serviceType)
       ? params.serviceType
       : [params.serviceType];
-    // Branch: conditional gate.
-    if (types.length) q.set("serviceType", types.join(","));
+    if (types.length) serviceType = types.join(",");
   }
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/cleaning/results?${q}`, {
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiGet(
+    `/cleaning/results${buildQuery({
+      from: params.from,
+      to: params.to,
+      page: params.page ?? 1,
+      pageSize: params.pageSize ?? 25,
+      serviceType,
+    })}`,
+  );
 }

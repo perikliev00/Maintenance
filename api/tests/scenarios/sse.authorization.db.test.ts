@@ -1,5 +1,5 @@
 /**
- * P1-115 — deterministic SSE live-authorization races against PostgreSQL locks.
+ * deterministic SSE live-authorization races against PostgreSQL locks.
  * Sleeps only poll for observed waiters; elapsed time never decides winners.
  */
 import "../preloadIsolatedTestEnv";
@@ -130,7 +130,7 @@ after(async () => {
   await prisma.$disconnect();
 });
 
-describe("P1-115 SSE authorization serialization", () => {
+describe("SSE authorization serialization", () => {
   it("1+2: access change commits before delivery → event not delivered", async () => {
     const tokens = await createSession({ userId: fx.supervisorA.userId });
     const user = authUserFrom(tokens, fx.supervisorA);

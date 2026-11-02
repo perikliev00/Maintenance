@@ -2,14 +2,13 @@
  * Daily plan CRUD/import and hotel-local calendar date helpers.
  * Timezone cache is updated from public settings so "today" matches the property.
  */
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { apiDelete, apiGet, apiPost, buildQuery } from "./http";
 
 const DEFAULT_HOTEL_TIMEZONE = "Europe/Sofia";
 let cachedHotelTimezone = DEFAULT_HOTEL_TIMEZONE;
 
 /** Used by settings fetch to keep hotel-date helpers in sync with server timezone. */
 export function setCachedHotelTimezone(tz: string) {
-  // Ignore empty strings so a bad settings payload cannot clear the cache.
   if (tz.length > 0) {
     cachedHotelTimezone = tz;
   }
@@ -17,7 +16,6 @@ export function setCachedHotelTimezone(tz: string) {
 
 /** `YYYY-MM-DD` in the hotel timezone (en-CA yields ISO-like dates). */
 export function todayHotelDate(timeZone?: string, instant: Date = new Date()): string {
-  // Prefer explicit tz; fall back to the settings-synced cache.
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: timeZone ?? cachedHotelTimezone,
     year: "numeric",
@@ -123,13 +121,7 @@ export type DepartureRoomEffectsResult = {
 
 /** Load departure / arrival / priority buckets for one hotel calendar date. */
 export async function fetchDailyPlan(hotelDate: string): Promise<DailyPlan> {
-  const search = new URLSearchParams({ hotelDate });
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/daily-plan?${search}`, {
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiGet(`/daily-plan${buildQuery({ hotelDate })}`);
 }
 
 /**
@@ -140,18 +132,10 @@ export async function applyDepartureRoomEffects(
   hotelDate: string,
   options?: { confirmEntryIds?: string[] },
 ): Promise<DepartureRoomEffectsResult> {
-  // POST body: hotel date plus optional explicit confirm list for deferred rows.
-  const res = await apiFetch(`${API_BASE}/daily-plan/apply-departure-effects`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({
-      hotelDate,
-      confirmEntryIds: options?.confirmEntryIds,
-    }),
+  return apiPost("/daily-plan/apply-departure-effects", {
+    hotelDate,
+    confirmEntryIds: options?.confirmEntryIds,
   });
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /**
@@ -166,39 +150,17 @@ export async function createDailyPlanEntry(input: {
   assignedEmployeeId?: string;
   shiftId?: string | null;
 }): Promise<{ entry: DailyPlanEntry; effects: Record<string, unknown> }> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/daily-plan`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify(input),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost("/daily-plan", input);
 }
 
 /** Bulk import plan rows; returns the import batch summary plus refreshed plan. */
 export async function importDailyPlan(
   payload: DailyPlanImportPayload,
 ): Promise<{ batch: DailyPlanImportBatch; plan: DailyPlan }> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/daily-plan/import`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify(payload),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost("/daily-plan/import", payload);
 }
 
 /** Delete one plan entry by id. */
 export async function deleteDailyPlanEntry(id: string): Promise<{ id: string; deleted: boolean }> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/daily-plan/${id}`, {
-    method: "DELETE",
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiDelete(`/daily-plan/${id}`);
 }

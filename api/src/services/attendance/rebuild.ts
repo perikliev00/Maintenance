@@ -23,12 +23,10 @@ import {
 // Module dependency import.
 import { prisma } from "../../db";
 // Local-midnight bounds for punch fetch windows.
-import { zonedDayStartUtc } from "../hotelTime";
+import type { Tx } from "../db/types";
+import { formatHotelDate, zonedDayStartUtc } from "../hotelTime";
 
 /** Open intervals older than OPEN_MISSING_END_HOURS become `missing_end` → `needs_review`. */
-
-/** Prisma transaction client or root client for rebuild helpers. */
-type Tx = Prisma.TransactionClient;
 
 /** Minimal interval columns read before a stale-open claim attempt. */
 type StaleIntervalRow = {
@@ -176,7 +174,7 @@ export async function rebuildIntervalsForEmployee(
   db: Tx | typeof prisma = prisma,
 ) {
   // Center day + previous day (overnight clock-outs).
-  const centerYmd = hotelDate.toISOString().slice(0, 10);
+  const centerYmd = formatHotelDate(hotelDate);
   // Local binding for this step.
   const prevYmd = addDaysYmd(centerYmd, -1);
   // Local binding for this step.
@@ -292,7 +290,7 @@ export async function rebuildIntervalsForEmployee(
     timeZone,
   }).filter((d) => {
     // Local binding for this step.
-    const ymd = d.hotelDate.toISOString().slice(0, 10);
+    const ymd = formatHotelDate(d.hotelDate);
     // Return result to caller.
     return replaceYmds.includes(ymd);
   });

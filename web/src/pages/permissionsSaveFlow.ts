@@ -2,7 +2,11 @@
  * Framework-free PermissionsPage save orchestration (BUG-03/04/06).
  * Callers supply IO deps so node:test can exercise PUT/GET failure splits
  * and parallel in-flight role tracking without a React renderer.
+ *
+ * Save-vs-refresh uses executeMutationWithRefresh (same semantics as
+ * useBusyMutation); per-role busy stays via begin/endPermissionsSave.
  */
+import { executeMutationWithRefresh } from "../saveRefresh";
 import {
   addSavingRole,
   removeSavingRole,
@@ -75,7 +79,8 @@ export async function runPermissionsSave(
   input: PermissionsSaveInput,
   deps: PermissionsSaveDeps,
 ): Promise<PermissionsSaveOutcome> {
-  if (!input.draft) {
+  const draft = input.draft;
+  if (!draft) {
     return {
       skipped: true,
       putSucceeded: false,
@@ -89,10 +94,8 @@ export async function runPermissionsSave(
       feedback: { kind: "error", text: "Save already in progress" },
     };
   }
-  if (
-    typeof input.expectedVersion !== "number" ||
-    !Number.isInteger(input.expectedVersion)
-  ) {
+  const expectedVersion = input.expectedVersion;
+  if (typeof expectedVersion !== "number" || !Number.isInteger(expectedVersion)) {
     return {
       putSucceeded: false,
       feedback: {
@@ -102,33 +105,20 @@ export async function runPermissionsSave(
     };
   }
 
-  let putSucceeded = false;
-  try {
-    const saved = await deps.put({
-      role: input.role,
-      panels: input.draft.panels,
-      actions: input.draft.actions,
-      expectedVersion: input.expectedVersion,
-      reason: input.reason,
-    });
-    putSucceeded = true;
+  const result = await executeMutationWithRefresh(
+    () =>
+      deps.put({
+        role: input.role,
+        panels: draft.panels,
+        actions: draft.actions,
+        expectedVersion,
+        reason: input.reason,
+      }),
+    () => deps.refreshAfterSave(),
+  );
 
-    try {
-      await deps.refreshAfterSave();
-      return {
-        putSucceeded: true,
-        saved,
-        feedback: saveFeedbackForPutSuccess(input.roleLabel),
-      };
-    } catch {
-      return {
-        putSucceeded: true,
-        saved,
-        feedback: saveFeedbackForRefreshFailure(input.roleLabel),
-      };
-    }
-  } catch (err) {
-    if (!putSucceeded && deps.isConflictError(err)) {
+  if (!result.ok) {
+    if (deps.isConflictError(result.cause)) {
       try {
         await deps.reloadOnConflict?.();
       } catch {
@@ -136,20 +126,28 @@ export async function runPermissionsSave(
       }
       return { putSucceeded: false, feedback: saveFeedbackForConflict() };
     }
-    if (!putSucceeded) {
-      return {
-        putSucceeded: false,
-        feedback: {
-          kind: "error",
-          text: err instanceof Error ? err.message : "Save failed",
-        },
-      };
-    }
+    return {
+      putSucceeded: false,
+      feedback: {
+        kind: "error",
+        text: result.error,
+      },
+    };
+  }
+
+  if (result.outcome === "saved_refresh_failed") {
     return {
       putSucceeded: true,
+      saved: result.value,
       feedback: saveFeedbackForRefreshFailure(input.roleLabel),
     };
   }
+
+  return {
+    putSucceeded: true,
+    saved: result.value,
+    feedback: saveFeedbackForPutSuccess(input.roleLabel),
+  };
 }
 
 /**

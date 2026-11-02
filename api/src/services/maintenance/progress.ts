@@ -19,8 +19,12 @@ import { writeTicketEvent } from "./events";
 import { formatMaintenanceTicket } from "./format";
 import { loadLockedTicket } from "./locks";
 import { notifyTicketEvent, publishTicketChanged } from "./notify";
-import { isP2002 } from "./prismaConflicts";
 import { pauseFieldsOnWait, unpauseFields } from "./slaPause";
+import {
+  assertTicketAssigneeOrAllowBypass,
+  catchLifecycleCommandReplay,
+  invalidTicketStatusError,
+} from "./lifecycleGuards";
 
 /**
  * assigned → in_progress. Assignee must match actor unless bypassAssigneeCheck.
@@ -75,12 +79,7 @@ export async function startMaintenanceTicket(input: {
       const ticket = await loadLockedTicket(tx, input.ticketId);
       // Only assigned tickets may start.
       if (ticket.status !== TicketStatus.assigned) {
-        // Start only valid from assigned (not new or in_progress).
-        throw new AppError(
-          409,
-          "invalid_state",
-          `Cannot start ticket in status ${ticket.status}`,
-        );
+        throw invalidTicketStatusError("start", ticket.status);
       }
       // Unassigned tickets cannot be started.
       if (!ticket.assigneeId) {
@@ -137,16 +136,12 @@ export async function startMaintenanceTicket(input: {
     }
     return formatMaintenanceTicket(updated);
   } catch (err) {
-    // Concurrent first-writes of the same commandId: treat as idempotent replay.
-    // Also covers the status-claim race where the peer committed first (invalid_state)
-    // before this txn could hit the unique commandId constraint.
-    if (input.commandId) {
-      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
-        const again = await replayLifecycleCommand(input.commandId, commandKey);
-        if (again) return again.ticket;
-      }
-    }
-    // Unique commandId race lost — bubble non-idempotent errors.
+    const again = await catchLifecycleCommandReplay(
+      err,
+      input.commandId,
+      commandKey,
+    );
+    if (again) return again.ticket;
     throw err;
   }
 }
@@ -191,21 +186,13 @@ export async function waitMaintenanceTicket(input: {
       const ticket = await loadLockedTicket(tx, input.ticketId);
       // Only in_progress may enter waiting.
       if (ticket.status !== TicketStatus.in_progress) {
-        // assigned/new cannot pause — must start work first.
-        throw new AppError(
-          409,
-          "invalid_state",
-          `Cannot wait ticket in status ${ticket.status}`,
-        );
+        throw invalidTicketStatusError("wait", ticket.status);
       }
-      // Non-owners cannot put someone else's ticket on wait.
-      if (
-        !input.bypassAssigneeCheck &&
-        ticket.assigneeId &&
-        ticket.assigneeId !== input.actorEmployeeId
-      ) {
-        throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
-      }
+      assertTicketAssigneeOrAllowBypass(
+        ticket,
+        input.actorEmployeeId,
+        input.bypassAssigneeCheck,
+      );
 
       const fromStatus = ticket.status;
       // Claim → waiting and stamp slaPausedAt via pauseFieldsOnWait.
@@ -252,14 +239,12 @@ export async function waitMaintenanceTicket(input: {
     }
     return formatMaintenanceTicket(updated);
   } catch (err) {
-    // Concurrent first-writes of the same commandId: treat as idempotent replay.
-    if (input.commandId) {
-      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
-        const again = await replayLifecycleCommand(input.commandId, commandKey);
-        if (again) return again.ticket;
-      }
-    }
-    // Wait transition failed — propagate to HTTP layer.
+    const again = await catchLifecycleCommandReplay(
+      err,
+      input.commandId,
+      commandKey,
+    );
+    if (again) return again.ticket;
     throw err;
   }
 }
@@ -298,21 +283,13 @@ export async function resumeMaintenanceTicket(input: {
       const ticket = await loadLockedTicket(tx, input.ticketId);
       // Only waiting may resume.
       if (ticket.status !== TicketStatus.waiting) {
-        // in_progress resume is a no-op at the API layer (409).
-        throw new AppError(
-          409,
-          "invalid_state",
-          `Cannot resume ticket in status ${ticket.status}`,
-        );
+        throw invalidTicketStatusError("resume", ticket.status);
       }
-      // Non-owners cannot resume someone else's ticket.
-      if (
-        !input.bypassAssigneeCheck &&
-        ticket.assigneeId &&
-        ticket.assigneeId !== input.actorEmployeeId
-      ) {
-        throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
-      }
+      assertTicketAssigneeOrAllowBypass(
+        ticket,
+        input.actorEmployeeId,
+        input.bypassAssigneeCheck,
+      );
 
       const fromStatus = ticket.status;
       // Compute dueAt extension / pause-clear fields from current pause state.
@@ -360,14 +337,12 @@ export async function resumeMaintenanceTicket(input: {
     }
     return formatMaintenanceTicket(updated);
   } catch (err) {
-    // Concurrent first-writes of the same commandId: treat as idempotent replay.
-    if (input.commandId) {
-      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
-        const again = await replayLifecycleCommand(input.commandId, commandKey);
-        if (again) return again.ticket;
-      }
-    }
-    // Resume failure after P2002 miss — propagate to HTTP layer.
+    const again = await catchLifecycleCommandReplay(
+      err,
+      input.commandId,
+      commandKey,
+    );
+    if (again) return again.ticket;
     throw err;
   }
 }

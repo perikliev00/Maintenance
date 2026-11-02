@@ -4,6 +4,7 @@
  */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../../middleware/auth";
+import { asyncHandler } from "../../middleware/asyncHandler";
 import * as ticketsController from "../../controllers/maintenance/tickets";
 
 /** Register ticket list/create and lifecycle routes on the maintenance router. */
@@ -13,7 +14,7 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets",
     requireAuth,
     requireAction("tickets.report"),
-    ticketsController.list,
+    asyncHandler(ticketsController.list),
   );
 
   // POST /tickets — report/create a new maintenance ticket.
@@ -21,7 +22,7 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets",
     requireAuth,
     requireAction("tickets.report"),
-    ticketsController.create,
+    asyncHandler(ticketsController.create),
   );
 
   // GET /tickets/:id/events — ticket event timeline.
@@ -29,7 +30,7 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets/:id/events",
     requireAuth,
     requireAction("tickets.report"),
-    ticketsController.listEvents,
+    asyncHandler(ticketsController.listEvents),
   );
 
   // POST /tickets/:id/assign — assign ticket to a technician.
@@ -37,7 +38,7 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets/:id/assign",
     requireAuth,
     requireAction("tickets.assign"),
-    ticketsController.assign,
+    asyncHandler(ticketsController.assign),
   );
 
   // POST /tickets/:id/start — start work on an assigned ticket.
@@ -45,7 +46,7 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets/:id/start",
     requireAuth,
     requireAction("tickets.resolve"),
-    ticketsController.start,
+    asyncHandler(ticketsController.start),
   );
 
   // POST /tickets/:id/wait — pause SLA / move ticket to waiting.
@@ -53,7 +54,7 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets/:id/wait",
     requireAuth,
     requireAction("tickets.resolve"),
-    ticketsController.wait,
+    asyncHandler(ticketsController.wait),
   );
 
   // POST /tickets/:id/resume — resume from waiting.
@@ -61,7 +62,7 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets/:id/resume",
     requireAuth,
     requireAction("tickets.resolve"),
-    ticketsController.resume,
+    asyncHandler(ticketsController.resume),
   );
 
   // POST /tickets/:id/resolve — mark ticket resolved.
@@ -69,7 +70,7 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets/:id/resolve",
     requireAuth,
     requireAction("tickets.resolve"),
-    ticketsController.resolve,
+    asyncHandler(ticketsController.resolve),
   );
 
   // POST /tickets/:id/close — close a resolved ticket.
@@ -77,7 +78,7 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets/:id/close",
     requireAuth,
     requireAction("tickets.close"),
-    ticketsController.close,
+    asyncHandler(ticketsController.close),
   );
 
   // POST /tickets/:id/reopen — reopen a closed/resolved ticket.
@@ -85,6 +86,6 @@ export function registerTicketRoutes(router: Router): void {
     "/tickets/:id/reopen",
     requireAuth,
     requireAction("tickets.resolve"),
-    ticketsController.reopen,
+    asyncHandler(ticketsController.reopen),
   );
 }

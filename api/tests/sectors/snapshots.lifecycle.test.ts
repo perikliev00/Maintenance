@@ -1,5 +1,5 @@
 /**
- * T-SEC-62 / T-SEC-63 — historical vs current sector snapshots.
+ * historical vs current sector snapshots.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -29,7 +29,7 @@ function allScope(employeeId: string): DataScope {
   return { kind: "all", employeeId, role: Role.manager, sectorIds: [] };
 }
 
-describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
+describe("sector snapshots lifecycle", () => {
   let world: SectorsWorld;
 
   before(async () => {
@@ -73,7 +73,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     });
   });
 
-  it("T-SEC-62a freeze after move + supervisor change", async () => {
+  it("freeze after move + supervisor change", async () => {
     const task = await createCleaningTask({
       locationId: world.loc1Id,
       hotelDate: "2099-10-01",
@@ -109,7 +109,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     assert.notEqual(row.sectorId, live?.sectorId);
   });
 
-  it("T-SEC-62b reassign does not overwrite stamped snapshots", async () => {
+  it("reassign does not overwrite stamped snapshots", async () => {
     const task = await createCleaningTask({
       locationId: world.loc1Id,
       hotelDate: "2099-10-02",
@@ -130,7 +130,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     await reassignCleaningTask({
       taskId: task.id,
       assignedEmployeeId: hk2.employeeId,
-      reason: "T-SEC-62b reassign",
+      reason: "reassign",
       actorEmployeeId: world.manager.employeeId,
       actorRole: Role.manager,
       forceDespiteAvailability: true,
@@ -143,7 +143,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     assert.equal(row.sectorSupervisorEmployeeId, world.supervisorA.employeeId);
   });
 
-  it("T-SEC-62c null supervisor stays null after primary assign + reassign", async () => {
+  it("null supervisor stays null after primary assign + reassign", async () => {
     await updateSectorAtHead(prisma, world.sectorA1Id, {
       primarySupervisorEmployeeId: null,
       actorEmployeeId: world.manager.employeeId,
@@ -164,7 +164,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     await reassignCleaningTask({
       taskId: task.id,
       assignedEmployeeId: world.housekeeper.employeeId,
-      reason: "T-SEC-62c",
+      reason: "unnamed case",
       actorEmployeeId: world.manager.employeeId,
       actorRole: Role.manager,
       forceDespiteAvailability: true,
@@ -177,7 +177,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     assert.equal(row.sectorSupervisorEmployeeId, null);
   });
 
-  it("T-SEC-62e unassigned-room null snapshots stay null after assign+reassign", async () => {
+  it("unassigned-room null snapshots stay null after assign+reassign", async () => {
     const task = await createCleaningTask({
       locationId: world.loc5Id,
       hotelDate: "2099-10-04",
@@ -199,7 +199,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     await reassignCleaningTask({
       taskId: task.id,
       assignedEmployeeId: world.housekeeper.employeeId,
-      reason: "T-SEC-62e",
+      reason: "unnamed case",
       actorEmployeeId: world.manager.employeeId,
       actorRole: Role.manager,
       forceDespiteAvailability: true,
@@ -212,7 +212,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     assert.equal(row.sectorSupervisorEmployeeId, null);
   });
 
-  it("T-SEC-63a new manual task gets current snapshot", async () => {
+  it("new manual task gets current snapshot", async () => {
     await setSectorLocationsAtHead(prisma, world.sectorA2Id, [world.loc1Id, world.loc3Id], {
       actorEmployeeId: world.manager.employeeId,
       scope: allScope(world.manager.employeeId),
@@ -236,7 +236,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     );
   });
 
-  it("T-SEC-63b daily-plan create path stamps current snapshot", async () => {
+  it("daily-plan create path stamps current snapshot", async () => {
     await setSectorLocationsAtHead(prisma, world.sectorA2Id, [world.loc1Id, world.loc3Id], {
       actorEmployeeId: world.manager.employeeId,
       scope: allScope(world.manager.employeeId),
@@ -271,7 +271,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     );
   });
 
-  it("T-SEC-63c createCleaningTask sees membership move while blocked on Location", async () => {
+  it("createCleaningTask sees membership move while blocked on Location", async () => {
     const hotelDate = "2099-10-07";
     await prisma.cleaningTask.deleteMany({
       where: {
@@ -318,7 +318,7 @@ describe("sector snapshots lifecycle (T-SEC-62 / T-SEC-63)", () => {
     );
   });
 
-  it("T-SEC-63d daily-plan create sees membership move while blocked on Location", async () => {
+  it("daily-plan create sees membership move while blocked on Location", async () => {
     const hotelDate = "2099-10-08";
     await prisma.cleaningTask.deleteMany({
       where: {

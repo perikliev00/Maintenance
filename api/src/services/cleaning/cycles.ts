@@ -3,7 +3,7 @@
  */
 import { CleaningStatus, Prisma, TaskStatus } from "@prisma/client";
 import { AppError } from "../../errors";
-import { todayHotelDateYmd } from "../hotelTime";
+import { formatHotelDate, todayHotelDateYmd } from "../hotelTime";
 import { lockLocation, type Tx } from "./locks";
 
 /** Active work that should keep owning the cycle after an intentional dirty bump. */
@@ -18,7 +18,7 @@ export const UNBOUND_CLEANING_CYCLE = 0;
 
 /** Hotel-date YMD from a Date column stored as UTC midnight. */
 export function formatCleaningHotelDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return formatHotelDate(d);
 }
 
 /** True when the task's hotel date is after today (hotel timezone YMD). */

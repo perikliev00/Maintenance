@@ -144,3 +144,37 @@ export function zonedDayStartUtc(ymd: string, timeZone: string): Date {
   utc = asUtcWall - timeZoneOffsetMs(new Date(utc), timeZone);
   return new Date(utc);
 }
+
+/** Hotel-local HH:mm for an instant in a timezone. */
+export function hotelLocalHhMm(instant: Date, timeZone: string): string {
+  const resolved = resolveUsableHotelTimeZone(timeZone).timeZone;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: resolved,
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(instant);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  const hour = map.hour === "24" ? "00" : map.hour;
+  return `${hour}:${map.minute}`;
+}
+
+/**
+ * YYYY-MM-DD from a Prisma `@db.Date` stored as UTC midnight.
+ * Prefer {@link hotelDateString} when converting a live UTC instant in a zone.
+ */
+export function formatHotelDate(d: Date): string {
+  // ISO date portion only; safe because values are stored as UTC midnight.
+  return d.toISOString().slice(0, 10);
+}
+
+/** Add calendar days to a YYYY-MM-DD string (UTC date arithmetic). */
+export function addDaysYmd(ymd: string, days: number): string {
+  // Parse as UTC midnight, mutate UTC day, re-format.
+  const d = new Date(`${ymd}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return formatHotelDate(d);
+}

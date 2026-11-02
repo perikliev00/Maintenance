@@ -15,3 +15,11 @@ export {
   type PersonDto,
   type PersonStatus,
 } from "./status";
+export {
+  listPeopleDirectory,
+  encodePeopleCursor,
+  decodePeopleCursor,
+  type ListPeopleQuery,
+  type ListPeopleResult,
+} from "./directory";
+export { changePersonRole } from "./changeRole";

@@ -1,8 +1,7 @@
 /** Locale helpers shared by My Work UI. */
-export function t(locale: "bg" | "en", bg: string, en: string) {
-  // English only when locale is explicitly "en"; default is Bulgarian.
-  return locale === "en" ? en : bg;
-}
+import { t } from "../../i18n";
+
+export { t };
 
 /** Map cleaning/ticket status codes to BG/EN labels (falls back to raw status). */
 export function statusLabel(locale: "bg" | "en", status: string): string {
@@ -20,5 +19,5 @@ export function statusLabel(locale: "bg" | "en", status: string): string {
   const pair = map[status];
   // Unknown statuses render raw so new API codes stay visible.
   if (!pair) return status;
-  return locale === "en" ? pair[1] : pair[0];
+  return t(locale, pair[0], pair[1]);
 }

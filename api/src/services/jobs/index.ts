@@ -27,6 +27,7 @@ export {
   abandonStaleRunningJobRuns,
   finishJobRun,
   startJobRun,
+  withJobRun,
 } from "./runLifecycle";
 // In-process interval scheduler wiring all job keys.
 export { startJobScheduler, stopJobScheduler } from "./scheduler";

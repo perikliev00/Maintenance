@@ -45,20 +45,20 @@ describe("P1 notifications / P2 inbox", () => {
     }
     await prisma.$disconnect();
   });
-  it("P1-119 location recipients contain local supervisor and exclude foreign supervisor", async () => {
+  it("location recipients contain local supervisor and exclude foreign supervisor", async () => {
     const recipients = await recipientsForLocationOps(fx.locAId, "tickets.assign");
     const ids = [fx.supervisorA.employeeId, fx.supervisorB.employeeId, fx.supervisorEmpty.employeeId, fx.manager.employeeId, fx.housekeeper.employeeId, fx.otherHk.employeeId];
     assert.deepEqual(recipients.filter(id => ids.includes(id)).sort(), [fx.supervisorA.employeeId, fx.manager.employeeId].sort());
     await createNotifications({ ...notification(fx.supervisorA.employeeId, "scope"), locationId: fx.locAId, recipientEmployeeIds: recipients });
     assert.equal(await prisma.notification.count({ where: { dedupeKey: `${tag}-scope`, recipientEmployeeId: fx.supervisorB.employeeId } }), 0);
   });
-  it("P1-120 real task assignment targets the assignee with matching task and location", async () => {
+  it("real task assignment targets the assignee with matching task and location", async () => {
     const task = await createCleaningTask({ locationId: fx.locAId, hotelDate: "2099-06-20", assignedEmployeeId: fx.housekeeper.employeeId, actorEmployeeId: fx.manager.employeeId });
     const rows = await prisma.notification.findMany({ where: { entityId: task.id } });
     assert.equal(rows.length, 1); assert.equal(rows[0]!.type, "cleaning.assigned"); assert.equal(rows[0]!.recipientEmployeeId, fx.housekeeper.employeeId);
     assert.equal(rows[0]!.locationId, fx.locAId); assert.equal((rows[0]!.payload as any).taskId, task.id);
   });
-  it("P1-120 inspection outcome reaches only current assignee and retry does not duplicate", async () => {
+  it("inspection outcome reaches only current assignee and retry does not duplicate", async () => {
     await prisma.cleaningTask.update({ where: { id: fx.taskAId }, data: { status: "awaiting_inspection" } });
     const input = { taskId: fx.taskAId, inspectorEmployeeId: fx.supervisorA.employeeId, commandId: randomUUID(), result: "rejected" as const, findings: "Rework proof" };
     await inspectCleaningTask(input); await inspectCleaningTask(input);
@@ -66,7 +66,7 @@ describe("P1 notifications / P2 inbox", () => {
     assert.equal(rows.length, 1); assert.equal(rows[0]!.recipientEmployeeId, fx.housekeeper.employeeId); assert.equal(rows[0]!.locationId, fx.locAId);
     assert.equal((rows[0]!.payload as any).taskId, fx.taskAId); assert.match(rows[0]!.body, /rejected/);
   });
-  it("P1-120 resolution reaches exact reporter and assignee, excludes unrelated employee and dedupes retry", async () => {
+  it("resolution reaches exact reporter and assignee, excludes unrelated employee and dedupes retry", async () => {
     await prisma.maintenanceTicket.update({ where: { id: fx.ticketAId }, data: { status: "in_progress", assigneeId: fx.housekeeper.employeeId, reportedByEmployeeId: fx.otherHk.employeeId } });
     const input = { ticketId: fx.ticketAId, resolvedByEmployeeId: fx.manager.employeeId, bypassAssigneeCheck: true, commandId: randomUUID(), resolutionNotes: "Resolved proof" };
     await resolveMaintenanceTicket(input); await resolveMaintenanceTicket(input);
@@ -95,7 +95,7 @@ describe("P1 notifications / P2 inbox", () => {
       if (cycle < 3) await reopenMaintenanceTicket({ ticketId: fx.ticketBId, reopenedByEmployeeId: fx.manager.employeeId, commandId: randomUUID() });
     }
   });
-  it("P2-38 overlapping creates blocked on real recipient row dedupe each recipient and exclude actor", async () => {
+  it("overlapping creates blocked on real recipient row dedupe each recipient and exclude actor", async () => {
     await clearInbox();
     let release!: () => void; let held!: (pid: number) => void;
     const gate = new Promise<void>(r => { release = r; }); const ready = new Promise<number>(r => { held = r; });
@@ -114,7 +114,7 @@ describe("P1 notifications / P2 inbox", () => {
     assert.ok(rows.every(r => r.deliveries.length === 3));
     assert.equal((await createNotifications(input)).created, 0);
   });
-  it("P1-121 P2-39 real HTTP read/dismiss/read-all only change caller inbox and exact unread count", async () => {
+  it("real HTTP read/dismiss/read-all only change caller inbox and exact unread count", async () => {
     await clearInbox();
     for (let i = 0; i < 3; i++) await createNotifications(notification(fx.housekeeper.employeeId, `read-a-${i}`));
     await createNotifications(notification(fx.otherHk.employeeId, "read-b"));
@@ -134,7 +134,7 @@ describe("P1 notifications / P2 inbox", () => {
     assert.equal((await count(tokenA)).count, 0); assert.equal((await count(tokenB)).count, 1);
     assert.deepEqual(await prisma.notification.findUniqueOrThrow({ where: { id: b.id } }), b);
   });
-  it("P2-40 createdAt/id cursor pagination visits independent IDs and timestamp ties exactly once with filters", async () => {
+  it("createdAt/id cursor pagination visits independent IDs and timestamp ties exactly once with filters", async () => {
     await clearInbox();
     const ids = ["z", "a", "y", "b", "x", "c", "w"].map(s => `${tag}-${s}`);
     for (let i = 0; i < ids.length; i++) await prisma.notification.create({ data: { id: ids[i], recipientEmployeeId: fx.housekeeper.employeeId, type: "scenario", title: "test", body: "test", entityType: "scenario", entityId: tag, dedupeKey: ids[i]!, createdAt: new Date(`2026-10-${String(19 - Math.floor(i / 2)).padStart(2, "0")}T10:00:00Z`), ...(i === 5 ? { readAt: new Date() } : {}), ...(i === 6 ? { dismissedAt: new Date() } : {}) } });
@@ -150,7 +150,7 @@ describe("P1 notifications / P2 inbox", () => {
       assert.deepEqual(new Set(seen), new Set(expected));
     }
   });
-  it("P2-41 P2-42 disabled inbox keeps existing rows and main action; adapters never claim delivery", async () => {
+  it("disabled inbox keeps existing rows and main action; adapters never claim delivery", async () => {
     await clearInbox();
     await createNotifications(notification(fx.housekeeper.employeeId, "preserve"));
     const existing = await prisma.notification.findMany({ where: { recipientEmployeeId: fx.housekeeper.employeeId } });

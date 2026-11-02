@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { startCleaningQueued } from "./runOrEnqueue";
 import { setOfflineUser, whenOfflineUserSettled } from "./userScope";
 
-it("P0-10 online queueable action does not retry or enqueue under B after A's pending refresh", async () => {
+it("online queueable action does not retry or enqueue under B after A's pending refresh", async () => {
   const originalFetch = globalThis.fetch;
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
   const originalOnline = navigator.onLine;

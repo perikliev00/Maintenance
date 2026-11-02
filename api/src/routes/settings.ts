@@ -4,6 +4,7 @@
  */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../middleware/auth";
+import { asyncHandler } from "../middleware/asyncHandler";
 import * as SettingsController from "../controllers/settings";
 
 export const settingsRouter = Router();
@@ -12,7 +13,7 @@ export const settingsRouter = Router();
 settingsRouter.get(
   "/public",
   requireAuth,
-  SettingsController.getPublic,
+  asyncHandler(SettingsController.getPublic),
 );
 
 // GET / — full settings list for the control panel.
@@ -20,7 +21,7 @@ settingsRouter.get(
   "/",
   requireAuth,
   requireAction("settings.manage"),
-  SettingsController.list,
+  asyncHandler(SettingsController.list),
 );
 
 // GET /system — system/ops settings block.
@@ -28,7 +29,7 @@ settingsRouter.get(
   "/system",
   requireAuth,
   requireAction("settings.manage"),
-  SettingsController.getSystem,
+  asyncHandler(SettingsController.getSystem),
 );
 
 // GET /history — settings change history.
@@ -36,7 +37,7 @@ settingsRouter.get(
   "/history",
   requireAuth,
   requireAction("settings.manage"),
-  SettingsController.listHistory,
+  asyncHandler(SettingsController.listHistory),
 );
 
 // GET /sla-policies — list ticket SLA policies by priority.
@@ -44,7 +45,7 @@ settingsRouter.get(
   "/sla-policies",
   requireAuth,
   requireAction("settings.manage"),
-  SettingsController.listSlaPolicies,
+  asyncHandler(SettingsController.listSlaPolicies),
 );
 
 // PUT /sla-policies/:priority — upsert SLA policy for a priority.
@@ -52,7 +53,7 @@ settingsRouter.put(
   "/sla-policies/:priority",
   requireAuth,
   requireAction("settings.manage"),
-  SettingsController.upsertSla,
+  asyncHandler(SettingsController.upsertSla),
 );
 
 // PATCH /:key — update a single settings key.
@@ -60,5 +61,5 @@ settingsRouter.patch(
   "/:key",
   requireAuth,
   requireAction("settings.manage"),
-  SettingsController.update,
+  asyncHandler(SettingsController.update),
 );

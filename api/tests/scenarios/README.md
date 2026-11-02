@@ -1,4 +1,4 @@
-# Scenario regressions: P1-85–129 and P2-01–56
+# Scenario regressions
 
 Run from `api/`: `npm run test:scenarios`. This uses the existing direct Node
 register preload + tsx loader, serial workers, `.env.p1_test`, and a real
@@ -29,5 +29,5 @@ transport, clocks, or storage faults. They are **not** server-commit E2E proof.
 to the real server, and committed records are checked afterward. Its quota test
 uses a browser storage fault and is classified as browser integration instead.
 
-Existing T-SH-64b is the direct P2-33 proof; it is intentionally not duplicated.
+Existing empty-entries roster coverage is the direct proof for clearing a single day; it is intentionally not duplicated.
 Existing source unit tests and lifecycle/scope suites remain regression evidence.

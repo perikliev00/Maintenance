@@ -9,8 +9,8 @@ import { openNav } from "./helpers/nav";
 
 /**
  * Closes remaining Settings gaps that unit tests cannot fully prove in-browser:
- * BUG-03 dirty draft survives a concurrent modules PATCH / live refresh,
- * BUG-04 editors stay locked while Save is in flight.
+ * dirty draft survives a concurrent modules PATCH / live refresh
+ * editors stay locked while Save is in flight.
  */
 test.describe("settings draft gaps", () => {
   test("dirty modules draft survives concurrent server change; save locks editors", async ({
@@ -51,7 +51,7 @@ test.describe("settings draft gaps", () => {
       // Draft must keep the unsaved analytics=false; conflict/reload affordance may appear.
       await expect(analytics).not.toBeChecked({ timeout: 10_000 });
 
-      // BUG-04: while Save is gated by a delayed PATCH, editors are disabled.
+      // while Save is gated by a delayed PATCH, editors are disabled.
       let release!: () => void;
       const gate = new Promise<void>((r) => {
         release = r;

@@ -1,5 +1,5 @@
 /**
- * Regression coverage for Control page P2 defects BUG-01/02/05–10.
+ * Regression coverage for Control page P2 defects –10.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -57,7 +57,7 @@ function createFakeTimers() {
   };
 }
 
-describe("BUG-01 Unassigned assignee selection", () => {
+describe("Unassigned assignee selection", () => {
   it("defaults only while uninitialized; keeps explicit Unassigned across refresh", () => {
     let state: TaskAssigneeState = { status: "uninitialized" };
     state = defaultTaskAssigneeIfNeeded(state, "hk-1");
@@ -87,7 +87,7 @@ describe("BUG-01 Unassigned assignee selection", () => {
   });
 });
 
-describe("BUG-02 role draft merge on refresh", () => {
+describe("role draft merge on refresh", () => {
   it("preserves unsaved dirty drafts while updating clean rows", () => {
     const merged = mergeRoleDraftsOnRefresh({
       prevDrafts: { u1: "technician", u2: "housekeeper" },
@@ -132,7 +132,7 @@ describe("BUG-02 role draft merge on refresh", () => {
   });
 });
 
-describe("BUG-05 assign technicians independent of role search", () => {
+describe("assign technicians independent of role search", () => {
   it("filters technicians from the assignee feed, not the searched people list", () => {
     const searchedPeople = [
       { id: "e1", role: "technician" as const, fullName: "Only Match" },
@@ -147,7 +147,7 @@ describe("BUG-05 assign technicians independent of role search", () => {
   });
 });
 
-describe("BUG-06 independent section settlement + permission plan", () => {
+describe("independent section settlement + permission plan", () => {
   it("skips unauthorized fetches and isolates section failures", async () => {
     const plan = controlLoadPlan({
       canChangeRole: true,
@@ -186,7 +186,7 @@ describe("BUG-06 independent section settlement + permission plan", () => {
   });
 });
 
-describe("BUG-07 stale refresh generation", () => {
+describe("stale refresh generation", () => {
   it("late response A must not overwrite newer B", async () => {
     let gen = 0;
     let people = ["initial"];
@@ -203,7 +203,7 @@ describe("BUG-07 stale refresh generation", () => {
   });
 });
 
-describe("BUG-08 debounced search keeps input independent of fetch", () => {
+describe("debounced search keeps input independent of fetch", () => {
   it("commits after debounce with final value; pending does not require remount", () => {
     const clocks = createFakeTimers();
     const commits: string[] = [];
@@ -232,7 +232,7 @@ describe("BUG-08 debounced search keeps input independent of fetch", () => {
   });
 });
 
-describe("BUG-09 parallel busy tracking", () => {
+describe("parallel busy tracking", () => {
   it("finishing A does not unlock B; double-begin on same id is rejected", () => {
     let busy = new Set<string>();
     const begin = (id: string) => {
@@ -253,7 +253,7 @@ describe("BUG-09 parallel busy tracking", () => {
   });
 });
 
-describe("BUG-10 mutation success vs refresh failure", () => {
+describe("mutation success vs refresh failure", () => {
   it("keeps success message when follow-up refresh fails", () => {
     assert.deepEqual(
       mergeMutationAndRefresh({

@@ -1,5 +1,5 @@
 /**
- * P1-84 — revokeCard CAS: preserve prior issue history; one revoke audit;
+ * revokeCard CAS: preserve prior issue history; one revoke audit;
  * concurrent loser 409; control card untouched.
  */
 import "../preloadIsolatedTestEnv";
@@ -25,7 +25,7 @@ import {
 
 const prisma = new PrismaClient();
 
-describe("card revoke CAS HTTP (P1-84)", () => {
+describe("card revoke CAS HTTP", () => {
   let world: CardsWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -134,7 +134,7 @@ describe("card revoke CAS HTTP (P1-84)", () => {
     );
   }
 
-  it("P1-84 sequential: first revoke ok; second 409; prior history kept; revoke audit=1", async () => {
+  it("sequential: first revoke ok; second 409; prior history kept; revoke audit=1", async () => {
     const target = await issueTargetViaHttp();
     const control = await createControlCard(prisma, world);
     const grantIds = target.grants.map((g) => g.id);
@@ -178,7 +178,7 @@ describe("card revoke CAS HTTP (P1-84)", () => {
     assert.equal(controlRow?.status, CardStatus.active);
   });
 
-  it("P1-84 concurrent: FOR UPDATE holder; dual revoke; one success one 409; history kept", async () => {
+  it("concurrent: FOR UPDATE holder; dual revoke; one success one 409; history kept", async () => {
     const target = await issueTargetViaHttp();
     const control = await createControlCard(prisma, world);
     const grantIds = target.grants.map((g) => g.id);

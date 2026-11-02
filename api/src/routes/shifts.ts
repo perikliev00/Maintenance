@@ -4,19 +4,20 @@
  */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../middleware/auth";
+import { asyncHandler } from "../middleware/asyncHandler";
 import * as ShiftsController from "../controllers/shifts";
 
 export const shiftsRouter = Router();
 
 // GET / — list shift definitions (any authenticated user).
-shiftsRouter.get("/", requireAuth, ShiftsController.list);
+shiftsRouter.get("/", requireAuth, asyncHandler(ShiftsController.list));
 
 // GET /roster — roster assignments for manage UI.
 shiftsRouter.get(
   "/roster",
   requireAuth,
   requireAction("shifts.manage"),
-  ShiftsController.listRoster,
+  asyncHandler(ShiftsController.listRoster),
 );
 
 // PUT /roster — upsert roster row(s).
@@ -24,7 +25,7 @@ shiftsRouter.put(
   "/roster",
   requireAuth,
   requireAction("shifts.manage"),
-  ShiftsController.upsertRoster,
+  asyncHandler(ShiftsController.upsertRoster),
 );
 
 // POST / — create a shift definition.
@@ -32,7 +33,7 @@ shiftsRouter.post(
   "/",
   requireAuth,
   requireAction("shifts.manage"),
-  ShiftsController.create,
+  asyncHandler(ShiftsController.create),
 );
 
 // PATCH /:id — update a shift definition.
@@ -40,5 +41,5 @@ shiftsRouter.patch(
   "/:id",
   requireAuth,
   requireAction("shifts.manage"),
-  ShiftsController.update,
+  asyncHandler(ShiftsController.update),
 );

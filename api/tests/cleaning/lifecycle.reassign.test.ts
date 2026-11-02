@@ -1,5 +1,5 @@
 /**
- * T-CLN-15…15d, T-CLN-27 — assignee eligibility + reassign constraints.
+ * 15d, — assignee eligibility + reassign constraints.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -38,7 +38,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
+describe("cleaning lifecycle reassign (15b–d/27)", () => {
   let world: CleaningWorld;
 
   before(async () => {
@@ -48,7 +48,7 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
 
   beforeEach(async () => {
     await resetCleaningWork(prisma, world);
-    // Reactivate / restore roles that T-CLN-15 may have mutated.
+    // Reactivate / restore roles that may have mutated.
     await prisma.user.update({
       where: { id: world.hk1.userId },
       data: { isActive: true, role: Role.housekeeper },
@@ -74,7 +74,7 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-CLN-15: create/reassign/assign reject deactivated assignees", async () => {
+  it("create/reassign/assign reject deactivated assignees", async () => {
     const today = await hotelTodayYmd();
 
     await prisma.user.update({
@@ -142,7 +142,7 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     }
   });
 
-  it("T-CLN-15b: concurrent block/role-change vs reassign after eligibility check", async () => {
+  it("concurrent block/role-change vs reassign after eligibility check", async () => {
     const today = await hotelTodayYmd();
     const task = await createCleaningTask({
       locationId: world.locationAId,
@@ -217,7 +217,7 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     assert.equal(afterRole.assignedEmployeeId, world.hk1.employeeId);
   });
 
-  it("T-CLN-15c: concurrent block/role-change vs createCleaningTask", async () => {
+  it("concurrent block/role-change vs createCleaningTask", async () => {
     const today = await hotelTodayYmd();
 
     try {
@@ -278,7 +278,7 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     assert.equal(await countActiveTasks(prisma, world.locationAId, today), 0);
   });
 
-  it("T-CLN-15d: concurrent block/role-change vs assignMaintenanceTicket", async () => {
+  it("concurrent block/role-change vs assignMaintenanceTicket", async () => {
     const ticket = await createOpenMaintenanceTicket(
       prisma,
       world,
@@ -345,7 +345,7 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     assert.equal(afterRole.assigneeId, null);
   });
 
-  it("T-CLN-27: reassign requires reason, blocks running, version conflict, success", async () => {
+  it("reassign requires reason, blocks running, version conflict, success", async () => {
     const today = await hotelTodayYmd();
     const task = await createCleaningTask({
       locationId: world.locationAId,
@@ -430,7 +430,7 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
   });
 
   for (const status of [TaskStatus.completed, TaskStatus.cancelled, TaskStatus.rework, TaskStatus.awaiting_inspection]) {
-    it(`P1-27: reassign matrix for ${status} preserves unrelated state`, async () => {
+    it(`reassign matrix for ${status} preserves unrelated state`, async () => {
       const task = await createCleaningTask({
         locationId: world.locationAId, hotelDate: await hotelTodayYmd(),
         assignedEmployeeId: world.hk1.employeeId, actorEmployeeId: world.owner.employeeId,
@@ -463,7 +463,7 @@ describe("cleaning lifecycle reassign (T-CLN-15/15b–d/27)", () => {
     });
   }
 
-  it("P1-27: running session blocks reassignment even when task appears idle", async () => {
+  it("running session blocks reassignment even when task appears idle", async () => {
     const task = await createCleaningTask({
       locationId: world.locationAId, hotelDate: await hotelTodayYmd(), assignedEmployeeId: world.hk1.employeeId,
     });

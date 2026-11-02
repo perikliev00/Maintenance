@@ -83,10 +83,21 @@ Scheduled and manual job cycles (`runWithJobExecutionLock` / `POST /jobs/run`) t
 
 **Required for that lock to work:**
 
-- Point `DATABASE_URL` at **direct Postgres** or a pooler in **session** mode. **PgBouncer transaction pooling breaks session advisory locks** (lock and unlock can land on different backends; jobs may all race or never acquire).
+- Point `DATABASE_URL` / Compose `RUNTIME_DATABASE_URL` at **direct Postgres** or a pooler in **session** mode. **PgBouncer transaction pooling breaks session advisory locks** (lock and unlock can land on different backends; jobs may all race or never acquire).
 - The lock client forces `connection_limit=1` so try_lock / hold / unlock share one backend session. Do not strip that in a custom datasource URL.
 - Keep individual job cycles shorter than the Postgres/pool **idle session timeout**; dropping the lock session mid-run releases the advisory lock while work may still be in flight.
 - Orphaned `running` JobRun rows are abandoned after a **30 minute** stale TTL, swept on API boot and on every scheduler tick. Do not run jobs that legitimately stay `running` longer than that TTL across instances.
+
+**Pre-deploy checklist (ops sign-off):**
+
+1. Print and inspect the **runtime** URL host (not migration-only):
+   - Compose prod: env var `RUNTIME_DATABASE_URL` → `api` service `DATABASE_URL` (`compose.prod.yml`).
+   - Local/dev: `DATABASE_URL` from `api/.env` / `api/.env.example` (default host `localhost:5433` → Compose `db` mapped Postgres, **direct**, no PgBouncer service in `docker-compose.yml`).
+   - Reject hosts/ports that belong to a known **transaction-mode** pooler (e.g. many managed `*.pooler.*` endpoints default to transaction unless explicitly session). Prefer the primary Postgres hostname / `db` service name on port `5432` inside the compose network.
+2. Confirm checked-in Compose / env examples still use direct Postgres (`db` / `:5432` / local `:5433`) — grep `compose.prod.yml`, `docker-compose.yml`, `api/.env.example` for `pgbouncer` / `pooler` / `6543` before promote.
+3. Confirm the advisory-lock client still forces `connection_limit=1` via `advisoryLockDatabaseUrl` (do not override with a custom URL that drops it).
+4. If a managed pooler is added later, either keep **session** affinity for the API job connection or redesign the lock protocol — do not assume transaction pooling is safe.
+5. Repo unit/integration tests (`api/src/services/jobs/executionLock.test.ts`) cover in-process + cross-session mutual exclusion against the **test** DB; they do **not** prove production pool mode. Production/staging pool mode remains an **unverified assumption** until ops records the live `RUNTIME_DATABASE_URL` host + pool mode in the release notes.
 
 ### `DISABLE_JOB_SCHEDULER` (E2E / probes only)
 

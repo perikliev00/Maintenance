@@ -1,5 +1,5 @@
 /**
- * E2E-MW-67 — My Work housekeeper shift matrix (roster / null / other shift).
+ * My Work housekeeper shift matrix (roster / null / other shift).
  */
 import { expect, test } from "@playwright/test";
 import { uiLogin, USERS, DEMO_PASSWORD } from "./helpers/auth";
@@ -14,7 +14,7 @@ import {
 
 const MY_WORK_NAV = /^(Моите задачи|My Work)$/;
 
-test.describe("E2E-MW-67 my-work housekeeper shift", () => {
+test.describe("my-work housekeeper shift", () => {
   test("shows roster + null-shift tasks; hides other shift", async ({ page }) => {
     const { token } = await ownerApi();
     const today = await hotelToday(token);

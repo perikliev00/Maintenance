@@ -11,7 +11,7 @@ import {
 } from "./liveBoardLogic";
 
 describe("liveBoardLogic", () => {
-  it("BUG-04: complete requires cleaning.complete, not review_overdue alone", () => {
+  it("complete requires cleaning.complete, not review_overdue alone", () => {
     assert.equal(canCompleteFromLiveBoard(["cleaning.review_overdue"]), false);
     assert.equal(
       canCompleteFromLiveBoard(["cleaning.complete", "cleaning.review_overdue"]),
@@ -20,7 +20,7 @@ describe("liveBoardLogic", () => {
     assert.equal(canCompleteFromLiveBoard(["cleaning.complete"]), true);
   });
 
-  it("BUG-08: BG titles avoid English Inspection needed / Past due", () => {
+  it("BG titles avoid English Inspection needed / Past due", () => {
     assert.equal(
       needTitle(
         { kind: "awaiting_inspection", titleKey: "inspection_needed", title: "Inspection needed" },
@@ -44,7 +44,7 @@ describe("liveBoardLogic", () => {
     );
   });
 
-  it("BUG-07: thresholds use >= and anomaly leads category", () => {
+  it("thresholds use >= and anomaly leads category", () => {
     assert.deepEqual(sessionFlagsFromElapsed(240, 240, 480), {
       overdue: true,
       anomaly: false,
@@ -63,7 +63,7 @@ describe("liveBoardLogic", () => {
     );
   });
 
-  it("BUG-05 helper: stale generation must not apply", () => {
+  it("helper: stale generation must not apply", () => {
     assert.equal(shouldApplyLiveSnapshot(3, 4), false);
     assert.equal(shouldApplyLiveSnapshot(4, 4), true);
   });

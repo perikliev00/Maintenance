@@ -1,5 +1,5 @@
 /**
- * AppSetting optimistic concurrency + audit integrity (BUG-01 / BUG-02).
+ * AppSetting optimistic concurrency + audit integrity .
  * Requires isolated PostgreSQL (maintenance_p1_test).
  */
 import "../preloadIsolatedTestEnv";
@@ -70,7 +70,7 @@ describe("settings concurrency + audit CAS", () => {
     return row.version;
   }
 
-  it("BUG-01 concurrent CAS: first writer wins, second gets 409, first value kept", async () => {
+  it("concurrent CAS: first writer wins, second gets 409, first value kept", async () => {
     const current = await getSetting("modules");
     const v0 = await modulesVersion();
     const firstValue = { ...current, attendance: !current.attendance };
@@ -129,7 +129,7 @@ describe("settings concurrency + audit CAS", () => {
     );
   });
 
-  it("BUG-02 audit before matches the CAS-accepted prior value", async () => {
+  it("audit before matches the CAS-accepted prior value", async () => {
     const current = await getSetting("modules");
     const v = await modulesVersion();
     const next = { ...current, live: !current.live };
@@ -198,7 +198,7 @@ describe("settings concurrency + audit CAS", () => {
     assert.ok((modules?.version ?? 0) >= 1);
   });
 
-  it("BUG-05 getSystemStatus returns counts as numbers when DB is healthy", async () => {
+  it("getSystemStatus returns counts as numbers when DB is healthy", async () => {
     const status = await getSystemStatus();
     assert.equal(status.api.ok, true);
     assert.equal(status.database.ok, true);

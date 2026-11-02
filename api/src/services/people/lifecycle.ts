@@ -18,7 +18,7 @@ import {
   isOwner,
   isPrivilegedRole,
 } from "../../permissions";
-import { recordAudit } from "../audit";
+import { recordAudit, type RecordAuditInput } from "../audit";
 import {
   lockEmployeeRowsForUpdate,
   lockUsersForLiveAccess,
@@ -29,8 +29,7 @@ import {
   type PersonDto,
   type PersonStatus,
 } from "./status";
-
-type Tx = Prisma.TransactionClient;
+import type { Tx } from "../db/types";
 
 export type LifecycleActor = {
   userId: string;
@@ -93,6 +92,39 @@ async function stopAccessInTx(
     where: { employeeId, revokedAt: null },
     data: { revokedAt: now },
   });
+}
+
+/** Shared lifecycle close: audit then return a fresh person DTO. */
+async function auditAndReloadPerson(
+  tx: Tx,
+  employeeId: string,
+  audit: RecordAuditInput,
+): Promise<PersonDto> {
+  await recordAudit(audit, tx);
+  return mapPersonDto(await loadEmployeeOrThrow(employeeId, tx));
+}
+
+/**
+ * Run a person lifecycle mutation in a transaction, then publish after commit.
+ * Keeps event delivery outside the transaction boundary.
+ */
+async function runPersonLifecycleTx<T>(
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  const result = await prisma.$transaction(fn);
+  publish("people.changed");
+  return result;
+}
+
+/** Peek helper: active owners need the all-active-owners lock set. */
+function needsLockAllActiveOwners(peek: {
+  user: { role: Role; isActive: boolean } | null;
+}): boolean {
+  return (
+    Boolean(peek.user) &&
+    peek.user!.role === Role.owner &&
+    peek.user!.isActive
+  );
 }
 
 async function assertNotLastActiveOwner(
@@ -282,13 +314,10 @@ export async function blockPerson(
   expectedStatus: PersonStatus,
   expectedAccessVersion: number,
 ): Promise<PersonDto> {
-  const result = await prisma.$transaction(async (tx) => {
+  return runPersonLifecycleTx(async (tx) => {
     // Peek only to decide owner-set lock; definitive checks use post-lock reload.
     const peek = await loadEmployeeOrThrow(employeeId, tx);
-    const lockOwners =
-      Boolean(peek.user) &&
-      peek.user!.role === Role.owner &&
-      peek.user!.isActive;
+    const lockOwners = needsLockAllActiveOwners(peek);
 
     const employee = await lockAndReloadEmployee(tx, employeeId, {
       lockAllActiveOwners: lockOwners,
@@ -347,36 +376,20 @@ export async function blockPerson(
       expectedStatus,
     );
 
-    await tx.authSession.updateMany({
-      where: { userId: employee.user.id, revokedAt: null },
-      data: { revokedAt: now },
-    });
-    await tx.invitation.updateMany({
-      where: { employeeId: employee.id, status: InvitationStatus.issued },
-      data: { status: InvitationStatus.revoked, revokedAt: now },
-    });
-    await tx.device.updateMany({
-      where: { employeeId: employee.id, revokedAt: null },
-      data: { revokedAt: now },
-    });
+    // User already deactivated above; stopAccessInTx revokes sessions/invites/devices
+    // (and is a no-op on the user row when already inactive).
+    await stopAccessInTx(tx, employee.id, employee.user.id, now);
 
-    await recordAudit(
-      {
-        actorEmployeeId: actor.employeeId,
-        action: "people.block",
-        entityType: "employee",
-        entityId: employee.id,
-        before: { status: current, isActive: true },
-        after: { status: "blocked", isActive: false },
-        summary: `Blocked ${employee.fullName}`,
-      },
-      tx,
-    );
-
-    return mapPersonDto(await loadEmployeeOrThrow(employeeId, tx));
+    return auditAndReloadPerson(tx, employeeId, {
+      actorEmployeeId: actor.employeeId,
+      action: "people.block",
+      entityType: "employee",
+      entityId: employee.id,
+      before: { status: current, isActive: true },
+      after: { status: "blocked", isActive: false },
+      summary: `Blocked ${employee.fullName}`,
+    });
   });
-  publish("people.changed");
-  return result;
 }
 
 /** Unblock a blocked (non-archived) account. Does not restore sessions/devices/invites. */
@@ -386,7 +399,7 @@ export async function unblockPerson(
   expectedStatus: PersonStatus,
   expectedAccessVersion: number,
 ): Promise<PersonDto> {
-  const result = await prisma.$transaction(async (tx) => {
+  return runPersonLifecycleTx(async (tx) => {
     const employee = await lockAndReloadEmployee(tx, employeeId, {
       lockAllActiveOwners: false,
     });
@@ -442,23 +455,16 @@ export async function unblockPerson(
       { archivedAt: null },
     );
 
-    await recordAudit(
-      {
-        actorEmployeeId: actor.employeeId,
-        action: "people.unblock",
-        entityType: "employee",
-        entityId: employee.id,
-        before: { status: "blocked", isActive: false },
-        after: { status: "active", isActive: true },
-        summary: `Unblocked ${employee.fullName}`,
-      },
-      tx,
-    );
-
-    return mapPersonDto(await loadEmployeeOrThrow(employeeId, tx));
+    return auditAndReloadPerson(tx, employeeId, {
+      actorEmployeeId: actor.employeeId,
+      action: "people.unblock",
+      entityType: "employee",
+      entityId: employee.id,
+      before: { status: "blocked", isActive: false },
+      after: { status: "active", isActive: true },
+      summary: `Unblocked ${employee.fullName}`,
+    });
   });
-  publish("people.changed");
-  return result;
 }
 
 /** Archive (remove from active roster). Refuses when unfinished work remains. */
@@ -468,12 +474,9 @@ export async function archivePerson(
   expectedStatus: PersonStatus,
   expectedAccessVersion: number,
 ): Promise<PersonDto> {
-  const result = await prisma.$transaction(async (tx) => {
+  return runPersonLifecycleTx(async (tx) => {
     const peek = await loadEmployeeOrThrow(employeeId, tx);
-    const lockOwners =
-      Boolean(peek.user) &&
-      peek.user!.role === Role.owner &&
-      peek.user!.isActive;
+    const lockOwners = needsLockAllActiveOwners(peek);
 
     const employee = await lockAndReloadEmployee(tx, employeeId, {
       lockAllActiveOwners: lockOwners,
@@ -540,23 +543,16 @@ export async function archivePerson(
 
     await stopAccessInTx(tx, employee.id, employee.user?.id ?? null, now);
 
-    await recordAudit(
-      {
-        actorEmployeeId: actor.employeeId,
-        action: "people.archive",
-        entityType: "employee",
-        entityId: employee.id,
-        before: { status: current, archivedAt: null },
-        after: { status: "archived", archivedAt: now.toISOString() },
-        summary: `Archived ${employee.fullName}`,
-      },
-      tx,
-    );
-
-    return mapPersonDto(await loadEmployeeOrThrow(employeeId, tx));
+    return auditAndReloadPerson(tx, employeeId, {
+      actorEmployeeId: actor.employeeId,
+      action: "people.archive",
+      entityType: "employee",
+      entityId: employee.id,
+      before: { status: current, archivedAt: null },
+      after: { status: "archived", archivedAt: now.toISOString() },
+      summary: `Archived ${employee.fullName}`,
+    });
   });
-  publish("people.changed");
-  return result;
 }
 
 /**
@@ -569,7 +565,7 @@ export async function restorePerson(
   expectedStatus: PersonStatus,
   expectedAccessVersion: number,
 ): Promise<PersonDto> {
-  const result = await prisma.$transaction(async (tx) => {
+  return runPersonLifecycleTx(async (tx) => {
     const employee = await lockAndReloadEmployee(tx, employeeId, {
       lockAllActiveOwners: false,
     });
@@ -637,27 +633,20 @@ export async function restorePerson(
       });
     }
 
-    await recordAudit(
-      {
-        actorEmployeeId: actor.employeeId,
-        action: "people.restore",
-        entityType: "employee",
-        entityId: employee.id,
-        before: {
-          status: "archived",
-          archivedAt: employee.archivedAt?.toISOString() ?? null,
-        },
-        after: {
-          status: employee.user ? "blocked" : "not_activated",
-          archivedAt: null,
-        },
-        summary: `Restored ${employee.fullName} to the team roster`,
+    return auditAndReloadPerson(tx, employeeId, {
+      actorEmployeeId: actor.employeeId,
+      action: "people.restore",
+      entityType: "employee",
+      entityId: employee.id,
+      before: {
+        status: "archived",
+        archivedAt: employee.archivedAt?.toISOString() ?? null,
       },
-      tx,
-    );
-
-    return mapPersonDto(await loadEmployeeOrThrow(employeeId, tx));
+      after: {
+        status: employee.user ? "blocked" : "not_activated",
+        archivedAt: null,
+      },
+      summary: `Restored ${employee.fullName} to the team roster`,
+    });
   });
-  publish("people.changed");
-  return result;
 }

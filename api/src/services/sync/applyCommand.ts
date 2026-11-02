@@ -6,7 +6,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../errors";
 import { safeErrorMessage } from "../../observability";
 import { z } from "zod/v3";
-import type { AuthUser } from "../../middleware/auth";
+import type { AuthUser } from "../../auth/tokens";
 import { resolveDataScope } from "../dataScope";
 import {
   handleCleaningComplete,
@@ -22,29 +22,11 @@ import {
   handleTicketStart,
   handleTicketWait,
 } from "./commands/tickets";
+import { maintenanceTicketReportSchema } from "../maintenance/validation/ticketReportSchema";
 import type { SyncCommand, SyncCommandResult } from "./types";
 
 const id = z.string().min(1);
 const version = z.number().int().positive().optional();
-const ticketReportSchema = z
-  .object({
-    locationId: id,
-    issueOptionId: id.optional(),
-    categoryId: id.optional(),
-    title: z.string().optional(),
-    description: z.string().max(4000).optional(),
-    priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
-    blocksRoom: z.boolean().optional(),
-    allowDuplicate: z.boolean().optional(),
-    duplicateOverrideReason: z.string().max(1000).optional(),
-    confirmSimilar: z.boolean().optional(),
-  })
-  .refine(
-    (data) =>
-      (Boolean(data.issueOptionId) && !data.categoryId) ||
-      (!data.issueOptionId && Boolean(data.categoryId)),
-    { message: "Provide exactly one of issueOptionId or categoryId" },
-  );
 
 const payloadSchemas: Record<string, z.ZodTypeAny> = {
   "cleaning.start": z.object({ taskId: id, expectedVersion: version }),
@@ -53,7 +35,7 @@ const payloadSchemas: Record<string, z.ZodTypeAny> = {
     expectedVersion: version,
     notes: z.string().optional(),
   }),
-  "ticket.report": ticketReportSchema,
+  "ticket.report": maintenanceTicketReportSchema,
   "ticket.start": z.object({ ticketId: id }),
   "ticket.wait": z.object({ ticketId: id, reason: z.string().optional() }),
   "ticket.resume": z.object({ ticketId: id }),

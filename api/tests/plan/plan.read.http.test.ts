@@ -1,5 +1,5 @@
 /**
- * T-PLAN-57 — GET daily plan is read-only (P1-57).
+ * GET daily plan is read-only .
  */
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -74,7 +74,7 @@ async function snapshotTasks(locationId: string) {
   });
 }
 
-describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
+describe("daily plan read-only GET", () => {
   let world: PlanWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
@@ -94,7 +94,7 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-PLAN-57: GET with past deferred departure does not apply effects", async () => withHotelNowForTests(new Date("2040-05-20T12:00:00Z"), async () => {
+  it("GET with past deferred departure does not apply effects", async () => withHotelNowForTests(new Date("2040-05-20T12:00:00Z"), async () => {
     const today = await hotelTodayYmd();
     const past = ymdOffset(today, -3);
     await cleanupPlanArtifacts(prisma, [
@@ -148,7 +148,7 @@ describe("daily plan read-only GET (T-PLAN-57 / P1-57)", () => {
     assert.deepEqual(await snapshotTasks(world.locationAId), beforeTasks);
   }));
 
-  it("T-PLAN-57b: GET today pending departure does not apply; apply endpoint does", async () => withHotelNowForTests(new Date("2040-05-20T12:00:00Z"), async () => {
+  it("GET today pending departure does not apply; apply endpoint does", async () => withHotelNowForTests(new Date("2040-05-20T12:00:00Z"), async () => {
     const today = await hotelTodayYmd();
     await cleanupPlanArtifacts(
       prisma,

@@ -12,29 +12,9 @@ import { prisma } from "../../db";
 import { AppError } from "../../errors";
 import { getOperations } from "../settings";
 import { hotelDateAsUtcDate } from "../hotelTime";
+import { isP2002, p2002Targets } from "../db/prismaErrors";
+import type { Tx } from "../db/types";
 import { rebuildIntervalsForEmployee } from "./rebuild";
-
-type Tx = Prisma.TransactionClient;
-
-/** True when err is a Prisma unique-constraint (P2002) failure. */
-function isP2002(err: unknown): err is Prisma.PrismaClientKnownRequestError {
-  // Return result to caller.
-  return (
-    err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002"
-  );
-}
-
-/** Normalize P2002 meta.target to a string array of index/column names. */
-function p2002Targets(err: Prisma.PrismaClientKnownRequestError): string[] {
-  // Local binding for this step.
-  const target = err.meta?.target;
-  // Guard / branch on preconditions.
-  if (Array.isArray(target)) return target.map(String);
-  // Guard / branch on preconditions.
-  if (typeof target === "string") return [target];
-  // Return result to caller.
-  return [];
-}
 
 /** True when the unique conflict is on (source, externalEventId). */
 function isAttendanceEventUniqueConflict(

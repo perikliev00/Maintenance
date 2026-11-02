@@ -17,9 +17,8 @@ import { recordAuditMany } from "../audit";
 import { invalidateGrantCache } from "./cache";
 import { diffGrantSets } from "./diff";
 import { normalizePanelsActions } from "./normalize";
+import type { Tx } from "../db/types";
 import { editableRolesFor } from "./query";
-
-type Tx = Prisma.TransactionClient;
 
 /** Load grants for a role from rows already locked in the transaction. */
 async function loadGrantsInTx(tx: Tx, role: Role) {

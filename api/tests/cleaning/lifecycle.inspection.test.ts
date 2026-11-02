@@ -1,5 +1,5 @@
 /**
- * T-CLN-16…20 — ownership gates + inspection lifecycle.
+ * 20 — ownership gates + inspection lifecycle.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -38,7 +38,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("cleaning lifecycle inspection (T-CLN-16…20)", () => {
+describe("cleaning lifecycle inspection (20)", () => {
   let world: CleaningWorld;
 
   before(async () => {
@@ -55,7 +55,7 @@ describe("cleaning lifecycle inspection (T-CLN-16…20)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-CLN-16: foreign start/complete blocked; owner bypass works", async () => {
+  it("foreign start/complete blocked; owner bypass works", async () => {
     const today = await hotelTodayYmd();
     const task = await createCleaningTask({
       locationId: world.locationAId,
@@ -116,7 +116,7 @@ describe("cleaning lifecycle inspection (T-CLN-16…20)", () => {
     );
 
     // Service layer: without bypassSessionOwnerCheck, manager is denied.
-    // HTTP/sync set the flag via canBypassCleaningAssignee (SEC-002 / B1).
+    // HTTP/sync set the flag via canBypassCleaningAssignee .
     await resetCleaningWork(prisma, world);
     const { started: started2 } = await createAndStartToday(
       world,
@@ -138,7 +138,7 @@ describe("cleaning lifecycle inspection (T-CLN-16…20)", () => {
     }
   });
 
-  it("T-CLN-17: complete with require_inspection=true", async () => {
+  it("complete with require_inspection=true", async () => {
     assert.equal((await getFlags()).require_inspection, true);
     const { started } = await createAndStartToday(
       world,
@@ -159,7 +159,7 @@ describe("cleaning lifecycle inspection (T-CLN-16…20)", () => {
     assert.equal(loc.cleaningStatus, CleaningStatus.pending_inspection);
   });
 
-  it("T-CLN-18: complete with require_inspection=false", async () => {
+  it("complete with require_inspection=false", async () => {
     await withFlagsPatch(
       world.owner.employeeId,
       { require_inspection: false },
@@ -185,7 +185,7 @@ describe("cleaning lifecycle inspection (T-CLN-16…20)", () => {
     );
   });
 
-  it("T-CLN-19: reject requires findings; rework + dirty", async () => {
+  it("reject requires findings; rework + dirty", async () => {
     const { started } = await createAndStartToday(
       world,
       world.locationAId,
@@ -230,7 +230,7 @@ describe("cleaning lifecycle inspection (T-CLN-16…20)", () => {
     assert.equal(loc.cleaningStatus, CleaningStatus.dirty);
   });
 
-  it("T-CLN-20: rework then approve same task preserves history", async () => {
+  it("rework then approve same task preserves history", async () => {
     const { started } = await createAndStartToday(
       world,
       world.locationAId,

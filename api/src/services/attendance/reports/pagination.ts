@@ -2,6 +2,7 @@
  * Opaque cursor encode/decode and page-drain helpers for attendance lists.
  */
 import { AppError } from "../../../errors";
+import { decodeBase64UrlJson, encodeBase64UrlJson } from "../../cursorCodec";
 import { LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT } from "./map";
 
 /** Keyset cursor fields matching list orderBy (hotelDate, startedAt, id). */
@@ -14,15 +15,13 @@ export type IntervalCursor = {
 /** Encode cursor as base64url JSON for clients. */
 export function encodeIntervalCursor(c: IntervalCursor): string {
   // Opaque to clients — do not parse fields except via decodeIntervalCursor.
-  return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+  return encodeBase64UrlJson(c);
 }
 
 /** Decode and validate a client cursor; throws 400 on malformed input. */
 export function decodeIntervalCursor(raw: string): IntervalCursor {
   try {
-    const parsed = JSON.parse(
-      Buffer.from(raw, "base64url").toString("utf8"),
-    ) as Partial<IntervalCursor>;
+    const parsed = decodeBase64UrlJson(raw) as Partial<IntervalCursor>;
     // All three keyset fields are required strings.
     if (
       typeof parsed.hotelDate !== "string" ||

@@ -1,5 +1,5 @@
 /**
- * T-SEC-60 — atomic membership replace (success, refuse, mid-TX rollback).
+ * atomic membership replace (success, refuse, mid-TX rollback).
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -37,7 +37,7 @@ async function sectorVersion(sectorId: string): Promise<number> {
   return row.version;
 }
 
-describe("sector membership atomic HTTP (T-SEC-60)", () => {
+describe("sector membership atomic HTTP", () => {
   let world: SectorsWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -59,7 +59,7 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
     await resetSectorMemberships(prisma, world);
   });
 
-  it("T-SEC-60a successful multi-move to S2", async () => {
+  it("successful multi-move to S2", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const before = await membershipSnapshot(prisma, allLocs(world));
     const res = await putJson(
@@ -81,7 +81,7 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
     assert.deepEqual(a1, []);
   });
 
-  it("T-SEC-60b mixed forbidden room → 403; entire selection unchanged", async () => {
+  it("mixed forbidden room → 403; entire selection unchanged", async () => {
     const sup = await loginBearer(
       api,
       world.supervisorA.email,
@@ -111,7 +111,7 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
     );
   });
 
-  it("T-SEC-60c unknown location → 400; membership unchanged", async () => {
+  it("unknown location → 400; membership unchanged", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const before = await membershipSnapshot(prisma, allLocs(world));
     const res = await putJson(
@@ -132,7 +132,7 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
     );
   });
 
-  it("T-SEC-60d full replace drops omitted own rooms to unassigned", async () => {
+  it("full replace drops omitted own rooms to unassigned", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const res = await putJson(
       api,
@@ -152,7 +152,7 @@ describe("sector membership atomic HTTP (T-SEC-60)", () => {
     assert.equal(after.get(world.loc2Id), null);
   });
 
-  it("T-SEC-60e mid-TX rollback via BEFORE INSERT trigger", async () => {
+  it("mid-TX rollback via BEFORE INSERT trigger", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const before = await membershipSnapshot(prisma, allLocs(world));
     const beforeA1 = await sectorMemberIds(prisma, world.sectorA1Id);

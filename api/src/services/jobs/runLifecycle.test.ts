@@ -12,7 +12,7 @@ import {
   startJobRun,
 } from "./runLifecycle";
 
-describe("JobRun lifecycle (BUG-07 + abandoned running)", () => {
+describe("JobRun lifecycle (abandoned running)", () => {
   const createdIds: string[] = [];
 
   before(async () => {

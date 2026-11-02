@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-test("P1-126 hotel date and month stay consistent across device zones at Sofia New Year", async ({ browser }) => {
+test("hotel date and month stay consistent across device zones at Sofia New Year", async ({ browser }) => {
   for (const timezoneId of ["America/Los_Angeles", "Asia/Tokyo"]) {
     const context = await browser.newContext({ timezoneId }); const page = await context.newPage();
     try {

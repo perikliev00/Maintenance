@@ -43,7 +43,7 @@ after(async () => {
   }
   await prisma.$disconnect();
 });
-it("P1-127 real late audit failures roll back create/start/complete/inspect and ticket transition", async () => {
+it("real late audit failures roll back create/start/complete/inspect and ticket transition", async () => {
   const today = await hotelTodayYmd();
   await failLate("cleaning.task.create", 'EXISTS (SELECT 1 FROM "CleaningTask" WHERE id = NEW."entityId")', () => createCleaningTask({ locationId: world.locationAId, hotelDate: today, assignedEmployeeId: world.hk1.employeeId }));
   const task = await createCleaningTask({ locationId: world.locationAId, hotelDate: today, assignedEmployeeId: world.hk1.employeeId });
@@ -58,7 +58,7 @@ it("P1-127 real late audit failures roll back create/start/complete/inspect and 
   await prisma.maintenanceTicket.update({ where: { id: created.ticket.id }, data: { status: "assigned", assigneeId: world.technician.employeeId } });
   await failLate("ticket.start", `EXISTS (SELECT 1 FROM "TicketEvent" WHERE "ticketId" = '${created.ticket.id}' AND "toStatus" = 'in_progress')`, () => startMaintenanceTicket({ ticketId: created.ticket.id, actorEmployeeId: world.technician.employeeId, commandId: randomUUID() }));
 });
-it("P1-127 late failure matrix preserves cancel/reassign/reject and every repair transition graph", async () => {
+it("late failure matrix preserves cancel/reassign/reject and every repair transition graph", async () => {
   await resetCleaningWork(prisma, world);
   const task = await createCleaningTask({ locationId: world.locationAId, hotelDate: await hotelTodayYmd(), assignedEmployeeId: world.hk1.employeeId });
   await failLate("cleaning.task.reassign", `EXISTS (SELECT 1 FROM "CleaningTask" WHERE id = '${task.id}' AND "assignedEmployeeId" = '${world.hk2.employeeId}' AND version = ${task.version + 1})`, () => reassignCleaningTask({ taskId: task.id, assignedEmployeeId: world.hk2.employeeId, reason: "rollback", expectedVersion: task.version, actorEmployeeId: world.manager.employeeId }));
@@ -90,7 +90,7 @@ it("P1-127 late failure matrix preserves cancel/reassign/reject and every repair
   await close();
   await failLate("ticket.reopen", `${eventProof("in_progress")} AND EXISTS (SELECT 1 FROM "TicketReopenEvent" WHERE "ticketId" = '${ticketId}')`, () => reopenMaintenanceTicket({ ticketId, reopenedByEmployeeId: world.manager.employeeId, reason: "again" }));
 });
-it("P1-96 notification failure occurs after committed domain graph; same command replay preserves it exactly", async () => {
+it("notification failure occurs after committed domain graph; same command replay preserves it exactly", async () => {
   const option = await prisma.issueOption.findFirstOrThrow({ where: { isActive: true, maintenanceCategory: { isActive: true } } });
   const input = { locationId: world.locationBId, issueOptionId: option.id, blocksRoom: false, reportedByEmployeeId: world.owner.employeeId, commandId: randomUUID() };
   await prisma.$executeRawUnsafe(`CREATE FUNCTION scenario_postcommit_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."locationId" = '${world.locationBId}' THEN IF EXISTS (SELECT 1 FROM "MaintenanceTicket" WHERE "commandId" = '${input.commandId}') THEN RAISE EXCEPTION 'scenario_notification_after_commit'; ELSE RAISE EXCEPTION 'scenario_no_commit'; END IF; END IF; RETURN NEW; END $$`);

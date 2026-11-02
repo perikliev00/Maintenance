@@ -1,5 +1,5 @@
 /**
- * E2E-MW-68 — My Work technician: own open repairs only; no cleaning / foreign / closed.
+ * My Work technician: own open repairs only; no cleaning / foreign / closed.
  */
 import { expect, test } from "@playwright/test";
 import { uiLogin, USERS, DEMO_PASSWORD } from "./helpers/auth";
@@ -19,7 +19,7 @@ import {
 
 const MY_WORK_NAV = /^(Моите задачи|My Work)$/;
 
-test.describe("E2E-MW-68 my-work technician queue", () => {
+test.describe("my-work technician queue", () => {
   test("shows own open ticket; hides foreign, resolved, closed, and cleaning", async ({
     page,
   }) => {

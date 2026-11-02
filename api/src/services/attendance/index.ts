@@ -38,6 +38,7 @@ export {
 } from "./reports";
 
 export {
+  formatHotelDate,
   hotelDateAsUtcDate,
   hotelDateString,
   resolveUsableHotelTimeZone,

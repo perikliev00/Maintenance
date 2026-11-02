@@ -4,7 +4,6 @@
  * Portaled to document.body so position:fixed is always viewport-relative.
  * Body scroll is locked while open so the rooms list keeps its scroll position.
  */
-import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type {
   AuditEventRow,
@@ -12,6 +11,7 @@ import type {
   LocationServiceStatus,
   Room,
 } from "../api/client";
+import { useModalLifecycle } from "../hooks/useModalLifecycle";
 import { AuditTimeline } from "./AuditTimeline";
 
 const OCCUPANCY_OPTIONS: LocationOccupancy[] = [
@@ -63,26 +63,7 @@ export function LocationHistoryPanel({
   onOccupancyChange,
   onServiceStatusChange,
 }: Props) {
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, []);
+  useModalLifecycle(onClose);
 
   return createPortal(
     <div

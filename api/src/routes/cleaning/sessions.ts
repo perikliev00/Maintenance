@@ -1,6 +1,7 @@
 /** Cleaning session complete/cancel and overdue review listing. */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../../middleware/auth";
+import { asyncHandler } from "../../middleware/asyncHandler";
 import * as sessionsController from "../../controllers/cleaning/sessions";
 
 /** Register session complete/cancel and review routes on the cleaning router. */
@@ -10,7 +11,7 @@ export function registerSessionRoutes(router: Router): void {
     "/sessions/:id/complete",
     requireAuth,
     requireAction("cleaning.complete"),
-    sessionsController.complete,
+    asyncHandler(sessionsController.complete),
   );
 
   // POST /sessions/:id/cancel — cancel an overdue/stuck session (review_overdue).
@@ -18,7 +19,7 @@ export function registerSessionRoutes(router: Router): void {
     "/sessions/:id/cancel",
     requireAuth,
     requireAction("cleaning.review_overdue"),
-    sessionsController.cancel,
+    asyncHandler(sessionsController.cancel),
   );
 
   // GET /sessions/review — list sessions needing overdue review.
@@ -26,6 +27,6 @@ export function registerSessionRoutes(router: Router): void {
     "/sessions/review",
     requireAuth,
     requireAction("cleaning.review_overdue"),
-    sessionsController.listReview,
+    asyncHandler(sessionsController.listReview),
   );
 }

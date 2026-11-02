@@ -16,7 +16,7 @@ async function settled() {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
-it("P2-55 stop cancels initial and repeating jobs; double start and restart keep one schedule", async t => {
+it("stop cancels initial and repeating jobs; double start and restart keep one schedule", async t => {
   const stop = scheduler.stopJobScheduler;
   assert.equal(typeof stop, "function", "scheduler needs a stop lifecycle");
   t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });

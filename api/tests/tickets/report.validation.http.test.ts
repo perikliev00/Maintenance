@@ -1,5 +1,5 @@
 /**
- * T-TKT-01 / P1-37 — report validation (option XOR category+title).
+ * report validation (option XOR category+title).
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -26,7 +26,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("ticket report validation (T-TKT-01 / P1-37)", () => {
+describe("ticket report validation", () => {
   let world: TicketsWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
@@ -100,7 +100,7 @@ describe("ticket report validation (T-TKT-01 / P1-37)", () => {
     });
   }
 
-  it("T-TKT-01a: active issueOptionId alone succeeds", async () => {
+  it("active issueOptionId alone succeeds", async () => {
     const before = await countTickets();
     const res = await postJson(api, ownerToken, "/maintenance/tickets", {
       locationId: world.locationAId,
@@ -112,7 +112,7 @@ describe("ticket report validation (T-TKT-01 / P1-37)", () => {
     assert.equal(await countTickets(), before + 1);
   });
 
-  it("T-TKT-01b: active categoryId + title succeeds", async () => {
+  it("active categoryId + title succeeds", async () => {
     const before = await countTickets();
     const res = await postJson(api, ownerToken, "/maintenance/tickets", {
       locationId: world.locationAId,
@@ -125,7 +125,7 @@ describe("ticket report validation (T-TKT-01 / P1-37)", () => {
     assert.equal(await countTickets(), before + 1);
   });
 
-  it("T-TKT-01c: neither selector rejected", async () => {
+  it("neither selector rejected", async () => {
     const before = await countTickets();
     const res = await postJson(api, ownerToken, "/maintenance/tickets", {
       locationId: world.locationAId,
@@ -137,7 +137,7 @@ describe("ticket report validation (T-TKT-01 / P1-37)", () => {
     assert.equal(await countTickets(), before);
   });
 
-  it("T-TKT-01d: both selectors rejected", async () => {
+  it("both selectors rejected", async () => {
     const before = await countTickets();
     const res = await postJson(api, ownerToken, "/maintenance/tickets", {
       locationId: world.locationAId,
@@ -151,7 +151,7 @@ describe("ticket report validation (T-TKT-01 / P1-37)", () => {
     assert.equal(await countTickets(), before);
   });
 
-  it("T-TKT-01e: inactive option rejected", async () => {
+  it("inactive option rejected", async () => {
     const before = await countTickets();
     const res = await postJson(api, ownerToken, "/maintenance/tickets", {
       locationId: world.locationAId,
@@ -163,7 +163,7 @@ describe("ticket report validation (T-TKT-01 / P1-37)", () => {
     assert.equal(await countTickets(), before);
   });
 
-  it("T-TKT-01f: inactive category rejected", async () => {
+  it("inactive category rejected", async () => {
     const before = await countTickets();
     const res = await postJson(api, ownerToken, "/maintenance/tickets", {
       locationId: world.locationAId,
@@ -176,7 +176,7 @@ describe("ticket report validation (T-TKT-01 / P1-37)", () => {
     assert.equal(await countTickets(), before);
   });
 
-  it("T-TKT-01g: category without title rejected", async () => {
+  it("category without title rejected", async () => {
     const before = await countTickets();
     const res = await postJson(api, ownerToken, "/maintenance/tickets", {
       locationId: world.locationAId,

@@ -14,6 +14,7 @@ import {
   deriveCleaningServiceType,
   resolveCycleForNewTask,
 } from "../cleaning";
+import { isP2002 } from "../db/prismaErrors";
 import { sectorSnapshotForLocation } from "../dataScope";
 import type { Tx } from "./types";
 
@@ -105,10 +106,7 @@ export async function createTaskWithSectorSnapshot(
     // Concurrent create hit the partial unique (one active task per room/date).
     // Prefer the under-lock re-check above; this path is belt-and-suspenders when
     // the peer commit lands between findFirst and create (same lock holder).
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isP2002(err)) {
       const existing = await tx.cleaningTask.findFirst({
         where: {
           locationId: data.locationId,

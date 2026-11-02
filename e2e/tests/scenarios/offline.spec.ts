@@ -43,7 +43,7 @@ test("temporary batch command failure retries on its own despite unrelated succe
   expect(result.sent).toEqual([result.commandId, result.commandId]);
   expect(result.after).toEqual([]);
 });
-test("P1-95 P1-97 P1-102 P1-103 real IndexedDB survives reload, recovers sending and retains unconfirmed results", async ({ page }) => {
+test("real IndexedDB survives reload, recovers sending and retains unconfirmed results", async ({ page }) => {
   await page.evaluate(async () => {
     const load = (p: string) => import(/* @vite-ignore */ p);
     const scope = await load("/src/offline/userScope.ts"); const ops = await load("/src/offline/queueOps.ts"); const storage = await load("/src/offline/storage.ts");
@@ -76,7 +76,7 @@ test("P1-95 P1-97 P1-102 P1-103 real IndexedDB survives reload, recovers sending
   await page.reload();
   expect(await page.evaluate(async () => (await import(/* @vite-ignore */ "/src/offline/storage.ts")).listQueueForUser("A"))).toHaveLength(4);
 });
-test("P1-99 P2-49 P2-50 failed rows support scoped retry/dismiss and account switch survives failed purge", async ({ page }) => {
+test("failed rows support scoped retry/dismiss and account switch survives failed purge", async ({ page }) => {
   const result = await page.evaluate(async () => {
     const load = (p: string) => import(/* @vite-ignore */ p);
     const scope = await load("/src/offline/userScope.ts"); const ops = await load("/src/offline/queueOps.ts"); const storage = await load("/src/offline/storage.ts"); const conn = await load("/src/offline/connState.ts");
@@ -107,7 +107,7 @@ test("P1-99 P2-49 P2-50 failed rows support scoped retry/dismiss and account swi
   expect(result.dismissed).toBe(true); expect(result.cache).toBeNull(); expect(result.physicalA.tasks[0].id).toBe("secret-A");
   expect(result.visible.every((r: any) => r.userId === "B")).toBe(true); expect(result.stats.failed).toBe(1);
 });
-test("P1-113 real v1 upgrade discards unowned queue/cache and accepts scoped new records", async ({ page }) => {
+test("real v1 upgrade discards unowned queue/cache and accepts scoped new records", async ({ page }) => {
   await page.evaluate(async () => {
     await new Promise<void>((resolve, reject) => { const r = indexedDB.deleteDatabase("meridian-offline"); r.onsuccess = () => resolve(); r.onerror = () => reject(r.error); });
     await new Promise<void>((resolve, reject) => { const r = indexedDB.open("meridian-offline", 1); r.onupgradeneeded = () => { r.result.createObjectStore("queue", { keyPath: "id" }); r.result.createObjectStore("cache", { keyPath: "key" }); }; r.onerror = () => reject(r.error); r.onsuccess = () => { const db = r.result; const tx = db.transaction(["queue", "cache"], "readwrite"); tx.objectStore("queue").put({ id: "unowned", body: { secret: "legacy" } }); tx.objectStore("cache").put({ key: "mywork", tasks: ["legacy"] }); tx.oncomplete = () => { db.close(); resolve(); }; }; });
@@ -121,7 +121,7 @@ test("P1-113 real v1 upgrade discards unowned queue/cache and accepts scoped new
   });
   expect(result.before).toEqual([]); expect(result.cache).toBeNull(); expect(result.after).toHaveLength(1); expect(result.after[0].userId).toBe("A");
 });
-test("P1-114 persistence abort rejects the queued action without success", async ({ page }) => {
+test("persistence abort rejects the queued action without success", async ({ page }) => {
   const result = await page.evaluate(async () => {
     const scope = await import(/* @vite-ignore */ "/src/offline/userScope.ts"); scope.setOfflineUser("A"); await scope.whenOfflineUserSettled();
     const storage = await import(/* @vite-ignore */ "/src/offline/storage.ts"); await storage.listQueueForUser("A");
@@ -135,7 +135,7 @@ test("P1-114 persistence abort rejects the queued action without success", async
   });
   expect(result.success).toBe(false); expect(result.error).toBeTruthy(); expect(result.rows).toEqual([]);
 });
-test("P1-104 P2-51 real IndexedDB preserves creation order with tied clocks across the 100-command boundary", async ({ page }) => {
+test("real IndexedDB preserves creation order with tied clocks across the 100-command boundary", async ({ page }) => {
   const result = await page.evaluate(async () => {
     const load = (p: string) => import(/* @vite-ignore */ p);
     const scope = await load("/src/offline/userScope.ts"); const ops = await load("/src/offline/queueOps.ts");
@@ -155,7 +155,7 @@ test("P1-104 P2-51 real IndexedDB preserves creation order with tied clocks acro
   expect(result.batches.map(b => b.length)).toEqual([100, 1]); expect(result.fallbacks).toBe(0);
   expect(result.batches.flat()).toEqual(Array.from({ length: 101 }, (_, i) => `cmd-${i}`)); expect(result.rows).toEqual([]);
 });
-test("P1-100 concurrent interactive and outbox 401s share refresh and retry identical bodies with fresh CSRF", async ({ page }) => {
+test("concurrent interactive and outbox 401s share refresh and retry identical bodies with fresh CSRF", async ({ page }) => {
   const result = await page.evaluate(async () => {
     const http = await import(/* @vite-ignore */ "/src/api/http.ts");
     const transport = await import(/* @vite-ignore */ "/src/offline/transport.ts");
@@ -187,7 +187,7 @@ test("P1-100 concurrent interactive and outbox 401s share refresh and retry iden
     expect(rows).toHaveLength(2); expect(rows[0].body).toBe(rows[1].body); expect(rows.map(r => r.csrf)).toEqual(["before", "after"]);
   }
 });
-test("P1-98 refresh transient failure preserves nonempty private stores; rejection/logout purge them", async ({ page }) => {
+test("refresh transient failure preserves nonempty private stores; rejection/logout purge them", async ({ page }) => {
   const result = await page.evaluate(async () => {
     const load = (p: string) => import(/* @vite-ignore */ p);
     const scope = await load("/src/offline/userScope.ts"); const ops = await load("/src/offline/queueOps.ts"); const storage = await load("/src/offline/storage.ts"); const http = await load("/src/api/http.ts");
@@ -209,7 +209,7 @@ test("P1-98 refresh transient failure preserves nonempty private stores; rejecti
   expect(result.transient).toBe("transient"); expect(result.kept).toHaveLength(1); expect(result.cache.tasks).toHaveLength(1);
   expect(result.rejected).toBe("rejected"); expect(result.purged).toEqual([]); expect(result.erased).toBeNull(); expect(result.logout).toEqual([]); expect(result.user).toBeNull();
 });
-test("P1-95 server 503 queues identical payload; P1-108 401/429 preserve real pending storage", async ({ page }) => {
+test("server 503 queues identical payload; 401/429 preserve real pending storage", async ({ page }) => {
   const result = await page.evaluate(async () => {
     const scope = await import(/* @vite-ignore */ "/src/offline/userScope.ts"); const ops = await import(/* @vite-ignore */ "/src/offline/queueOps.ts"); const storage = await import(/* @vite-ignore */ "/src/offline/storage.ts"); const conn = await import(/* @vite-ignore */ "/src/offline/connState.ts");
     scope.setOfflineUser("A"); await scope.whenOfflineUserSettled(); Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
@@ -228,7 +228,7 @@ test("P1-95 server 503 queues identical payload; P1-108 401/429 preserve real pe
   expect(result.queued.queued).toBe(true); expect(result.rows).toHaveLength(1); expect(result.rows[0].body).toEqual(result.body);
   for (const item of result.after) { expect(item.calls).toBe(1); expect(item.fallbacks).toBe(0); expect(item.rows).toHaveLength(1); expect(item.rows[0]).toMatchObject({ status: "pending", body: result.body }); }
 });
-test("P1-106 P1-107 explicit rebase changes version only; ownership conflicts remain blocked", async ({ page }) => {
+test("explicit rebase changes version only; ownership conflicts remain blocked", async ({ page }) => {
   const result = await page.evaluate(async () => {
     const scope = await import(/* @vite-ignore */ "/src/offline/userScope.ts"); const ops = await import(/* @vite-ignore */ "/src/offline/queueOps.ts"); const storage = await import(/* @vite-ignore */ "/src/offline/storage.ts");
     scope.setOfflineUser("A"); await scope.whenOfflineUserSettled();

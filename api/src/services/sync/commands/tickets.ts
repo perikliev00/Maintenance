@@ -4,7 +4,7 @@
  * report uses tickets.report. commandId is forwarded for server-side idempotency.
  */
 import { Priority } from "@prisma/client";
-import type { AuthUser } from "../../../middleware/auth";
+import type { AuthUser } from "../../../auth/tokens";
 import { canPerform } from "../../roleGrants";
 import {
   assertCanAccessLocation,
@@ -86,28 +86,42 @@ export async function handleTicketReport(
 }
 
 /**
- * Start/wait/resume/resolve share the tickets.resolve action: field workers who
- * can progress tickets offline need one grant covering the mid-lifecycle set.
+ * Start/wait/resume/resolve share tickets.resolve: field workers who can
+ * progress tickets offline need one grant covering the mid-lifecycle set.
  */
+type TicketResolveGate =
+  | { ok: true; ticketId: string }
+  | { ok: false; result: SyncCommandResult };
+
+async function requireTicketResolve(
+  user: AuthUser,
+  scope: DataScope,
+  cmd: SyncCommand,
+): Promise<TicketResolveGate> {
+  if (!(await canPerform(user.role, "tickets.resolve"))) {
+    return {
+      ok: false,
+      result: {
+        commandId: cmd.commandId,
+        status: "forbidden",
+        message: "Missing tickets.resolve",
+      },
+    };
+  }
+  const ticketId = String(cmd.payload.ticketId ?? "");
+  await assertCanAccessTicket(scope, ticketId);
+  return { ok: true, ticketId };
+}
+
 export async function handleTicketStart(
   user: AuthUser,
   scope: DataScope,
   cmd: SyncCommand,
 ): Promise<SyncCommandResult> {
-  // Mid-lifecycle offline steps share tickets.resolve (see module header).
-  if (!(await canPerform(user.role, "tickets.resolve"))) {
-    return {
-      commandId: cmd.commandId,
-      status: "forbidden",
-      message: "Missing tickets.resolve",
-    };
-  }
-  // Ticket must be visible under the caller's data scope.
-  const ticketId = String(cmd.payload.ticketId ?? "");
-  await assertCanAccessTicket(scope, ticketId);
-  // Domain start (idempotent via commandId).
+  const gate = await requireTicketResolve(user, scope, cmd);
+  if (!gate.ok) return gate.result;
   const ticket = await startMaintenanceTicket({
-    ticketId,
+    ticketId: gate.ticketId,
     actorEmployeeId: user.employeeId,
     bypassAssigneeCheck: canBypassTicketAssignee(user.role),
     commandId: cmd.commandId,
@@ -121,20 +135,10 @@ export async function handleTicketWait(
   scope: DataScope,
   cmd: SyncCommand,
 ): Promise<SyncCommandResult> {
-  // Soft-forbidden; mid-lifecycle steps share tickets.resolve.
-  if (!(await canPerform(user.role, "tickets.resolve"))) {
-    return {
-      commandId: cmd.commandId,
-      status: "forbidden",
-      message: "Missing tickets.resolve",
-    };
-  }
-  // Ticket must be visible under the caller's data scope.
-  const ticketId = String(cmd.payload.ticketId ?? "");
-  await assertCanAccessTicket(scope, ticketId);
-  // Domain wait (pauses SLA clock; optional free-text reason).
+  const gate = await requireTicketResolve(user, scope, cmd);
+  if (!gate.ok) return gate.result;
   const ticket = await waitMaintenanceTicket({
-    ticketId,
+    ticketId: gate.ticketId,
     actorEmployeeId: user.employeeId,
     bypassAssigneeCheck: canBypassTicketAssignee(user.role),
     reason:
@@ -152,20 +156,10 @@ export async function handleTicketResume(
   scope: DataScope,
   cmd: SyncCommand,
 ): Promise<SyncCommandResult> {
-  // Soft-forbidden; mid-lifecycle steps share tickets.resolve.
-  if (!(await canPerform(user.role, "tickets.resolve"))) {
-    return {
-      commandId: cmd.commandId,
-      status: "forbidden",
-      message: "Missing tickets.resolve",
-    };
-  }
-  // Ticket must be visible under the caller's data scope.
-  const ticketId = String(cmd.payload.ticketId ?? "");
-  await assertCanAccessTicket(scope, ticketId);
-  // Domain resume (unpauses SLA; idempotent via commandId).
+  const gate = await requireTicketResolve(user, scope, cmd);
+  if (!gate.ok) return gate.result;
   const ticket = await resumeMaintenanceTicket({
-    ticketId,
+    ticketId: gate.ticketId,
     actorEmployeeId: user.employeeId,
     bypassAssigneeCheck: canBypassTicketAssignee(user.role),
     commandId: cmd.commandId,
@@ -179,20 +173,10 @@ export async function handleTicketResolve(
   scope: DataScope,
   cmd: SyncCommand,
 ): Promise<SyncCommandResult> {
-  // Soft-forbidden; mid-lifecycle steps share tickets.resolve.
-  if (!(await canPerform(user.role, "tickets.resolve"))) {
-    return {
-      commandId: cmd.commandId,
-      status: "forbidden",
-      message: "Missing tickets.resolve",
-    };
-  }
-  // Ticket must be visible under the caller's data scope.
-  const ticketId = String(cmd.payload.ticketId ?? "");
-  await assertCanAccessTicket(scope, ticketId);
-  // Domain resolve (optional notes; idempotent via commandId).
+  const gate = await requireTicketResolve(user, scope, cmd);
+  if (!gate.ok) return gate.result;
   const ticket = await resolveMaintenanceTicket({
-    ticketId,
+    ticketId: gate.ticketId,
     resolvedByEmployeeId: user.employeeId,
     bypassAssigneeCheck: canBypassTicketAssignee(user.role),
     resolutionNotes:

@@ -564,8 +564,3 @@ export function LifecycleActions({
     </div>
   );
 }
-
-/** Exported for structural regression tests (no nested table cells). */
-export function taskPriorityDueIsTableCell(): boolean {
-  return false;
-}

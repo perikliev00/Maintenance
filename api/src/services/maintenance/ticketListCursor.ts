@@ -3,6 +3,7 @@
  * Sort keys match listMaintenanceTickets orderBy (openedAt|resolvedAt, id).
  */
 import { AppError } from "../../errors";
+import { decodeBase64UrlJson, encodeBase64UrlJson } from "../cursorCodec";
 
 export type TicketSortKey = "openedAt" | "resolvedAt";
 
@@ -14,20 +15,17 @@ export type TicketListCursor = {
 
 /** Encode a page-boundary cursor as base64url JSON. */
 export function encodeTicketListCursor(cursor: TicketListCursor): string {
-  return Buffer.from(
-    JSON.stringify([cursor.sort, cursor.at.toISOString(), cursor.id]),
-  ).toString("base64url");
+  return encodeBase64UrlJson([
+    cursor.sort,
+    cursor.at.toISOString(),
+    cursor.id,
+  ]);
 }
 
 /** Decode and validate a client cursor; throws 400 on malformed input. */
 export function decodeTicketListCursor(cursor: string): TicketListCursor {
   try {
-    if (cursor.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(cursor)) {
-      throw new Error();
-    }
-    const value: unknown = JSON.parse(
-      Buffer.from(cursor, "base64url").toString("utf8"),
-    );
+    const value = decodeBase64UrlJson(cursor);
     if (
       !Array.isArray(value) ||
       value.length !== 3 ||

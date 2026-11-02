@@ -12,20 +12,12 @@ import {
   type Panel,
 } from "../api/client";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
+import { t } from "../i18n";
 
 type Props = {
   locale?: "bg" | "en";
   onNavigate: (panel: Panel) => void;
 };
-
-/**
- * Pick BG vs EN copy for this page.
- * @returns `en` string when locale is English; otherwise Bulgarian.
- */
-function t(locale: "bg" | "en", bg: string, en: string) {
-  // English locale wins; default UI copy is Bulgarian.
-  return locale === "en" ? en : bg;
-}
 
 /**
  * Compact relative timestamp (now / minutes / hours / days).

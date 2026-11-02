@@ -13,16 +13,14 @@ import {
   createNotifications,
   recipientsForLocationOps,
 } from "../notifications";
-import { startJobRun, finishJobRun } from "./runLifecycle";
+import { withJobRun } from "./runLifecycle";
 
 /**
  * Find past-due open tickets and emit breach notifications/audits.
  * @returns Counts of breached tickets scanned and those that created inbox rows.
  */
 export async function runTicketSlaBreach() {
-  // Persist JobRun row for ops visibility before any DB work.
-  const run = await startJobRun("ticket_sla_breach");
-  try {
+  return withJobRun("ticket_sla_breach", async () => {
     // Single clock for dueAt comparison, dedupe window, and notification keys.
     const now = new Date();
     // Open + past dueAt + SLA not paused (waiting tickets are excluded).
@@ -160,17 +158,6 @@ export async function runTicketSlaBreach() {
       if (result.created > 0) notified += 1;
     }
 
-    // Mark JobRun success with scan vs notify counts for the jobs panel.
-    await finishJobRun(run.id, "ok", {
-      breached: tickets.length,
-      notified,
-    });
     return { breached: tickets.length, notified };
-  } catch (err) {
-    // Normalize unknown throwables to a string stored on the JobRun row.
-    const message = err instanceof Error ? err.message : String(err);
-    await finishJobRun(run.id, "error", undefined, message);
-    // Propagate so the scheduler can log and apply retry/backoff policy.
-    throw err;
-  }
+  });
 }

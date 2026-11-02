@@ -1,6 +1,6 @@
 /**
- * HTTP integration: T-SCOPE-LOC-01, T-SCOPE-TKT-01, T-AUDIT-HTTP-01,
- * T-SCOPE-SEC-01/02, T-SCOPE-AGG-01.
+ * HTTP integration:
+ * 02, .
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -54,7 +54,7 @@ function assertOutOfScope(res: { status: number; body: unknown }, label: string)
   assert.equal((res.body as { message?: string }).message, OUT_OF_SCOPE);
 }
 
-describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
+describe("dataScope HTTP", () => {
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
   let api = "";
   let fx: ScopeSmokeFixture;
@@ -107,7 +107,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-SCOPE-LOC-01: OOS location mutations denied", async () => {
+  it("OOS location mutations denied", async () => {
     const { token } = await loginBearer(
       api,
       fx.supervisorA.email,
@@ -154,7 +154,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     assert.equal(after.number, loc.number);
   });
 
-  it("T-SCOPE-LOC-02: OOS GET detail has no cleaningStatus side effects", async () => {
+  it("OOS GET detail has no cleaningStatus side effects", async () => {
     const { token } = await loginBearer(
       api,
       fx.supervisorA.email,
@@ -192,7 +192,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     });
   });
 
-  it("T-SCOPE-TKT-01: OOS ticket lifecycle denied", async () => {
+  it("OOS ticket lifecycle denied", async () => {
     const { token } = await loginBearer(
       api,
       fx.supervisorA.email,
@@ -229,7 +229,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     assert.equal(after.assigneeId, before.assigneeId);
   });
 
-  it("T-AUDIT-HTTP-01: omit/swap locationId for location-only audit", async () => {
+  it("omit/swap locationId for location-only audit", async () => {
     const localSnap = await snapshotRoleGrants(prisma, [Role.supervisor]);
     try {
       const g = await getGrantsForRole(Role.supervisor);
@@ -291,7 +291,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     }
   });
 
-  it("T-SCOPE-SEC-01: sector deactivate refreshes next read/action", async () => {
+  it("sector deactivate refreshes next read/action", async () => {
     const { token: mgrTok } = await loginBearer(
       api,
       fx.manager.email,
@@ -341,7 +341,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     }
   });
 
-  it("T-SCOPE-SEC-02: primarySupervisor reassignment refreshes next read/action", async () => {
+  it("primarySupervisor reassignment refreshes next read/action", async () => {
     const { token: mgrTok } = await loginBearer(
       api,
       fx.manager.email,
@@ -391,7 +391,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     }
   });
 
-  it("T-SCOPE-AGG-01: plan/live/results/analytics scoped aggregates", async () => {
+  it("plan/live/results/analytics scoped aggregates", async () => {
     let seed: AggregateSeedIds | null = null;
     try {
       const { token: supTok } = await loginBearer(
@@ -656,7 +656,7 @@ describe("dataScope HTTP (P1-06 … P1-10 / P1-08)", () => {
     }
   });
 
-  it("P1-08: foreign maintenance history and live work cannot change any scoped counter", async () => {
+  it("foreign maintenance history and live work cannot change any scoped counter", async () => {
     const sup = await loginBearer(api, fx.supervisorA.email, fx.password);
     const manager = await loginBearer(api, fx.manager.email, fx.password);
     const url = "/analytics/summary?domain=maintenance&from=2099-07-10&to=2099-07-10";

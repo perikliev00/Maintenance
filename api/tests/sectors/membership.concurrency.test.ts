@@ -1,5 +1,5 @@
 /**
- * T-SEC-61a–d — membership concurrency after Location/Sector locks.
+ * d — membership concurrency after Location/Sector locks.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -79,7 +79,7 @@ function assertSettledMembershipRace(
   }
 }
 
-describe("sector membership concurrency (T-SEC-61)", () => {
+describe("sector membership concurrency", () => {
   let world: SectorsWorld;
 
   before(async () => {
@@ -110,7 +110,7 @@ describe("sector membership concurrency (T-SEC-61)", () => {
     });
   });
 
-  it("T-SEC-61a dual-claim different destinations; PID blocking; one membership", async () => {
+  it("dual-claim different destinations; PID blocking; one membership", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => {
       release = r;
@@ -194,7 +194,7 @@ describe("sector membership concurrency (T-SEC-61)", () => {
     }
   });
 
-  it("T-SEC-61b auth TOCTOU: steal under Location holder → supervisor 403", async () => {
+  it("auth TOCTOU: steal under Location holder → supervisor 403", async () => {
     let raceErr: unknown;
     try {
       await runWhileLocationLockedWithTx({
@@ -253,7 +253,7 @@ describe("sector membership concurrency (T-SEC-61)", () => {
     assert.ok(!a2.includes(world.loc1Id));
   });
 
-  it("T-SEC-61c move ∥ createCleaningTask both succeed on free day", async () => {
+  it("move ∥ createCleaningTask both succeed on free day", async () => {
     const hotelDate = "2099-09-15";
     await prisma.cleaningTask.deleteMany({
       where: {
@@ -325,7 +325,7 @@ describe("sector membership concurrency (T-SEC-61)", () => {
     }
   });
 
-  it("T-SEC-61d same-destination concurrent replaces settle without 500", async () => {
+  it("same-destination concurrent replaces settle without 500", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => {
       release = r;

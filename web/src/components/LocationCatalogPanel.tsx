@@ -2,25 +2,8 @@
  * CRUD panel for the location catalog (rooms / common areas).
  * Create/edit use centered modals; list uses server pagination.
  */
-import {
-  FormEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import {
-  archiveLocation,
-  createLocation,
-  fetchLocationHierarchy,
-  fetchLocationsCatalogPage,
-  restoreLocation,
-  updateLocation,
-  type LocationHierarchyBuilding,
-  type LocationKind,
-  type Room,
-} from "../api/client";
+import { archiveLocation, restoreLocation, type LocationKind } from "../api/client";
+import { useLocationCatalog } from "../hooks/useLocationCatalog";
 import { FormModal } from "./FormModal";
 
 type Props = {
@@ -28,228 +11,48 @@ type Props = {
   onCatalogChanged?: () => void;
 };
 
-const PAGE_SIZES = [25, 50, 100] as const;
-
 export function LocationCatalogPanel({ locale, onCatalogChanged }: Props) {
-  const label = (bg: string, en: string) => (locale === "bg" ? bg : en);
-
-  const [hierarchy, setHierarchy] = useState<LocationHierarchyBuilding[]>([]);
-  const [locations, setLocations] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const busyRef = useRef(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [kindFilter, setKindFilter] = useState<"all" | LocationKind>("all");
-  const [showArchived, setShowArchived] = useState(true);
-  const [search, setSearch] = useState("");
-  const [debouncedQ, setDebouncedQ] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-
-  const [mode, setMode] = useState<"closed" | "create" | "edit">("closed");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [createKind, setCreateKind] = useState<LocationKind>("room");
-  const [buildingId, setBuildingId] = useState("");
-  const [floorId, setFloorId] = useState("");
-  const [number, setNumber] = useState("");
-  const [kind, setKind] = useState<LocationKind>("room");
-  const [baseline, setBaseline] = useState("");
-
-  const floorsForBuilding = useMemo(() => {
-    return hierarchy.find((b) => b.id === buildingId)?.floors ?? [];
-  }, [hierarchy, buildingId]);
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedQ(search), 300);
-    return () => window.clearTimeout(t);
-  }, [search]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedQ, kindFilter, showArchived, pageSize]);
-
-  const refresh = useCallback(
-    async (signal?: AbortSignal) => {
-      const [hier, pageResult] = await Promise.all([
-        fetchLocationHierarchy(),
-        fetchLocationsCatalogPage({
-          kind: kindFilter === "all" ? undefined : kindFilter,
-          includeArchived: showArchived,
-          q: debouncedQ,
-          page,
-          pageSize,
-          signal,
-        }),
-      ]);
-      setHierarchy(hier);
-      setLocations(pageResult.items);
-      setTotal(pageResult.total);
-      setTotalPages(pageResult.totalPages);
-      if (pageResult.page !== page) setPage(pageResult.page);
-      setBuildingId((prev) => prev || hier[0]?.id || "");
-      setFloorId((prev) => prev || hier[0]?.floors[0]?.id || "");
-    },
-    [kindFilter, showArchived, debouncedQ, page, pageSize],
-  );
-
-  useEffect(() => {
-    const ac = new AbortController();
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        await refresh(ac.signal);
-      } catch (err) {
-        if (ac.signal.aborted) return;
-        setError(err instanceof Error ? err.message : "Load failed");
-      } finally {
-        if (!ac.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => ac.abort();
-  }, [refresh]);
-
-  const dirty =
-    mode !== "closed" &&
-    JSON.stringify({ buildingId, floorId, number, kind }) !== baseline;
-
-  function closeForm(options?: { force?: boolean }) {
-    if (!options?.force && busyRef.current) return;
-    setMode("closed");
-    setEditingId(null);
-    setNumber("");
-    setFormError(null);
-  }
-
-  function startCreate(preferredKind: LocationKind) {
-    if (busyRef.current) return;
-    const building = hierarchy[0];
-    const floor = building?.floors[0];
-    setMode("create");
-    setEditingId(null);
-    setCreateKind(preferredKind);
-    setKind(preferredKind);
-    setNumber("");
-    setBuildingId(building?.id ?? "");
-    setFloorId(floor?.id ?? "");
-    setFormError(null);
-    setMessage(null);
-    setBaseline(
-      JSON.stringify({
-        buildingId: building?.id ?? "",
-        floorId: floor?.id ?? "",
-        number: "",
-        kind: preferredKind,
-      }),
-    );
-  }
-
-  function startEdit(loc: Room) {
-    if (busyRef.current) return;
-    setMode("edit");
-    setEditingId(loc.id);
-    setNumber(loc.number);
-    setKind(loc.kind === "common_area" ? "common_area" : "room");
-    const building = hierarchy.find((b) =>
-      b.floors.some((f) => f.id === loc.floorId),
-    );
-    const nextBuilding = building?.id ?? buildingId;
-    const nextFloor = loc.floorId ?? building?.floors[0]?.id ?? "";
-    setBuildingId(nextBuilding);
-    setFloorId(nextFloor);
-    setFormError(null);
-    setMessage(null);
-    setBaseline(
-      JSON.stringify({
-        buildingId: nextBuilding,
-        floorId: nextFloor,
-        number: loc.number,
-        kind: loc.kind === "common_area" ? "common_area" : "room",
-      }),
-    );
-  }
-
-  async function runMutation(action: () => Promise<unknown>, close = false) {
-    busyRef.current = true;
-    setBusy(true);
-    setFormError(null);
-    setError(null);
-    setMessage(null);
-    try {
-      await action();
-      if (close) closeForm({ force: true });
-      try {
-        await refresh();
-        setMessage(label("Запазено", "Saved"));
-        onCatalogChanged?.();
-      } catch (refreshErr) {
-        setError(
-          refreshErr instanceof Error
-            ? `${label(
-                "Записът е успешен, но обновяването се провали",
-                "Saved, but refresh failed",
-              )}: ${refreshErr.message}`
-            : label(
-                "Записът е успешен, но обновяването се провали",
-                "Saved, but refresh failed",
-              ),
-        );
-        onCatalogChanged?.();
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Action failed";
-      if (mode !== "closed") setFormError(msg);
-      else setError(msg);
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
-  }
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    const resolvedFloor =
-      floorId ||
-      floorsForBuilding[0]?.id ||
-      hierarchy[0]?.floors[0]?.id ||
-      "";
-    if (!resolvedFloor || !number.trim()) {
-      setFormError(
-        label(
-          "Изберете етаж и въведете номер.",
-          "Select a floor and enter a number.",
-        ),
-      );
-      return;
-    }
-    if (!floorId) setFloorId(resolvedFloor);
-    await runMutation(async () => {
-      if (editingId) {
-        await updateLocation(editingId, {
-          floorId: resolvedFloor,
-          number: number.trim(),
-          kind,
-        });
-      } else {
-        await createLocation({
-          floorId: resolvedFloor,
-          number: number.trim(),
-          kind,
-        });
-      }
-    }, true);
-  }
-
-  const title =
-    mode === "edit"
-      ? label("Редакция на помещение", "Edit location")
-      : createKind === "common_area"
-        ? label("Добавяне на обща част", "Add common area")
-        : label("Добавяне на стая", "Add room");
+  const {
+    label,
+    hierarchy,
+    locations,
+    loading,
+    error,
+    formError,
+    message,
+    busy,
+    kindFilter,
+    setKindFilter,
+    showArchived,
+    setShowArchived,
+    search,
+    setSearch,
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    total,
+    totalPages,
+    pageSizes,
+    mode,
+    buildingId,
+    setBuildingId,
+    floorId,
+    setFloorId,
+    number,
+    setNumber,
+    kind,
+    setKind,
+    floorsForBuilding,
+    dirty,
+    title,
+    closeForm,
+    startCreate,
+    startEdit,
+    runMutation,
+    onSubmit,
+    retryLoad,
+  } = useLocationCatalog({ locale, onCatalogChanged });
 
   return (
     <section className="panel">
@@ -278,16 +81,7 @@ export function LocationCatalogPanel({ locale, onCatalogChanged }: Props) {
       {error && (
         <p className="error-banner">
           {error}{" "}
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => {
-              setError(null);
-              void refresh().catch((err) =>
-                setError(err instanceof Error ? err.message : "Load failed"),
-              );
-            }}
-          >
+          <button type="button" className="ghost" onClick={() => void retryLoad()}>
             {label("Презареди", "Reload")}
           </button>
         </p>
@@ -427,7 +221,7 @@ export function LocationCatalogPanel({ locale, onCatalogChanged }: Props) {
                 value={pageSize}
                 onChange={(e) => setPageSize(Number(e.target.value))}
               >
-                {PAGE_SIZES.map((n) => (
+                {pageSizes.map((n) => (
                   <option key={n} value={n}>
                     {n}
                   </option>

@@ -23,7 +23,6 @@ export {
   catalogOrderBy,
   createLocation,
   updateLocation,
-  archiveLocation,
-  restoreLocation,
 } from "./crud";
+export { archiveLocation, restoreLocation } from "./mutations";
 export { setLocationOccupancy, setLocationServiceStatus } from "./status";

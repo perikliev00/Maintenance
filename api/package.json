@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "lint": "oxlint --quiet src",
     "test": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"src/**/*.test.ts\"",
+    "test:all": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"src/**/*.test.ts\" \"tests/**/*.test.ts\"",
     "test:mutation": "stryker run stryker.config.mjs",
     "test:mutation:incremental": "stryker run --incremental stryker.config.mjs",
     "test:mutation:full": "stryker run stryker.full.config.mjs",

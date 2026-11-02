@@ -1,5 +1,5 @@
 /**
- * SEC-002 / B1 — cleaning sync assignee bypass parity with HTTP.
+ * cleaning sync assignee bypass parity with HTTP.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -21,7 +21,7 @@ import {
   type CleaningWorld,
 } from "../cleaning/fixtures";
 
-describe("sync push cleaning assignee gate (SEC-002)", () => {
+describe("sync push cleaning assignee gate", () => {
   let world: CleaningWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];

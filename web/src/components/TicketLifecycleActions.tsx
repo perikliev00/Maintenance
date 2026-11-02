@@ -12,6 +12,7 @@ import {
   // Offline / online path.
 } from "../offline";
 import type { MaintenanceTicket } from "../api/client";
+import { t } from "../i18n";
 import { runWithBusyGate } from "./ticketBusyGate";
 
 export type TicketLifecycleDone = {
@@ -76,10 +77,6 @@ function promptResolutionNotes(
     return null;
   }
   return notes;
-}
-
-function t(locale: "bg" | "en", bg: string, en: string) {
-  return locale === "en" ? en : bg;
 }
 
 /**

@@ -1,0 +1,102 @@
+.cards-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.wizard-step {
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.wizard-step.active {
+  color: var(--text);
+  border-color: var(--accent, #7c6cff);
+  background: color-mix(in srgb, var(--accent, #7c6cff) 12%, transparent);
+}
+
+.wizard-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.card-type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.card-type-btn {
+  min-height: 3rem;
+}
+
+.card-type-btn.active {
+  outline: 2px solid var(--accent, #7c6cff);
+}
+
+.wizard-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+.review-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.review-list > div {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.5rem;
+}
+
+.review-list dt {
+  color: var(--muted);
+  margin: 0;
+}
+
+.review-list dd {
+  margin: 0;
+}
+
+.ok-banner {
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--success-bg, #143528) 70%, transparent);
+  color: var(--success-text, #3dba7a);
+  border: 1px solid color-mix(in srgb, var(--success-text, #3dba7a) 35%, transparent);
+}
+
+.error-banner {
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, #5c1a1a 55%, transparent);
+  color: #f0a0a0;
+  border: 1px solid color-mix(in srgb, #f0a0a0 35%, transparent);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.25rem 0;
+  font-size: 0.92rem;
+}

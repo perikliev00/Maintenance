@@ -1,5 +1,5 @@
 /**
- * FEAT-002 / B4 — assign/close/reopen command builders for offline outbox.
+ * assign/close/reopen command builders for offline outbox.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";

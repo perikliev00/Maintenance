@@ -1,5 +1,5 @@
 /**
- * T-ATT-76a — overnight shift with break crossing midnight (Europe/Sofia).
+ * overnight shift with break crossing midnight (Europe/Sofia).
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -23,7 +23,7 @@ import {
 
 const prisma = new PrismaClient();
 
-describe("attendance overnight ingest (T-ATT-76)", () => {
+describe("attendance overnight ingest", () => {
   let world: AttendanceWorld;
   let opsBefore: Awaited<ReturnType<typeof getOperations>>;
 
@@ -53,7 +53,7 @@ describe("attendance overnight ingest (T-ATT-76)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-ATT-76a overnight break across midnight → one interval hotelDate=D break=45", async () => {
+  it("overnight break across midnight → one interval hotelDate=D break=45", async () => {
     const emp = world.technician.employeeId;
     const tag = world.stamp;
     // D = 2026-10-07 local Sofia (EEST UTC+3)

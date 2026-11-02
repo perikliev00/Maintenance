@@ -1,13 +1,18 @@
 /**
  * Pure helpers for PermissionsPage draft merge, save phases, and history UI.
  */
+import type { SaveRefreshOutcome } from "../saveRefresh";
+
 export type RoleGrantDraft = { panels: string[]; actions: string[] };
 
 export type HistoryUiStatus = "idle" | "loading" | "success" | "empty" | "error";
 
 export type SaveFeedback =
   | { kind: "ok"; text: string }
-  | { kind: "saved_refresh_failed"; text: string }
+  | {
+      kind: Extract<SaveRefreshOutcome, "saved_refresh_failed">;
+      text: string;
+    }
   | { kind: "conflict"; text: string }
   | { kind: "error"; text: string };
 

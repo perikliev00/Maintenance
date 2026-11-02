@@ -1,6 +1,6 @@
 import { withDatabaseBarrier } from "../../tests/dbBarrier";
 /**
- * HTTP integration: T-ROLE-HTTP-01, T-OWNER-HTTP-01, T-OWNER-HTTP-02.
+ * HTTP integration: , , .
  */
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -46,7 +46,7 @@ async function restoreOwners(ids: string[]): Promise<void> {
   });
 }
 
-describe("people role HTTP (P1-02 / P1-03)", () => {
+describe("people role HTTP", () => {
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
   let api = "";
   const fixtureIds: string[] = [];
@@ -83,7 +83,7 @@ describe("people role HTTP (P1-02 / P1-03)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-ROLE-HTTP-01: role change revokes sessions; new login uses new role", async () => {
+  it("role change revokes sessions; new login uses new role", async () => {
     const { token: oldToken } = await loginBearer(
       api,
       target.email,
@@ -134,7 +134,7 @@ describe("people role HTTP (P1-02 / P1-03)", () => {
     });
   });
 
-  it("T-OWNER-HTTP-01: cannot demote last active owner", async () => {
+  it("cannot demote last active owner", async () => {
     const priorOwners = await snapshotOwnerIds();
     const stamp = Date.now();
     const sole = await createEmployeeWithUser(prisma, {
@@ -200,7 +200,7 @@ describe("people role HTTP (P1-02 / P1-03)", () => {
     }
   });
 
-  it("T-OWNER-HTTP-02: concurrent demotion leaves ≥1 active owner", async () => {
+  it("concurrent demotion leaves ≥1 active owner", async () => {
     const priorOwners = await snapshotOwnerIds();
     const stamp = Date.now();
     // Real 2-owner race: A and B demote each other (no third “safety” owner).

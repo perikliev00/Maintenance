@@ -32,7 +32,7 @@ function query(ids = [reworked, auto, awaiting, anomalous], from = "2000-01-10",
   return { from, to, page: 1, pageSize: 100, taskWhere: { id: { in: ids } } };
 }
 function scope(ids = tasks) { return { taskWhere: { id: { in: ids } }, sessionWhere: { taskId: { in: ids } }, locationWhere: { id: { in: [world.locationAId, world.locationBId] } }, ticketWhere: { locationId: { in: [world.locationAId, world.locationBId] } } }; }
-describe("P2-01–15 analytics against real rows and joins", () => {
+describe("analytics against real rows and joins", () => {
   before(async () => {
     await assertTestDatabase(prisma); process.env.E2E_DISABLE_RATE_LIMIT = "1";
     world = await createCleaningWorld(prisma); operations = await getSetting("operations");
@@ -57,7 +57,7 @@ describe("P2-01–15 analytics against real rows and joins", () => {
     }
     await prisma.$disconnect();
   });
-  it("P2-01 P2-02 P2-03 task/session/distinct-room counts, acceptance and assignee/worker attribution", async () => {
+  it("task/session/distinct-room counts, acceptance and assignee/worker attribution", async () => {
     const report = await getCleaningResults(query());
     assert.equal(report.summary.completedTasks, 3); assert.equal(report.summary.completedSessions, 5); assert.equal(report.summary.distinctRooms, 2);
     assert.equal(report.summary.acceptedTasks, 3); assert.equal(report.summary.reworkEvents, 1);
@@ -66,13 +66,13 @@ describe("P2-01–15 analytics against real rows and joins", () => {
     assert.equal(b.completedSessions, 0); assert.equal(b.completedTasks, 2); assert.equal(b.acceptedTasks, 2); assert.equal(b.reworkEvents, 1);
     const http = await getJson(api, token, "/cleaning/results?from=2000-01-10&to=2000-01-11"); assert.equal(http.status, 200); assert.deepEqual((http.body as any).summary, report.summary);
   });
-  it("P2-04 final task completion and session finish belong to different days", async () => {
+  it("final task completion and session finish belong to different days", async () => {
     const day10 = await getCleaningResults(query([reworked], "2000-01-10", "2000-01-10"));
     const day11 = await getCleaningResults(query([reworked], "2000-01-11", "2000-01-11"));
     assert.equal(day10.summary.completedSessions, 2); assert.equal(day10.summary.completedTasks, 0); assert.equal(day10.summary.acceptedTasks, 0);
     assert.equal(day11.summary.completedSessions, 0); assert.equal(day11.summary.completedTasks, 1); assert.equal(day11.summary.acceptedTasks, 1);
   });
-  it("P2-05 P2-06 awaiting work cannot inflate task average; anomalous time is separately excluded", async () => {
+  it("awaiting work cannot inflate task average; anomalous time is separately excluded", async () => {
     const result = await getCleaningResults(query());
     assert.equal(result.summary.totalValidSessionMinutes, 120); assert.equal(result.summary.totalExcludedSessionMinutes, 90); assert.equal(result.summary.anomalousSessions, 1); assert.equal(result.summary.productivity, 1.5);
     assert.equal(result.rows.find(r => r.employeeId === world.hk1.employeeId)!.avgValidMinutes, 10);
@@ -80,21 +80,21 @@ describe("P2-01–15 analytics against real rows and joins", () => {
     const analytics = await getHousekeepingSummary(period, 2, scope([reworked, auto, awaiting, anomalous]));
     assert.equal(analytics.kpis.avgMinutesPerTask, 30); assert.equal(analytics.kpis.totalValidSessionMinutes, 120); assert.equal(analytics.kpis.totalExcludedSessionMinutes, 90);
   });
-  it("P2-07 known deadline denominator includes exact boundary and omits unknown deadline", async () => {
+  it("known deadline denominator includes exact boundary and omits unknown deadline", async () => {
     const ids: string[] = [];
     for (const at of ["11T09:59:59Z", "11T10:00:00Z", "11T10:00:01Z"]) ids.push(await task({ at, dueAt: "11T10:00:00Z" }));
     ids.push(await task({ at: "11T10:00:00Z" }));
     assert.equal((await getCleaningResults(query(ids))).summary.onTimePct, 66.7);
     assert.equal((await getCleaningResults(query([ids[3]!]))).summary.onTimePct, null);
   });
-  it("P2-08 empty and only anomalous datasets return applicable null KPIs without NaN/Infinity", async () => {
+  it("empty and only anomalous datasets return applicable null KPIs without NaN/Infinity", async () => {
     const empty = await getCleaningResults(query([], "2000-01-01", "2000-01-01"));
     assert.equal(empty.summary.completedTasks, 0); assert.equal(empty.summary.completedSessions, 0); assert.equal(empty.summary.productivity, null); assert.equal(empty.summary.onTimePct, null);
     const report = await getCleaningResults(query([anomalous]));
     assert.equal(report.summary.totalValidSessionMinutes, 0); assert.equal(report.summary.productivity, null); assert.equal(report.rows[0]!.avgValidMinutes, null);
     assert.ok(!JSON.stringify(report).includes("NaN"));
   });
-  it("P2-09 service type narrows tasks/sessions/inspections/employee and full summary equally", async () => {
+  it("service type narrows tasks/sessions/inspections/employee and full summary equally", async () => {
     const report = await getCleaningResults({ ...query(), serviceTypes: ["stayover"] });
     assert.equal(report.summary.completedTasks, 1); assert.equal(report.summary.completedSessions, 1); assert.equal(report.summary.acceptedTasks, 1); assert.equal(report.summary.reworkEvents, 0);
     assert.deepEqual(report.rows.map(r => r.employeeId), [world.hk1.employeeId]);
@@ -102,7 +102,7 @@ describe("P2-01–15 analytics against real rows and joins", () => {
     const response = await getJson(api, token, "/cleaning/results?from=2000-01-10&to=2000-01-11&serviceType=stayover");
     assert.equal(response.status, 200); assert.deepEqual((response.body as any).summary, report.summary);
   });
-  it("P2-10 P2-12 P2-13 real maintenance rows distinguish live and closed SLA, scoped previous period and dense days", async () => {
+  it("real maintenance rows distinguish live and closed SLA, scoped previous period and dense days", async () => {
     const ids: string[] = [];
     const base = { locationId: world.locationAId, title: "Metrics", categoryKey: "other", categoryLabelBg: "Друго", categoryLabelEn: "Other", reportedByEmployeeId: world.owner.employeeId, openedAt: d("10T12:00:00Z"), dueAt: d("11T10:00:00Z") };
     for (const data of [{ status: "new" }, { status: "resolved", resolvedAt: d("11T12:00:00Z") }, { status: "waiting", slaPausedAt: d("11T09:00:00Z") }, { status: "new", dueAt: period.now }, { status: "new", openedAt: d("08T12:00:00Z") }]) ids.push((await prisma.maintenanceTicket.create({ data: { ...base, ...data } as any })).id);
@@ -113,7 +113,7 @@ describe("P2-01–15 analytics against real rows and joins", () => {
     assert.deepEqual(result.series, [{ date: "2000-01-10", count: 4 }, { date: "2000-01-11", count: 0 }]);
     assert.equal(result.riskRooms.some(r => r.locationId === foreign.locationId), false);
   });
-  it("P2-11 risk room merges all factors once and respects ticket threshold", async () => {
+  it("risk room merges all factors once and respects ticket threshold", async () => {
     await inspect(reworked, "rejected", "10T12:00:00Z");
     const result = await getHousekeepingSummary(period, 2, scope());
     const room = result.riskRooms.filter(r => r.locationId === world.locationAId);
@@ -125,13 +125,13 @@ describe("P2-01–15 analytics against real rows and joins", () => {
     const above = await getHousekeepingSummary(period, 5, scope());
     assert.deepEqual(above.riskRooms.find(r => r.locationId === world.locationAId)!.factors, ["rejected_inspections_gte_2"]);
   });
-  it("P2-12 P2-13 housekeeping compares nonzero prior data with same scope and fills empty days", async () => {
+  it("housekeeping compares nonzero prior data with same scope and fills empty days", async () => {
     const previous = [await task({ at: "08T12:00:00Z" }), await task({ at: "09T12:00:00Z" })];
     const result = await getHousekeepingSummary(period, 2, scope([reworked, auto, anomalous, ...previous]));
     assert.deepEqual(result.comparison.cleanedTasks, { current: 3, previous: 2, deltaPct: 50 });
     assert.deepEqual(result.series, [{ date: "2000-01-10", count: 0 }, { date: "2000-01-11", count: 3 }]);
   });
-  for (const [date, remaining] of [["2000-02-15", 14], ["2001-02-15", 13], ["2000-02-29", 0]] as const) it(`P2-14 ${date} forecast counts actual 28-day rows and ${remaining} remaining calendar days`, async () => {
+  for (const [date, remaining] of [["2000-02-15", 14], ["2001-02-15", 13], ["2000-02-29", 0]] as const) it(`${date} forecast counts actual 28-day rows and ${remaining} remaining calendar days`, async () => {
     const now = new Date(`${date}T12:00:00Z`); const ids: string[] = []; const taskIds: string[] = [];
     for (const daysAgo of [0, 1, 27, 29]) ids.push((await prisma.maintenanceTicket.create({ data: { locationId: world.locationBId, title: "Forecast", categoryKey: "other", categoryLabelBg: "Друго", categoryLabelEn: "Other", reportedByEmployeeId: world.owner.employeeId, openedAt: new Date(now.getTime() - daysAgo * 86400000) } })).id);
     const result = await getMaintenanceSummary({ from: new Date(`${date}T00:00:00Z`), to: now, now }, 2, { ticketWhere: { id: { in: ids } } });
@@ -140,7 +140,7 @@ describe("P2-01–15 analytics against real rows and joins", () => {
     const hk = await getHousekeepingSummary({ from: new Date(`${date}T00:00:00Z`), to: now, now }, 2, scope(taskIds));
     assert.equal(hk.forecast.remainingDaysInMonth, remaining); assert.equal(hk.forecast.predicted, Math.round(3 / 28 * remaining * 10) / 10);
   });
-  it("P2-15 equal-volume/equal-name employees have a stable total order across pages and full summaries", async () => {
+  it("equal-volume/equal-name employees have a stable total order across pages and full summaries", async () => {
     const ids: string[] = []; const prefix = randomUUID(); const employeeIds = ["z", "a", "m"].map(x => `${prefix}-${x}`);
     for (const employeeId of employeeIds) { await prisma.employee.create({ data: { id: employeeId, employeeNumber: randomUUID(), fullName: "Same name" } }); extraEmployees.push(employeeId); ids.push(await task({ employeeId, at: "11T12:00:00Z" })); }
     const seen: string[] = [];

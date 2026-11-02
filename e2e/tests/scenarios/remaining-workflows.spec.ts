@@ -4,7 +4,7 @@ import { openNav } from "../helpers/nav";
 import { apiGet, apiPost, API_ORIGIN } from "../helpers/api";
 import { hotelToday, ownerApi, prepareVacantDirtyRoom } from "../helpers/fixtures";
 
-test("P1-110 real offline cleaning start and complete reconcile to authoritative session and inspection state", async ({ page }) => {
+test("real offline cleaning start and complete reconcile to authoritative session and inspection state", async ({ page }) => {
   const { token } = await ownerApi();
   const id = crypto.randomUUID();
   const email = `cleaning-sync-${id}@test.local`;
@@ -75,7 +75,7 @@ test("P1-110 real offline cleaning start and complete reconcile to authoritative
   }
 });
 
-test("P0-10 real cookie login waits for pending refresh so stale Set-Cookie cannot restore the prior account", async ({ page }) => {
+test("real cookie login waits for pending refresh so stale Set-Cookie cannot restore the prior account", async ({ page }) => {
   await uiLogin(page, "owner@meridian.local");
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });

@@ -3,13 +3,13 @@
  * Uses catalog/default priority (never hardcoded high) and offline-capable report.
  */
 import {
+  parseDuplicateReportError,
   type IssueOptionRow,
   type MaintenanceCategoryRow,
   type Room,
 } from "../../api/client";
 import { TicketLifecycleActions } from "../../components/TicketLifecycleActions";
 import { LocationIssueDialog } from "../../components/LocationIssueDialog";
-import { parseDuplicateReportError } from "../../api/duplicateReport";
 import { reportTicketQueued } from "../../offline";
 import { statusLabel as repairStatusLabel } from "../RepairsPage/helpers";
 import { boardT, type BoardLocale } from "./labels";

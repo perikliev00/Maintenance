@@ -33,7 +33,7 @@ describe("auditScopeArgsFor", () => {
 });
 
 describe("auditEventMatchesScope", () => {
-  it("BUG-01: SLA/overdue rows without locationId are excluded from sector scope", () => {
+  it("SLA/overdue rows without locationId are excluded from sector scope", () => {
     const locs = ["loc-own"];
     const sectors = ["sec-own"];
     assert.equal(

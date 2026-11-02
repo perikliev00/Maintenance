@@ -1,5 +1,5 @@
 /**
- * T-CLN-16 HTTP — cleaning assignee bypass aligned with tickets (SEC-002 / B1).
+ * HTTP — cleaning assignee bypass aligned with tickets .
  * Deny foreign housekeeper; allow manager complete bypass; assignee can complete own.
  */
 import assert from "node:assert/strict";
@@ -38,7 +38,7 @@ process.env.JWT_SECRET =
 
 const prisma = new PrismaClient();
 
-describe("cleaning complete HTTP (T-CLN-16 / SEC-002)", () => {
+describe("cleaning complete HTTP", () => {
   let world: CleaningWorld;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
   let api = "";
@@ -68,7 +68,7 @@ describe("cleaning complete HTTP (T-CLN-16 / SEC-002)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-CLN-16-http: foreign HK denied; manager bypasses complete; assignee completes own", async () => {
+  it("-http: foreign HK denied; manager bypasses complete; assignee completes own", async () => {
     await resetCleaningWork(prisma, world);
     const today = await hotelTodayYmd();
     const task = await createCleaningTask({

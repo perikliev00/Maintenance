@@ -1,5 +1,5 @@
 /**
- * Unit coverage for audit labels / details (BUG-05/08/09/10).
+ * Unit coverage for audit labels / details .
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -13,7 +13,7 @@ import {
   jobKeyLabel,
 } from "./labels";
 
-describe("BUG-05 nested audit details", () => {
+describe("nested audit details", () => {
   it("renders nested notification setting objects instead of [object Object]", () => {
     const lines = formatAuditDetails(
       { email: { enabled: true, status: "active" } },
@@ -41,7 +41,7 @@ describe("BUG-05 nested audit details", () => {
   });
 });
 
-describe("BUG-09 / producer⊆filters coverage", () => {
+describe("producer⊆filters coverage", () => {
   const requiredEntities = [
     "device",
     "employee",
@@ -65,7 +65,7 @@ describe("BUG-09 / producer⊆filters coverage", () => {
   });
 });
 
-describe("BUG-10 stale_open_attendance labels", () => {
+describe("stale_open_attendance labels", () => {
   it("uses a Bulgarian job name", () => {
     assert.equal(
       jobKeyLabel("stale_open_attendance", "bg"),
@@ -89,7 +89,7 @@ describe("BUG-10 stale_open_attendance labels", () => {
   });
 });
 
-describe("BUG-08 SLA headline prefers summary", () => {
+describe("SLA headline prefers summary", () => {
   it("shows room and title from summary", () => {
     assert.equal(
       auditHeadline(

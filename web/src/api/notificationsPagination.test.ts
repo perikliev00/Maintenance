@@ -1,5 +1,5 @@
 /**
- * Contract smoke for notifications cursor paging (P3-T03 / B3).
+ * Contract smoke for notifications cursor paging.
  * Ensures listNotifications forwards cursor/limit so the inbox can load-more.
  */
 import assert from "node:assert/strict";
@@ -12,7 +12,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-describe("listNotifications cursor contract (B3)", () => {
+describe("listNotifications cursor contract", () => {
   it("forwards limit and cursor query params", async () => {
     let seenUrl = "";
     globalThis.fetch = (async (input: RequestInfo | URL) => {

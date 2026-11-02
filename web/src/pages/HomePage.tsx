@@ -9,6 +9,7 @@ import {
   fetchMaintenanceCategories,
   fetchRooms,
   fetchTickets,
+  parseDuplicateReportError,
   reportIssue,
   type AuthUser,
   type IssueOptionRow,
@@ -16,23 +17,17 @@ import {
   type MaintenanceTicket,
   type Room,
 } from "../api/client";
-import { parseDuplicateReportError } from "../api/duplicateReport";
+import { IssueReportForm } from "../components/IssueReportForm";
 import { TicketLifecycleActions } from "../components/TicketLifecycleActions";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
+import { formatWhen, t } from "../i18n";
+import { executeMutationWithRefresh } from "../saveRefresh";
+import { priorityLabel, statusLabel } from "./ticketLabels";
 
 type Props = {
   user: AuthUser;
   locale?: "bg" | "en";
 };
-
-function t(locale: "bg" | "en", bg: string, en: string) {
-  return locale === "en" ? en : bg;
-}
-
-/** Localize an ISO timestamp for the open-tickets list. */
-function formatWhen(iso: string, locale: "bg" | "en"): string {
-  return new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "bg-BG");
-}
 
 function formatDue(iso: string, locale: "bg" | "en"): string {
   return new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "bg-BG", {
@@ -41,30 +36,6 @@ function formatDue(iso: string, locale: "bg" | "en"): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function priorityLabel(locale: "bg" | "en", priority: string): string {
-  const map: Record<string, [string, string]> = {
-    low: ["нисък", "low"],
-    normal: ["нормален", "normal"],
-    high: ["висок", "high"],
-    urgent: ["спешен", "urgent"],
-  };
-  const pair = map[priority];
-  return pair ? (locale === "en" ? pair[1] : pair[0]) : priority;
-}
-
-function statusLabel(locale: "bg" | "en", status: string): string {
-  const map: Record<string, [string, string]> = {
-    new: ["нов", "new"],
-    assigned: ["назначен", "assigned"],
-    in_progress: ["в работа", "in progress"],
-    waiting: ["изчаква", "waiting"],
-    resolved: ["решен", "resolved"],
-    closed: ["затворен", "closed"],
-  };
-  const pair = map[status];
-  return pair ? (locale === "en" ? pair[1] : pair[0]) : status;
 }
 
 /** Prefer bilingual category label; fall back to legacy key fields. */
@@ -91,6 +62,7 @@ export function HomePage({ user, locale: localeProp }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submitInFlight = useRef(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
@@ -216,6 +188,7 @@ export function HomePage({ user, locale: localeProp }: Props) {
     setSubmitting(true);
     setError(null);
     setMessage(null);
+    setRefreshWarning(null);
     try {
       const payload = {
         locationId,
@@ -237,28 +210,41 @@ export function HomePage({ user, locale: localeProp }: Props) {
             }),
       };
 
-      await reportIssue(payload);
+      const result = await executeMutationWithRefresh(
+        () => reportIssue(payload),
+        refresh,
+      );
+      if (!result.ok) {
+        const dup = parseDuplicateReportError(result.cause);
+        if (dup) {
+          setPendingDuplicate({
+            code: dup.code,
+            message: dup.message,
+            existingId: dup.existingTicket?.id ?? null,
+            matchReason: dup.matchReason,
+          });
+          setError(null);
+        } else {
+          setError(
+            result.error ||
+              t(locale, "Неуспешно докладване", "Failed to report issue"),
+          );
+        }
+        return;
+      }
       setDescription("");
       if (pickMode === "custom") setTitle("");
       setPendingDuplicate(null);
       setOverrideReason("");
       setMessage(t(locale, "Проблемът е добавен", "Issue reported"));
-      await refresh();
-    } catch (err) {
-      const dup = parseDuplicateReportError(err);
-      if (dup) {
-        setPendingDuplicate({
-          code: dup.code,
-          message: dup.message,
-          existingId: dup.existingTicket?.id ?? null,
-          matchReason: dup.matchReason,
-        });
-        setError(null);
-      } else {
-        setError(
-          err instanceof Error
-            ? err.message
-            : t(locale, "Неуспешно докладване", "Failed to report issue"),
+      if (result.outcome === "saved_refresh_failed") {
+        setRefreshWarning(
+          result.refreshError ??
+            t(
+              locale,
+              "Запазено, но списъкът не се обнови",
+              "Saved, but the list did not refresh",
+            ),
         );
       }
     } finally {
@@ -288,6 +274,11 @@ export function HomePage({ user, locale: localeProp }: Props) {
       </header>
       {error && <div className="error banner">{error}</div>}
       {message && <div className="ok banner">{message}</div>}
+      {refreshWarning && (
+        <div className="warn banner" role="status">
+          {refreshWarning}
+        </div>
+      )}
       {loading ? (
         <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
       ) : (
@@ -432,137 +423,67 @@ export function HomePage({ user, locale: localeProp }: Props) {
                     </strong>
                   </p>
                 )}
-                <label>
-                  {t(locale, "Тип сигнал", "Report type")}
-                  <select
-                    value={pickMode}
-                    onChange={(e) =>
-                      setPickMode(e.target.value as "option" | "custom")
-                    }
-                  >
-                    <option value="option">
-                      {t(locale, "От каталог", "From catalog")}
-                    </option>
-                    <option value="custom">
-                      {t(locale, "Друго (свободен текст)", "Custom free text")}
-                    </option>
-                  </select>
-                </label>
-                {pickMode === "option" ? (
-                  <label>
-                    {t(locale, "Опция", "Option")}
-                    <select
-                      value={issueOptionId}
-                      onChange={(e) => {
-                        const opt = issueOptions.find(
-                          (o) => o.id === e.target.value,
-                        );
-                        if (opt) applyOption(opt);
-                      }}
-                      required
-                    >
-                      {issueOptions.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {locale === "en" ? o.nameEn : o.nameBg}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <>
-                    <label>
-                      {t(locale, "Заглавие / проблем", "Title / problem")}
-                      <textarea
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        rows={3}
-                        required
-                        placeholder={t(
+                <IssueReportForm
+                  locale={locale}
+                  mode="option+custom"
+                  pickMode={pickMode}
+                  optionId={issueOptionId}
+                  categoryId={categoryId}
+                  title={title}
+                  description={description}
+                  showDescription
+                  titleAsTextarea
+                  blocksRoom={blocksRoom}
+                  priority={priority}
+                  options={issueOptions}
+                  categories={categories}
+                  labels={{
+                    type: t(locale, "Тип сигнал", "Report type"),
+                    title: t(locale, "Заглавие / проблем", "Title / problem"),
+                    customOption: t(
+                      locale,
+                      "Друго (свободен текст)",
+                      "Custom free text",
+                    ),
+                    blocksRoom: t(
+                      locale,
+                      "Блокира готовността на стаята",
+                      "Blocks room readiness",
+                    ),
+                  }}
+                  onPickModeChange={setPickMode}
+                  onOptionIdChange={(_id, opt) => {
+                    if (opt) applyOption(opt);
+                  }}
+                  onCategoryIdChange={setCategoryId}
+                  onTitleChange={setTitle}
+                  onDescriptionChange={setDescription}
+                  onBlocksRoomChange={setBlocksRoom}
+                  onPriorityChange={(p) => setPriority(p)}
+                  confirmBlocksRoom={confirmBlocksRoomChange}
+                  afterPriority={
+                    priorityUnusual ? (
+                      <p className="warn-inline" role="status">
+                        {t(
                           locale,
-                          "Кратко описание на повредата…",
-                          "Short description of the defect…",
+                          `Необичаен приоритет за тази опция (каталог: ${catalogDefaultPriority}).`,
+                          `Unusual priority for this option (catalog default: ${catalogDefaultPriority}).`,
                         )}
-                      />
-                    </label>
-                    <label>
-                      {t(locale, "Категория", "Category")}
-                      <select
-                        value={categoryId}
-                        onChange={(e) => setCategoryId(e.target.value)}
-                        required
-                      >
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {locale === "en" ? c.nameEn : c.nameBg}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </>
-                )}
-                <label>
-                  {t(locale, "Уточнение (опционално)", "Clarification (optional)")}
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    rows={2}
-                    placeholder={t(
-                      locale,
-                      "Допълнителни детайли…",
-                      "Additional details…",
-                    )}
-                  />
-                </label>
-                <label>
-                  {t(locale, "Приоритет", "Priority")}
-                  <select
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value)}
-                  >
-                    <option value="low">{priorityLabel(locale, "low")}</option>
-                    <option value="normal">
-                      {priorityLabel(locale, "normal")}
-                    </option>
-                    <option value="high">{priorityLabel(locale, "high")}</option>
-                    <option value="urgent">
-                      {priorityLabel(locale, "urgent")}
-                    </option>
-                  </select>
-                </label>
-                {priorityUnusual && (
-                  <p className="warn-inline" role="status">
-                    {t(
-                      locale,
-                      `Необичаен приоритет за тази опция (каталог: ${catalogDefaultPriority}).`,
-                      `Unusual priority for this option (catalog default: ${catalogDefaultPriority}).`,
-                    )}
-                  </p>
-                )}
-                <label className="checkbox-inline">
-                  <input
-                    type="checkbox"
-                    checked={blocksRoom}
-                    onChange={(e) => {
-                      const next = e.target.checked;
-                      if (!confirmBlocksRoomChange(next)) return;
-                      setBlocksRoom(next);
-                    }}
-                  />
-                  {t(
-                    locale,
-                    "Блокира готовността на стаята",
-                    "Blocks room readiness",
-                  )}
-                </label>
-                {blocksRoom && (
-                  <p className="warn-inline" role="status">
-                    {t(
-                      locale,
-                      "Стаята няма да е готова за настаняване, докато проблемът е отворен.",
-                      "The room will not be ready for occupancy while this issue is open.",
-                    )}
-                  </p>
-                )}
+                      </p>
+                    ) : null
+                  }
+                  afterBlocks={
+                    blocksRoom ? (
+                      <p className="warn-inline" role="status">
+                        {t(
+                          locale,
+                          "Стаята няма да е готова за настаняване, докато проблемът е отворен.",
+                          "The room will not be ready for occupancy while this issue is open.",
+                        )}
+                      </p>
+                    ) : null
+                  }
+                />
 
                 {pendingDuplicate && (
                   <div className="duplicate-warning" role="alert">

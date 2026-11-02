@@ -1,5 +1,5 @@
 /**
- * T-ATT-77a/b — DST spring/fall ingest→rebuild; zonedDayStartUtc direct asserts.
+ * b — DST spring/fall ingest→rebuild; zonedDayStartUtc direct asserts.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -27,7 +27,7 @@ import {
 const prisma = new PrismaClient();
 const TZ = "Europe/Sofia";
 
-describe("attendance DST ingest (T-ATT-77)", () => {
+describe("attendance DST ingest", () => {
   let world: AttendanceWorld;
   let opsBefore: Awaited<ReturnType<typeof getOperations>>;
 
@@ -57,7 +57,7 @@ describe("attendance DST ingest (T-ATT-77)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-ATT-77z zonedDayStartUtc differs from naive UTC midnight on Sofia DST nights", () => {
+  it("zonedDayStartUtc differs from naive UTC midnight on Sofia DST nights", () => {
     const spring = zonedDayStartUtc("2026-03-29", TZ);
     const fall = zonedDayStartUtc("2026-10-25", TZ);
     const springDay = zonedDayStartUtc("2026-03-28", TZ);
@@ -72,7 +72,7 @@ describe("attendance DST ingest (T-ATT-77)", () => {
     assert.equal(fallDay.toISOString(), "2026-10-23T21:00:00.000Z");
   });
 
-  it("T-ATT-77a spring-forward overnight → hotelDate 2026-03-28 workedMinutes 420", async () => {
+  it("spring-forward overnight → hotelDate 2026-03-28 workedMinutes 420", async () => {
     const emp = world.technician.employeeId;
     const tag = `spr-${world.stamp}`;
     await ingestEvent({
@@ -115,7 +115,7 @@ describe("attendance DST ingest (T-ATT-77)", () => {
     assert.equal(nextDay, 0);
   });
 
-  it("T-ATT-77b fall-back overnight → hotelDate 2026-10-24 workedMinutes 540", async () => {
+  it("fall-back overnight → hotelDate 2026-10-24 workedMinutes 540", async () => {
     const emp = world.housekeeper.employeeId;
     const tag = `fall-${world.stamp}`;
     await ingestEvent({

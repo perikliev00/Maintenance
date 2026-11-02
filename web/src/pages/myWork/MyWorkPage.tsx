@@ -16,16 +16,13 @@ import { OutboxIssuesPanel } from "../../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import {
   completeCleaningQueued,
-  getQueueStats,
   loadMyWorkCache,
   saveMyWorkCache,
   startCleaningQueued,
-  subscribeOffline,
-  type ConnMode,
-  type QueueStats,
 } from "../../offline";
+import { useOfflineStatus } from "../../hooks/useOfflineStatus";
 import { t } from "./labels";
-import { ConnStatusBadge } from "./offlineCache";
+import { ConnStatusBadge } from "../../components/offline/ConnStatusBadge";
 import {
   CleaningTasksSection,
   CurrentTaskSection,
@@ -57,14 +54,6 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
   const [fromCache, setFromCache] = useState(false);
   // Task ids with a queued start still pending sync.
   const [pendingSyncTaskIds, setPendingSyncTaskIds] = useState<string[]>([]);
-  const [conn, setConn] = useState<ConnMode>("online");
-  const [queueStats, setQueueStats] = useState<QueueStats>({
-    pending: 0,
-    sending: 0,
-    conflict: 0,
-    failed: 0,
-  });
-
   // Capability gates use explicit grants when the session supplies them.
   const canClean = canPerformAction(user, "cleaning.start");
   const canResolve = canPerformAction(user, "tickets.resolve");
@@ -133,26 +122,9 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     void refresh().catch(() => undefined);
   }, [refresh]);
 
-  // Subscribe to offline/conn + queue stats updates.
-  useEffect(() => {
-    return subscribeOffline((next) => {
-      setConn(next.conn);
-      setQueueStats(next.stats);
-      // When back online with an empty outbox, pull fresh mine data.
-      if (
-        next.conn === "online" &&
-        next.stats.pending === 0 &&
-        next.stats.sending === 0
-      ) {
-        refreshInBackground();
-      }
-    });
-  }, [refreshInBackground]);
-
-  // Initial queue stats snapshot for the status badge.
-  useEffect(() => {
-    void getQueueStats().then(setQueueStats);
-  }, []);
+  const { conn, queueStats, refreshQueueStats } = useOfflineStatus({
+    onOnlineEmptyOutbox: refreshInBackground,
+  });
 
   // Soft live refresh; failures keep the current (possibly cached) lists.
   const liveAt = useLiveRefresh(
@@ -228,7 +200,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     setMessage(null);
     try {
       await fn();
-      setQueueStats(await getQueueStats());
+      await refreshQueueStats();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
     } finally {

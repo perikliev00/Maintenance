@@ -4,7 +4,7 @@ import { openNav } from "../helpers/nav";
 import { apiPost } from "../helpers/api";
 import { createDedicatedTechnician, findActiveIssueOption, ownerApi, prepareVacantDirtyRoom } from "../helpers/fixtures";
 
-test("P1-68 real My Work loads repairs beyond the first 50 without duplicate cards", async ({ page }) => {
+test("real My Work loads repairs beyond the first 50 without duplicate cards", async ({ page }) => {
   const { token } = await ownerApi();
   const tech = await createDedicatedTechnician(token);
   const room = await prepareVacantDirtyRoom(token);

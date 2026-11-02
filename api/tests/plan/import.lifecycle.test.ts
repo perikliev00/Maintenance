@@ -1,5 +1,5 @@
 /**
- * T-PLAN-48/49/50 — import precedence, mixed batch counters, scoped import (P1-48…50).
+ * 49/50 — import precedence, mixed batch counters, scoped import (50).
  */
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -42,7 +42,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("daily plan import lifecycle (T-PLAN-48…50 / P1-48…50)", () => {
+describe("daily plan import lifecycle (50 / 50)", () => {
   let world: PlanWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
@@ -82,7 +82,7 @@ describe("daily plan import lifecycle (T-PLAN-48…50 / P1-48…50)", () => {
     });
   });
 
-  it("T-PLAN-48: import skips existing manual entry without mutating it", async () => {
+  it("import skips existing manual entry without mutating it", async () => {
     const createRes = await postJson(api, ownerToken, "/daily-plan", {
       hotelDate: today,
       locationId: world.locationAId,
@@ -123,7 +123,7 @@ describe("daily plan import lifecycle (T-PLAN-48…50 / P1-48…50)", () => {
     assertLocationSnapEqual(
       await snapshotLocation(prisma, world.locationAId),
       beforeLoc,
-      "T-PLAN-48 room",
+      "room",
     );
     assert.equal(
       await countActiveTasks(prisma, world.locationAId, today),
@@ -139,7 +139,7 @@ describe("daily plan import lifecycle (T-PLAN-48…50 / P1-48…50)", () => {
     assert.equal(entryCount, 1);
   });
 
-  it("T-PLAN-49: mixed batch 1 created / 2 skipped / 2 errors", async () => {
+  it("mixed batch 1 created / 2 skipped / 2 errors", async () => {
     const manual = await postJson(api, ownerToken, "/daily-plan", {
       hotelDate: today,
       locationId: world.locationBId,
@@ -232,7 +232,7 @@ describe("daily plan import lifecycle (T-PLAN-48…50 / P1-48…50)", () => {
     );
   });
 
-  it("T-PLAN-50: scoped supervisor import 1 created / 0 skipped / 1 error", async () => {
+  it("scoped supervisor import 1 created / 0 skipped / 1 error", async () => {
     let fx: ScopeSmokeFixture | null = null;
     try {
       fx = await createScopeSmokeFixture(prisma);
@@ -314,7 +314,7 @@ describe("daily plan import lifecycle (T-PLAN-48…50 / P1-48…50)", () => {
       assertLocationSnapEqual(
         await snapshotLocation(prisma, fx.locBId),
         beforeB,
-        "T-PLAN-50 locB",
+        "locB",
       );
       const tasksBAfter = await prisma.cleaningTask.findMany({
         where: { locationId: fx.locBId },

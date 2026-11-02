@@ -1,6 +1,6 @@
 import { withDatabaseBarrier } from "../../../tests/dbBarrier";
 /**
- * HTTP integration: T-PERM-HTTP-01/01b/01c, T-PERM-LAST-01/02, T-GRANT-HTTP-01.
+ * HTTP integration: /01b/01c, /02, .
  * Mutates shared RoleGrant rows — always snapshot/restore.
  */
 import assert from "node:assert/strict";
@@ -46,7 +46,7 @@ process.env.JWT_SECRET =
 const prisma = new PrismaClient();
 const GRANT_ROLES = [...MATRIX_ROLES] as Role[];
 
-describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
+describe("permissions HTTP", () => {
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
   let api = "";
   let snapshot: RoleGrantSnapshotRow[] = [];
@@ -166,7 +166,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
     );
   }
 
-  it("T-PERM-HTTP-01: manager may edit housekeeper; denied for manager/admin/owner", async () => {
+  it("manager may edit housekeeper; denied for manager/admin/owner", async () => {
     const localSnap = await snapshotRoleGrants(prisma, [Role.housekeeper]);
     try {
       const { token } = await loginBearer(
@@ -187,7 +187,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
     }
   });
 
-  it("T-PERM-HTTP-01b: admin denied for manager/admin/owner", async () => {
+  it("admin denied for manager/admin/owner", async () => {
     const { token } = await loginBearer(api, admin.email, "test-password-t03");
     const hk = await getGrantsForRole(Role.housekeeper);
     const ok = await putRoleGrantsJson(api, token, "housekeeper", {
@@ -198,7 +198,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
     await assertPrivilegedRoleDenials(token);
   });
 
-  it("T-PERM-HTTP-01c: delegated supervisor with permissions.manage cannot edit any role", async () => {
+  it("delegated supervisor with permissions.manage cannot edit any role", async () => {
     const localSnap = await snapshotRoleGrants(prisma, [
       Role.supervisor,
       Role.housekeeper,
@@ -249,7 +249,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
     }
   });
 
-  it("T-PERM-LAST-01: cannot remove last permissions.manage", async () => {
+  it("cannot remove last permissions.manage", async () => {
     const localSnap = await snapshotRoleGrants(prisma, GRANT_ROLES);
     try {
       // Leave manage only on manager.
@@ -289,7 +289,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
     }
   });
 
-  it("T-PERM-LAST-02: concurrent strip leaves ≥1 permissions.manage", async () => {
+  it("concurrent strip leaves ≥1 permissions.manage", async () => {
     const localSnap = await snapshotRoleGrants(prisma, GRANT_ROLES);
     try {
       // Only manager + admin keep manage.
@@ -388,7 +388,7 @@ describe("permissions HTTP (P0-09 / P1-04 / P1-01 / P1-05)", () => {
     }
   });
 
-  it("T-GRANT-HTTP-01: revoked action → 403 and /me omits action", async () => {
+  it("revoked action → 403 and /me omits action", async () => {
     scopeFx = await createScopeSmokeFixture(prisma);
     const localSnap = await snapshotRoleGrants(prisma, [Role.supervisor]);
     try {

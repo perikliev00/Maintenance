@@ -13,7 +13,7 @@ import {
 } from "./liveBoardLogic";
 import { panelForLocationKind } from "../app/boardFocus";
 
-describe("audit: live board refresh generation contract (BUG-05)", () => {
+describe("audit: live board refresh generation contract", () => {
   it("late stale GET generation must not apply after forced post-complete refresh", async () => {
     let currentGen = 0;
     let activeSessions: string[] = ["session-old"];
@@ -51,7 +51,7 @@ describe("audit: live board refresh generation contract (BUG-05)", () => {
   });
 });
 
-describe("audit: parallel busy tracking (BUG-06)", () => {
+describe("audit: parallel busy tracking", () => {
   it("finishing A must not unlock B; double-begin on same id is rejected", () => {
     let busy = new Set<string>();
     const begin = (id: string) => {
@@ -75,7 +75,7 @@ describe("audit: parallel busy tracking (BUG-06)", () => {
   });
 });
 
-describe("audit: complete permission matrix (BUG-04)", () => {
+describe("audit: complete permission matrix", () => {
   const cases: Array<{
     actions: string[];
     expectUiComplete: boolean;
@@ -112,7 +112,7 @@ describe("audit: complete permission matrix (BUG-04)", () => {
 });
 
 describe("audit: localization and navigation contracts", () => {
-  it("BUG-08 BG titles do not embed room numbers", () => {
+  it("BG titles do not embed room numbers", () => {
     const inspection = needTitle(
       {
         kind: "awaiting_inspection",

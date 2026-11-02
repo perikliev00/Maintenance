@@ -12,16 +12,14 @@ import { recordAudit } from "../audit";
 import { publish } from "../../events/bus";
 // Inbox rows for assignee, supervisor, and session starter.
 import { createNotifications } from "../notifications";
-import { startJobRun, finishJobRun } from "./runLifecycle";
+import { withJobRun } from "./runLifecycle";
 
 /**
  * Scan and flag overdue running sessions; records a JobRun.
  * @returns How many sessions were scanned vs newly flagged overdue.
  */
 export async function runOverdueSessions() {
-  // JobRun row tracks start/finish for ops dashboards.
-  const run = await startJobRun("overdue_sessions");
-  try {
+  return withJobRun("overdue_sessions", async () => {
     // Threshold from operations settings (minutes a session may run).
     const operations = await getOperations();
     const cutoff = new Date(
@@ -136,18 +134,11 @@ export async function runOverdueSessions() {
       // recipient inserts are repaired without duplicating existing rows.
     }
 
-    // Success summary includes cutoff ISO for debugging threshold drift.
-    await finishJobRun(run.id, "ok", {
+    // Include cutoff ISO for debugging threshold drift on the JobRun summary.
+    return {
       scanned: sessions.length,
       flagged,
       cutoff: cutoff.toISOString(),
-    });
-    return { scanned: sessions.length, flagged };
-  } catch (err) {
-    // Capture message for JobRun.error regardless of throw type.
-    const message = err instanceof Error ? err.message : String(err);
-    await finishJobRun(run.id, "error", undefined, message);
-    // Re-throw after persisting error on the JobRun row.
-    throw err;
-  }
+    };
+  });
 }

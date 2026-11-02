@@ -4,8 +4,8 @@
 import type { PrismaClient } from "@prisma/client";
 import { Role } from "@prisma/client";
 import {
+  saveSector,
   setSectorLocations,
-  updateSector,
 } from "../../src/services/sectors";
 import type { DataScope } from "../../src/services/dataScope";
 import {
@@ -13,6 +13,50 @@ import {
   createEmployeeWithUser,
   type EmployeeUserFixture,
 } from "../fixtures";
+
+/**
+ * Test-only metadata patch via saveSector (production HTTP uses saveSector directly).
+ */
+async function updateSector(
+  id: string,
+  input: {
+    code?: string;
+    nameBg?: string;
+    nameEn?: string;
+    primarySupervisorEmployeeId?: string | null;
+    isActive?: boolean;
+    expectedVersion: number;
+    actorEmployeeId?: string;
+    actorUserId?: string;
+    actorRole?: Role;
+    scope?: DataScope;
+    allowCrossSectorTransfer?: boolean;
+  },
+) {
+  const scope: DataScope =
+    input.scope ??
+    ({
+      kind: "all",
+      employeeId: input.actorEmployeeId ?? "",
+      role: input.actorRole ?? Role.manager,
+      sectorIds: [],
+    } satisfies DataScope);
+  return saveSector(id, {
+    code: input.code,
+    nameBg: input.nameBg,
+    nameEn: input.nameEn,
+    primarySupervisorEmployeeId: input.primarySupervisorEmployeeId,
+    isActive: input.isActive,
+    expectedVersion: input.expectedVersion,
+    actor: {
+      employeeId: input.actorEmployeeId,
+      userId: input.actorUserId,
+      role: input.actorRole ?? scope.role,
+    },
+    scope,
+    allowCrossSectorTransfer: input.allowCrossSectorTransfer ?? true,
+  });
+}
 
 export const SECTORS_PASSWORD = "demo1234";
 

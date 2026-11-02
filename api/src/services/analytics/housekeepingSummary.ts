@@ -28,6 +28,15 @@ import {
   percentile,
   round1,
 } from "./stats";
+import {
+  formatLocationLabel,
+  locationWithBuildingInclude,
+} from "./locationLabel";
+import {
+  mergeTicketThresholdFactor,
+  sortRiskRooms,
+  type RiskRoomRow,
+} from "./riskRooms";
 
 /**
  * Aggregate housekeeping metrics for `period`, applying optional scope filters.
@@ -86,7 +95,7 @@ export async function getHousekeepingSummary(
         },
         // Building/floor for risk-room labels if needed later.
         location: {
-          include: { floor: { include: { building: true } } },
+          include: locationWithBuildingInclude,
         },
       },
     }),
@@ -104,7 +113,7 @@ export async function getHousekeepingSummary(
         task: {
           include: {
             location: {
-              include: { floor: { include: { building: true } } },
+              include: locationWithBuildingInclude,
             },
           },
         },
@@ -305,19 +314,14 @@ export async function getHousekeepingSummary(
   for (const insp of rejectedInspections) {
     const loc = insp.task.location;
     // Display label: building code + room number.
-    const label = `${loc.floor.building.code} ${loc.number}`;
+    const label = formatLocationLabel(loc);
     const cur = rejectByLocation.get(loc.id) ?? { count: 0, label };
     cur.count += 1;
     rejectByLocation.set(loc.id, cur);
   }
 
   // Accumulator for rooms that trip risk heuristics (rejects and/or tickets).
-  const riskRooms: Array<{
-    locationId: string;
-    label: string;
-    factors: string[];
-    ticketCount: number;
-  }> = [];
+  const riskRooms: RiskRoomRow[] = [];
 
   // Risk heuristic: ≥2 rejected inspections in the period flags the room.
   for (const [locationId, info] of rejectByLocation) {
@@ -356,34 +360,21 @@ export async function getHousekeepingSummary(
       }, locW],
     },
     // Building/floor for display labels.
-    include: { floor: { include: { building: true } } },
+    include: locationWithBuildingInclude,
   });
-  // Merge ticket-risk into existing reject-risk rooms or create new entries.
   for (const loc of locMeta) {
-    // Ticket opens for this location in the period (0 if groupBy row missing).
     const count =
       ticketsInPeriod.find((g) => g.locationId === loc.id)?._count._all ?? 0;
-    const label = `${loc.floor.building.code} ${loc.number}`;
-    const existing = riskRooms.find((r) => r.locationId === loc.id);
-    // Already flagged by rejects — append ticket factor and bump severity.
-    if (existing) {
-      existing.factors.push(`tickets_gte_${riskTicketThreshold}`);
-      existing.ticketCount = Math.max(existing.ticketCount, count);
-    } else {
-      // Ticket-only risk room (no reject heuristic).
-      riskRooms.push({
-        locationId: loc.id,
-        label,
-        factors: [`tickets_gte_${riskTicketThreshold}`],
-        ticketCount: count,
-      });
-    }
+    mergeTicketThresholdFactor(
+      riskRooms,
+      loc.id,
+      formatLocationLabel(loc),
+      count,
+      riskTicketThreshold,
+    );
   }
 
-  // Highest severity (ticketCount) first; ties broken by label.
-  riskRooms.sort(
-    (a, b) => b.ticketCount - a.ticketCount || a.label.localeCompare(b.label),
-  );
+  sortRiskRooms(riskRooms);
 
   // Session-duration percentiles from valid (non-anomalous) samples.
   const sorted = [...validSessionMinutes].sort((a, b) => a - b);

@@ -6,11 +6,11 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "../errors";
 import { ACTIVE_TASK_STATUSES, OPEN_TICKET_STATUSES } from "../constants";
-import { hotelDateAsUtcDate } from "./hotelTime";
+import { formatHotelDate, hotelDateAsUtcDate } from "./hotelTime";
 import { formatMaintenanceTicket } from "./maintenance";
 import { resolveDataScope, taskWhere } from "./dataScope";
 import { getOperations } from "./settings";
-import type { AuthUser } from "../middleware/auth";
+import type { AuthUser } from "../auth/tokens";
 
 type TicketPage = { ticketCursor?: string; ticketPageSize?: number };
 
@@ -59,7 +59,7 @@ export async function getMyWork(
   const scope = await resolveDataScope(user);
   // Hotel-date midnight UTC for Prisma Date keys + response hotelDate.
   const date = await hotelDateStart(hotelDate);
-  const dateIso = date.toISOString().slice(0, 10);
+  const dateIso = formatHotelDate(date);
 
   // Resolve shift filter: explicit query param overrides roster for the day.
   let effectiveShiftId = shiftId ?? null;

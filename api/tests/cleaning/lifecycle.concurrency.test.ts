@@ -1,6 +1,6 @@
 import { withDatabaseBarrier, orderedDatabaseRace } from "../dbBarrier";
 /**
- * T-CLN-11, T-CLN-12, T-CLN-21, T-CLN-29 — cleaning concurrency invariants.
+ * cleaning concurrency invariants.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -39,7 +39,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
+describe("cleaning lifecycle concurrency (12/21/29)", () => {
   let world: CleaningWorld;
 
   before(async () => {
@@ -56,7 +56,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-CLN-11: concurrent create same room+day → one active task", async () => {
+  it("concurrent create same room+day → one active task", async () => {
     const today = await hotelTodayYmd();
     const locBefore = await prisma.location.findUniqueOrThrow({
       where: { id: world.locationAId },
@@ -102,7 +102,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
     assert.equal(winner.cleaningCycle, locAfter.cleaningCycle);
   });
 
-  it("T-CLN-12: concurrent start two tasks same HK → one running session", async () => {
+  it("concurrent start two tasks same HK → one running session", async () => {
     const today = await hotelTodayYmd();
     const taskA = await createCleaningTask({
       locationId: world.locationAId,
@@ -157,7 +157,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
   });
 
   for (const firstDecision of ["approved", "rejected"] as const) {
-  it(`T-CLN-21: ${firstDecision} wins observed inspection contention`, async () => {
+  it(`${firstDecision} wins observed inspection contention`, async () => {
     const { started } = await createAndStartToday(
       world,
       world.locationAId,
@@ -231,7 +231,7 @@ describe("cleaning lifecycle concurrency (T-CLN-11/12/21/29)", () => {
 
   }
   for (const startFirst of [true, false]) {
-  it(`T-CLN-29: ${startFirst ? "start" : "reassign"} wins observed contention`, async () => {
+  it(`${startFirst ? "start": "reassign"} wins observed contention`, async () => {
     const today = await hotelTodayYmd();
     const task = await createCleaningTask({
       locationId: world.locationAId,

@@ -249,9 +249,9 @@ export function ActivePanel({
       )}
       {view === "plan" && <PlanPage user={user} />}
       {view === "attendance" && <AttendancePage user={user} />}
-      {view === "cards" && <CardsPage user={user} />}
+      {view === "cards" && <CardsPage user={user} locale={locale} />}
       {view === "results" && <ResultsPage />}
-      {view === "analytics" && <AnalyticsPage />}
+      {view === "analytics" && <AnalyticsPage locale={locale} />}
       {view === "cleaning" && <HousekeepingPage user={user} />}
       {view === "control" && <ControlPage user={user} />}
       {view === "settings" && <SettingsPage user={user} />}

@@ -1,5 +1,5 @@
 /**
- * T-RDY-05 / P1-35 archive; T-RDY-06 / P1-36 common-area occupancy.
+ * archive; / common-area occupancy.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -41,7 +41,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("readiness archive + occupancy (T-RDY-05/06 / P1-35/36)", () => {
+describe("readiness archive + occupancy (06)", () => {
   let world: ReadinessWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
@@ -91,7 +91,7 @@ describe("readiness archive + occupancy (T-RDY-05/06 / P1-35/36)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-RDY-05: archived room drops from ops lists, rejects cleaning/plan, keeps history (P1-35)", async () => {
+  it("archived room drops from ops lists, rejects cleaning/plan, keeps history", async () => {
     const option = await findActiveIssueOption(prisma);
     const reported = await createMaintenanceTicket({
       locationId: world.locationAId,
@@ -237,7 +237,7 @@ describe("readiness archive + occupancy (T-RDY-05/06 / P1-35/36)", () => {
     }
   });
 
-  it("T-RDY-06: common-area occupancy rejected without state change (P1-36)", async () => {
+  it("common-area occupancy rejected without state change", async () => {
     const before = await prisma.location.findUniqueOrThrow({
       where: { id: world.commonAreaId },
     });

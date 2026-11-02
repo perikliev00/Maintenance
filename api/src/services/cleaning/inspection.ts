@@ -28,9 +28,13 @@ import { applyLocationCleaningStatusIfCurrent } from "./locationStatus";
 import { lockTask } from "./locks";
 import { healOrphanIfTaskCycleCurrent } from "../locations/reconcileCleaningStatus";
 // Same commandId with different task/inspector/decision → conflict (P1-26).
-import { assertCleaningCommandPayloadMatch } from "./idempotency";
-// Map unique commandId races to idempotent replay.
-import { isP2002 } from "./prismaConflicts";
+import {
+  loadCleaningCommandInTx,
+  loadCleaningCommandPreTx,
+  replayCleaningCommandOnP2002,
+} from "./commandReplay";
+
+const inspectionInclude = { task: { include: taskInclude } } as const;
 
 /**
  * Record an inspection. Rejection requires findings. Location status updates
@@ -50,21 +54,24 @@ export async function inspectCleaningTask(input: {
       ? InspectionResult.approved
       : InspectionResult.rejected;
 
-  // Idempotency: same commandId returns the existing inspection.
-  const existing = await prisma.inspection.findUnique({
-    // Idempotency key from offline/sync clients.
-    where: { commandId: input.commandId },
-    // Return full task graph on replay.
-    include: { task: { include: taskInclude } },
-  });
-  // Replay: prior successful inspect with this commandId.
+  const inspectionPayloadMatches = (row: {
+    taskId: string;
+    inspectorEmployeeId: string;
+    result: InspectionResult;
+  }) =>
+    row.taskId === input.taskId &&
+    row.inspectorEmployeeId === input.inspectorEmployeeId &&
+    row.result === expectedResult;
+
+  const existing = await loadCleaningCommandPreTx(
+    () =>
+      prisma.inspection.findUnique({
+        where: { commandId: input.commandId },
+        include: inspectionInclude,
+      }),
+    inspectionPayloadMatches,
+  );
   if (existing) {
-    // Same commandId with different task, inspector, or decision is not a replay.
-    assertCleaningCommandPayloadMatch(
-      existing.taskId === input.taskId &&
-        existing.inspectorEmployeeId === input.inspectorEmployeeId &&
-        existing.result === expectedResult,
-    );
     return { inspection: existing, task: existing.task, idempotent: true };
   }
 
@@ -79,16 +86,16 @@ export async function inspectCleaningTask(input: {
       // Exclusive task row for inspect vs concurrent lifecycle ops.
       await lockTask(tx, input.taskId);
 
-      const replay = await tx.inspection.findUnique({
-        where: { commandId: input.commandId },
-        include: { task: { include: taskInclude } },
-      });
+      const replay = await loadCleaningCommandInTx(
+        tx,
+        (t) =>
+          t.inspection.findUnique({
+            where: { commandId: input.commandId },
+            include: inspectionInclude,
+          }),
+        inspectionPayloadMatches,
+      );
       if (replay) {
-        assertCleaningCommandPayloadMatch(
-          replay.taskId === input.taskId &&
-          replay.inspectorEmployeeId === input.inspectorEmployeeId &&
-          replay.result === expectedResult,
-        );
         return { inspection: replay, task: replay.task, idempotent: true };
       }
 
@@ -289,24 +296,18 @@ export async function inspectCleaningTask(input: {
     // Return txn result (idempotent or fresh).
     return result;
   } catch (err) {
-    // Unique race on commandId — treat as idempotent replay.
-    if (isP2002(err)) {
-      // Winner inserted inspection — load and return as replay.
-      const again = await prisma.inspection.findUnique({
-        where: { commandId: input.commandId },
-        include: { task: { include: taskInclude } },
-      });
-      if (again) {
-        // Concurrent winner must match task/inspector/decision or it is a collision.
-        assertCleaningCommandPayloadMatch(
-          again.taskId === input.taskId &&
-            again.inspectorEmployeeId === input.inspectorEmployeeId &&
-            again.result === expectedResult,
-        );
-        return { inspection: again, task: again.task, idempotent: true };
-      }
+    const again = await replayCleaningCommandOnP2002(
+      err,
+      () =>
+        prisma.inspection.findUnique({
+          where: { commandId: input.commandId },
+          include: inspectionInclude,
+        }),
+      inspectionPayloadMatches,
+    );
+    if (again) {
+      return { inspection: again, task: again.task, idempotent: true };
     }
-    // Non-idempotent errors propagate to HTTP layer.
     throw err;
   }
 }

@@ -25,7 +25,7 @@ async function graph(taskId: string) {
   };
 }
 for (const action of ["start", "complete", "cancel", "approve", "reject"] as const) {
-  it(`P1-25 overlapping identical ${action} commands return one committed graph and sequential replay has no effects`, async () => {
+  it(`overlapping identical ${action} commands return one committed graph and sequential replay has no effects`, async () => {
     // A fresh world avoids state contamination between terminal and rework outcomes.
     if (world) await cleanupCleaningWorld(prisma, world);
     world = await createCleaningWorld(prisma);

@@ -1,5 +1,5 @@
 /**
- * Contract: auth bootstrap must listen for permissions.changed (BUG-05).
+ * Contract: auth bootstrap must listen for permissions.changed .
  * Pure check — no React renderer required.
  */
 import assert from "node:assert/strict";
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-describe("BUG-05 live capability event wiring", () => {
+describe("live capability event wiring", () => {
   it("useAuthBootstrap subscribes to permissions.changed", () => {
     const src = readFileSync(
       path.join(here, "../app/useAuthBootstrap.ts"),

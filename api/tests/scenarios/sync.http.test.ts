@@ -74,7 +74,7 @@ describe("P1 sync HTTP and PostgreSQL", () => {
     assert.equal((rejected.body as any).results[0].retryable, false);
     assert.equal((rejected.body as any).results[0].code, "validation");
   });
-  it("P0-10 original offline owner is enforced against the actual cookie session before batch or fallback writes", async () => {
+  it("original offline owner is enforced against the actual cookie session before batch or fallback writes", async () => {
     const command = commands();
     const session = await loginBearer(api, world.owner.email, CLN_PASSWORD);
     const csrf = "offline-identity-test";
@@ -123,7 +123,7 @@ describe("P1 sync HTTP and PostgreSQL", () => {
     assert.equal(acceptedFallback.status, 201);
     assert.equal((await prisma.maintenanceTicket.findUniqueOrThrow({ where: { commandId: fallbackId } })).reportedByEmployeeId, world.owner.employeeId);
   });
-  it("P1-101 mixed batch preserves each result and continues after domain failure", async () => {
+  it("mixed batch preserves each result and continues after domain failure", async () => {
     const task = await createCleaningTask({ locationId: world.locationAId, hotelDate: await hotelTodayYmd(), assignedEmployeeId: world.hk1.employeeId });
     const batch = [
       { commandId: randomUUID(), type: "cleaning.start", payload: { taskId: task.id, expectedVersion: 999 } },
@@ -139,7 +139,7 @@ describe("P1 sync HTTP and PostgreSQL", () => {
     assert.equal(run.status, "partial"); assert.equal(run.accepted, 1); assert.equal(run.rejected, 3);
     assert.equal(await prisma.cleaningSession.count({ where: { taskId: task.id, status: "running" } }), 1);
   });
-  it("P1-112 foreign and revoked device attribution is rejected before commands; own device succeeds for push/pull", async () => {
+  it("foreign and revoked device attribution is rejected before commands; own device succeeds for push/pull", async () => {
     const foreign = await prisma.device.create({ data: { userId: world.hk2.userId, employeeId: world.hk2.employeeId, label: "foreign", fingerprint: randomUUID() } });
     const revoked = await prisma.device.create({ data: { userId: world.owner.userId, employeeId: world.owner.employeeId, label: "revoked", fingerprint: randomUUID(), revokedAt: new Date() } });
     const own = await prisma.device.create({ data: { userId: world.owner.userId, employeeId: world.owner.employeeId, label: "own", fingerprint: randomUUID() } });
@@ -159,7 +159,7 @@ describe("P1 sync HTTP and PostgreSQL", () => {
     assert.equal((await prisma.syncRun.findUniqueOrThrow({ where: { id: (res.body as any).syncRunId } })).deviceId, own.id);
     assert.ok((await prisma.device.findUniqueOrThrow({ where: { id: own.id } })).lastSyncedAt);
   });
-  it("P1-111 malformed payload is rejected without boolean/id coercion and following command still commits", async () => {
+  it("malformed payload is rejected without boolean/id coercion and following command still commits", async () => {
     for (const payload of [
       { locationId: world.locationAId, issueOptionId: optionId, blocksRoom: "false" },
       { locationId: world.locationAId, issueOptionId: optionId, priority: "invented" },
@@ -176,7 +176,7 @@ describe("P1 sync HTTP and PostgreSQL", () => {
       assert.equal(await prisma.maintenanceTicket.count({ where: { commandId: good.commandId } }), 1);
     }
   });
-  it("P1-105 P1-106 P1-107 current assignee and grants are rechecked even with a rebased version", async () => {
+  it("current assignee and grants are rechecked even with a rebased version", async () => {
     const task = await createCleaningTask({ locationId: world.locationAId, hotelDate: await hotelTodayYmd(), assignedEmployeeId: world.hk1.employeeId });
     await prisma.cleaningTask.update({ where: { id: task.id }, data: { assignedEmployeeId: world.hk2.employeeId, version: { increment: 1 } } });
     const before = await prisma.cleaningTask.findUniqueOrThrow({ where: { id: task.id } });
@@ -200,7 +200,7 @@ describe("P1 sync HTTP and PostgreSQL", () => {
       for (const grant of grants) await prisma.roleGrant.create({ data: grant }); invalidateGrantCache();
     }
   });
-  it("P1-96 actual commit precedes lost HTTP response; identical retry creates one ticket/event/audit", async () => {
+  it("actual commit precedes lost HTTP response; identical retry creates one ticket/event/audit", async () => {
     const cmd = commands();
     let observedCommit = false;
     const proxy = http.createServer((req, res) => {
@@ -229,7 +229,7 @@ describe("P1 sync HTTP and PostgreSQL", () => {
       assert.deepEqual(await prisma.auditEvent.findMany({ where: { entityId: ticket.id } }), audit);
     } finally { await closeServer(proxy); }
   });
-  it("P1-104 start/wait/resume/resolve batch applies sequentially even with equal client times", async () => {
+  it("start/wait/resume/resolve batch applies sequentially even with equal client times", async () => {
     const reported = await postJson(api, ownerToken, "/sync/push", { commands: [commands()] });
     assert.equal(reported.status, 200); const ticketId = (reported.body as any).results[0].data.ticket.id;
     await prisma.maintenanceTicket.update({ where: { id: ticketId }, data: { status: "assigned", assigneeId: world.owner.employeeId } });

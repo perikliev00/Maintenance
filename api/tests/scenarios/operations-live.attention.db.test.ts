@@ -1,6 +1,6 @@
 /**
  * Live board attention queue: overdue selection must not lose rows to the
- * inspection cap (BUG-01), and counts must reflect totals not page size (BUG-02).
+ * inspection cap , and counts must reflect totals not page size .
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -68,7 +68,7 @@ describe("operations live attention selection and counts", () => {
     return ids;
   }
 
-  it("BUG-01A: assigned past-due survives many earlier past-due inspections", async () => {
+  it("assigned past-due survives many earlier past-due inspections", async () => {
     const now = Date.now();
     const locIds = await makeLocations(NEEDS_ATTENTION_LIMIT + 1);
     const inspections = await Promise.all(
@@ -114,7 +114,7 @@ describe("operations live attention selection and counts", () => {
     );
   });
 
-  it("BUG-01B: past-due inspection outside newest-50 still appears", async () => {
+  it("past-due inspection outside newest-50 still appears", async () => {
     const stamp = Date.now();
     const locIds = await makeLocations(NEEDS_ATTENTION_LIMIT + 1);
     const freshRows = await Promise.all(
@@ -171,7 +171,7 @@ describe("operations live attention selection and counts", () => {
     );
   });
 
-  it("BUG-02: inspection and blocking counts exceed page size", async () => {
+  it("inspection and blocking counts exceed page size", async () => {
     const extra = NEEDS_ATTENTION_LIMIT + 11;
     const locIds = await makeLocations(extra);
     const taskRows = await Promise.all(

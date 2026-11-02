@@ -3,7 +3,7 @@
  * Scope 403 after reassignment becomes a conflict (assignee_conflict / out_of_scope).
  */
 import { AppError } from "../../../errors";
-import type { AuthUser } from "../../../middleware/auth";
+import type { AuthUser } from "../../../auth/tokens";
 import { canPerform } from "../../roleGrants";
 import {
   completeCleaningSession,

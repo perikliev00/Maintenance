@@ -21,6 +21,16 @@ import {
   percentile,
   round1,
 } from "./stats";
+import {
+  formatLocationLabel,
+  locationWithBuildingInclude,
+} from "./locationLabel";
+import {
+  addTicketThresholdRiskRooms,
+  mergeBlockingPastSlaRiskRooms,
+  sortRiskRooms,
+  type RiskRoomRow,
+} from "./riskRooms";
 
 /**
  * Aggregate maintenance ticket metrics for `period`.
@@ -48,9 +58,7 @@ export async function getMaintenanceSummary(
       prisma.maintenanceTicket.findMany({
         where: { openedAt: { gte: period.from, lte: period.to }, ...tw },
         include: {
-          location: {
-            include: { floor: { include: { building: true } } },
-          },
+          location: { include: locationWithBuildingInclude },
         },
       }),
       // Reopen events that occurred in the current period.
@@ -90,9 +98,7 @@ export async function getMaintenanceSummary(
           ...tw,
         },
         include: {
-          location: {
-            include: { floor: { include: { building: true } } },
-          },
+          location: { include: locationWithBuildingInclude },
         },
       }),
     ]);
@@ -132,58 +138,23 @@ export async function getMaintenanceSummary(
   // Count tickets per location for the risk threshold.
   const byLocation = new Map<string, { count: number; label: string }>();
   for (const t of tickets) {
-    // Display label: building code + room number from nested location graph.
-    const label = `${t.location.floor.building.code} ${t.location.number}`;
+    const label = formatLocationLabel(t.location);
     const cur = byLocation.get(t.locationId) ?? { count: 0, label };
     cur.count += 1;
     byLocation.set(t.locationId, cur);
   }
 
-  const riskRooms: Array<{
-    locationId: string;
-    label: string;
-    factors: string[];
-    ticketCount: number;
-  }> = [];
-
-  // Rooms that opened ≥ riskTicketThreshold tickets in the period.
-  for (const [locationId, info] of byLocation) {
-    // Below threshold — not surfaced as a risk room for this window.
-    if (info.count >= riskTicketThreshold) {
-      riskRooms.push({
-        locationId,
-        label: info.label,
-        factors: [`tickets_gte_${riskTicketThreshold}`],
-        ticketCount: info.count,
-      });
-    }
-  }
-
-  // Merge blocking past-SLA open tickets into risk rooms.
-  for (const t of openBlockingPastSla) {
-    const label = `${t.location.floor.building.code} ${t.location.number}`;
-    const existing = riskRooms.find((r) => r.locationId === t.locationId);
-    // Room already flagged — append blocking factor when missing.
-    if (existing) {
-      // Avoid duplicate factor strings on the same room.
-      if (!existing.factors.includes("blocking_past_sla")) {
-        existing.factors.push("blocking_past_sla");
-      }
-    } else {
-      // First risk signal for this location is live blocking past SLA.
-      riskRooms.push({
-        locationId: t.locationId,
-        label,
-        factors: ["blocking_past_sla"],
-        ticketCount: byLocation.get(t.locationId)?.count ?? 0,
-      });
-    }
-  }
-
-  // Highest ticket count first; ties broken by label.
-  riskRooms.sort(
-    (a, b) => b.ticketCount - a.ticketCount || a.label.localeCompare(b.label),
+  const riskRooms: RiskRoomRow[] = [];
+  addTicketThresholdRiskRooms(riskRooms, byLocation, riskTicketThreshold);
+  const ticketCountsByLocation = new Map(
+    [...byLocation.entries()].map(([id, info]) => [id, info.count]),
   );
+  mergeBlockingPastSlaRiskRooms(
+    riskRooms,
+    openBlockingPastSla,
+    ticketCountsByLocation,
+  );
+  sortRiskRooms(riskRooms);
 
   // Resolve-time percentiles require a sorted ascending sample.
   const sorted = [...resolveMinutes].sort((a, b) => a - b);

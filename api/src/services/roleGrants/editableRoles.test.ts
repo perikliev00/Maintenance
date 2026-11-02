@@ -7,7 +7,7 @@ import {
 } from "../../permissions";
 import { editableRolesFor } from "./query";
 
-describe("T-EDIT-01 editableRolesFor matrix", () => {
+describe("editableRolesFor matrix", () => {
   it("owner may edit every matrix role", () => {
     assert.deepEqual(editableRolesFor(Role.owner), [...MATRIX_ROLES]);
   });

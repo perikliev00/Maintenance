@@ -2,7 +2,7 @@
  * Personal My Work aggregate (cleaning tasks + open tickets for the caller).
  */
 import type { CleaningTaskRow } from "./cleaningApi";
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { apiGet, buildQuery } from "./http";
 import type { MaintenanceTicket } from "./maintenanceApi";
 
 export type MyWorkPayload = {
@@ -26,14 +26,12 @@ export async function fetchMyWork(params?: {
   ticketCursor?: string;
   ticketPageSize?: number;
 }): Promise<MyWorkPayload> {
-  const search = new URLSearchParams();
-  if (params?.hotelDate) search.set("hotelDate", params.hotelDate);
-  if (params?.shiftId) search.set("shiftId", params.shiftId);
-  if (params?.ticketCursor) search.set("ticketCursor", params.ticketCursor);
-  if (params?.ticketPageSize) search.set("ticketPageSize", String(params.ticketPageSize));
-  const qs = search.toString();
-  const res = await apiFetch(`${API_BASE}/my-work${qs ? `?${qs}` : ""}`, {
-    headers: authHeaders(),
-  });
-  return parseJson(res);
+  return apiGet(
+    `/my-work${buildQuery({
+      hotelDate: params?.hotelDate,
+      shiftId: params?.shiftId,
+      ticketCursor: params?.ticketCursor,
+      ticketPageSize: params?.ticketPageSize,
+    })}`,
+  );
 }

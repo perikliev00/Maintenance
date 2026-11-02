@@ -6,7 +6,7 @@ import { Prisma, AttendanceIntervalStatus } from "@prisma/client";
 import { prisma } from "../../../db";
 import { AppError } from "../../../errors";
 import { addDaysYmd, hotelDateKey } from "../../attendanceRules";
-import { hotelDateString } from "../../hotelTime";
+import { formatHotelDate, hotelDateString } from "../../hotelTime";
 import { getOperations } from "../../settings";
 import {
   EXPORT_BATCH,
@@ -158,7 +158,7 @@ function rowToIntervalCursor(row: {
 }): IntervalCursor {
   // hotelDate as YYYY-MM-DD; startedAt as full ISO for stable keyset ties.
   return {
-    hotelDate: row.hotelDate.toISOString().slice(0, 10),
+    hotelDate: formatHotelDate(row.hotelDate),
     startedAt: row.startedAt.toISOString(),
     id: row.id,
   };

@@ -17,8 +17,9 @@ import {
   type CardType,
   type Room,
 } from "../api/client";
+import { formatWhen, t } from "../i18n";
 
-type Props = { user: AuthUser };
+type Props = { user: AuthUser; locale?: "bg" | "en" };
 
 type Tab = "issue" | "staff";
 type Step = 1 | 2 | 3;
@@ -31,9 +32,10 @@ const CARD_TYPES: Array<{ id: CardType; bg: string; en: string }> = [
   { id: "master", bg: "Мастър", en: "Master" },
 ];
 
-/** Bulgarian label for a card type id. */
-function labelForType(type: CardType) {
-  return CARD_TYPES.find((t) => t.id === type)?.bg ?? type;
+/** Localized label for a card type id. */
+function labelForType(locale: "bg" | "en", type: CardType) {
+  const row = CARD_TYPES.find((ct) => ct.id === type);
+  return row ? t(locale, row.bg, row.en) : type;
 }
 
 /** Default validity window: now → +24h, formatted for datetime-local inputs. */
@@ -50,24 +52,16 @@ function defaultValidity() {
 /** Parse a datetime-local string into an ISO timestamp for the API. */
 function toIsoLocal(value: string) {
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) throw new Error("Невалидна дата");
+  if (Number.isNaN(d.getTime())) throw new Error("invalid_date");
   return d.toISOString();
-}
-
-/** Locale-formatted timestamp for review/list UI; falls back to raw ISO. */
-function formatWhen(iso: string) {
-  try {
-    return new Date(iso).toLocaleString("bg-BG");
-  } catch {
-    return iso;
-  }
 }
 
 /**
  * Access-card page: 3-step issue wizard and staff card list/revoke.
  * Issue and revoke are separately gated (`cards.issue` / `cards.revoke`).
  */
-export function CardsPage({ user }: Props) {
+export function CardsPage({ user, locale: localeProp }: Props) {
+  const locale = localeProp ?? "bg";
   const issueInFlight = useRef(false);
   // Issue wizard vs staff-list tab.
   const [tab, setTab] = useState<Tab>("issue");
@@ -140,12 +134,16 @@ export function CardsPage({ user }: Props) {
         setError(null);
         await loadIssueLookups();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Грешка при зареждане");
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(locale, "Грешка при зареждане", "Failed to load"),
+        );
       } finally {
         setLoading(false);
       }
     })();
-  }, [loadIssueLookups]);
+  }, [loadIssueLookups, locale]);
 
   // Staff list loads only when that tab is active (and on filter changes).
   useEffect(() => {
@@ -156,12 +154,16 @@ export function CardsPage({ user }: Props) {
         setError(null);
         await loadStaffCards();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Грешка при зареждане");
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(locale, "Грешка при зареждане", "Failed to load"),
+        );
       } finally {
         setLoading(false);
       }
     })();
-  }, [tab, loadStaffCards]);
+  }, [tab, loadStaffCards, locale]);
 
   /** Clear wizard state back to step 1 for another issue. */
   function resetWizard() {
@@ -176,22 +178,31 @@ export function CardsPage({ user }: Props) {
     setError(null);
   }
 
-  /**
-   * Validate step-2 fields; returns a Bulgarian error string or null if OK.
-   */
+  /** Validate step-2 fields; returns a localized error string or null if OK. */
   function validateStep2() {
-    if (!cardType) return "Изберете тип карта";
+    if (!cardType) return t(locale, "Изберете тип карта", "Select a card type");
     // Guest cards require a room; staff cards require an employee.
-    if (isGuest && !locationId) return "Изберете стая";
-    if (isStaff && !employeeId) return "Изберете служител";
+    if (isGuest && !locationId) return t(locale, "Изберете стая", "Select a room");
+    if (isStaff && !employeeId)
+      return t(locale, "Изберете служител", "Select an employee");
     // Master is property-wide — a location id would be contradictory.
-    if (isMaster && locationId) return "Мастър картата е за целия имот";
+    if (isMaster && locationId)
+      return t(
+        locale,
+        "Мастър картата е за целия имот",
+        "Master card covers the whole property",
+      );
     try {
       const from = new Date(toIsoLocal(validity.validFrom));
       const until = new Date(toIsoLocal(validity.validUntil));
-      if (!(until > from)) return "Краят трябва да е след началото";
+      if (!(until > from))
+        return t(
+          locale,
+          "Краят трябва да е след началото",
+          "End must be after start",
+        );
     } catch {
-      return "Невалиден срок";
+      return t(locale, "Невалиден срок", "Invalid validity window");
     }
     return null;
   }
@@ -219,9 +230,13 @@ export function CardsPage({ user }: Props) {
         label: label.trim() || null,
       });
       setIssued(card);
-      setMessage("Записано в системата");
+      setMessage(t(locale, "Записано в системата", "Saved in the system"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Неуспешно издаване");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(locale, "Неуспешно издаване", "Issue failed"),
+      );
     } finally {
       setLoading(false);
       issueInFlight.current = false;
@@ -236,9 +251,15 @@ export function CardsPage({ user }: Props) {
       setError(null);
       await revokeCard(id);
       await loadStaffCards();
-      setMessage("Картата е отменена в системата");
+      setMessage(
+        t(locale, "Картата е отменена в системата", "Card revoked in the system"),
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Неуспешна отмяна");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(locale, "Неуспешна отмяна", "Revoke failed"),
+      );
     } finally {
       setLoading(false);
     }
@@ -248,8 +269,14 @@ export function CardsPage({ user }: Props) {
     <main className="content">
       <header className="page-header">
         <div>
-          <h1>Карти</h1>
-          <p>Издаване на физически достъп — запис само в системата</p>
+          <h1>{t(locale, "Карти", "Cards")}</h1>
+          <p>
+            {t(
+              locale,
+              "Издаване на физически достъп — запис само в системата",
+              "Issue physical access — system record only",
+            )}
+          </p>
         </div>
       </header>
 
@@ -260,14 +287,14 @@ export function CardsPage({ user }: Props) {
           className={tab === "issue" ? "active" : "ghost"}
           onClick={() => setTab("issue")}
         >
-          Издаване
+          {t(locale, "Издаване", "Issue")}
         </button>
         <button
           type="button"
           className={tab === "staff" ? "active" : "ghost"}
           onClick={() => setTab("staff")}
         >
-          Карти на служители
+          {t(locale, "Карти на служители", "Staff cards")}
         </button>
       </div>
 
@@ -281,36 +308,36 @@ export function CardsPage({ user }: Props) {
           {/* Step indicator strip. */}
           <div className="wizard-steps">
             <span className={step === 1 ? "wizard-step active" : "wizard-step"}>
-              1. Тип карта
+              1. {t(locale, "Тип карта", "Card type")}
             </span>
             <span className={step === 2 ? "wizard-step active" : "wizard-step"}>
-              2. Данни за достъп
+              2. {t(locale, "Данни за достъп", "Access details")}
             </span>
             <span className={step === 3 ? "wizard-step active" : "wizard-step"}>
-              3. Запис
+              3. {t(locale, "Запис", "Save")}
             </span>
           </div>
 
           {/* Step 1: pick card type (clears prior selections on change). */}
           {step === 1 && (
             <div className="wizard-panel">
-              <h2>Тип карта</h2>
+              <h2>{t(locale, "Тип карта", "Card type")}</h2>
               <div className="card-type-grid">
-                {CARD_TYPES.map((t) => (
+                {CARD_TYPES.map((ct) => (
                   <button
-                    key={t.id}
+                    key={ct.id}
                     type="button"
                     className={
-                      cardType === t.id ? "card-type-btn active" : "card-type-btn"
+                      cardType === ct.id ? "card-type-btn active" : "card-type-btn"
                     }
                     onClick={() => {
                       // Changing type clears prior room/employee selections.
-                      setCardType(t.id);
+                      setCardType(ct.id);
                       setLocationId("");
                       setEmployeeId("");
                     }}
                   >
-                    {t.bg}
+                    {t(locale, ct.bg, ct.en)}
                   </button>
                 ))}
               </div>
@@ -329,7 +356,10 @@ export function CardsPage({ user }: Props) {
           {/* Step 2 fields depend on guest vs staff vs master. */}
           {step === 2 && cardType && (
             <div className="wizard-panel">
-              <h2>Данни за достъп — {labelForType(cardType)}</h2>
+              <h2>
+                {t(locale, "Данни за достъп", "Access details")} —{" "}
+                {labelForType(locale, cardType)}
+              </h2>
               <div className="form-grid">
                 {/* Guest cards require a room grant. */}
                 {isGuest && (
@@ -456,7 +486,7 @@ export function CardsPage({ user }: Props) {
                   <dl className="review-list">
                     <div>
                       <dt>Тип</dt>
-                      <dd>{labelForType(cardType)}</dd>
+                      <dd>{labelForType(locale, cardType)}</dd>
                     </div>
                     {/* Staff review row when an employee was selected. */}
                     {selectedEmployee && (
@@ -487,8 +517,8 @@ export function CardsPage({ user }: Props) {
                     <div>
                       <dt>Срок</dt>
                       <dd>
-                        {formatWhen(toIsoLocal(validity.validFrom))} —{" "}
-                        {formatWhen(toIsoLocal(validity.validUntil))}
+                        {formatWhen(toIsoLocal(validity.validFrom), locale)} —{" "}
+                        {formatWhen(toIsoLocal(validity.validUntil), locale)}
                       </dd>
                     </div>
                     {/* Optional free-text label on the card record. */}
@@ -525,7 +555,9 @@ export function CardsPage({ user }: Props) {
                 <>
                   <p className="ok-banner">Записано в системата</p>
                   <p className="muted">
-                    Карта {labelForType(issued.cardType)} · статус {issued.status}
+                    {t(locale, "Карта", "Card")}{" "}
+                    {labelForType(locale, issued.cardType)} ·{" "}
+                    {t(locale, "статус", "status")} {issued.status}
                   </p>
                   <div className="wizard-actions">
                     <button type="button" onClick={resetWizard}>
@@ -594,13 +626,17 @@ export function CardsPage({ user }: Props) {
                             ? `${card.employee.fullName} (${card.employee.employeeNumber})`
                             : "—"}
                         </td>
-                        <td>{labelForType(card.cardType)}</td>
+                        <td>{labelForType(locale, card.cardType)}</td>
                         <td>
                           {grant
-                            ? `${formatWhen(grant.validFrom)} — ${formatWhen(grant.validUntil)}`
+                            ? `${formatWhen(grant.validFrom, locale)} — ${formatWhen(grant.validUntil, locale)}`
                             : "—"}
                         </td>
-                        <td>{card.status === "active" ? "активна" : "отменена"}</td>
+                        <td>
+                          {card.status === "active"
+                            ? t(locale, "активна", "active")
+                            : t(locale, "отменена", "revoked")}
+                        </td>
                         <td>
                           {/* Revoke only for active cards when permitted. */}
                           {canRevoke && card.status === "active" ? (

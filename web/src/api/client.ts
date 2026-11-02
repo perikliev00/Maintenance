@@ -95,6 +95,11 @@ export {
   type SlaPolicyRow,
   type TicketListPage,
 } from "./maintenanceApi";
+export {
+  parseDuplicateReportError,
+  type DuplicateReportInfo,
+  type ExistingTicketSummary,
+} from "./duplicateReport";
 
 // Rooms / locations API.
 // Re-export public API surface.

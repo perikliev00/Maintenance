@@ -3,26 +3,26 @@
  * Every delivery reloads session and scope; heartbeats close idle revoked streams.
  */
 import type { Request, Response } from "express";
-import jwt from "jsonwebtoken";
-import type { Role } from "@prisma/client";
 import {
   authenticateToken,
   type AuthUser,
 } from "../middleware/auth";
-import { getJwtSecret } from "../auth/tokens";
+import {
+  isSsePurposeToken,
+  resolveSseTicketUser,
+  signSseTicket,
+} from "../auth/sseTickets";
 import { subscribe, type LiveEvent } from "../events/bus";
-import { sseOpened, sseClosed, sseDeliveryFailed, safeErrorMessage } from "../observability";
+import { sseOpened, sseClosed, sseDeliveryFailed, safeErrorMessage, log } from "../observability";
 import { resolveDataScope, type DataScope } from "../services/dataScope";
-import { assertSessionActive } from "../services/authSessions";
 import {
   authorizeLiveDelivery,
-  refreshLiveSubscriberState,
 } from "../services/liveAuthorization";
+import {
+  refreshSseSubscriberState,
+  SseScopeRefreshError,
+} from "../services/events/sseRefresh";
 
-/** JWT purpose claim that marks an SSE ticket (not a session access token). */
-const SSE_TICKET_PURPOSE = "sse" as const;
-/** SSE ticket lifetime (seconds). */
-const SSE_TICKET_EXPIRES_SEC = 5 * 60;
 /** Heartbeat interval; also refreshes session + DataScope. */
 const SSE_HEARTBEAT_MS = 25_000;
 const activeStreams = new Set<() => void>();
@@ -32,53 +32,12 @@ export function closeSseStreams() {
   for (const close of [...activeStreams]) close();
 }
 
-type SseTicketPayload = {
-  purpose: typeof SSE_TICKET_PURPOSE;
-  userId: string;
-  employeeId: string;
-  role: Role;
-  email: string;
-  sid: string;
-};
-
-/** Type guard for decoded SSE ticket JWT claims. */
-function isSseTicketPayload(value: unknown): value is SseTicketPayload {
-  if (!value || typeof value !== "object") return false;
-  const v = value as Record<string, unknown>;
-  return (
-    v.purpose === SSE_TICKET_PURPOSE &&
-    typeof v.userId === "string" &&
-    typeof v.employeeId === "string" &&
-    typeof v.role === "string" &&
-    typeof v.email === "string" &&
-    typeof v.sid === "string"
-  );
-}
-
-type AssertSessionActive = typeof assertSessionActive;
-
-/**
- * Resolve an SSE ticket JWT to AuthUser using the active AuthSession / DB role.
- * JWT role/email/employeeId claims are ignored for authorization.
- * Exported for unit tests.
- */
-export async function resolveSseTicketUser(
-  ticket: string,
-  assertActive: AssertSessionActive = assertSessionActive,
-): Promise<AuthUser | null> {
-  try {
-    // Verify signature/expiry of the short-lived SSE ticket.
-    const decoded = jwt.verify(ticket, getJwtSecret(), {
-      algorithms: ["HS256"],
-    });
-    if (!isSseTicketPayload(decoded)) return null;
-    // Reload session + user from DB (do not trust JWT role claims).
-    const session = await assertActive(decoded.sid, decoded.userId);
-    return authUserFromSession(session);
-  } catch {
-    return null;
-  }
-}
+// Re-export for existing unit tests.
+export { resolveSseTicketUser } from "../auth/sseTickets";
+export {
+  refreshSseSubscriberState,
+  SseScopeRefreshError,
+} from "../services/events/sseRefresh";
 
 /** Session access token via Authorization: Bearer (preferred). */
 async function authenticateBearer(req: Request): Promise<AuthUser | null> {
@@ -87,14 +46,7 @@ async function authenticateBearer(req: Request): Promise<AuthUser | null> {
   const token = header.slice("Bearer ".length);
   try {
     // Reject SSE tickets presented as Bearer — they belong in ?ticket=
-    const peek = jwt.decode(token);
-    if (
-      peek &&
-      typeof peek === "object" &&
-      (peek as { purpose?: unknown }).purpose === SSE_TICKET_PURPOSE
-    ) {
-      return null;
-    }
+    if (isSsePurposeToken(token)) return null;
     return await authenticateToken(token);
   } catch {
     return null;
@@ -123,14 +75,7 @@ async function authenticateStream(req: Request): Promise<AuthUser | null> {
   if (cookieToken) {
     try {
       // Same SSE-ticket rejection as Bearer.
-      const peek = jwt.decode(cookieToken);
-      if (
-        peek &&
-        typeof peek === "object" &&
-        (peek as { purpose?: unknown }).purpose === SSE_TICKET_PURPOSE
-      ) {
-        return null;
-      }
+      if (isSsePurposeToken(cookieToken)) return null;
       return await authenticateToken(cookieToken);
     } catch {
       /* fall through */
@@ -146,89 +91,10 @@ function writeSse(res: Response, event: string, data: unknown) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-/** Map AuthSession (+ user) to the AuthUser shape used elsewhere. */
-function authUserFromSession(
-  session: Awaited<ReturnType<AssertSessionActive>>,
-): AuthUser {
-  return {
-    userId: session.user.id,
-    employeeId: session.user.employeeId,
-    role: session.user.role,
-    email: session.user.email,
-    sid: session.id,
-  };
-}
-
-/** Thrown when heartbeat DataScope refresh fails (stream should revoke). */
-export class SseScopeRefreshError extends Error {
-  constructor(message = "Failed to resolve data scope") {
-    super(message);
-    this.name = "SseScopeRefreshError";
-  }
-}
-
-/**
- * Heartbeat refresh under the same User FOR SHARE serialization as delivery.
- * Exported for unit tests; deps remain for legacy stubs that bypass the lock.
- */
-export async function refreshSseSubscriberState(
-  currentUser: AuthUser,
-  deps: {
-    assertActive?: AssertSessionActive;
-    resolveScope?: typeof resolveDataScope;
-  } = {},
-): Promise<{ currentUser: AuthUser; scope: DataScope }> {
-  // Production path: share the live-authorization lock with writers.
-  if (!deps.assertActive && !deps.resolveScope) {
-    try {
-      const refreshed = await refreshLiveSubscriberState(currentUser);
-      return { currentUser: refreshed.user, scope: refreshed.scope };
-    } catch (err) {
-      if (err instanceof SseScopeRefreshError) throw err;
-      // assertSessionActive / resolve failures close the stream as revoked.
-      if (
-        err &&
-        typeof err === "object" &&
-        "status" in err &&
-        (err as { status?: number }).status === 401
-      ) {
-        throw err;
-      }
-      console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "error", service: "maintenance-api", event: "sse_scope_refresh_failed", error: safeErrorMessage(err) }));
-      throw new SseScopeRefreshError();
-    }
-  }
-  const assertActive = deps.assertActive ?? assertSessionActive;
-  const resolveScope = deps.resolveScope ?? resolveDataScope;
-  // Revoked/expired sessions throw and close the stream.
-  const session = await assertActive(currentUser.sid, currentUser.userId);
-  const next = authUserFromSession(session);
-  try {
-    // Always re-resolve so sector membership changes apply live.
-    const scope = await resolveScope(next);
-    return { currentUser: next, scope };
-  } catch (err) {
-    console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "error", service: "maintenance-api", event: "sse_scope_refresh_failed", error: safeErrorMessage(err) }));
-    throw new SseScopeRefreshError();
-  }
-}
-
 /** Issue a short-lived JWT for EventSource clients that cannot send cookies/headers. */
 export function issueTicket(req: Request, res: Response) {
-  const user = req.user!;
-  const payload: SseTicketPayload = {
-    purpose: SSE_TICKET_PURPOSE,
-    userId: user.userId,
-    employeeId: user.employeeId,
-    role: user.role,
-    email: user.email,
-    sid: user.sid,
-  };
-  const token = jwt.sign(payload, getJwtSecret(), {
-    expiresIn: SSE_TICKET_EXPIRES_SEC,
-    algorithm: "HS256",
-  });
-  res.json({ token, expiresIn: SSE_TICKET_EXPIRES_SEC });
+  const issued = signSseTicket(req.user!);
+  res.json(issued);
 }
 
 /**
@@ -250,7 +116,7 @@ export async function stream(req: Request, res: Response) {
   try {
     scope = await resolveDataScope(currentUser);
   } catch (err) {
-    console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "error", service: "maintenance-api", event: "sse_initial_scope_failed", error: safeErrorMessage(err) }));
+    log.error("sse_initial_scope_failed", { error: safeErrorMessage(err) });
     return res.status(500).json({
       error: "internal",
       message: "Failed to resolve data scope",

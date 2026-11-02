@@ -1,5 +1,5 @@
 /**
- * BUG-01: SLA / overdue audit events with locationId are visible under sector
+ * SLA / overdue audit events with locationId are visible under sector
  * scope and location filters; foreign rooms stay hidden.
  */
 import "../preloadIsolatedTestEnv";
@@ -16,7 +16,7 @@ import { runTicketSlaBreach } from "../../src/services/jobs/ticketSlaBreach";
 import { listAuditEvents } from "../../src/services/audit";
 import { getSetting, updateSetting } from "../../src/services/settings";
 
-describe("audit SLA location scope (BUG-01)", () => {
+describe("audit SLA location scope", () => {
   let world: CleaningWorld;
   let operations: Awaited<ReturnType<typeof getSetting<"operations">>>;
   const now = Date.parse("2026-02-01T12:00:00Z");

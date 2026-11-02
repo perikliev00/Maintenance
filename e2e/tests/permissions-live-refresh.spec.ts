@@ -4,7 +4,7 @@ import { uiLogin, USERS } from "./helpers/auth";
 import { openNav } from "./helpers/nav";
 
 /**
- * BUG-05: after an admin revoke, an already-open supervisor session must drop
+ * after an admin revoke, an already-open supervisor session must drop
  * Mark dirty via SSE permissions.changed → /auth/me — without manual reload.
  */
 test.describe("permissions live capability refresh", () => {

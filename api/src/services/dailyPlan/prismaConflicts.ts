@@ -2,22 +2,9 @@
  * Identify DailyPlanEntry unique races (distinct from CleaningTask uniques).
  */
 import { Prisma } from "@prisma/client";
+import { isP2002, p2002Targets } from "../db/prismaErrors";
 
-/** True when err is a Prisma unique-constraint violation (P2002). */
-export function isP2002(
-  err: unknown,
-): err is Prisma.PrismaClientKnownRequestError {
-  return (
-    err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002"
-  );
-}
-
-function p2002Targets(err: Prisma.PrismaClientKnownRequestError): string[] {
-  const target = err.meta?.target;
-  if (Array.isArray(target)) return target.map(String);
-  if (typeof target === "string") return [target];
-  return [];
-}
+export { isP2002, p2002Targets };
 
 /**
  * True when P2002 is the (hotelDate, locationId, category) plan-entry unique

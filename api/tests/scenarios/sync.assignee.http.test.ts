@@ -1,5 +1,5 @@
 /**
- * AUDIT-003 regression — assignee gate parity for /sync/push ticket lifecycle.
+ * regression — assignee gate parity for /sync/push ticket lifecycle.
  * REST coverage lives in assignee.gate.http.test.ts; this suite proves the
  * offline sync adapters forward canBypassTicketAssignee correctly.
  */
@@ -20,7 +20,7 @@ import {
   type TicketsWorld,
 } from "../tickets/fixtures";
 
-describe("sync push ticket assignee gate (AUDIT-003)", () => {
+describe("sync push ticket assignee gate", () => {
   let world: TicketsWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];

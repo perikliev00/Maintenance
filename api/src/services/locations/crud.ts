@@ -13,6 +13,7 @@ import { OPEN_TICKET_STATUSES } from "../../constants";
 import { prisma } from "../../db";
 import { AppError } from "../../errors";
 import { publish } from "../../events/bus";
+import { isP2002 } from "../db/prismaErrors";
 import { recordAudit } from "../audit";
 import {
   attachOpenIssueCounts,
@@ -312,10 +313,7 @@ async function assertFloorExists(floorId: string) {
 /** Map unique (floorId, number) violations to a friendly 409. */
 function conflictFromPrisma(err: unknown): never {
   // Unique (floorId, number) → conflict; anything else rethrows unchanged.
-  if (
-    err instanceof Prisma.PrismaClientKnownRequestError &&
-    err.code === "P2002"
-  ) {
+  if (isP2002(err)) {
     // @@unique([floorId, number]) on Location.
     throw new AppError(
       409,
@@ -438,9 +436,9 @@ export async function updateLocation(
       const row = await tx.location.update({
         where: { id },
         data: {
-          ...(input.floorId !== undefined ? { floorId: input.floorId } : {}),
-          ...(number !== undefined ? { number } : {}),
-          ...(input.kind !== undefined ? { kind: input.kind } : {}),
+          floorId: input.floorId,
+          number,
+          kind: input.kind,
         },
         include: locationInclude,
       });
@@ -474,84 +472,3 @@ export async function updateLocation(
   }
 }
 
-/**
- * Soft-archive (catalogStatus=archived) and audit.
- *
- * @param id - Location primary key.
- * @param actorEmployeeId - Optional audit actor.
- */
-export async function archiveLocation(id: string, actorEmployeeId?: string) {
-  const existing = await prisma.location.findUnique({ where: { id } });
-  if (!existing) {
-    throw new AppError(404, "not_found", "Location not found");
-  }
-  // Idempotent: already archived → return full row without re-auditing.
-  if (existing.catalogStatus === CatalogStatus.archived) {
-    // Reload with board includes for a consistent API shape.
-    const full = await findLocationById(id);
-    return full!;
-  }
-
-  // Soft-archive + audit in one transaction.
-  const updated = await prisma.$transaction(async (tx) => {
-    const row = await tx.location.update({
-      where: { id },
-      data: { catalogStatus: CatalogStatus.archived },
-      include: locationInclude,
-    });
-    await recordAudit({
-      actorEmployeeId,
-      action: "location.archive",
-      entityType: "location",
-      entityId: id,
-      locationId: id,
-      before: { catalogStatus: existing.catalogStatus },
-      after: { catalogStatus: CatalogStatus.archived },
-      summary: `Archived location ${row.number}`,
-    }, tx);
-    return row;
-  });
-  publish("location.changed", { locationId: updated.id });
-  return updated;
-}
-
-/**
- * Restore an archived location to active and audit.
- *
- * @param id - Location primary key.
- * @param actorEmployeeId - Optional audit actor.
- */
-export async function restoreLocation(id: string, actorEmployeeId?: string) {
-  const existing = await prisma.location.findUnique({ where: { id } });
-  if (!existing) {
-    throw new AppError(404, "not_found", "Location not found");
-  }
-  // Idempotent: already active → return without audit.
-  if (existing.catalogStatus === CatalogStatus.active) {
-    // Full include graph for catalog/detail responses.
-    const full = await findLocationById(id);
-    return full!;
-  }
-
-  // Restore to active + audit in one transaction.
-  const updated = await prisma.$transaction(async (tx) => {
-    const row = await tx.location.update({
-      where: { id },
-      data: { catalogStatus: CatalogStatus.active },
-      include: locationInclude,
-    });
-    await recordAudit({
-      actorEmployeeId,
-      action: "location.restore",
-      entityType: "location",
-      entityId: id,
-      locationId: id,
-      before: { catalogStatus: existing.catalogStatus },
-      after: { catalogStatus: CatalogStatus.active },
-      summary: `Restored location ${row.number}`,
-    }, tx);
-    return row;
-  });
-  publish("location.changed", { locationId: updated.id });
-  return updated;
-}

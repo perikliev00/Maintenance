@@ -62,7 +62,7 @@ describe("audit: operations live remaining attention risks", () => {
     return ids;
   }
 
-  it("BUG-01 remainder: overdue inspection stays visible when past-due work page is full", async () => {
+  it("remainder: overdue inspection stays visible when past-due work page is full", async () => {
     // 50 newest inspections (not past due) occupy awaiting page.
     // 50 past-due assigned tasks fill past_due work page.
     // Older past-due inspection outside top-50 awaiting must still appear via

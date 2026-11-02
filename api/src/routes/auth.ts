@@ -12,10 +12,10 @@ import * as authController from "../controllers/auth";
 export const authRouter = Router();
 
 // POST /login — email/password; issues access+refresh cookies (rate-limited).
-authRouter.post("/login", authLoginLimiter, authController.login);
+authRouter.post("/login", authLoginLimiter, asyncHandler(authController.login));
 
 // POST /refresh — rotate access (and refresh) from refresh cookie/body.
-authRouter.post("/refresh", authController.refresh);
+authRouter.post("/refresh", asyncHandler(authController.refresh));
 
 // POST /logout — revoke current session and clear auth cookies.
 authRouter.post("/logout", asyncHandler(authController.logout));

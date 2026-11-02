@@ -5,7 +5,7 @@
  */
 import { createHash } from "crypto";
 import { prisma } from "../../db";
-import { AppError } from "../../errors";
+import { assertCommandPayloadMatch } from "../commandIdempotency";
 import { formatMaintenanceTicket, type FormattedMaintenanceTicket } from "./format";
 import { ticketInclude } from "./types";
 
@@ -119,17 +119,11 @@ function assertLifecycleCommandMatch(
   // Fingerprint stored on the prior event payload (may be missing on legacy rows).
   const actual = readCommandFingerprint(event.payload);
   // Mismatch on fingerprint, ticket, or actor → treat as commandId collision.
-  if (
-    actual !== expected ||
-    event.ticketId !== key.ticketId ||
-    event.actorEmployeeId !== key.actorEmployeeId
-  ) {
-    throw new AppError(
-      409,
-      "conflict",
-      "commandId reused with a different payload",
-    );
-  }
+  assertCommandPayloadMatch(
+    actual === expected &&
+      event.ticketId === key.ticketId &&
+      event.actorEmployeeId === key.actorEmployeeId,
+  );
 }
 
 /**
@@ -145,26 +139,19 @@ export async function replayLifecycleCommand(
   if (!commandId) return null;
 
   // Create namespace: ticket.commandId occupied by a report → cannot reuse for lifecycle.
+  // Allow replay only when a matching lifecycle event exists (below); create-only
+  // commandIds fingerprint-mismatch → 409 via findTicketByLifecycleCommand.
   const created = await prisma.maintenanceTicket.findUnique({
     where: { commandId },
     select: { id: true },
   });
-  if (created) {
-    // Allow replay only when the prior event is a matching lifecycle event (below).
-    // If the only use was create (event also has this commandId with create fp),
-    // findTicketByLifecycleCommand will find that event and fingerprint-mismatch → 409.
-  }
 
   const existing = await findTicketByLifecycleCommand(commandId);
   // First time seeing this commandId on TicketEvent — caller proceeds (unless create-only).
   if (!existing) {
     // Create used this commandId on the ticket row but somehow no event — still conflict.
     if (created) {
-      throw new AppError(
-        409,
-        "conflict",
-        "commandId reused with a different payload",
-      );
+      assertCommandPayloadMatch(false);
     }
     return null;
   }
@@ -195,13 +182,7 @@ export async function replayCreateCommand(
   if (event) {
     const expected = createPayloadFingerprint(key);
     const actual = readCommandFingerprint(event.payload);
-    if (actual !== expected) {
-      throw new AppError(
-        409,
-        "conflict",
-        "commandId reused with a different payload",
-      );
-    }
+    assertCommandPayloadMatch(actual === expected);
     return {
       ticket: formatMaintenanceTicket(event.ticket),
       idempotent: true,
@@ -227,13 +208,9 @@ export async function replayCreateCommand(
     priority: ticket.priority,
     blocksRoom: ticket.blocksRoom,
   };
-  if (createPayloadFingerprint(actualKey) !== expected) {
-    throw new AppError(
-      409,
-      "conflict",
-      "commandId reused with a different payload",
-    );
-  }
+  assertCommandPayloadMatch(
+    createPayloadFingerprint(actualKey) === expected,
+  );
   return {
     ticket: formatMaintenanceTicket(ticket),
     idempotent: true,

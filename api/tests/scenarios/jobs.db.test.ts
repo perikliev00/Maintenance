@@ -23,7 +23,7 @@ async function session(employeeId = world.hk1.employeeId, delta = 61, status: "r
   const task = await prisma.cleaningTask.create({ data: { locationId: world.locationAId, hotelDate: new Date("2026-01-15"), status: "cancelled", cleaningCycle: 0, assignedEmployeeId: employeeId } });
   return prisma.cleaningSession.create({ data: { taskId: task.id, employeeId, status, startedAt: new Date(now - delta * 60000), ...(status === "completed" ? { finishedAt: new Date(now - 1000) } : {}), startCommandId: randomUUID(), anomalyFlags: ["clock_skew"] } });
 }
-describe("P1-122–125 P2-54–56 real background jobs", () => {
+describe("real background jobs", () => {
   before(async () => {
     await assertTestDatabase(prisma); process.env.E2E_DISABLE_RATE_LIMIT = "1";
     world = await createCleaningWorld(prisma); operations = await getSetting("operations"); access = await getSetting("access");
@@ -41,7 +41,7 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
     }
     await prisma.$disconnect();
   });
-  it("P1-122 cutoff boundary preserves flags and repeat run emits one warning", async t => {
+  it("cutoff boundary preserves flags and repeat run emits one warning", async t => {
     t.mock.timers.enable({ apis: ["Date"], now });
     try {
       const overdue = await session(world.hk1.employeeId, 60);
@@ -53,7 +53,7 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
       const warnings = await prisma.notification.findMany({ where: { entityId: overdue.id } }); assert.ok(warnings.length > 0);
       assert.equal((await runOverdueSessions()).flagged, 0);
       assert.equal(await prisma.auditEvent.count({ where: { entityId: overdue.id, action: "session.overdue_detected" } }), 1);
-      // BUG-01: overdue audit must carry locationId for sector/location scope filters.
+      // overdue audit must carry locationId for sector/location scope filters.
       const overdueAudit = await prisma.auditEvent.findFirstOrThrow({
         where: { entityId: overdue.id, action: "session.overdue_detected" },
       });
@@ -63,7 +63,7 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
       await prisma.cleaningSession.updateMany({ where: { id: { in: [overdue.id, recent.id] } }, data: { status: "completed", finishedAt: new Date(now) } });
     } finally { t.mock.timers.reset(); }
   });
-  for (const close of [true, false]) it(`P1-123 real update waiter preserves concurrent ${close ? "completion" : "flags"} after job scan`, async t => {
+  for (const close of [true, false]) it(`real update waiter preserves concurrent ${close ? "completion": "flags"} after job scan`, async t => {
     t.mock.timers.enable({ apis: ["Date"], now });
     const row = await session();
     let release!: () => void; let held!: (pid: number) => void;
@@ -90,7 +90,7 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
       t.mock.timers.reset();
     }
   });
-  it("P1-124 real SLA job excludes paused/terminal/boundary and observes 12h warning window", async t => {
+  it("real SLA job excludes paused/terminal/boundary and observes 12h warning window", async t => {
     t.mock.timers.enable({ apis: ["Date"], now });
     try {
       const inputs = [
@@ -105,7 +105,7 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
       await runTicketSlaBreach();
       const audits = () => prisma.auditEvent.findMany({ where: { entityId: { in: ids }, action: "ticket.sla_breach" } });
       assert.deepEqual((await audits()).map(a => a.entityId), [ids[0]]);
-      // BUG-01 / BUG-08: SLA audit must include locationId + identifiable summary.
+      // SLA audit must include locationId + identifiable summary.
       const slaAudit = await prisma.auditEvent.findFirstOrThrow({
         where: { entityId: ids[0], action: "ticket.sla_breach" },
       });
@@ -125,7 +125,7 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
       await runTicketSlaBreach(); assert.equal((await audits()).filter(a => a.entityId === ids[0]).length, 2);
     } finally { t.mock.timers.reset(); }
   });
-  it("P1-125 real inactivity signals, JobRun and HTTP denial", async t => {
+  it("real inactivity signals, JobRun and HTTP denial", async t => {
     const { api, server } = await listenApp();
     const auth = await loginBearer(api, world.hk1.email, "test-password-cln");
     t.mock.timers.enable({ apis: ["Date"], now });
@@ -145,7 +145,7 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
       assert.equal(run.status, "ok"); assert.ok(run.finishedAt); assert.equal((run.summary as any).locked, 1);
     } finally { t.mock.timers.reset(); await closeServer(server); await prisma.user.update({ where: { id: world.hk1.userId }, data: { isActive: true } }); }
   });
-  it("P2-54 DB error after JobRun start is persisted while subsequent real jobs finish", async t => {
+  it("DB error after JobRun start is persisted while subsequent real jobs finish", async t => {
     t.mock.timers.enable({ apis: ["Date"], now });
     const row = await session(world.manager.employeeId);
     await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION scenario_job_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = '${row.id}' THEN RAISE EXCEPTION 'scenario_overdue_write_failure'; END IF; RETURN NEW; END $$`);
@@ -191,7 +191,7 @@ describe("P1-122–125 P2-54–56 real background jobs", () => {
     }
   });
 
-  it("P2-56 attention deduplicates awaiting+overdue task and drops terminal ticket/task", async () => {
+  it("attention deduplicates awaiting+overdue task and drops terminal ticket/task", async () => {
     const terminal = await prisma.maintenanceTicket.create({ data: { locationId: world.locationBId, title: "Terminal control", categoryKey: "other", categoryLabelBg: "Друго", categoryLabelEn: "Other", status: "resolved", blocksRoom: true, reportedByEmployeeId: world.owner.employeeId } });
     const task = await prisma.cleaningTask.create({ data: { locationId: world.locationBId, hotelDate: new Date("2026-01-16"), cleaningCycle: 0, status: "awaiting_inspection", dueAt: new Date(now - 1000) } });
     const scope = { task: { id: task.id }, ticket: { locationId: world.locationBId }, session: { taskId: task.id }, location: { id: world.locationBId } };

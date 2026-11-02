@@ -1,6 +1,6 @@
 /**
  * Audit live refresh: open Одит, mutate via API, assert UI updates without reload.
- * Covers jobs.changed (BUG-07) and settings.changed → events (BUG-06 path).
+ * Covers jobs.changed and settings.changed → events (path).
  */
 import { expect, test } from "@playwright/test";
 import { apiGet, apiLogin, apiPatch, apiPost } from "./helpers/api";

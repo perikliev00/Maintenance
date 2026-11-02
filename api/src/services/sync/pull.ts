@@ -3,7 +3,7 @@
  * `since` is echoed for clients; filtering is currently not applied server-side.
  */
 import { prisma } from "../../db";
-import type { AuthUser } from "../../middleware/auth";
+import type { AuthUser } from "../../auth/tokens";
 import { getMyWork } from "../myWork";
 import { assertSyncDevice } from "./device";
 

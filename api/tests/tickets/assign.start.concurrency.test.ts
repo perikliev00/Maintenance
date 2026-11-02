@@ -1,7 +1,7 @@
 import { orderedDatabaseRace } from "../dbBarrier";
 /**
- * R-TKT-02 / BUG-001 — concurrent assign × start never deadlocks.
- * Mirrors cleaning T-CLN-29 orderedDatabaseRace (both orderings).
+ * concurrent assign × start never deadlocks.
+ * Mirrors cleaning orderedDatabaseRace (both orderings).
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -39,7 +39,7 @@ function isPrismaDeadlock(err: unknown): boolean {
   return /deadlock|40P01/i.test(message);
 }
 
-describe("ticket assign × start ordered race (R-TKT-02 / BUG-001)", () => {
+describe("ticket assign × start ordered race", () => {
   let world: TicketsWorld;
 
   before(async () => {
@@ -75,7 +75,7 @@ describe("ticket assign × start ordered race (R-TKT-02 / BUG-001)", () => {
   });
 
   for (const startFirst of [true, false]) {
-    it(`R-TKT-02: ${startFirst ? "start" : "assign"} first never deadlocks`, async () => {
+    it(`${startFirst ? "start": "assign"} first never deadlocks`, async () => {
       const { ticket } = await reportTicket(prisma, world);
       await advanceTicketTo(world, ticket.id, "assigned", world.technician.employeeId);
 

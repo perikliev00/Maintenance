@@ -72,10 +72,10 @@ export async function updateCategory(
   return prisma.maintenanceCategory.update({
     where: { id },
     data: {
-      ...(input.nameBg !== undefined ? { nameBg: input.nameBg.trim() } : {}),
-      ...(input.nameEn !== undefined ? { nameEn: input.nameEn.trim() } : {}),
-      ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
-      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      nameBg: input.nameBg !== undefined ? input.nameBg.trim() : undefined,
+      nameEn: input.nameEn !== undefined ? input.nameEn.trim() : undefined,
+      sortOrder: input.sortOrder,
+      isActive: input.isActive,
     },
   });
 }

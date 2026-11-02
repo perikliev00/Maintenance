@@ -6,7 +6,7 @@ import {
   resolveActiveLocationLimit,
 } from "./crud";
 
-describe("resolveActiveLocationLimit (SUS-001 / B3)", () => {
+describe("resolveActiveLocationLimit", () => {
   it("defaults when omitted or non-finite", () => {
     assert.equal(resolveActiveLocationLimit(), DEFAULT_ACTIVE_LOCATION_LIMIT);
     assert.equal(resolveActiveLocationLimit(Number.NaN), DEFAULT_ACTIVE_LOCATION_LIMIT);

@@ -1,5 +1,5 @@
 /**
- * BUG-01/02 regressions: stale expectedVersion → 409; concurrent writers;
+ * regressions: stale expectedVersion → 409; concurrent writers;
  * audit diffs match transaction before-state (not cache).
  */
 import assert from "node:assert/strict";
@@ -41,7 +41,7 @@ process.env.JWT_SECRET =
 const prisma = new PrismaClient();
 const GRANT_ROLES = [...MATRIX_ROLES] as Role[];
 
-describe("permissions concurrency / optimistic version (BUG-01/02)", () => {
+describe("permissions concurrency / optimistic version", () => {
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
   let api = "";
   let snapshot: RoleGrantSnapshotRow[] = [];
@@ -75,7 +75,7 @@ describe("permissions concurrency / optimistic version (BUG-01/02)", () => {
     await prisma.$disconnect();
   });
 
-  it("BUG-01: stale expectedVersion is rejected with 409 and leaves grants unchanged", async () => {
+  it("stale expectedVersion is rejected with 409 and leaves grants unchanged", async () => {
     const localSnap = await snapshotRoleGrants(prisma, [Role.housekeeper]);
     try {
       const { token } = await loginBearer(
@@ -121,7 +121,7 @@ describe("permissions concurrency / optimistic version (BUG-01/02)", () => {
     }
   });
 
-  it("BUG-01: concurrent PUTs on same role → one 200 and one 409", async () => {
+  it("concurrent PUTs on same role → one 200 and one 409", async () => {
     const localSnap = await snapshotRoleGrants(prisma, [Role.technician]);
     try {
       const { token } = await loginBearer(
@@ -176,7 +176,7 @@ describe("permissions concurrency / optimistic version (BUG-01/02)", () => {
     }
   });
 
-  it("BUG-02: audit rows match transactional before-state under contention", async () => {
+  it("audit rows match transactional before-state under contention", async () => {
     const localSnap = await snapshotRoleGrants(prisma, [Role.reception]);
     try {
       const { token } = await loginBearer(
@@ -259,7 +259,7 @@ describe("permissions concurrency / optimistic version (BUG-01/02)", () => {
     }
   });
 
-  it("BUG-08: invalid history limit returns 400", async () => {
+  it("invalid history limit returns 400", async () => {
     const { token } = await loginBearer(api, owner.email, "test-password-t03");
     const bad = await getJson(api, token, "/permissions/history?limit=abc");
     assert.equal(bad.status, 400);

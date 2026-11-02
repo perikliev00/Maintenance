@@ -1,5 +1,5 @@
 /**
- * T-MW-67 / T-MW-68 — GET /my-work personal queue matrix.
+ * GET /my-work personal queue matrix.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -29,7 +29,7 @@ type MyWorkBody = {
   rosterShiftId: string | null;
 };
 
-describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
+describe("my-work HTTP queue", () => {
   let world: MyWorkWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -47,7 +47,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-MW-67a explicit shiftId filters morning ∪ null", async () => {
+  it("explicit shiftId filters morning ∪ null", async () => {
     const hk = await loginBearer(
       api,
       world.housekeeper.email,
@@ -71,7 +71,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     assert.ok(!ids.includes(world.taskOtherDayId));
   });
 
-  it("T-MW-67b roster fallback to evening ∪ null", async () => {
+  it("roster fallback to evening ∪ null", async () => {
     const hk = await loginBearer(
       api,
       world.housekeeper.email,
@@ -95,7 +95,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     assert.ok(!ids.includes(world.taskOtherDayId));
   });
 
-  it("T-MW-67c no roster → no shift filter (all active for day in assignee scope)", async () => {
+  it("no roster → no shift filter (all active for day in assignee scope)", async () => {
     await prisma.employeeShiftRoster.deleteMany({
       where: {
         employeeId: world.housekeeper.employeeId,
@@ -136,7 +136,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     });
   });
 
-  it("T-MW-67d explicit shift overrides roster", async () => {
+  it("explicit shift overrides roster", async () => {
     const hk = await loginBearer(
       api,
       world.housekeeper.email,
@@ -156,7 +156,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     );
   });
 
-  it("T-MW-67e non-null foreign sector snapshot not visible to supervisor of other sector", async () => {
+  it("non-null foreign sector snapshot not visible to supervisor of other sector", async () => {
     const sup = await loginBearer(
       api,
       world.supervisor.email,
@@ -176,7 +176,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     );
   });
 
-  it("T-MW-67f foreign assignee task on same day is absent from HK queue", async () => {
+  it("foreign assignee task on same day is absent from HK queue", async () => {
     const hk = await loginBearer(
       api,
       world.housekeeper.email,
@@ -193,7 +193,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     assert.ok(!ids.includes(world.taskForeignAssigneeId));
   });
 
-  it("T-MW-67g completed and cancelled controls on D are absent", async () => {
+  it("completed and cancelled controls on D are absent", async () => {
     const hk = await loginBearer(
       api,
       world.housekeeper.email,
@@ -211,7 +211,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     assert.ok(!ids.includes(world.taskCancelledId));
   });
 
-  it("T-MW-67h supervisor queue shrinks after sector primary removed", async () => {
+  it("supervisor queue shrinks after sector primary removed", async () => {
     // Supervisor owns only sectorOwn: active dayD tasks with that sector snapshot.
     const expectedBeforeIds = [
       world.taskMorningId,
@@ -267,7 +267,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     }
   });
 
-  it("T-MW-68 technician: empty cleaning; exact own open tickets", async () => {
+  it("technician: empty cleaning; exact own open tickets", async () => {
     const tech = await loginBearer(
       api,
       world.technician.email,
@@ -294,7 +294,7 @@ describe("my-work HTTP queue (T-MW-67 / T-MW-68)", () => {
     assert.ok(!ticketIds.includes(world.ticketOwnClosedId));
   });
 
-  it("P1-68: every assigned repair is reachable beyond 50 with stable equal-time ordering", async () => {
+  it("every assigned repair is reachable beyond 50 with stable equal-time ordering", async () => {
     const tech = await loginBearer(api, world.technician.email, world.password);
     const ids = Array.from({ length: 55 }, (_, i) => `mw-page-${world.stamp}-${String(i).padStart(3, "0")}`);
     await prisma.maintenanceTicket.createMany({ data: ids.map((id) => ({

@@ -273,7 +273,7 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
 };
 
 /** Default first panel after login when no override is stored. */
-export const LANDING_BY_ROLE: Record<Role, Panel> = {
+const LANDING_BY_ROLE: Record<Role, Panel> = {
   housekeeper: "mywork",
   technician: "mywork",
   reception: "rooms",

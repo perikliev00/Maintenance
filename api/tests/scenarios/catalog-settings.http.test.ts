@@ -42,7 +42,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     }
     await prisma.$disconnect();
   });
-  it("P2-21 invalid operations/access/flags preserve nonempty settings and history", async () => {
+  it("invalid operations/access/flags preserve nonempty settings and history", async () => {
     for (const [key, invalid] of [
       ["operations", { ...operations, overdueSessionMinutes: 0 }], ["operations", { ...operations, defaultTaskDueHours: 73 }],
       ["access", { ...access, invitationTtlHours: 0 }], ["access", { ...access, sessionIdleDays: -1 }], ["flags", { ...flags, require_inspection: "false" }],
@@ -54,7 +54,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
       assert.deepEqual(await prisma.auditEvent.findMany({ where: { entityType: "setting", entityId: key } }), audits);
     }
   });
-  it("P2-22 saved setting is immediate and survives a fresh process", async () => {
+  it("saved setting is immediate and survives a fresh process", async () => {
     const value = { ...operations, overdueSessionMinutes: operations.overdueSessionMinutes === 91 ? 92 : 91 };
     try {
       const ver = (await prisma.appSetting.findUniqueOrThrow({ where: { key: "operations" } })).version;
@@ -64,7 +64,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
       assert.equal(child.status, 0, child.stderr); assert.match(child.stdout, new RegExp(`PERSISTED ${value.overdueSessionMinutes}`));
     } finally { await updateSetting({ key: "operations", value: operations, actorEmployeeId: world.owner.employeeId, reason: "restore" }); }
   });
-  it("P2-23 changing default SLA changes new ticket only; existing deadline stays fixed", async () => {
+  it("changing default SLA changes new ticket only; existing deadline stays fixed", async () => {
     const policy = await prisma.slaPolicy.findUnique({ where: { priority: "normal" } });
     const category = await createCategory({ key: `c_${randomUUID().replaceAll("-", "").slice(0, 20)}`, nameBg: "Категория", nameEn: "Category" }); categoryIds.push(category.id);
     const now = new Date("2026-01-01T10:00:00Z");
@@ -82,7 +82,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
       await updateSetting({ key: "operations", value: operations, actorEmployeeId: world.owner.employeeId });
     }
   });
-  it("P2-26 permission history records exact add/revoke actor/reason and identical save is a no-op", async () => {
+  it("permission history records exact add/revoke actor/reason and identical save is a no-op", async () => {
     const snapshot = await snapshotRoleGrants(prisma, ["housekeeper"]);
     const baseline = { panels: snapshot.filter(r => r.kind === "panel").map(r => r.key), actions: snapshot.filter(r => r.kind === "action").map(r => r.key) };
     const remove = baseline.actions.find(k => k !== "tickets.report")!;
@@ -96,7 +96,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
       assert.deepEqual(await prisma.auditEvent.findMany({ where: { reason: next.reason } }), history);
     } finally { await restoreRoleGrants(prisma, ["housekeeper"], snapshot); }
   });
-  it("P2-27 all audit filters intersect without broadening location/actor/time/entity", async () => {
+  it("all audit filters intersect without broadening location/actor/time/entity", async () => {
     const entity = randomUUID(); const action = `scenario.${randomUUID()}`;
     const template = { action, entityType: "scenario", entityId: entity, actorEmployeeId: world.owner.employeeId, locationId: world.locationAId, occurredAt: new Date("2026-01-10T12:00:00Z") };
     const wanted = await prisma.auditEvent.create({ data: template });
@@ -104,7 +104,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     const q = new URLSearchParams({ action, entityType: "scenario", entityId: entity, actorEmployeeId: world.owner.employeeId, locationId: world.locationAId, from: "2026-01-10T00:00:00.000Z", to: "2026-01-10T23:59:59.999Z" });
     const res = await getJson(api, token, `/audit?${q}`); assert.equal(res.status, 200); assert.deepEqual((res.body as any[]).map(r => r.id), [wanted.id]);
   });
-  it("P2-28 invalid floor and duplicate number create/update leave room and audit unchanged", async () => {
+  it("invalid floor and duplicate number create/update leave room and audit unchanged", async () => {
     const before = await prisma.location.findUniqueOrThrow({ where: { id: world.locationAId } });
     const other = await prisma.location.findUniqueOrThrow({ where: { id: world.locationBId } });
     const audits = await prisma.auditEvent.findMany({ where: { locationId: world.locationAId } });
@@ -115,7 +115,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
       assert.deepEqual(await prisma.auditEvent.findMany({ where: { locationId: world.locationAId } }), audits);
     }
   });
-  it("P2-29 archive/restore retains occupancy, cleaning, service, cycle and old history", async () => {
+  it("archive/restore retains occupancy, cleaning, service, cycle and old history", async () => {
     await prisma.location.update({ where: { id: world.locationBId }, data: { occupancy: "occupied", cleaningStatus: "dirty", serviceStatus: "out_of_service", cleaningCycle: 7 } });
     const before = await prisma.location.findUniqueOrThrow({ where: { id: world.locationBId } });
     const old = await prisma.auditEvent.create({ data: { entityType: "location", entityId: world.locationBId, locationId: world.locationBId, action: "scenario.old", after: { value: "old" } } });
@@ -125,7 +125,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     for (const key of ["occupancy", "cleaningStatus", "serviceStatus", "cleaningCycle", "catalogStatus"] as const) assert.equal(after[key], before[key]);
     assert.deepEqual(await prisma.auditEvent.findUniqueOrThrow({ where: { id: old.id } }), old);
   });
-  it("P2-30 P2-36 category snapshot and preset defaults retain explicit blocksRoom", async () => {
+  it("category snapshot and preset defaults retain explicit blocksRoom", async () => {
     const category = await createCategory({ key: `c_${randomUUID().replaceAll("-", "").slice(0, 20)}`, nameBg: "Стара категория", nameEn: "Old Category" }); categoryIds.push(category.id);
     const option = await createIssueOption({ maintenanceCategoryId: category.id, kind: "maintenance", nameBg: "Предварително описание", nameEn: "Preset", defaultPriority: "urgent", defaultBlocksRoom: true });
     const res = await postJson(api, token, "/maintenance/tickets", { locationId: world.locationAId, issueOptionId: option.id, blocksRoom: false, commandId: randomUUID() }); assert.equal(res.status, 201);
@@ -136,7 +136,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     assert.deepEqual(await prisma.maintenanceTicket.findUniqueOrThrow({ where: { id: ticket.id } }), before);
     assert.equal(before.categoryLabelBg, "Стара категория");
   });
-  it("P2-31 option reorder is atomic for unknown, duplicate and late database errors", async () => {
+  it("option reorder is atomic for unknown, duplicate and late database errors", async () => {
     const category = await createCategory({ key: `c_${randomUUID().replaceAll("-", "").slice(0, 20)}`, nameBg: "Подредба", nameEn: "Order" }); categoryIds.push(category.id);
     const ids: string[] = [];
     for (let i = 0; i < 3; i++) ids.push((await createIssueOption({ maintenanceCategoryId: category.id, kind: "maintenance", nameBg: `Опция ${i}`, nameEn: `Option ${i}`, sortOrder: i })).id);
@@ -149,7 +149,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     try { await assert.rejects(reorderIssueOptions(ids), /scenario_order_after_first_write/); assert.deepEqual(await read(), before); }
     finally { await prisma.$executeRawUnsafe('DROP TRIGGER scenario_order_fail ON "IssueOption"'); await prisma.$executeRawUnsafe('DROP FUNCTION scenario_order_fail()'); }
   });
-  it("P2-32 overnight shift persists and invalid hours leave catalog unchanged", async () => {
+  it("overnight shift persists and invalid hours leave catalog unchanged", async () => {
     const body = { code: `S${randomUUID().slice(0, 7)}`, nameBg: "Нощна", nameEn: "Night", startTime: "22:00", endTime: "06:00" };
     const good = await postJson(api, token, "/shifts", body); assert.equal(good.status, 201); shiftIds.push((good.body as any).id);
     assert.equal((await prisma.shift.findUniqueOrThrow({ where: { id: (good.body as any).id } })).endTime, "06:00");
@@ -157,7 +157,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     for (const invalid of ["24:00", "12:60", "9:30", "invalid"]) assert.equal((await postJson(api, token, "/shifts", { ...body, code: randomUUID(), endTime: invalid })).status, 400);
     assert.equal(await prisma.shift.count(), count);
   });
-  it("P2-34 impossible task and roster dates reject without rollover or partial writes", async () => {
+  it("impossible task and roster dates reject without rollover or partial writes", async () => {
     const before = await prisma.cleaningTask.count({ where: { locationId: world.locationAId } });
     const rosters = await prisma.employeeShiftRoster.findMany({ where: { employeeId: world.hk1.employeeId } });
     for (const hotelDate of ["2025-02-29", "2026-02-30", "2026-04-31", "2026-13-01", "2026-00-10"]) {
@@ -167,12 +167,12 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     assert.deepEqual(await prisma.employeeShiftRoster.findMany({ where: { employeeId: world.hk1.employeeId } }), rosters);
     assert.equal((await postJson(api, token, "/cleaning/tasks", { locationId: world.locationAId, hotelDate: "2028-02-29" })).status, 201);
   });
-  it("P2-34 roster rejects impossible date without deleting other hotel days", async () => {
+  it("roster rejects impossible date without deleting other hotel days", async () => {
     const before = await prisma.employeeShiftRoster.findMany({ where: { employeeId: world.hk1.employeeId } });
     assert.equal((await putJson(api, token, "/shifts/roster", { hotelDate: "2026-02-30", entries: [{ employeeId: world.hk1.employeeId, shiftId: shiftIds[0] }] })).status, 400);
     assert.deepEqual(await prisma.employeeShiftRoster.findMany({ where: { employeeId: world.hk1.employeeId } }), before);
   });
-  it("P2-35 deleting plan row retains created task and applied room effects", async () => {
+  it("deleting plan row retains created task and applied room effects", async () => {
     await prisma.location.update({ where: { id: world.locationAId }, data: { occupancy: "vacant", cleaningStatus: "dirty" } });
     const created = await createDailyPlanEntry({ hotelDate: await todayHotelDateYmd(), locationId: world.locationAId, category: "arrival", assignedEmployeeId: world.hk1.employeeId, createdByEmployeeId: world.owner.employeeId });
     const entry = await prisma.dailyPlanEntry.findUniqueOrThrow({ where: { id: created.entry.id } }); assert.ok(entry.cleaningTaskId);
@@ -183,7 +183,7 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
     assert.deepEqual(await prisma.cleaningTask.findUniqueOrThrow({ where: { id: task.id } }), task);
     assert.deepEqual(await prisma.location.findUniqueOrThrow({ where: { id: world.locationAId } }), location);
   });
-  it("P2-37 malformed import envelopes are HTTP validation errors, with no new batches", async () => {
+  it("malformed import envelopes are HTTP validation errors, with no new batches", async () => {
     const before = await prisma.dailyPlanImportBatch.count({ where: { createdByEmployeeId: world.owner.employeeId } });
     for (const body of [{ hotelDate: "2026-10-19" }, { hotelDate: "2026-10-19", entries: {} }, [], null, "invalid"]) assert.equal((await postJson(api, token, "/daily-plan/import", body)).status, 400);
     assert.equal(await prisma.dailyPlanImportBatch.count({ where: { createdByEmployeeId: world.owner.employeeId } }), before);

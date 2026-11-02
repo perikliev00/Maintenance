@@ -7,7 +7,7 @@
  * Session + scope are re-checked and the frame is written before those locks
  * release, so delivery is linearized against access-reducing commits.
  */
-import type { AuthUser } from "../middleware/auth";
+import type { AuthUser } from "../auth/tokens";
 import { prisma } from "../db";
 import { assertSessionActive } from "./authSessions";
 import { resolveDataScope, type DataScope } from "./dataScope";
@@ -19,8 +19,7 @@ import {
 import { canDeliverLiveEvent } from "../events/authorizeLiveEvent";
 import type { LiveEvent } from "../events/bus";
 import { Prisma } from "@prisma/client";
-
-type Tx = Prisma.TransactionClient;
+import type { Tx } from "./db/types";
 
 export type LiveAuthorizationTestHooks = {
   /** Fires immediately after User FOR SHARE is acquired. */

@@ -1,5 +1,5 @@
 /**
- * T-ATT-70a..e — partial adjustment overlay (service + HTTP omit vs null).
+ * e — partial adjustment overlay (service + HTTP omit vs null).
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -33,7 +33,7 @@ import {
 
 const prisma = new PrismaClient();
 
-describe("attendance adjustments partial overlay (T-ATT-70)", () => {
+describe("attendance adjustments partial overlay", () => {
   let world: AttendanceWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -78,7 +78,7 @@ describe("attendance adjustments partial overlay (T-ATT-70)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-ATT-70a service start-only overlay preserves end/break on approve", async () => {
+  it("service start-only overlay preserves end/break on approve", async () => {
     const iv = await seedBase();
     const S1 = new Date(S0.getTime() + 30 * 60_000);
     const adj = await requestAdjustment({
@@ -104,7 +104,7 @@ describe("attendance adjustments partial overlay (T-ATT-70)", () => {
     assert.equal(reviewed.status, AttendanceIntervalStatus.adjusted);
   });
 
-  it("T-ATT-70b service end-only overlay preserves start/break on approve", async () => {
+  it("service end-only overlay preserves start/break on approve", async () => {
     const iv = await seedBase();
     const E1 = new Date(E0.getTime() - 30 * 60_000);
     const adj = await requestAdjustment({
@@ -130,7 +130,7 @@ describe("attendance adjustments partial overlay (T-ATT-70)", () => {
     assert.equal(reviewed.status, AttendanceIntervalStatus.adjusted);
   });
 
-  it("T-ATT-70c service break-only overlay preserves times on approve", async () => {
+  it("service break-only overlay preserves times on approve", async () => {
     const iv = await seedBase();
     const adj = await requestAdjustment({
       intervalId: iv.id,
@@ -155,7 +155,7 @@ describe("attendance adjustments partial overlay (T-ATT-70)", () => {
     assert.equal(reviewed.status, AttendanceIntervalStatus.adjusted);
   });
 
-  it("T-ATT-70d service invalid combo → 400; no Adjustment row", async () => {
+  it("service invalid combo → 400; no Adjustment row", async () => {
     const iv = await seedBase();
     // Span after start-only would be 20m < B0=30
     const tooLate = new Date(E0.getTime() - 20 * 60_000);
@@ -186,7 +186,7 @@ describe("attendance adjustments partial overlay (T-ATT-70)", () => {
     assert.equal(ivAfter.status, AttendanceIntervalStatus.closed);
   });
 
-  it("T-ATT-70e HTTP omit OK; null break → 400; approve preserves omitted", async () => {
+  it("HTTP omit OK; null break → 400; approve preserves omitted", async () => {
     const iv = await seedBase();
     const tech = await loginBearer(api, world.technician.email, ATT_PASSWORD);
     const mgr = await loginBearer(api, world.manager.email, ATT_PASSWORD);

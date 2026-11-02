@@ -2,10 +2,8 @@
  * Test-only barriers for sector mutation concurrency (BUG-11 / BUG-12).
  * Production code never sets these hooks.
  */
-import type { Prisma } from "@prisma/client";
 import type { DataScope } from "../dataScope";
-
-type Tx = Prisma.TransactionClient;
+import type { Tx } from "../db/types";
 
 export type SectorMutationTestHooks = {
   /** After initial HTTP-style auth/scope resolution, before the DB transaction. */

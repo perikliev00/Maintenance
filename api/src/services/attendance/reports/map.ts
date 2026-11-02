@@ -3,6 +3,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { asFlags } from "../../attendanceRules";
+import { formatHotelDate } from "../../hotelTime";
 
 /** Default page size when the client omits `limit`. */
 export const LIST_DEFAULT_LIMIT = 200;
@@ -46,7 +47,7 @@ export function mapInterval(
     id: row.id,
     employeeId: row.employeeId,
     employee: row.employee,
-    hotelDate: row.hotelDate.toISOString().slice(0, 10),
+    hotelDate: formatHotelDate(row.hotelDate),
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt?.toISOString() ?? null,
     breakMinutes: row.breakMinutes,

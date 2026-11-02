@@ -18,6 +18,38 @@ const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 
 function label(value: string) { return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]/g, ""); }
+
+type LogLevel = "info" | "warn" | "error" | "fatal";
+
+function writeLog(
+  level: LogLevel,
+  event: string,
+  fields?: Record<string, unknown>,
+): void {
+  const line = JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level,
+    service: "maintenance-api",
+    event,
+    ...fields,
+  });
+  if (level === "warn") console.warn(line);
+  else if (level === "error" || level === "fatal") console.error(line);
+  else console.log(line);
+}
+
+/** Structured JSON logs shared by entrypoints, jobs, and SSE. */
+export const log = {
+  info: (event: string, fields?: Record<string, unknown>) =>
+    writeLog("info", event, fields),
+  warn: (event: string, fields?: Record<string, unknown>) =>
+    writeLog("warn", event, fields),
+  error: (event: string, fields?: Record<string, unknown>) =>
+    writeLog("error", event, fields),
+  fatal: (event: string, fields?: Record<string, unknown>) =>
+    writeLog("fatal", event, fields),
+};
+
 export function safeErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message
@@ -61,12 +93,16 @@ export function requestObservability(req: Request, res: Response, next: NextFunc
         latencyCounts.set(bucketKey, (latencyCounts.get(bucketKey) ?? 0) + 1);
       }
     }
-    const log = {
-      timestamp: new Date().toISOString(), level: res.statusCode >= 500 ? "error" : "info",
-      service: "maintenance-api", release: process.env.RELEASE_SHA ?? "unknown", requestId,
-      method, route, status: res.statusCode, durationSeconds: Number(seconds.toFixed(6)),
+    const fields = {
+      release: process.env.RELEASE_SHA ?? "unknown",
+      requestId,
+      method,
+      route,
+      status: res.statusCode,
+      durationSeconds: Number(seconds.toFixed(6)),
     };
-    (res.statusCode >= 500 ? console.error : console.log)(JSON.stringify(log));
+    if (res.statusCode >= 500) log.error("http_request", fields);
+    else log.info("http_request", fields);
   });
   next();
 }

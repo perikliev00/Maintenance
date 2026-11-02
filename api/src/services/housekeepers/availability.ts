@@ -20,8 +20,10 @@ import {
   getHotelNow,
   hotelDateAsUtcDate,
   hotelDateString,
-  resolveUsableHotelTimeZone,
+  hotelLocalHhMm,
 } from "../hotelTime";
+
+export { hotelLocalHhMm };
 import { getOperations } from "../settings";
 
 export type AvailabilityStatus =
@@ -115,23 +117,6 @@ export function isWithinShiftWindow(
   return now >= start || now < end;
 }
 
-/** Hotel-local HH:mm for an instant in a timezone. */
-export function hotelLocalHhMm(instant: Date, timeZone: string): string {
-  const resolved = resolveUsableHotelTimeZone(timeZone).timeZone;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: resolved,
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-  }).formatToParts(instant);
-  const map: Record<string, string> = {};
-  for (const p of parts) {
-    if (p.type !== "literal") map[p.type] = p.value;
-  }
-  const hour = map.hour === "24" ? "00" : map.hour;
-  return `${hour}:${map.minute}`;
-}
-
 type ClassifyInput = {
   hasRunningSession: boolean;
   rosterShift: { startTime: string; endTime: string } | null;
@@ -211,6 +196,210 @@ export function classifyAvailability(
 
   reasons.push("ambiguous_attendance");
   return { status: "unknown", reasons };
+}
+
+/**
+ * Batch-fetch availability rows for the given housekeeper ids (newest-first sort).
+ * Exported for characterization tests; prefer listAvailableHousekeepers at call sites.
+ */
+export async function buildAvailability(input: {
+  employees: Array<{ id: string; fullName: string; employeeNumber: string }>;
+  db: AssigneeDb;
+  now: Date;
+  hotelDateKey: Date;
+  nowHhMm: string;
+  checkedAt: string;
+}): Promise<HousekeeperAvailability[]> {
+  const { employees, db, now, hotelDateKey, nowHhMm, checkedAt } = input;
+  if (employees.length === 0) return [];
+
+  const ids = employees.map((h) => h.id);
+
+  const [rosters, intervals, runningSessions, taskCounts, breakEvents] =
+    await Promise.all([
+      db.employeeShiftRoster.findMany({
+        where: { employeeId: { in: ids }, hotelDate: hotelDateKey },
+        include: {
+          shift: {
+            select: {
+              id: true,
+              code: true,
+              nameBg: true,
+              nameEn: true,
+              startTime: true,
+              endTime: true,
+              isActive: true,
+            },
+          },
+        },
+      }),
+      db.attendanceInterval.findMany({
+        where: {
+          employeeId: { in: ids },
+          hotelDate: hotelDateKey,
+          status: {
+            in: [
+              AttendanceIntervalStatus.open,
+              AttendanceIntervalStatus.closed,
+              AttendanceIntervalStatus.needs_review,
+              AttendanceIntervalStatus.adjusted,
+            ],
+          },
+        },
+        orderBy: { startedAt: "desc" },
+      }),
+      db.cleaningSession.findMany({
+        where: {
+          employeeId: { in: ids },
+          status: SessionStatus.running,
+        },
+        include: {
+          task: {
+            select: {
+              id: true,
+              locationId: true,
+              location: { select: { number: true } },
+            },
+          },
+        },
+      }),
+      db.cleaningTask.groupBy({
+        by: ["assignedEmployeeId"],
+        where: {
+          assignedEmployeeId: { in: ids },
+          hotelDate: hotelDateKey,
+          status: { in: ACTIVE_TASK_STATUSES },
+        },
+        _count: { _all: true },
+      }),
+      db.attendanceEvent.findMany({
+        where: {
+          employeeId: { in: ids },
+          kind: {
+            in: [AttendanceEventKind.break_start, AttendanceEventKind.break_end],
+          },
+          normalizedTime: {
+            gte: new Date(now.getTime() - 36 * 60 * 60 * 1000),
+          },
+        },
+        orderBy: { normalizedTime: "asc" },
+        select: {
+          employeeId: true,
+          kind: true,
+          normalizedTime: true,
+        },
+      }),
+    ]);
+
+  const rosterByEmployee = new Map(
+    rosters
+      .filter((r) => r.shift.isActive)
+      .map((r) => [r.employeeId, r.shift] as const),
+  );
+
+  const intervalByEmployee = new Map<
+    string,
+    {
+      status: AttendanceIntervalStatus;
+      startedAt: Date;
+      endedAt: Date | null;
+    }
+  >();
+  for (const row of intervals) {
+    if (!intervalByEmployee.has(row.employeeId)) {
+      intervalByEmployee.set(row.employeeId, {
+        status: row.status,
+        startedAt: row.startedAt,
+        endedAt: row.endedAt,
+      });
+    }
+  }
+
+  const runningByEmployee = new Map(
+    runningSessions.map((s) => [
+      s.employeeId,
+      {
+        taskId: s.task.id,
+        locationId: s.task.locationId,
+        locationNumber: s.task.location.number,
+      },
+    ]),
+  );
+
+  const countByEmployee = new Map(
+    taskCounts
+      .filter((c) => c.assignedEmployeeId != null)
+      .map((c) => [c.assignedEmployeeId!, c._count._all] as const),
+  );
+
+  const onBreakByEmployee = new Set<string>();
+  const breakByEmployee = new Map<
+    string,
+    Array<{ kind: AttendanceEventKind; normalizedTime: Date }>
+  >();
+  for (const ev of breakEvents) {
+    const list = breakByEmployee.get(ev.employeeId) ?? [];
+    list.push({ kind: ev.kind, normalizedTime: ev.normalizedTime });
+    breakByEmployee.set(ev.employeeId, list);
+  }
+  for (const id of ids) {
+    const interval = intervalByEmployee.get(id);
+    if (
+      !interval ||
+      interval.status !== AttendanceIntervalStatus.open ||
+      interval.endedAt != null
+    ) {
+      continue;
+    }
+    const events = (breakByEmployee.get(id) ?? []).filter(
+      (e) => e.normalizedTime >= interval.startedAt,
+    );
+    let openBreak = false;
+    for (const e of events) {
+      if (e.kind === AttendanceEventKind.break_start) openBreak = true;
+      else if (e.kind === AttendanceEventKind.break_end) openBreak = false;
+    }
+    if (openBreak) onBreakByEmployee.add(id);
+  }
+
+  const result: HousekeeperAvailability[] = employees.map((hk) => {
+    const shift = rosterByEmployee.get(hk.id) ?? null;
+    const running = runningByEmployee.get(hk.id) ?? null;
+    const classified = classifyAvailability({
+      hasRunningSession: running != null,
+      rosterShift: shift
+        ? { startTime: shift.startTime, endTime: shift.endTime }
+        : null,
+      nowHhMm,
+      interval: intervalByEmployee.get(hk.id) ?? null,
+      onBreak: onBreakByEmployee.has(hk.id),
+    });
+
+    return {
+      employeeId: hk.id,
+      fullName: hk.fullName,
+      employeeNumber: hk.employeeNumber,
+      availabilityStatus: classified.status,
+      availabilityReasons: classified.reasons,
+      currentShift: shift
+        ? {
+            id: shift.id,
+            code: shift.code,
+            nameBg: shift.nameBg,
+            nameEn: shift.nameEn,
+            startTime: shift.startTime,
+            endTime: shift.endTime,
+          }
+        : null,
+      currentRunningTask: running,
+      assignedTaskCount: countByEmployee.get(hk.id) ?? 0,
+      sectorEligibility: "hotel_wide" as const,
+      checkedAt,
+    };
+  });
+
+  result.sort(sortHousekeepers);
+  return result;
 }
 
 function sortHousekeepers(
@@ -303,194 +492,14 @@ export async function listAvailableHousekeepers(input: {
     };
   }
 
-  const ids = housekeepers.map((h) => h.id);
-
-  const [rosters, intervals, runningSessions, taskCounts, breakEvents] =
-    await Promise.all([
-      db.employeeShiftRoster.findMany({
-        where: { employeeId: { in: ids }, hotelDate: hotelDateKey },
-        include: {
-          shift: {
-            select: {
-              id: true,
-              code: true,
-              nameBg: true,
-              nameEn: true,
-              startTime: true,
-              endTime: true,
-              isActive: true,
-            },
-          },
-        },
-      }),
-      db.attendanceInterval.findMany({
-        where: {
-          employeeId: { in: ids },
-          hotelDate: hotelDateKey,
-          status: {
-            in: [
-              AttendanceIntervalStatus.open,
-              AttendanceIntervalStatus.closed,
-              AttendanceIntervalStatus.needs_review,
-              AttendanceIntervalStatus.adjusted,
-            ],
-          },
-        },
-        orderBy: { startedAt: "desc" },
-      }),
-      db.cleaningSession.findMany({
-        where: {
-          employeeId: { in: ids },
-          status: SessionStatus.running,
-        },
-        include: {
-          task: {
-            select: {
-              id: true,
-              locationId: true,
-              location: { select: { number: true } },
-            },
-          },
-        },
-      }),
-      db.cleaningTask.groupBy({
-        by: ["assignedEmployeeId"],
-        where: {
-          assignedEmployeeId: { in: ids },
-          hotelDate: hotelDateKey,
-          status: { in: ACTIVE_TASK_STATUSES },
-        },
-        _count: { _all: true },
-      }),
-      db.attendanceEvent.findMany({
-        where: {
-          employeeId: { in: ids },
-          kind: {
-            in: [AttendanceEventKind.break_start, AttendanceEventKind.break_end],
-          },
-          normalizedTime: {
-            gte: new Date(now.getTime() - 36 * 60 * 60 * 1000),
-          },
-        },
-        orderBy: { normalizedTime: "asc" },
-        select: {
-          employeeId: true,
-          kind: true,
-          normalizedTime: true,
-        },
-      }),
-    ]);
-
-  const rosterByEmployee = new Map(
-    rosters
-      .filter((r) => r.shift.isActive)
-      .map((r) => [r.employeeId, r.shift] as const),
-  );
-
-  // Latest interval per employee (intervals ordered startedAt desc).
-  const intervalByEmployee = new Map<
-    string,
-    {
-      status: AttendanceIntervalStatus;
-      startedAt: Date;
-      endedAt: Date | null;
-    }
-  >();
-  for (const row of intervals) {
-    if (!intervalByEmployee.has(row.employeeId)) {
-      intervalByEmployee.set(row.employeeId, {
-        status: row.status,
-        startedAt: row.startedAt,
-        endedAt: row.endedAt,
-      });
-    }
-  }
-
-  const runningByEmployee = new Map(
-    runningSessions.map((s) => [
-      s.employeeId,
-      {
-        taskId: s.task.id,
-        locationId: s.task.locationId,
-        locationNumber: s.task.location.number,
-      },
-    ]),
-  );
-
-  const countByEmployee = new Map(
-    taskCounts
-      .filter((c) => c.assignedEmployeeId != null)
-      .map((c) => [c.assignedEmployeeId!, c._count._all] as const),
-  );
-
-  // Unpaired break_start after interval start ⇒ on break.
-  const onBreakByEmployee = new Set<string>();
-  const breakByEmployee = new Map<
-    string,
-    Array<{ kind: AttendanceEventKind; normalizedTime: Date }>
-  >();
-  for (const ev of breakEvents) {
-    const list = breakByEmployee.get(ev.employeeId) ?? [];
-    list.push({ kind: ev.kind, normalizedTime: ev.normalizedTime });
-    breakByEmployee.set(ev.employeeId, list);
-  }
-  for (const id of ids) {
-    const interval = intervalByEmployee.get(id);
-    if (
-      !interval ||
-      interval.status !== AttendanceIntervalStatus.open ||
-      interval.endedAt != null
-    ) {
-      continue;
-    }
-    const events = (breakByEmployee.get(id) ?? []).filter(
-      (e) => e.normalizedTime >= interval.startedAt,
-    );
-    let openBreak = false;
-    for (const e of events) {
-      if (e.kind === AttendanceEventKind.break_start) openBreak = true;
-      else if (e.kind === AttendanceEventKind.break_end) openBreak = false;
-    }
-    if (openBreak) onBreakByEmployee.add(id);
-  }
-
-  const result: HousekeeperAvailability[] = housekeepers.map((hk) => {
-    const shift = rosterByEmployee.get(hk.id) ?? null;
-    const running = runningByEmployee.get(hk.id) ?? null;
-    const classified = classifyAvailability({
-      hasRunningSession: running != null,
-      rosterShift: shift
-        ? { startTime: shift.startTime, endTime: shift.endTime }
-        : null,
-      nowHhMm,
-      interval: intervalByEmployee.get(hk.id) ?? null,
-      onBreak: onBreakByEmployee.has(hk.id),
-    });
-
-    return {
-      employeeId: hk.id,
-      fullName: hk.fullName,
-      employeeNumber: hk.employeeNumber,
-      availabilityStatus: classified.status,
-      availabilityReasons: classified.reasons,
-      currentShift: shift
-        ? {
-            id: shift.id,
-            code: shift.code,
-            nameBg: shift.nameBg,
-            nameEn: shift.nameEn,
-            startTime: shift.startTime,
-            endTime: shift.endTime,
-          }
-        : null,
-      currentRunningTask: running,
-      assignedTaskCount: countByEmployee.get(hk.id) ?? 0,
-      sectorEligibility: "hotel_wide" as const,
-      checkedAt,
-    };
+  const result = await buildAvailability({
+    employees: housekeepers,
+    db,
+    now,
+    hotelDateKey,
+    nowHhMm,
+    checkedAt,
   });
-
-  result.sort(sortHousekeepers);
 
   return {
     locationId: input.locationId,
@@ -513,7 +522,6 @@ export async function evaluateEmployeeAvailability(
   const now = opts.now ?? getHotelNow();
   const ops = await getOperations();
   const timeZone = ops.hotelTimezone;
-  const hotelDateYmd = hotelDateString(now, timeZone);
   const hotelDateKey = hotelDateAsUtcDate(now, timeZone);
   const nowHhMm = hotelLocalHhMm(now, timeZone);
   const checkedAt = now.toISOString();
@@ -536,125 +544,21 @@ export async function evaluateEmployeeAvailability(
     return null;
   }
 
-  const [roster, interval, running, taskCount, breakEvents] = await Promise.all([
-    db.employeeShiftRoster.findFirst({
-      where: { employeeId, hotelDate: hotelDateKey },
-      include: {
-        shift: {
-          select: {
-            id: true,
-            code: true,
-            nameBg: true,
-            nameEn: true,
-            startTime: true,
-            endTime: true,
-            isActive: true,
-          },
-        },
+  const [availability] = await buildAvailability({
+    employees: [
+      {
+        id: employee.id,
+        fullName: employee.fullName,
+        employeeNumber: employee.employeeNumber,
       },
-    }),
-    db.attendanceInterval.findFirst({
-      where: { employeeId, hotelDate: hotelDateKey },
-      orderBy: { startedAt: "desc" },
-    }),
-    db.cleaningSession.findFirst({
-      where: { employeeId, status: SessionStatus.running },
-      include: {
-        task: {
-          select: {
-            id: true,
-            locationId: true,
-            location: { select: { number: true } },
-          },
-        },
-      },
-    }),
-    db.cleaningTask.count({
-      where: {
-        assignedEmployeeId: employeeId,
-        hotelDate: hotelDateKey,
-        status: { in: ACTIVE_TASK_STATUSES },
-      },
-    }),
-    db.attendanceEvent.findMany({
-      where: {
-        employeeId,
-        kind: {
-          in: [AttendanceEventKind.break_start, AttendanceEventKind.break_end],
-        },
-        normalizedTime: {
-          gte: new Date(now.getTime() - 36 * 60 * 60 * 1000),
-        },
-      },
-      orderBy: { normalizedTime: "asc" },
-      select: { kind: true, normalizedTime: true },
-    }),
-  ]);
-
-  const shift =
-    roster?.shift?.isActive === true
-      ? roster.shift
-      : null;
-
-  let onBreak = false;
-  if (
-    interval?.status === AttendanceIntervalStatus.open &&
-    interval.endedAt == null
-  ) {
-    let openBreak = false;
-    for (const e of breakEvents) {
-      if (e.normalizedTime < interval.startedAt) continue;
-      if (e.kind === AttendanceEventKind.break_start) openBreak = true;
-      else if (e.kind === AttendanceEventKind.break_end) openBreak = false;
-    }
-    onBreak = openBreak;
-  }
-
-  const classified = classifyAvailability({
-    hasRunningSession: running != null,
-    rosterShift: shift
-      ? { startTime: shift.startTime, endTime: shift.endTime }
-      : null,
+    ],
+    db,
+    now,
+    hotelDateKey,
     nowHhMm,
-    interval: interval
-      ? {
-          status: interval.status,
-          startedAt: interval.startedAt,
-          endedAt: interval.endedAt,
-        }
-      : null,
-    onBreak,
-  });
-
-  void hotelDateYmd;
-
-  return {
-    employeeId: employee.id,
-    fullName: employee.fullName,
-    employeeNumber: employee.employeeNumber,
-    availabilityStatus: classified.status,
-    availabilityReasons: classified.reasons,
-    currentShift: shift
-      ? {
-          id: shift.id,
-          code: shift.code,
-          nameBg: shift.nameBg,
-          nameEn: shift.nameEn,
-          startTime: shift.startTime,
-          endTime: shift.endTime,
-        }
-      : null,
-    currentRunningTask: running
-      ? {
-          taskId: running.task.id,
-          locationId: running.task.locationId,
-          locationNumber: running.task.location.number,
-        }
-      : null,
-    assignedTaskCount: taskCount,
-    sectorEligibility: "hotel_wide",
     checkedAt,
-  };
+  });
+  return availability ?? null;
 }
 
 /** Assert reassignment target is available, or override is allowed. */

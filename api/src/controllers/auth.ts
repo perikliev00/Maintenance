@@ -2,10 +2,8 @@
  * Auth HTTP handlers: login/refresh/logout and /me profile payload.
  * Access/refresh tokens are issued only via httpOnly cookies (never JSON body).
  */
-import type { NextFunction, Request, Response } from "express";
-import bcrypt from "bcryptjs";
+import type { Request, Response } from "express";
 import { z } from "zod/v3";
-import { Role } from "@prisma/client";
 import { prisma } from "../db";
 import { AppError } from "../errors";
 import { verifyAccessToken } from "../auth/tokens";
@@ -16,8 +14,9 @@ import {
   issueAuthCookies,
   readRefreshToken,
 } from "../middleware/session";
+import { publicUser } from "../services/authProfile";
+import { loginWithCredentials } from "../services/authLogin";
 import {
-  createSession,
   hashRefreshToken,
   revokeAllForUser,
   revokeAllUsingRefreshToken,
@@ -25,105 +24,35 @@ import {
   revokeSession,
   rotateRefresh,
 } from "../services/authSessions";
-import { capabilitiesFor } from "../services/roleGrants";
-
-/** Shape returned to the client after login or /me (panels/actions from RoleGrant). */
-async function publicUser(user: {
-  id: string;
-  email: string;
-  role: Role;
-  employeeId: string;
-  employee: { fullName: string };
-}) {
-  // Resolve panel/action grants and landing panel for this role.
-  const caps = await capabilitiesFor(user.role);
-  // Supervisors get an extra count of sectors they primary-supervise.
-  let supervisedSectorCount: number | null = null;
-  if (user.role === Role.supervisor) {
-    supervisedSectorCount = await prisma.sector.count({
-      where: {
-        primarySupervisorEmployeeId: user.employeeId,
-        isActive: true,
-      },
-    });
-  }
-  return {
-    id: user.id,
-    email: user.email,
-    role: user.role,
-    employeeId: user.employeeId,
-    fullName: user.employee.fullName,
-    panels: caps.panels,
-    actions: caps.actions,
-    landing: caps.landing,
-    supervisedSectorCount,
-  };
-}
 
 /** Email/password login; rejects inactive or not-yet-activated accounts. */
-export async function login(req: Request, res: Response, next: NextFunction) {
-  try {
-    const schema = z.object({
-      email: z.string().email(),
-      password: z.string().min(1),
-    });
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "validation", details: parsed.error.flatten() });
-    }
-
-    // Look up user by email with employee for publicUser payload.
-    const user = await prisma.user.findUnique({
-      where: { email: parsed.data.email },
-      include: { employee: true },
-    });
-    // Same 401 for missing vs inactive/archived to avoid account enumeration.
-    if (!user || !user.isActive || user.employee.archivedAt) {
-      return res.status(401).json({ error: "unauthorized", message: "Invalid credentials" });
-    }
-
-    // Invited but not yet redeemed on a device.
-    if (!user.activatedAt) {
-      return res.status(403).json({
-        error: "not_activated",
-        message: "Account is not activated. Use an invitation code on a device first.",
-      });
-    }
-
-    // Constant-time-ish bcrypt compare of the password hash.
-    const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
-    if (!ok) {
-      return res.status(401).json({ error: "unauthorized", message: "Invalid credentials" });
-    }
-
-    // Stamp last login for audit/ops visibility.
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
-
-    // Create AuthSession + access/refresh token pair.
-    const tokens = await createSession({
-      userId: user.id,
-      userAgent: req.get("user-agent"),
-      ip: req.ip,
-    });
-
-    // Set httpOnly session/refresh + CSRF cookies.
-    issueAuthCookies(res, tokens);
-
-    // Tokens only in httpOnly cookies — never in JSON body (XSS).
-    return res.json({
-      user: await publicUser(user),
-      expiresIn: tokens.expiresIn,
-    });
-  } catch (err) {
-    return next(err);
+export async function login(req: Request, res: Response) {
+  const schema = z.object({
+    email: z.string().email(),
+    password: z.string().min(1),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "validation", details: parsed.error.flatten() });
   }
+
+  const { user, tokens } = await loginWithCredentials(parsed.data, {
+    userAgent: req.get("user-agent") ?? undefined,
+    ip: req.ip,
+  });
+
+  // Set httpOnly session/refresh + CSRF cookies.
+  issueAuthCookies(res, tokens);
+
+  // Tokens only in httpOnly cookies — never in JSON body (XSS).
+  return res.json({
+    user,
+    expiresIn: tokens.expiresIn,
+  });
 }
 
 /** Rotate cookies; only a confirmed authentication rejection clears them. */
-export async function refresh(req: Request, res: Response, next: NextFunction) {
+export async function refresh(req: Request, res: Response) {
   try {
     // Cookie preferred; body fallback for non-browser clients.
     const refreshToken = readRefreshToken(req);
@@ -143,10 +72,11 @@ export async function refresh(req: Request, res: Response, next: NextFunction) {
     issueAuthCookies(res, tokens);
     return res.json({ ok: true, expiresIn: tokens.expiresIn });
   } catch (err) {
+    // Clear stale cookies on auth rejection; asyncHandler forwards the error.
     if (err instanceof AppError && (err.status === 401 || err.status === 403)) {
       clearAuthCookies(res);
     }
-    return next(err);
+    throw err;
   }
 }
 

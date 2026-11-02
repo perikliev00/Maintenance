@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { getSystemStatus, safeEntityCount } from "./settings";
 
-describe("safeEntityCount (BUG-05)", () => {
+describe("safeEntityCount", () => {
   it("returns the count when the query succeeds", async () => {
     assert.equal(await safeEntityCount(async () => 7), 7);
     assert.equal(await safeEntityCount(async () => 0), 0);
@@ -18,7 +18,7 @@ describe("safeEntityCount (BUG-05)", () => {
   });
 });
 
-describe("getSystemStatus failure isolation (BUG-05)", () => {
+describe("getSystemStatus failure isolation", () => {
   it("keeps other counts when one count runner fails", async () => {
     const status = await getSystemStatus({
       ping: async () => {},

@@ -1,5 +1,5 @@
 /** Housekeeping/maintenance sector CRUD and "my sectors" for supervisors. */
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { apiGet, apiPatch, apiPost, buildQuery } from "./http";
 
 export type SectorLocationRef = {
   id: string;
@@ -56,19 +56,12 @@ export type SectorSaveInput = {
 export async function fetchSectors(
   includeInactive = false,
 ): Promise<SectorRow[]> {
-  const qs = includeInactive ? "?includeInactive=true" : "";
-  const res = await apiFetch(`${API_BASE}/sectors${qs}`, {
-    headers: authHeaders(),
-  });
-  return parseJson(res);
+  return apiGet(`/sectors${buildQuery({ includeInactive: includeInactive || undefined })}`);
 }
 
 /** Sectors the current user supervises (for scoped housekeeping views). */
 export async function fetchMySectors(): Promise<MySectorsResponse> {
-  const res = await apiFetch(`${API_BASE}/sectors/mine`, {
-    headers: authHeaders(),
-  });
-  return parseJson(res);
+  return apiGet("/sectors/mine");
 }
 
 /** Create a sector; optional initial location membership and supervisor. */
@@ -80,12 +73,7 @@ export async function createSector(input: {
   locationIds?: string[];
   isActive?: boolean;
 }): Promise<SectorRow> {
-  const res = await apiFetch(`${API_BASE}/sectors`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify(input),
-  });
-  return parseJson(res);
+  return apiPost("/sectors", input);
 }
 
 /**
@@ -96,10 +84,5 @@ export async function updateSector(
   id: string,
   input: SectorSaveInput,
 ): Promise<SectorRow> {
-  const res = await apiFetch(`${API_BASE}/sectors/${id}`, {
-    method: "PATCH",
-    headers: authHeaders(),
-    body: JSON.stringify(input),
-  });
-  return parseJson(res);
+  return apiPatch(`/sectors/${id}`, input);
 }

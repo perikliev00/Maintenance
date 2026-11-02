@@ -1,5 +1,5 @@
 /**
- * T-PLAN-51 — concurrent create∥import with Location FOR UPDATE (P1-51).
+ * concurrent create∥import with Location FOR UPDATE .
  */
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -48,7 +48,7 @@ function isConflict(err: unknown): boolean {
   );
 }
 
-describe("daily plan create/import race (T-PLAN-51 / P1-51)", () => {
+describe("daily plan create/import race", () => {
   let world: PlanWorld;
   let today: string;
 
@@ -72,7 +72,7 @@ describe("daily plan create/import race (T-PLAN-51 / P1-51)", () => {
     ]);
   });
 
-  it("T-PLAN-51 serial: manual then import skips", async () => {
+  it("serial: manual then import skips", async () => {
     await prepareRoom(prisma, world.locationAId, {
       occupancy: Occupancy.vacant,
       cleaningStatus: CleaningStatus.dirty,
@@ -104,7 +104,7 @@ describe("daily plan create/import race (T-PLAN-51 / P1-51)", () => {
     assert.equal(imp.batch.errorCount, 0);
   });
 
-  it("T-PLAN-51 serial: import then manual → 409", async () => {
+  it("serial: import then manual → 409", async () => {
     await prepareRoom(prisma, world.locationBId, {
       occupancy: Occupancy.vacant,
       cleaningStatus: CleaningStatus.dirty,
@@ -137,7 +137,7 @@ describe("daily plan create/import race (T-PLAN-51 / P1-51)", () => {
     );
   });
 
-  it("T-PLAN-51a: concurrent arrival create∥import (no prior task)", async () => {
+  it("concurrent arrival create∥import (no prior task)", async () => {
     await prepareRoom(prisma, world.locationAId, {
       occupancy: Occupancy.vacant,
       cleaningStatus: CleaningStatus.dirty,
@@ -214,7 +214,7 @@ describe("daily plan create/import race (T-PLAN-51 / P1-51)", () => {
     assert.equal(loc.occupancy, Occupancy.vacant);
   });
 
-  it("T-PLAN-51b: concurrent departure create∥import with preexisting task", async () => {
+  it("concurrent departure create∥import with preexisting task", async () => {
     await prepareRoom(prisma, world.locationAId, {
       occupancy: Occupancy.vacant,
       cleaningStatus: CleaningStatus.dirty,

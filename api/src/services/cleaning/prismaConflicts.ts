@@ -3,31 +3,13 @@
  */
 import { Prisma } from "@prisma/client";
 import { AppError } from "../../errors";
+import {
+  isP2002,
+  p2002Targets,
+  targetsMatch,
+} from "../db/prismaErrors";
 
-/** Normalize Prisma `meta.target` (array or string) to string keys. */
-export function p2002Targets(err: Prisma.PrismaClientKnownRequestError): string[] {
-  const target = err.meta?.target;
-  // Prisma may return column arrays or a single index/constraint name string.
-  if (Array.isArray(target)) return target.map(String);
-  if (typeof target === "string") return [target];
-  return [];
-}
-
-/** True when err is a Prisma unique-constraint violation (P2002). */
-export function isP2002(err: unknown): err is Prisma.PrismaClientKnownRequestError {
-  return (
-    err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002"
-  );
-}
-
-/** Case-insensitive substring match against unique-constraint target names. */
-export function targetsMatch(
-  err: Prisma.PrismaClientKnownRequestError,
-  needles: string[],
-) {
-  const targets = p2002Targets(err).map((t) => t.toLowerCase());
-  return needles.some((n) => targets.some((t) => t.includes(n.toLowerCase())));
-}
+export { isP2002, p2002Targets, targetsMatch };
 
 /** Translate session-start unique races into user-facing conflict errors. */
 export function mapStartUniqueConflict(

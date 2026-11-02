@@ -3,6 +3,7 @@
  * Production entrypoint must call `wireJobSchedulerAfterBootstrap(closing)` only —
  * that hard-wires startJobScheduler + process.env (no injectable bypasses).
  */
+import { log } from "../../observability";
 import { startJobScheduler } from "./scheduler";
 import { isJobSchedulerDisabled } from "./schedulerFlag";
 
@@ -17,7 +18,13 @@ export type JobSchedulerBootDeps = {
 };
 
 function defaultWarn(payload: Record<string, unknown>): void {
-  console.warn(JSON.stringify(payload));
+  const event = String(payload.event ?? "unknown");
+  const fields = { ...payload };
+  delete fields.timestamp;
+  delete fields.level;
+  delete fields.service;
+  delete fields.event;
+  log.warn(event, fields);
 }
 
 /**

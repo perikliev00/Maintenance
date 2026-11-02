@@ -9,9 +9,11 @@ import {
   LocationKind,
   Prisma,
 } from "@prisma/client";
-import { prisma } from "../db";
-import { AppError } from "../errors";
-import { recordAudit } from "./audit";
+import { prisma } from "../../db";
+import { AppError } from "../../errors";
+import { isP2002 } from "../db/prismaErrors";
+import { recordAudit } from "../audit";
+import { assertCommandPayloadMatch } from "../commandIdempotency";
 
 /** Card types that bind to a staff employee (not guest). */
 const STAFF_CARD_TYPES: CardType[] = [
@@ -85,20 +87,14 @@ function assertIssueFingerprintMatch(
 ) {
   const grant = firstGrant(card);
   const locationId = grant?.locationId ?? null;
-  const matches =
+  assertCommandPayloadMatch(
     card.cardType === input.cardType &&
-    nullNorm(card.employeeId) === nullNorm(input.employeeId) &&
-    nullNorm(locationId) === nullNorm(input.locationId) &&
-    grant != null &&
-    grant.validFrom.getTime() === input.validFrom.getTime() &&
-    grant.validUntil.getTime() === input.validUntil.getTime();
-  if (!matches) {
-    throw new AppError(
-      409,
-      "conflict",
-      "commandId reused with a different payload",
-    );
-  }
+      nullNorm(card.employeeId) === nullNorm(input.employeeId) &&
+      nullNorm(locationId) === nullNorm(input.locationId) &&
+      grant != null &&
+      grant.validFrom.getTime() === input.validFrom.getTime() &&
+      grant.validUntil.getTime() === input.validUntil.getTime(),
+  );
 }
 
 /** List access cards with optional filters; newest first. */
@@ -328,10 +324,7 @@ export async function issueCard(input: {
     return { card, idempotent: false };
   } catch (err) {
     // Concurrent create with the same commandId → treat as idempotent success.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isP2002(err)) {
       const raced = await prisma.accessCard.findUnique({
         where: { commandId: input.commandId },
         include: cardInclude,

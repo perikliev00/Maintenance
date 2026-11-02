@@ -4,7 +4,7 @@ import { uiLogin, USERS } from "./helpers/auth";
 import { openNav } from "./helpers/nav";
 
 /**
- * P1-05 UI: after revoking mark-dirty (+ create) from supervisor, Rooms no
+ * UI: after revoking mark-dirty (create) from supervisor, Rooms no
  * longer shows Mark dirty once capabilities refresh.
  */
 test.describe("revoke action UI", () => {

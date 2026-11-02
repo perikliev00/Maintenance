@@ -1,5 +1,5 @@
 /**
- * Unit coverage for shared housekeeping helpers (BUG-03/04/08/09/10).
+ * Unit coverage for shared housekeeping helpers .
  * Imports production modules — not local clones.
  */
 import assert from "node:assert/strict";
@@ -15,7 +15,7 @@ import {
 } from "./housekeepingLogic";
 
 describe("housekeepingLogic (production helpers)", () => {
-  it("BUG-09: separates successful save from failed refresh", () => {
+  it("separates successful save from failed refresh", () => {
     assert.equal(
       classifySaveRefreshOutcome({ saveOk: true, refreshOk: false }),
       "saved_refresh_failed",
@@ -30,14 +30,14 @@ describe("housekeepingLogic (production helpers)", () => {
     );
   });
 
-  it("BUG-03: supervisors with manage cannot create sectors", () => {
+  it("supervisors with manage cannot create sectors", () => {
     assert.equal(canCreateSector("supervisor", true), false);
     assert.equal(canCreateSector("manager", true), true);
     assert.equal(canCreateSector("manager", false), false);
     assert.equal(canCreateSector("owner", true), true);
   });
 
-  it("BUG-08: save result applies only to the in-flight edit identity", () => {
+  it("save result applies only to the in-flight edit identity", () => {
     assert.equal(
       shouldApplySectorSaveResult({
         savingId: "sec-1",
@@ -68,7 +68,7 @@ describe("housekeepingLogic (production helpers)", () => {
     );
   });
 
-  it("BUG-04: independent load errors merge without blanking siblings", () => {
+  it("independent load errors merge without blanking siblings", () => {
     assert.equal(
       mergeIndependentLoadErrors({
         sectors: null,
@@ -87,7 +87,7 @@ describe("housekeepingLogic (production helpers)", () => {
     assert.equal(mergeIndependentLoadErrors({}), null);
   });
 
-  it("BUG-10: catalog-changed event identity", () => {
+  it("catalog-changed event identity", () => {
     assert.equal(HOUSEKEEPING_CATALOG_CHANGED, "housekeeping:catalog-changed");
     assert.equal(isCatalogChangedEvent(catalogChangedEvent()), true);
     assert.equal(isCatalogChangedEvent(new Event(HOUSEKEEPING_CATALOG_CHANGED)), false);

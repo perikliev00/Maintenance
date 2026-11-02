@@ -22,8 +22,12 @@ import { loadLockedTicket } from "./locks";
 // Module dependency import.
 import { notifyTicketEvent, publishTicketChanged } from "./notify";
 // Module dependency import.
-import { isP2002 } from "./prismaConflicts";
 import { unpauseFields } from "./slaPause";
+import {
+  assertTicketAssigneeOrAllowBypass,
+  catchLifecycleCommandReplay,
+  invalidTicketStatusError,
+} from "./lifecycleGuards";
 import { deliverTicketOutcome, enqueueTicketOutcome } from "./notificationOutbox";
 
 /**
@@ -72,12 +76,7 @@ export async function resolveMaintenanceTicket(input: {
         ticket.status !== TicketStatus.in_progress &&
         ticket.status !== TicketStatus.waiting
       ) {
-        // Terminal / new / assigned etc. cannot jump straight to resolved.
-        throw new AppError(
-          409,
-          "invalid_state",
-          `Cannot resolve ticket in status ${ticket.status}`,
-        );
+        throw invalidTicketStatusError("resolve", ticket.status);
       }
       // Blocking / high-risk tickets require a meaningful repair note.
       const requiresNotes =
@@ -92,14 +91,11 @@ export async function resolveMaintenanceTicket(input: {
         );
       }
       // Non-owners cannot resolve someone else's assignment.
-      if (
-        !input.bypassAssigneeCheck &&
-        ticket.assigneeId &&
-        ticket.assigneeId !== input.resolvedByEmployeeId
-      ) {
-        // Assignee-only unless supervisor bypassAssigneeCheck.
-        throw new AppError(403, "forbidden", "Ticket is assigned to another employee");
-      }
+      assertTicketAssigneeOrAllowBypass(
+        ticket,
+        input.resolvedByEmployeeId,
+        input.bypassAssigneeCheck,
+      );
 
       const fromStatus = ticket.status;
       const now = input.now ?? new Date();
@@ -151,15 +147,15 @@ export async function resolveMaintenanceTicket(input: {
     // API DTO with nested location/assignee includes.
     return formatMaintenanceTicket(updated);
   } catch (err) {
-    // Concurrent first-writes of the same commandId: treat as idempotent replay.
-    // Status-claim races surface as invalid_state after a peer committed the same commandId.
-    if (input.commandId) {
-      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
-        const again = await replayLifecycleCommand(input.commandId, commandKey);
-        if (again) { await deliverTicketOutcome(again.eventId); return again.ticket; }
-      }
+    const again = await catchLifecycleCommandReplay(
+      err,
+      input.commandId,
+      commandKey,
+    );
+    if (again) {
+      await deliverTicketOutcome(again.eventId);
+      return again.ticket;
     }
-    // Non-P2002 or replay miss — propagate to the HTTP layer.
     throw err;
   }
 }
@@ -192,12 +188,7 @@ export async function closeMaintenanceTicket(input: {
       const ticket = await loadLockedTicket(tx, input.ticketId);
       // Only resolved tickets may close.
       if (ticket.status !== TicketStatus.resolved) {
-        // Close is only valid from resolved (not directly from in_progress).
-        throw new AppError(
-          409,
-          "invalid_state",
-          `Cannot close ticket in status ${ticket.status}`,
-        );
+        throw invalidTicketStatusError("close", ticket.status);
       }
 
       const fromStatus = ticket.status;
@@ -234,11 +225,14 @@ export async function closeMaintenanceTicket(input: {
     await deliverTicketOutcome(eventId);
     return formatMaintenanceTicket(updated);
   } catch (err) {
-    if (input.commandId) {
-      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
-        const again = await replayLifecycleCommand(input.commandId, commandKey);
-        if (again) { await deliverTicketOutcome(again.eventId); return again.ticket; }
-      }
+    const again = await catchLifecycleCommandReplay(
+      err,
+      input.commandId,
+      commandKey,
+    );
+    if (again) {
+      await deliverTicketOutcome(again.eventId);
+      return again.ticket;
     }
     throw err;
   }
@@ -355,12 +349,12 @@ export async function reopenMaintenanceTicket(input: {
     }
     return formatMaintenanceTicket(updated);
   } catch (err) {
-    if (input.commandId) {
-      if (isP2002(err) || (err instanceof AppError && err.code === "invalid_state")) {
-        const again = await replayLifecycleCommand(input.commandId, commandKey);
-        if (again) return again.ticket;
-      }
-    }
+    const again = await catchLifecycleCommandReplay(
+      err,
+      input.commandId,
+      commandKey,
+    );
+    if (again) return again.ticket;
     throw err;
   }
 }

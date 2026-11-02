@@ -8,8 +8,7 @@
  *    so writers cannot deadlock against each other or against SSE.
  */
 import { Prisma } from "@prisma/client";
-
-type Tx = Prisma.TransactionClient;
+import type { Tx } from "./db/types";
 
 /** Lock users in a stable order for a writer which can change live access. */
 export async function lockUsersForLiveAccess(

@@ -31,16 +31,12 @@ import {
   settleAuditFetch,
   shouldApplyAuditRefresh,
 } from "./auditPageLogic";
+import { t } from "../i18n";
 
 type Props = {
   user: AuthUser;
   locale?: "bg" | "en";
 };
-
-/** Pick BG vs EN copy for this page. */
-function t(locale: "bg" | "en", bg: string, en: string) {
-  return locale === "en" ? en : bg;
-}
 
 /**
  * Audit event browser plus optional background job runs (`jobs.view`).

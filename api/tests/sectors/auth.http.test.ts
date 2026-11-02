@@ -1,5 +1,5 @@
 /**
- * T-SEC-58 / T-SEC-59 — supervisor cannot create sectors or hand off primary.
+ * supervisor cannot create sectors or hand off primary.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -24,7 +24,7 @@ import {
 const prisma = new PrismaClient();
 const OUT_OF_SCOPE = "Outside your permitted data scope";
 
-describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
+describe("sector auth HTTP", () => {
   let world: SectorsWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -46,7 +46,7 @@ describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
     await resetSectorMemberships(prisma, world);
   });
 
-  it("T-SEC-58 supervisor POST create with self as primary → 403; scope unchanged", async () => {
+  it("supervisor POST create with self as primary → 403; scope unchanged", async () => {
     const beforeCount = await prisma.sector.count({
       where: { propertyId: world.propertyId },
     });
@@ -83,7 +83,7 @@ describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
     );
   });
 
-  it("T-SEC-58p manager POST create → 201", async () => {
+  it("manager POST create → 201", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const code = `MGR-${world.stamp}`.slice(0, 32);
     const res = await postJson(api, mgr.token, "/sectors", {
@@ -103,7 +103,7 @@ describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
     await prisma.sector.delete({ where: { id } });
   });
 
-  it("T-SEC-59a supervisor PATCH primary to other → 403", async () => {
+  it("supervisor PATCH primary to other → 403", async () => {
     const sup = await loginBearer(api, world.supervisorA.email, world.password);
     const ver = (
       await prisma.sector.findUniqueOrThrow({ where: { id: world.sectorA1Id } })
@@ -120,7 +120,7 @@ describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
     assert.equal(row.primarySupervisorEmployeeId, world.supervisorA.employeeId);
   });
 
-  it("T-SEC-59b supervisor PATCH primary null → 403", async () => {
+  it("supervisor PATCH primary null → 403", async () => {
     const sup = await loginBearer(api, world.supervisorA.email, world.password);
     const ver = (
       await prisma.sector.findUniqueOrThrow({ where: { id: world.sectorA1Id } })
@@ -136,7 +136,7 @@ describe("sector auth HTTP (T-SEC-58 / T-SEC-59)", () => {
     assert.equal(row.primarySupervisorEmployeeId, world.supervisorA.employeeId);
   });
 
-  it("T-SEC-59c supervisor PATCH name only → 200; primary unchanged", async () => {
+  it("supervisor PATCH name only → 200; primary unchanged", async () => {
     const sup = await loginBearer(api, world.supervisorA.email, world.password);
     const ver = (
       await prisma.sector.findUniqueOrThrow({ where: { id: world.sectorA1Id } })

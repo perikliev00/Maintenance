@@ -6,7 +6,6 @@ export { assertLocationTransferAllowed } from "./membership";
 export { listSectors, listMySectors, getSector } from "./queries";
 export {
   createSector,
-  updateSector,
   saveSector,
   setSectorLocations,
 } from "./commands";

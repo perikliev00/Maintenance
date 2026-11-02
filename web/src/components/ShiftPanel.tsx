@@ -1,11 +1,11 @@
 /**
  * Shift definitions table + create/edit modal, plus daily roster editor.
  */
-import type { FormEvent } from "react";
-import type { Person, ShiftRosterEntry, ShiftRow } from "../api/client";
+import type { Person, ShiftRow } from "../api/client";
+import type { useShiftEditor } from "../pages/housekeeping/useShiftEditor";
 import { FormModal } from "./FormModal";
 
-type ShiftFormMode = "closed" | "create" | "edit";
+type ShiftEditor = ReturnType<typeof useShiftEditor>;
 
 type Props = {
   label: (bg: string, en: string) => string;
@@ -14,34 +14,7 @@ type Props = {
   housekeepers: Person[];
   canManage: boolean;
   busy: boolean;
-  formError: string | null;
-  mode: ShiftFormMode;
-  editingShift: ShiftRow | null;
-  shiftCode: string;
-  shiftNameBg: string;
-  shiftNameEn: string;
-  shiftStart: string;
-  shiftEnd: string;
-  shiftSort: number;
-  shiftActive: boolean;
-  dirty: boolean;
-  rosterDate: string;
-  rosterEntries: ShiftRosterEntry[];
-  rosterDraft: Record<string, string>;
-  onShiftCodeChange: (value: string) => void;
-  onShiftNameBgChange: (value: string) => void;
-  onShiftNameEnChange: (value: string) => void;
-  onShiftStartChange: (value: string) => void;
-  onShiftEndChange: (value: string) => void;
-  onShiftSortChange: (value: number) => void;
-  onShiftActiveChange: (value: boolean) => void;
-  onRosterDateChange: (value: string) => void;
-  onRosterDraftChange: (employeeId: string, shiftId: string) => void;
-  onStartCreate: () => void;
-  onStartEdit: (shift: ShiftRow) => void;
-  onCloseForm: () => void;
-  onSave: (e: FormEvent) => void;
-  onSaveRoster: () => void;
+  editor: ShiftEditor;
 };
 
 export function ShiftPanel({
@@ -51,35 +24,39 @@ export function ShiftPanel({
   housekeepers,
   canManage,
   busy,
-  formError,
-  mode,
-  editingShift,
-  shiftCode,
-  shiftNameBg,
-  shiftNameEn,
-  shiftStart,
-  shiftEnd,
-  shiftSort,
-  shiftActive,
-  dirty,
-  rosterDate,
-  rosterEntries,
-  rosterDraft,
-  onShiftCodeChange,
-  onShiftNameBgChange,
-  onShiftNameEnChange,
-  onShiftStartChange,
-  onShiftEndChange,
-  onShiftSortChange,
-  onShiftActiveChange,
-  onRosterDateChange,
-  onRosterDraftChange,
-  onStartCreate,
-  onStartEdit,
-  onCloseForm,
-  onSave,
-  onSaveRoster,
+  editor,
 }: Props) {
+  const {
+    shiftFormError: formError,
+    shiftMode: mode,
+    editingShift,
+    shiftCode,
+    shiftNameBg,
+    shiftNameEn,
+    shiftStart,
+    shiftEnd,
+    shiftSort,
+    shiftActive,
+    shiftDirty: dirty,
+    rosterDate,
+    rosterEntries,
+    rosterDraft,
+    setShiftCode,
+    setShiftNameBg,
+    setShiftNameEn,
+    setShiftStart,
+    setShiftEnd,
+    setShiftSort,
+    setShiftActive,
+    setRosterDate,
+    onRosterDraftChange,
+    startCreateShift,
+    startEditShift,
+    closeShiftForm,
+    onSaveShift,
+    onSaveRoster,
+  } = editor;
+
   const title =
     mode === "edit"
       ? `${label("Редакция на смяна", "Edit shift")}${
@@ -92,7 +69,7 @@ export function ShiftPanel({
       <div className="panel-header">
         <h2>{label("Смени", "Shifts")}</h2>
         {canManage && (
-          <button type="button" onClick={onStartCreate} disabled={busy}>
+          <button type="button" onClick={startCreateShift} disabled={busy}>
             {label("+ Добави смяна", "+ Add shift")}
           </button>
         )}
@@ -131,7 +108,7 @@ export function ShiftPanel({
                     <button
                       type="button"
                       className="ghost"
-                      onClick={() => onStartEdit(s)}
+                      onClick={() => startEditShift(s)}
                       disabled={busy}
                     >
                       {label("Редакция", "Edit")}
@@ -159,14 +136,14 @@ export function ShiftPanel({
           error={formError}
           submitLabel={label("Запази промените", "Save changes")}
           cancelLabel={label("Отмени", "Cancel")}
-          onClose={onCloseForm}
-          onSubmit={onSave}
+          onClose={closeShiftForm}
+          onSubmit={onSaveShift}
         >
           <label>
             {label("Код", "Code")}
             <input
               value={shiftCode}
-              onChange={(e) => onShiftCodeChange(e.target.value)}
+              onChange={(e) => setShiftCode(e.target.value)}
               required
               maxLength={32}
               disabled={busy}
@@ -176,7 +153,7 @@ export function ShiftPanel({
             {label("Име BG", "Name BG")}
             <input
               value={shiftNameBg}
-              onChange={(e) => onShiftNameBgChange(e.target.value)}
+              onChange={(e) => setShiftNameBg(e.target.value)}
               required
               disabled={busy}
             />
@@ -185,7 +162,7 @@ export function ShiftPanel({
             {label("Име EN", "Name EN")}
             <input
               value={shiftNameEn}
-              onChange={(e) => onShiftNameEnChange(e.target.value)}
+              onChange={(e) => setShiftNameEn(e.target.value)}
               required
               disabled={busy}
             />
@@ -194,7 +171,7 @@ export function ShiftPanel({
             {label("Начало (HH:mm)", "Start (HH:mm)")}
             <input
               value={shiftStart}
-              onChange={(e) => onShiftStartChange(e.target.value)}
+              onChange={(e) => setShiftStart(e.target.value)}
               pattern="([01]\d|2[0-3]):[0-5]\d"
               required
               disabled={busy}
@@ -204,7 +181,7 @@ export function ShiftPanel({
             {label("Край (HH:mm)", "End (HH:mm)")}
             <input
               value={shiftEnd}
-              onChange={(e) => onShiftEndChange(e.target.value)}
+              onChange={(e) => setShiftEnd(e.target.value)}
               pattern="([01]\d|2[0-3]):[0-5]\d"
               required
               disabled={busy}
@@ -216,7 +193,7 @@ export function ShiftPanel({
               type="number"
               min={0}
               value={shiftSort}
-              onChange={(e) => onShiftSortChange(Number(e.target.value) || 0)}
+              onChange={(e) => setShiftSort(Number(e.target.value) || 0)}
               disabled={busy}
             />
           </label>
@@ -224,7 +201,7 @@ export function ShiftPanel({
             <input
               type="checkbox"
               checked={shiftActive}
-              onChange={(e) => onShiftActiveChange(e.target.checked)}
+              onChange={(e) => setShiftActive(e.target.checked)}
               disabled={busy}
             />
             {label("Активна", "Active")}
@@ -240,7 +217,7 @@ export function ShiftPanel({
             <input
               type="date"
               value={rosterDate}
-              onChange={(e) => onRosterDateChange(e.target.value)}
+              onChange={(e) => setRosterDate(e.target.value)}
             />
           </label>
           <div className="table-wrap">

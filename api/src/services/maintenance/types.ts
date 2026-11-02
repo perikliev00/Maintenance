@@ -2,6 +2,7 @@
  * Shared Prisma types and include shape for maintenance ticket reads/writes.
  */
 import { Priority, Prisma } from "@prisma/client";
+import type { Tx } from "../db/types";
 
 /** Standard relations loaded with every ticket mutation / list response. */
 export const ticketInclude = {
@@ -13,7 +14,7 @@ export const ticketInclude = {
   issueOption: true,
 } as const;
 
-export type Tx = Prisma.TransactionClient;
+export type { Tx };
 
 export type TicketWithRelations = Prisma.MaintenanceTicketGetPayload<{
   include: typeof ticketInclude;

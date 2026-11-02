@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { Role } from "@prisma/client";
 import { prisma } from "./db";
+import { log, safeErrorMessage } from "./observability";
 
 async function main() {
   if (process.env.NODE_ENV === "production" && process.env.ALLOW_INITIAL_OWNER_CREATION !== "true") {
@@ -26,10 +27,10 @@ async function main() {
       data: { employeeId: employee.id, email, passwordHash, role: Role.owner, isActive: true, activatedAt: new Date() },
     });
   });
-  console.log(JSON.stringify({ timestamp: new Date().toISOString(), level: "info", service: "maintenance-api", event: "initial_owner_created" }));
+  log.info("initial_owner_created");
 }
 
 main().catch((error) => {
-  console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "fatal", service: "maintenance-api", event: "initial_owner_creation_failed", error: error instanceof Error ? error.message : String(error) }));
+  log.fatal("initial_owner_creation_failed", { error: safeErrorMessage(error) });
   process.exitCode = 1;
 }).finally(() => prisma.$disconnect());

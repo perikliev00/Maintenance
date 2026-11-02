@@ -4,7 +4,7 @@
  */
 import { Role, type Prisma } from "@prisma/client";
 import { prisma } from "../../db";
-import type { AuthUser } from "../../middleware/auth";
+import type { AuthUser } from "../../auth/tokens";
 import type { DataScope } from "./types";
 
 /**

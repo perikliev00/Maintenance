@@ -1,5 +1,5 @@
 /** Snapshot payload for the operations live board (sessions + attention queue). */
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { apiGet, buildQuery } from "./http";
 
 export type LiveBoardLocation = {
   id: string;
@@ -101,11 +101,7 @@ export type LiveAttentionPage = {
 export async function fetchOperationsLive(
   init?: { signal?: AbortSignal },
 ): Promise<OperationsLive> {
-  const res = await apiFetch(`${API_BASE}/operations/live`, {
-    headers: authHeaders(),
-    signal: init?.signal,
-  });
-  return parseJson(res);
+  return apiGet("/operations/live", init);
 }
 
 /** Next page of one needs-attention kind (does not reload the whole board). */
@@ -115,13 +111,12 @@ export async function fetchOperationsLiveAttention(params: {
   limit?: number;
   signal?: AbortSignal;
 }): Promise<LiveAttentionPage> {
-  const search = new URLSearchParams();
-  search.set("kind", params.kind);
-  if (params.cursor) search.set("cursor", params.cursor);
-  if (params.limit) search.set("limit", String(params.limit));
-  const res = await apiFetch(
-    `${API_BASE}/operations/live/attention?${search.toString()}`,
-    { headers: authHeaders(), signal: params.signal },
+  return apiGet(
+    `/operations/live/attention${buildQuery({
+      kind: params.kind,
+      cursor: params.cursor ?? undefined,
+      limit: params.limit,
+    })}`,
+    { signal: params.signal },
   );
-  return parseJson(res);
 }

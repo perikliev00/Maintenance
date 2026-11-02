@@ -2,9 +2,9 @@
  * Read-only person summary modal for the Team directory.
  * Portaled to document.body so position:fixed is always viewport-relative.
  */
-import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ROLE_LABELS, type Person } from "../../api/client";
+import { useModalLifecycle } from "../../hooks/useModalLifecycle";
 import { t } from "./labels";
 import { normalizePersonStatus } from "./personActions";
 
@@ -15,26 +15,7 @@ type Props = {
 };
 
 export function TeamPersonDetailDialog({ person, locale, onClose }: Props) {
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, []);
+  useModalLifecycle(onClose);
 
   return createPortal(
     <div

@@ -1,5 +1,5 @@
 /**
- * Historical BUG-01 repair: null locationId SLA/overdue rows get room ids.
+ * Historical repair: null locationId SLA/overdue rows get room ids.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";

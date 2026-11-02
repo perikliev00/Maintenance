@@ -15,18 +15,13 @@ import {
   type QueuedAction,
 // Offline / online path.
 } from "../offline";
+import { t } from "../i18n";
 
 type Props = {
   locale?: "bg" | "en";
   conflictCount: number;
   failedCount: number;
 };
-
-/** Pick BG vs EN copy for this panel. */
-function t(locale: "bg" | "en", bg: string, en: string) {
-  // Early / value return.
-  return locale === "en" ? en : bg;
-}
 
 /** Human label for a queue command type. */
 function typeLabel(locale: "bg" | "en", type: QueuedAction["type"]): string {

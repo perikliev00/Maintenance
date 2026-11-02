@@ -1,5 +1,5 @@
 /**
- * T-TKT-02 / T-TKT-04 — assign + wrong-state matrix (P1-38, P1-40).
+ * assign + wrong-state matrix .
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -46,7 +46,7 @@ async function snapshotSla(ticketId: string) {
   };
 }
 
-describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
+describe("ticket transition matrix (04)", () => {
   let world: TicketsWorld;
 
   before(async () => {
@@ -71,7 +71,7 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-TKT-02a: assign refused from in_progress/waiting/resolved/closed (P1-38)", async () => {
+  it("assign refused from in_progress/waiting/resolved/closed", async () => {
     for (const target of ["in_progress", "waiting"] as const) {
       // Parallel actives of the same catalog option are blocked by design.
       const { ticket } = await reportTicket(prisma, world, {
@@ -134,7 +134,7 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
     assert.deepEqual(await snapshotSla(resolvedT.id), before);
   });
 
-  it("T-TKT-02b: assign allowed from new and assigned (positive)", async () => {
+  it("assign allowed from new and assigned (positive)", async () => {
     const { ticket } = await reportTicket(prisma, world);
     await assignMaintenanceTicket({
       ticketId: ticket.id,
@@ -154,7 +154,7 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
     assert.equal(row.assigneeId, world.technician2.employeeId);
   });
 
-  it("T-TKT-04: wrong-state start/wait/resume/resolve refuse without event or dueAt change (P1-40)", async () => {
+  it("wrong-state start/wait/resume/resolve refuse without event or dueAt change", async () => {
     const { ticket } = await reportTicket(prisma, world);
     // new → cannot start/wait/resume/resolve
     let before = await snapshotSla(ticket.id);
@@ -234,7 +234,7 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
     assert.deepEqual(await snapshotSla(ticket.id), before);
   });
 
-  it("T-TKT-04b: wait/resume/resolve/start refused from waiting/resolved/closed (P1-40)", async () => {
+  it("wait/resume/resolve/start refused from waiting/resolved/closed", async () => {
     async function expectRefuse(
       ticketId: string,
       op: "start" | "wait" | "resume" | "resolve" | "close" | "reopen",
@@ -342,7 +342,7 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
       await expectRefuse(ticket.id, "close", "from closed");
     }
 
-    // assigned: resolve/resume/close/reopen refused (wait already covered in T-TKT-04)
+    // assigned: resolve/resume/close/reopen refused (wait already covered in)
     {
       const { ticket } = await reportTicket(prisma, world, {
         allowDuplicate: true,
@@ -355,7 +355,7 @@ describe("ticket transition matrix (T-TKT-02/04 / P1-38/40)", () => {
     }
   });
 
-  it("T-TKT-02c: positive allowed transitions", async () => {
+  it("positive allowed transitions", async () => {
     const { ticket } = await reportTicket(prisma, world);
     await assignMaintenanceTicket({
       ticketId: ticket.id,

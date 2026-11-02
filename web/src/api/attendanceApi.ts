@@ -1,5 +1,5 @@
 /** Attendance intervals, CSV export, and adjustment request/review. */
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { API_BASE, apiFetch, apiGet, apiPost, authHeaders, buildQuery } from "./http";
 
 export type AttendanceScope = "month" | "today" | "week" | "review";
 
@@ -55,29 +55,16 @@ export async function fetchAttendanceIntervals(params?: {
   limit: number;
   maxClockSkewSeconds: number | null;
 }> {
-  // Optional filters + cursor pagination.
-  const search = new URLSearchParams();
-  // Branch: conditional gate.
-  if (params?.scope) search.set("scope", params.scope);
-  // Branch: conditional gate.
-  if (params?.month) search.set("month", params.month);
-  // Branch: conditional gate.
-  if (params?.department) search.set("department", params.department);
-  // Branch: conditional gate.
-  if (params?.q) search.set("q", params.q);
-  // Branch: conditional gate.
-  if (params?.limit != null) search.set("limit", String(params.limit));
-  // Branch: conditional gate.
-  if (params?.cursor) search.set("cursor", params.cursor);
-  // Optional query suffix.
-  const qs = search.toString();
-  // Authenticated HTTP request.
-  const res = await apiFetch(
-    `${API_BASE}/attendance/intervals${qs ? `?${qs}` : ""}`,
-    { headers: authHeaders() },
+  return apiGet(
+    `/attendance/intervals${buildQuery({
+      scope: params?.scope,
+      month: params?.month,
+      department: params?.department,
+      q: params?.q,
+      limit: params?.limit,
+      cursor: params?.cursor,
+    })}`,
   );
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /**
@@ -90,38 +77,26 @@ export async function downloadAttendanceCsv(params?: {
   department?: string;
   q?: string;
 }): Promise<{ truncated: boolean; total: number | null }> {
-  // Same filters as the intervals list (no cursor — full export for the scope).
-  const search = new URLSearchParams();
-  // Branch: conditional gate.
-  if (params?.scope) search.set("scope", params.scope);
-  // Branch: conditional gate.
-  if (params?.month) search.set("month", params.month);
-  // Branch: conditional gate.
-  if (params?.department) search.set("department", params.department);
-  // Branch: conditional gate.
-  if (params?.q) search.set("q", params.q);
-  // Optional query suffix.
-  const qs = search.toString();
-  // Authenticated HTTP request.
   const res = await apiFetch(
-    `${API_BASE}/attendance/export.csv${qs ? `?${qs}` : ""}`,
+    `${API_BASE}/attendance/export.csv${buildQuery({
+      scope: params?.scope,
+      month: params?.month,
+      department: params?.department,
+      q: params?.q,
+    })}`,
     { headers: authHeaders() },
   );
-  // CSV path bypasses parseJson — surface API message on failure.
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    // Throw error path.
     throw new Error(
       (body as { message?: string }).message ?? `Export failed (${res.status})`,
     );
   }
-  // Truncation / total are signaled via custom headers, not the body.
   const truncated =
     res.headers.get("X-Attendance-Truncated")?.toLowerCase() === "true";
   const totalRaw = res.headers.get("X-Attendance-Total");
   const totalParsed = totalRaw != null ? Number(totalRaw) : NaN;
   const total = Number.isFinite(totalParsed) ? totalParsed : null;
-  // Trigger a browser download without navigating away.
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -129,7 +104,6 @@ export async function downloadAttendanceCsv(params?: {
   a.download = "attendance.csv";
   a.click();
   URL.revokeObjectURL(url);
-  // Return value / early exit.
   return { truncated, total };
 }
 
@@ -141,15 +115,7 @@ export async function requestAttendanceAdjustment(body: {
   proposedEndedAt?: string;
   proposedBreakMinutes?: number;
 }) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/attendance/adjustments`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify(body),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost("/attendance/adjustments", body);
 }
 
 /** Approve or reject a pending adjustment (manager / attendance review). */
@@ -157,13 +123,5 @@ export async function reviewAttendanceAdjustment(
   id: string,
   body: { decision: "approved" | "rejected"; reason?: string },
 ) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/attendance/adjustments/${id}/review`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify(body),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost(`/attendance/adjustments/${id}/review`, body);
 }

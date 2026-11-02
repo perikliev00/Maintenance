@@ -40,7 +40,7 @@ async function redeem(code: string, nextPassword?: string) {
   });
 }
 
-describe("P1-85–94 invitations and real sessions", () => {
+describe("invitations and real sessions", () => {
   before(async () => {
     await assertTestDatabase(prisma);
     process.env.E2E_DISABLE_RATE_LIMIT = "1";
@@ -57,7 +57,7 @@ describe("P1-85–94 invitations and real sessions", () => {
     await prisma.employee.deleteMany({ where: { id: { in: employees } } });
     await prisma.$disconnect();
   });
-  it("P1-85 P1-89 P1-129 pending login and rejected activation leave no session; activation succeeds with cookie-only secrets", async () => {
+  it("pending login and rejected activation leave no session; activation succeeds with cookie-only secrets", async () => {
     const target = await user();
     await prisma.user.update({ where: { id: target.userId }, data: { activatedAt: null } });
     const login = await fetch(`${api}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: target.email, password }) });
@@ -84,7 +84,7 @@ describe("P1-85–94 invitations and real sessions", () => {
     const me = await fetch(`${api}/auth/me`, { headers: { Authorization: `Bearer ${authenticated.token}` } });
     assert.equal(me.status, 200); noSecrets(await me.json());
   });
-  it("P1-86 existing employee onboarding validation and late insert rollback", async () => {
+  it("existing employee onboarding validation and late insert rollback", async () => {
     const employee = await prisma.employee.create({ data: { employeeNumber: randomUUID(), fullName: "Without login" } });
     employees.push(employee.id);
     for (const extra of [{}, { email: `${randomUUID()}@scenario.test` }, { role: "housekeeper" }, { email: owner.email, role: "housekeeper" }]) {
@@ -110,7 +110,7 @@ describe("P1-85–94 invitations and real sessions", () => {
     const accepted = await postJson(api, token, "/invitations", { kind: "existing", employeeId: employee.id, email: `${randomUUID()}@scenario.test`, role: "housekeeper" });
     assert.equal(accepted.status, 201);
   });
-  it("P1-87 P1-88 P1-90 reissue/revoke reject old codes; adding a device preserves password", async () => {
+  it("reissue/revoke reject old codes; adding a device preserves password", async () => {
     const target = await user();
     const first = await invite(target.employeeId);
     const second = await invite(target.employeeId);
@@ -126,7 +126,7 @@ describe("P1-85–94 invitations and real sessions", () => {
     assert.equal(await prisma.device.count({ where: { userId: target.userId } }), 1);
     assert.equal((await prisma.invitation.findUniqueOrThrow({ where: { id: second.invitation.id } })).status, "consumed");
   });
-  it("P1-91 distinct invites overlap behind a real User lock and retain the winning password", async () => {
+  it("distinct invites overlap behind a real User lock and retain the winning password", async () => {
     const target = await user();
     await prisma.user.update({ where: { id: target.userId }, data: { activatedAt: null } });
     const first = await invite(target.employeeId);
@@ -161,7 +161,7 @@ describe("P1-85–94 invitations and real sessions", () => {
       assert.equal(row.status, "consumed"); assert.ok(results.some(r => r.device.id === row.consumedDeviceId));
     }
   });
-  it("P1-88 concurrent revoke/redeem wait on the Invitation row and leave one consistent winner", async () => {
+  it("concurrent revoke/redeem wait on the Invitation row and leave one consistent winner", async () => {
     const target = await user(); const issued = await invite(target.employeeId);
     let release!: () => void; let held!: (pid: number) => void;
     const gate = new Promise<void>(r => { release = r; }); const ready = new Promise<number>(r => { held = r; });
@@ -188,7 +188,7 @@ describe("P1-85–94 invitations and real sessions", () => {
       assert.equal(await prisma.authSession.count({ where: { userId: target.userId, deviceId: final.consumedDeviceId! } }), 1);
     }
   });
-  it("P1-92 revocation denies real access and refresh for A while B keeps access", async () => {
+  it("revocation denies real access and refresh for A while B keeps access", async () => {
     const target = await user();
     const a = await redeemInvitation({ code: (await invite(target.employeeId)).code, deviceLabel: "A", fingerprint: randomUUID() });
     const b = await redeemInvitation({ code: (await invite(target.employeeId)).code, deviceLabel: "B", fingerprint: randomUUID() });

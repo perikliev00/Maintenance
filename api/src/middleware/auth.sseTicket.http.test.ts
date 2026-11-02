@@ -28,7 +28,7 @@ const SSE_TICKET_EXPIRES_SEC = 5 * 60;
 const prisma = new PrismaClient();
 const AUDIT_MARKER_PREFIX = "t-p008-sse";
 
-describe("P0-08 SSE ticket must not authenticate requireAuth", () => {
+describe("SSE ticket must not authenticate requireAuth", () => {
   const fixtureIds: string[] = [];
   const auditActions: string[] = [];
   let handlerRan = false;

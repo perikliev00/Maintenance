@@ -3,15 +3,14 @@
  * Mirrors ticket notification outbox: enqueue in the domain TX, deliver after
  * commit, and repair partial/failed delivery via replay or background flush.
  */
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../db";
+import type { Tx } from "../db/types";
 import {
   createNotifications,
   type CreateNotificationInput,
 } from "../notifications";
 import { getSetting } from "../settings";
-
-type Tx = Prisma.TransactionClient;
 
 /** Snapshot recipients/content with the complete command — replay stays stable. */
 export async function enqueueCleaningInspectionNotice(

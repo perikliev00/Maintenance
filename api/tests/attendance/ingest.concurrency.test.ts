@@ -1,5 +1,5 @@
 /**
- * T-ATT-75a — concurrent ingest behind FOR UPDATE barrier on open interval.
+ * concurrent ingest behind FOR UPDATE barrier on open interval.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -24,7 +24,7 @@ import {
 
 const prisma = new PrismaClient();
 
-describe("attendance ingest concurrency (T-ATT-75)", () => {
+describe("attendance ingest concurrency", () => {
   let world: AttendanceWorld;
   let opsBefore: Awaited<ReturnType<typeof getOperations>>;
 
@@ -54,7 +54,7 @@ describe("attendance ingest concurrency (T-ATT-75)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-ATT-75a dual ingest waits on locked interval; both succeed; control clean", async () => {
+  it("dual ingest waits on locked interval; both succeed; control clean", async () => {
     const emp = world.technician.employeeId;
     const hotelDate = new Date("2026-04-01T00:00:00.000Z");
     const startedAt = new Date("2026-04-01T08:00:00.000Z");

@@ -23,16 +23,9 @@ import {
 import { TicketLifecycleActions } from "../../components/TicketLifecycleActions";
 import { OutboxIssuesPanel } from "../../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
-import {
-  assignTicketQueued,
-  closeTicketQueued,
-  getQueueStats,
-  reportTicketQueued,
-  subscribeOffline,
-  type ConnMode,
-  type QueueStats,
-  // Offline / online path.
-} from "../../offline";
+import { useTicketLifecycleActions } from "../../hooks/useTicketLifecycleActions";
+import { reportTicketQueued } from "../../offline";
+import { useOfflineStatus } from "../../hooks/useOfflineStatus";
 import { Detail, type TicketEventRow } from "./detail";
 import { Filters } from "./filters";
 import {
@@ -42,9 +35,16 @@ import {
   statusLabel,
   t,
 } from "./helpers";
-import { OfflineConnBadge } from "./offlineChrome";
-
-const PAGE_SIZE = 50;
+import { ConnStatusBadge } from "../../components/offline/ConnStatusBadge";
+import {
+  EMPTY_REPAIRS_BOARD_LIST_STATE,
+  REPAIRS_PAGE_SIZE,
+  createRepairsBoardListSession,
+  runRepairsBoardFullReload,
+  runRepairsBoardLoadMore,
+  type RepairsBoardListSession,
+  type RepairsBoardListViewState,
+} from "./listSession";
 
 type Props = {
   user: AuthUser;
@@ -62,15 +62,14 @@ export function RepairsPage({
   focusTicketId = null,
   onFocusConsumed,
 }: Props) {
-  const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
+  const [listView, setListView] = useState<RepairsBoardListViewState>({
+    ...EMPTY_REPAIRS_BOARD_LIST_STATE,
+    loading: true,
+  });
   const [people, setPeople] = useState<Person[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [categories, setCategories] = useState<MaintenanceCategoryRow[]>([]);
   const [options, setOptions] = useState<IssueOptionRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -80,14 +79,12 @@ export function RepairsPage({
   const [blocksOnly, setBlocksOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [events, setEvents] = useState<TicketEventRow[]>([]);
-  const [conn, setConn] = useState<ConnMode>("online");
   const focusAppliedRef = useRef<string | null>(null);
-  const [queueStats, setQueueStats] = useState<QueueStats>({
-    pending: 0,
-    sending: 0,
-    conflict: 0,
-    failed: 0,
-  });
+  const sessionRef = useRef<RepairsBoardListSession | null>(null);
+  if (!sessionRef.current) {
+    sessionRef.current = createRepairsBoardListSession((next) => setListView(next));
+  }
+  const listSession = sessionRef.current;
 
   // report form
   const [locationId, setLocationId] = useState("");
@@ -103,6 +100,16 @@ export function RepairsPage({
   locationRef.current = locationId;
   optionRef.current = issueOptionId;
 
+  const {
+    tickets,
+    nextCursor,
+    totalCount,
+    loadError,
+    loading,
+    loadingMore,
+  } = listView;
+  const totalCountDisplay = totalCount ?? 0;
+
   // Permission / capability gate.
   const canResolve = canPerformAction(user, "tickets.resolve");
   // Permission / capability gate.
@@ -112,15 +119,13 @@ export function RepairsPage({
   // Permission / capability gate.
   const canReport = canPerformAction(user, "tickets.report");
 
-  const requestRevision = useRef(0);
-
   const buildTicketParams = useCallback(
     (cursor?: string | null) => {
       const params: Parameters<typeof fetchTickets>[0] & {
         paginated: true;
         cursor?: string;
       } = {
-        limit: PAGE_SIZE,
+        limit: REPAIRS_PAGE_SIZE,
         paginated: true,
         status: statusFilter as "open" | "all" | "resolved",
         slaBreached: slaOnly || undefined,
@@ -136,76 +141,65 @@ export function RepairsPage({
     [statusFilter, assigneeFilter, slaOnly, blocksOnly],
   );
 
-  /** Ticket list + catalog; people for assign are loaded separately when allowed. */
-  const refresh = useCallback(async () => {
-    const revision = ++requestRevision.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const [ticketPage, roomData, catData, optData] = await Promise.all([
-        fetchTickets(buildTicketParams()),
-        fetchRooms(),
-        fetchMaintenanceCategories(),
-        fetchIssueOptions(),
-      ]);
-      if (revision !== requestRevision.current) return;
-      // State transition.
-      setTickets(ticketPage.items);
-      setNextCursor(ticketPage.nextCursor);
-      setTotalCount(ticketPage.total);
-      // State transition.
-      setRooms(roomData);
-      // State transition.
-      setCategories(catData);
-      // State transition.
-      setOptions(optData);
-      // Branch: conditional gate.
-      if (!locationRef.current && roomData[0]) {
-        locationRef.current = roomData[0].id;
-        setLocationId(roomData[0].id);
-      }
-      // Branch: conditional gate.
-      if (!optionRef.current && optData[0]) {
-        optionRef.current = optData[0].id;
-        // State transition.
-        setIssueOptionId(optData[0].id);
-        // State transition.
-        setTitle(locale === "en" ? optData[0].nameEn : optData[0].nameBg);
-        // Branch: conditional gate.
-        if (optData[0].defaultPriority) setPriority(optData[0].defaultPriority);
-        // Branch: conditional gate.
-        if (optData[0].defaultBlocksRoom != null) {
-          // State transition.
-          setBlocksRoom(optData[0].defaultBlocksRoom);
-        }
-      }
-    } catch (err) {
-      if (revision === requestRevision.current) {
-        setError(err instanceof Error ? err.message : "Failed to load repairs");
-      }
-    } finally {
-      if (revision === requestRevision.current) setLoading(false);
+  const mapListError = useCallback(
+    (err: unknown) =>
+      err instanceof Error ? err.message : "Failed to load repairs",
+    [],
+  );
+
+  const fetchTicketPage = useCallback(
+    (args: { cursor?: string | null; signal: AbortSignal }) =>
+      fetchTickets({
+        ...buildTicketParams(args.cursor),
+        signal: args.signal,
+      }),
+    [buildTicketParams],
+  );
+
+  /** Seed report-form catalogs; ticket list uses the paged session. */
+  const loadCatalog = useCallback(async () => {
+    const [roomData, catData, optData] = await Promise.all([
+      fetchRooms(),
+      fetchMaintenanceCategories(),
+      fetchIssueOptions(),
+    ]);
+    setRooms(roomData);
+    setCategories(catData);
+    setOptions(optData);
+    if (!locationRef.current && roomData[0]) {
+      locationRef.current = roomData[0].id;
+      setLocationId(roomData[0].id);
     }
-  }, [buildTicketParams, locale]);
+    if (!optionRef.current && optData[0]) {
+      optionRef.current = optData[0].id;
+      setIssueOptionId(optData[0].id);
+      setTitle(locale === "en" ? optData[0].nameEn : optData[0].nameBg);
+      if (optData[0].defaultPriority) setPriority(optData[0].defaultPriority);
+      if (optData[0].defaultBlocksRoom != null) {
+        setBlocksRoom(optData[0].defaultBlocksRoom);
+      }
+    }
+  }, [locale]);
+
+  /** Ticket list via paged session + catalog side load. */
+  const refresh = useCallback(async () => {
+    setError(null);
+    const catalogPromise = loadCatalog().catch((err) => {
+      setError(err instanceof Error ? err.message : "Failed to load repairs");
+    });
+    await runRepairsBoardFullReload(listSession, fetchTicketPage, mapListError);
+    await catalogPromise;
+  }, [fetchTicketPage, listSession, loadCatalog, mapListError]);
 
   const loadMore = useCallback(async () => {
-    if (!nextCursor || loadingMore) return;
-    setLoadingMore(true);
     setError(null);
-    try {
-      const page = await fetchTickets(buildTicketParams(nextCursor));
-      setTickets((prev) => {
-        const seen = new Set(prev.map((row) => row.id));
-        return [...prev, ...page.items.filter((row) => !seen.has(row.id))];
-      });
-      setNextCursor(page.nextCursor);
-      setTotalCount(page.total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load more");
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [nextCursor, loadingMore, buildTicketParams]);
+    await runRepairsBoardLoadMore(
+      listSession,
+      nextCursor,
+      fetchTicketPage,
+      mapListError,
+    );
+  }, [fetchTicketPage, listSession, mapListError, nextCursor]);
 
   const refreshInBackground = useCallback(() => {
     // Branch: conditional gate.
@@ -214,30 +208,9 @@ export function RepairsPage({
     void refresh().catch(() => undefined);
   }, [refresh]);
 
-  // Effect: sync props/state to side effects.
-  useEffect(() => {
-    // Early / value return.
-    return subscribeOffline((next) => {
-      // State transition.
-      setConn(next.conn);
-      // State transition.
-      setQueueStats(next.stats);
-      // Branch: conditional gate.
-      if (
-        next.conn === "online" &&
-        next.stats.pending === 0 &&
-        next.stats.sending === 0
-      ) {
-        refreshInBackground();
-      }
-    });
-  }, [refreshInBackground]);
-
-  // Effect: sync props/state to side effects.
-  useEffect(() => {
-    // Fire-and-forget async call.
-    void getQueueStats().then(setQueueStats);
-  }, []);
+  const { conn, queueStats } = useOfflineStatus({
+    onOnlineEmptyOutbox: refreshInBackground,
+  });
 
   // Prefer blocking filter when deep-linking a live-board blocking ticket.
   useEffect(() => {
@@ -306,12 +279,34 @@ export function RepairsPage({
     eventTypes: ["ticket.changed", "location.changed"],
   });
 
+  const ticketActions = useTicketLifecycleActions(
+    useMemo(
+      () => ({
+        beginBusy: (id: string) => {
+          setBusyId(id);
+          return true;
+        },
+        endBusy: () => setBusyId(null),
+        refresh: async () => {
+          await refresh();
+        },
+        setError,
+        setMessage,
+        locale,
+      }),
+      [refresh, locale],
+    ),
+  );
+
   useEffect(() => {
     void refresh();
-    return () => {
-      requestRevision.current++;
-    };
   }, [refresh]);
+
+  useEffect(() => {
+    return () => {
+      listSession.dispose();
+    };
+  }, [listSession]);
 
   // Effect: sync props/state to side effects.
   useEffect(() => {
@@ -405,8 +400,11 @@ export function RepairsPage({
           slaBreached: false,
         };
         // State transition.
-        setTickets((prev) => [optimistic, ...prev]);
-        setTotalCount((n) => n + 1);
+        setListView((prev) => ({
+          ...prev,
+          tickets: [optimistic, ...prev.tickets],
+          totalCount: (prev.totalCount ?? 0) + 1,
+        }));
         // State transition.
         setMessage(
           t(locale, "Докладът е в опашката", "Report queued for sync"),
@@ -463,7 +461,7 @@ export function RepairsPage({
               : ""}
           </p>
         </div>
-        <OfflineConnBadge
+        <ConnStatusBadge
           locale={locale}
           conn={conn}
           pending={queueStats.pending}
@@ -472,7 +470,9 @@ export function RepairsPage({
       </header>
 
       {/* Render branch: error && <div className="banner error">error</div> */}
-      {error && <div className="banner error">{error}</div>}
+      {(error || loadError) && (
+        <div className="banner error">{error ?? loadError}</div>
+      )}
       {/* Render branch: message && <div className="banner ok">message</div> */}
       {message && <div className="banner ok">{message}</div>}
       <OutboxIssuesPanel
@@ -505,8 +505,8 @@ export function RepairsPage({
                 <span className="muted repairs-count">
                   {t(
                     locale,
-                    `(${tickets.length} от ${totalCount})`,
-                    `(${tickets.length} of ${totalCount})`,
+                    `(${tickets.length} от ${totalCountDisplay})`,
+                    `(${tickets.length} of ${totalCountDisplay})`,
                   )}
                 </span>
               </h2>
@@ -595,13 +595,14 @@ export function RepairsPage({
                             // State transition.
                             setMessage(result.message);
                             // State transition.
-                            setTickets((prev) =>
-                              prev.map((row) =>
+                            setListView((prev) => ({
+                              ...prev,
+                              tickets: prev.tickets.map((row) =>
                                 row.id === ticket.id
                                   ? { ...row, status: result.nextStatus }
                                   : row,
                               ),
-                            );
+                            }));
                             // Branch: conditional gate.
                             if (!result.queued) refreshInBackground();
                           }}
@@ -617,32 +618,8 @@ export function RepairsPage({
                               disabled={busyId === ticket.id}
                               onChange={(e) => {
                                 const assigneeId = e.target.value;
-                                // Branch: conditional gate.
                                 if (!assigneeId) return;
-                                // State transition.
-                                setBusyId(ticket.id);
-                                // Fire-and-forget async call (online or outbox).
-                                void assignTicketQueued(ticket.id, assigneeId)
-                                  .then((result) => {
-                                    setMessage(
-                                      result.queued
-                                        ? t(
-                                            locale,
-                                            "Назначаване в опашката",
-                                            "Assign queued",
-                                          )
-                                        : t(locale, "Назначен", "Assigned"),
-                                    );
-                                    if (!result.queued) return refresh();
-                                  })
-                                  .catch((err) =>
-                                    setError(
-                                      err instanceof Error
-                                        ? err.message
-                                        : "Assign failed",
-                                    ),
-                                  )
-                                  .finally(() => setBusyId(null));
+                                void ticketActions.assign(ticket.id, assigneeId);
                               }}
                             >
                               <option value="">
@@ -662,28 +639,7 @@ export function RepairsPage({
                             className="subtle"
                             disabled={busyId === ticket.id}
                             onClick={() => {
-                              setBusyId(ticket.id);
-                              void closeTicketQueued(ticket.id)
-                                .then((result) => {
-                                  setMessage(
-                                    result.queued
-                                      ? t(
-                                          locale,
-                                          "Затваряне в опашката",
-                                          "Close queued",
-                                        )
-                                      : t(locale, "Затворен", "Closed"),
-                                  );
-                                  if (!result.queued) return refresh();
-                                })
-                                .catch((err) =>
-                                  setError(
-                                    err instanceof Error
-                                      ? err.message
-                                      : "Close failed",
-                                  ),
-                                )
-                                .finally(() => setBusyId(null));
+                              void ticketActions.close(ticket.id);
                             }}
                           >
                             {t(locale, "Затвори", "Close")}

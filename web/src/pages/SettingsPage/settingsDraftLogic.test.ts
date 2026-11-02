@@ -23,7 +23,7 @@ describe("settingsDraftLogic", () => {
     assert.equal(isDraftDirty({ ...server, attendance: false }, server), true);
   });
 
-  it("refuses to replace a dirty or busy draft on refresh (BUG-03)", () => {
+  it("refuses to replace a dirty or busy draft on refresh", () => {
     assert.equal(
       shouldReplaceDraftOnRefresh({ dirty: true, busy: false }),
       false,
@@ -38,7 +38,7 @@ describe("settingsDraftLogic", () => {
     );
   });
 
-  it("BUG-03: SSE refresh keeps dirty draft + reason and marks conflict", () => {
+  it("SSE refresh keeps dirty draft + reason and marks conflict", () => {
     const draft = { attendance: false };
     const next = { attendance: true };
     const applied = applySettingsBundleRefresh({
@@ -55,7 +55,7 @@ describe("settingsDraftLogic", () => {
     assert.equal(applied.reason, "local reason");
   });
 
-  it("BUG-03: clean idle client adopts server draft on settings.changed", () => {
+  it("clean idle client adopts server draft on settings.changed", () => {
     const applied = applySettingsBundleRefresh({
       dirty: false,
       busy: false,
@@ -69,12 +69,12 @@ describe("settingsDraftLogic", () => {
     assert.deepEqual(applied.draft, { attendance: false });
   });
 
-  it("BUG-04: editing is locked while busy", () => {
+  it("editing is locked while busy", () => {
     assert.equal(isSettingsEditingLocked(true), true);
     assert.equal(isSettingsEditingLocked(false), false);
   });
 
-  it("BUG-06: system refresh events are operational, not settings.changed", () => {
+  it("system refresh events are operational, not settings.changed", () => {
     for (const type of SYSTEM_STATUS_LIVE_EVENTS) {
       assert.equal(shouldRefreshSystemStatus(type), true);
       assert.equal(shouldRefreshSettingsBundle(type), false);
@@ -83,12 +83,12 @@ describe("settingsDraftLogic", () => {
     assert.equal(shouldRefreshSettingsBundle("settings.changed"), true);
   });
 
-  it("BUG-06: stale system status revisions are ignored", () => {
+  it("stale system status revisions are ignored", () => {
     assert.equal(shouldApplySystemStatusRevision(3, 3), true);
     assert.equal(shouldApplySystemStatusRevision(2, 3), false);
   });
 
-  it("classifies 409 as conflict and network as uncertain (BUG-01/07)", () => {
+  it("classifies 409 as conflict and network as uncertain", () => {
     const conflict = classifySaveError(
       new ApiRequestError("Setting was updated", {
         kind: "http",
@@ -108,7 +108,7 @@ describe("settingsDraftLogic", () => {
     assert.equal(uncertain.kind, "uncertain");
   });
 
-  it("keeps save success when a follow-up refresh fails (BUG-07)", () => {
+  it("keeps save success when a follow-up refresh fails", () => {
     assert.deepEqual(
       mergePostSaveRefresh({ saveOk: true, refreshError: "history failed" }),
       { message: "saved", refreshWarning: "history failed" },
@@ -119,7 +119,7 @@ describe("settingsDraftLogic", () => {
     });
   });
 
-  it("BUG-07: resolveSaveFlow keeps Saved when history/settings GET fails", () => {
+  it("resolveSaveFlow keeps Saved when history/settings GET fails", () => {
     const ok = resolveSaveFlow({
       patchResult: { ok: true },
       refreshResults: [
@@ -135,7 +135,7 @@ describe("settingsDraftLogic", () => {
     assert.equal(ok.keepDraft, false);
   });
 
-  it("BUG-07: failed PATCH does not claim Saved", () => {
+  it("failed PATCH does not claim Saved", () => {
     const failed = resolveSaveFlow({
       patchResult: {
         ok: false,
@@ -148,7 +148,7 @@ describe("settingsDraftLogic", () => {
     assert.ok(failed.error);
   });
 
-  it("never formats unknown counts as zero (BUG-05)", () => {
+  it("never formats unknown counts as zero", () => {
     assert.equal(formatStatusCount(null), "—");
     assert.equal(formatStatusCount(undefined), "—");
     assert.equal(formatStatusCount(0), "0");

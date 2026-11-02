@@ -1,5 +1,5 @@
 /**
- * T-TKT-03 / P1-39 — non-assignee without bypass cannot wait/resume/resolve.
+ * non-assignee without bypass cannot wait/resume/resolve.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -28,7 +28,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("ticket assignee gate (T-TKT-03 / P1-39)", () => {
+describe("ticket assignee gate", () => {
   let world: TicketsWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
@@ -64,7 +64,7 @@ describe("ticket assignee gate (T-TKT-03 / P1-39)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-TKT-03: foreign tech denied start/wait/resume/resolve; assignee and owner bypass OK", async () => {
+  it("foreign tech denied start/wait/resume/resolve; assignee and owner bypass OK", async () => {
     const { ticket } = await reportTicket(prisma, world);
     await advanceTicketTo(world, ticket.id, "assigned");
 

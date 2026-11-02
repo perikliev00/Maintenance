@@ -14,6 +14,11 @@ import {
   AnalyticsBarChart,
   AnalyticsTrendChart,
 } from "../components/AnalyticsCharts";
+import { t, type AppLocale } from "../i18n";
+
+// FE-02 backlog: KPI labels, risk-factor strings, chart titles, and
+// CATEGORY/PRIORITY/SERVICE_TYPE fallbacks below stay BG-hardcoded for now.
+// AttendancePage chrome/SCOPES similarly still need locale wiring.
 
 /** Format a Date as YYYY-MM-DD (UTC date portion). */
 function isoDate(d: Date): string {
@@ -234,7 +239,7 @@ function KpiCard({
  * Analytics dashboard page: domain tabs, date presets, KPI grids, charts,
  * seasonal forecast, and risk-room CSV export.
  */
-export function AnalyticsPage() {
+export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
   // Stable "today" for presets so re-renders do not shift the range mid-session.
   const today = useMemo(() => isoDate(new Date()), []);
   // Local React state.
@@ -306,18 +311,25 @@ export function AnalyticsPage() {
     <main className="content">
       <header className="page-header analytics-header">
         <div>
-          <h1>Умна аналитика</h1>
-          <p>Сигнали, SLA, одит и сезонна прогноза с проверими определения</p>
+          <h1>{t(locale, "Умна аналитика", "Smart analytics")}</h1>
+          <p>
+            {t(
+              locale,
+              "Сигнали, SLA, одит и сезонна прогноза с проверими определения",
+              "Signals, SLA, audit, and seasonal forecast with checkable definitions",
+            )}
+          </p>
           {/* Server-resolved period may differ slightly from local from/to inputs. */}
           {data && (
             <p className="muted analytics-period-stamp">
-              Период: {formatPeriodStamp(data.period.from, data.period.to)}
+              {t(locale, "Период", "Period")}:{" "}
+              {formatPeriodStamp(data.period.from, data.period.to)}
             </p>
           )}
         </div>
         <div className="analytics-toolbar">
           <label>
-            От
+            {t(locale, "От", "From")}
             <input
               type="date"
               value={from}
@@ -325,7 +337,7 @@ export function AnalyticsPage() {
             />
           </label>
           <label>
-            До
+            {t(locale, "До", "To")}
             <input
               type="date"
               value={to}
@@ -333,13 +345,13 @@ export function AnalyticsPage() {
             />
           </label>
           <button type="button" className="ghost" onClick={() => applyPreset("today")}>
-            Днес
+            {t(locale, "Днес", "Today")}
           </button>
           <button type="button" className="ghost" onClick={() => applyPreset("7d")}>
-            7 дни
+            {t(locale, "7 дни", "7 days")}
           </button>
           <button type="button" className="ghost" onClick={() => applyPreset("30d")}>
-            30 дни
+            {t(locale, "30 дни", "30 days")}
           </button>
           <button
             type="button"
@@ -350,7 +362,7 @@ export function AnalyticsPage() {
               void refresh();
             }}
           >
-            Обнови
+            {t(locale, "Обнови", "Refresh")}
           </button>
         </div>
       </header>
@@ -363,7 +375,7 @@ export function AnalyticsPage() {
           className={domain === "maintenance" ? "nav-tab active" : "nav-tab"}
           onClick={() => setDomain("maintenance")}
         >
-          Поддръжка
+          {t(locale, "Поддръжка", "Maintenance")}
         </button>
         <button
           type="button"
@@ -372,7 +384,7 @@ export function AnalyticsPage() {
           className={domain === "housekeeping" ? "nav-tab active" : "nav-tab"}
           onClick={() => setDomain("housekeeping")}
         >
-          Камериерска
+          {t(locale, "Камериерска", "Housekeeping")}
         </button>
       </div>
 
@@ -381,7 +393,9 @@ export function AnalyticsPage() {
       {/* Initial load only — keep prior KPIs visible while refreshing. */}
       {loading && !data && (
         <section className="panel">
-          <p className="muted">Зареждане на аналитиката…</p>
+          <p className="muted">
+            {t(locale, "Зареждане на аналитиката…", "Loading analytics…")}
+          </p>
         </section>
       )}
 

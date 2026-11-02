@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { useModalLifecycle } from "../hooks/useModalLifecycle";
 
 type Props = {
   title: string;
@@ -38,46 +39,23 @@ export function FormModal({
   wide = false,
 }: Props) {
   const titleId = useId();
-  const closeRef = useRef(onClose);
-  const busyRef = useRef(busy);
-  const dirtyRef = useRef(dirty);
-  closeRef.current = onClose;
-  busyRef.current = busy;
-  dirtyRef.current = dirty;
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     previouslyFocused.current = document.activeElement as HTMLElement | null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    panelRef.current?.querySelector<HTMLElement>("input,select,textarea,button")?.focus();
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      if (busyRef.current) {
-        event.preventDefault();
-        return;
-      }
-      if (dirtyRef.current) {
-        const ok = window.confirm(
-          "Има незаписани промени. Да се отхвърлят ли?",
-        );
-        if (!ok) {
-          event.preventDefault();
-          return;
-        }
-      }
-      event.preventDefault();
-      closeRef.current();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-      previouslyFocused.current?.focus?.();
-    };
+    panelRef.current
+      ?.querySelector<HTMLElement>("input,select,textarea,button")
+      ?.focus();
   }, []);
+
+  useModalLifecycle(onClose, {
+    busy,
+    dirty,
+    onCleanup: () => {
+      previouslyFocused.current?.focus?.();
+    },
+  });
 
   function requestClose() {
     if (busy) return;

@@ -21,7 +21,7 @@ async function interval(employeeId: string, day: string, skew: number | null) {
   const event = await prisma.attendanceEvent.create({ data: { employeeId, source: "scenario", externalEventId: randomUUID(), kind: "clock_in", deviceTime: at, receivedAt: at, normalizedTime: at, clockSkewSeconds: skew } });
   return prisma.attendanceInterval.create({ data: { employeeId, hotelDate: new Date(`${day}T00:00:00Z`), startedAt: at, endedAt: new Date(at.getTime() + 3600000), status: "closed", workedMinutes: 60, startEventId: event.id } });
 }
-describe("P2-16–20 real attendance query/export/ingest", () => {
+describe("real attendance query/export/ingest", () => {
   before(async () => {
     await assertTestDatabase(prisma); process.env.E2E_DISABLE_RATE_LIMIT = "1";
     world = await createCleaningWorld(prisma); operations = await getSetting("operations");
@@ -37,7 +37,7 @@ describe("P2-16–20 real attendance query/export/ingest", () => {
     if (world) { await updateSetting({ key: "operations", value: operations, actorEmployeeId: world.owner.employeeId }); await prisma.auditEvent.deleteMany({ where: { actorEmployeeId: world.owner.employeeId } }); await prisma.notification.deleteMany({ where: { locationId: world.locationAId } }); await prisma.dailyPlanEntry.deleteMany({ where: { locationId: world.locationAId } }); await cleanupCleaningWorld(prisma, world); await prisma.shift.deleteMany({ where: { id: { in: shifts } } }); }
     await prisma.$disconnect();
   });
-  it("P2-16 combined employee/department/search/month scopes yield identical HTTP list and CSV", async t => {
+  it("combined employee/department/search/month scopes yield identical HTTP list and CSV", async t => {
     t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2000-01-02T10:00:00Z") });
     try {
       for (const [scope, expected] of [["today", ["2000-01-02"]], ["week", ["1999-12-27", "1999-12-31", "2000-01-01", "2000-01-02"]], ["month", ["2000-01-01", "2000-01-02", "2000-01-03", "2000-01-31"]]] as const) {
@@ -50,7 +50,7 @@ describe("P2-16–20 real attendance query/export/ingest", () => {
       }
     } finally { t.mock.timers.reset(); }
   });
-  for (const instant of ["1999-12-31T22:30:00Z", "2000-01-01T10:00:00Z"]) it(`P2-17 hotel new-year/month boundary at ${instant} respects Monday–Sunday`, async t => {
+  for (const instant of ["1999-12-31T22:30:00Z", "2000-01-01T10:00:00Z"]) it(`hotel new-year/month boundary at ${instant} respects Monday–Sunday`, async t => {
     t.mock.timers.enable({ apis: ["Date"], now: Date.parse(instant) });
     try {
       for (const [scope, expected] of [["today", ["2000-01-01"]], ["week", ["1999-12-27", "1999-12-31", "2000-01-01", "2000-01-02"]], ["month", ["2000-01-01", "2000-01-02", "2000-01-03", "2000-01-31"]]] as const) {
@@ -59,7 +59,7 @@ describe("P2-16–20 real attendance query/export/ingest", () => {
       }
     } finally { t.mock.timers.reset(); }
   });
-  it("P2-18 actual 50001-row export is explicitly 413, never a truncated successful CSV", async () => {
+  it("actual 50001-row export is explicitly 413, never a truncated successful CSV", async () => {
     const prefix = randomUUID();
     await prisma.$executeRaw`
       INSERT INTO "AttendanceInterval" (id, "employeeId", "hotelDate", "startedAt", "endedAt", "breakMinutes", "workedMinutes", status, "anomalyFlags", "createdAt", "updatedAt")
@@ -73,13 +73,13 @@ describe("P2-16–20 real attendance query/export/ingest", () => {
       const body = await res.json() as any; assert.equal(body.error, "too_large"); assert.deepEqual(body.details, { total: 50001, ceiling: 50000 });
     } finally { await prisma.attendanceInterval.deleteMany({ where: { id: { startsWith: prefix } } }); }
   });
-  it("P2-19 max absolute clock skew uses only selected records and returns null for unknown", async () => {
+  it("max absolute clock skew uses only selected records and returns null for unknown", async () => {
     const res = await getJson(api, token, `/attendance/intervals?scope=month&month=2000-01&employeeId=${world.hk1.employeeId}`);
     assert.equal(res.status, 200); assert.equal((res.body as any).maxClockSkewSeconds, 240);
     const unknown = await getJson(api, token, `/attendance/intervals?scope=month&month=1999-12&employeeId=${world.hk1.employeeId}`);
     assert.equal((unknown.body as any).maxClockSkewSeconds, null);
   });
-  it("P2-20 calculated, explicit and zero skew persist; invalid device/receive times are 400 and leave no partial event", async () => {
+  it("calculated, explicit and zero skew persist; invalid device/receive times are 400 and leave no partial event", async () => {
     for (const explicit of [undefined, -19, 0]) {
       const key = randomUUID();
       const res = await postJson(api, token, "/attendance/events", { source: "scenario-ingest", externalEventId: key, employeeId: world.manager.employeeId, kind: "clock_in", deviceTime: "2000-03-01T08:00:30Z", receivedAt: "2000-03-01T08:00:00Z", ...(explicit === undefined ? {} : { clockSkewSeconds: explicit }) });
@@ -95,7 +95,7 @@ describe("P2-16–20 real attendance query/export/ingest", () => {
       assert.deepEqual(await prisma.attendanceInterval.findMany({ where: { employeeId: world.manager.employeeId } }), intervals);
     }
   });
-  it("P1-126 one instant at hotel new-year midnight yields identical plan/task/roster/attendance date keys", async t => {
+  it("one instant at hotel new-year midnight yields identical plan/task/roster/attendance date keys", async t => {
     const instant = "1999-12-31T22:30:00.000Z"; t.mock.timers.enable({ apis: ["Date"], now: Date.parse(instant) });
     try {
       const day = await todayHotelDateYmd(); assert.equal(day, "2000-01-01");

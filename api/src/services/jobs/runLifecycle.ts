@@ -42,6 +42,49 @@ export async function finishJobRun(
   return row;
 }
 
+type JobRunLifecycleDeps = {
+  startJobRun?: (jobKey: string) => Promise<{ id: string }>;
+  finishJobRun?: (
+    id: string,
+    status: "ok" | "error",
+    summary?: Prisma.InputJsonValue,
+    error?: string,
+  ) => Promise<unknown>;
+};
+
+function isPlainObjectSummary(value: unknown): value is Prisma.InputJsonValue {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !(value instanceof Date)
+  );
+}
+
+/**
+ * Start a JobRun, run `body`, finish ok/error. Plain-object results become the
+ * JobRun summary. Injectable deps support unit tests (e.g. lockInactive).
+ */
+export async function withJobRun<T>(
+  jobKey: string,
+  body: () => Promise<T>,
+  deps: JobRunLifecycleDeps = {},
+): Promise<T> {
+  const start = deps.startJobRun ?? startJobRun;
+  const finish = deps.finishJobRun ?? finishJobRun;
+  const run = await start(jobKey);
+  try {
+    const result = await body();
+    const summary = isPlainObjectSummary(result) ? result : undefined;
+    await finish(run.id, "ok", summary);
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await finish(run.id, "error", undefined, message);
+    throw err;
+  }
+}
+
 /**
  * Age before a `running` JobRun is treated as orphaned (crash / killed worker).
  *

@@ -1,5 +1,5 @@
 /**
- * T-ATT-78a/b — list cursor drain + CSV export for 1205 same-day intervals.
+ * b — list cursor drain + CSV export for 1205 same-day intervals.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -29,7 +29,7 @@ const N = 1205;
 const HOTEL_DATE = new Date("2026-10-15T00:00:00.000Z");
 const STARTED_AT = new Date("2026-10-15T08:00:00.000Z");
 
-describe("attendance reports pagination HTTP/DB (T-ATT-78)", () => {
+describe("attendance reports pagination HTTP/DB", () => {
   let world: AttendanceWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -134,7 +134,7 @@ describe("attendance reports pagination HTTP/DB (T-ATT-78)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-ATT-78a list drain limit=200 → 1205 ids; nextCursor null; no negatives", async () => {
+  it("list drain limit=200 → 1205 ids; nextCursor null; no negatives", async () => {
     const mgr = await loginBearer(api, world.manager.email, ATT_PASSWORD);
     const emp = world.technician.employeeId;
     const collected: string[] = [];
@@ -187,7 +187,7 @@ describe("attendance reports pagination HTTP/DB (T-ATT-78)", () => {
     }
   });
 
-  it("T-ATT-78b CSV export 1205 rows; unique (startedAt,endedAt); no negatives", async () => {
+  it("CSV export 1205 rows; unique (startedAt,endedAt); no negatives", async () => {
     const mgr = await loginBearer(api, world.manager.email, ATT_PASSWORD);
     const emp = world.technician.employeeId;
     const qs = new URLSearchParams({

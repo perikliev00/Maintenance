@@ -1,5 +1,5 @@
 /**
- * NEW-06: Audit page smoke — open, filter, refresh on isolated P1 DB.
+ * Audit page smoke — open, filter, refresh on isolated P1 DB.
  * Live SSE coverage lives in audit-page-live-refresh.spec.ts.
  */
 import { expect, test } from "@playwright/test";

@@ -8,6 +8,8 @@ import { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../db";
 import { AppError } from "../../errors";
 import { recordAudit } from "../audit";
+import { isP2002 } from "../db/prismaErrors";
+import type { Tx } from "../db/types";
 import type { DataScope } from "../dataScope";
 import { resolveDataScope } from "../dataScope";
 import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
@@ -38,8 +40,6 @@ const SUPERVISOR_ROLES: ReadonlySet<Role> = new Set([
   Role.admin,
   Role.owner,
 ]);
-
-type Tx = Prisma.TransactionClient;
 
 async function resolvePropertyId(explicit?: string) {
   if (explicit) {
@@ -125,6 +125,56 @@ function throwVersionConflict(currentVersion: number, expectedVersion: number) {
   );
 }
 
+type SectorPatchFields = ReturnType<typeof normalizeSectorFields>;
+
+/** In-tx metadata CAS update; returns the next field snapshot for audit. */
+async function applySectorPatch(
+  tx: Tx,
+  id: string,
+  existing: {
+    code: string;
+    nameBg: string;
+    nameEn: string;
+    primarySupervisorEmployeeId: string | null;
+    isActive: boolean;
+    version: number;
+  },
+  patch: {
+    fields: SectorPatchFields;
+    primarySupervisorEmployeeId?: string | null;
+    isActive?: boolean;
+    expectedVersion: number;
+  },
+) {
+  if (existing.version !== patch.expectedVersion) {
+    throwVersionConflict(existing.version, patch.expectedVersion);
+  }
+
+  const nextCode = patch.fields.code ?? existing.code;
+  const nextNameBg = patch.fields.nameBg ?? existing.nameBg;
+  const nextNameEn = patch.fields.nameEn ?? existing.nameEn;
+  const nextSupervisor =
+    patch.primarySupervisorEmployeeId !== undefined
+      ? patch.primarySupervisorEmployeeId
+      : existing.primarySupervisorEmployeeId;
+  const nextActive =
+    patch.isActive !== undefined ? patch.isActive : existing.isActive;
+
+  await tx.sector.update({
+    where: { id },
+    data: {
+      code: nextCode,
+      nameBg: nextNameBg,
+      nameEn: nextNameEn,
+      primarySupervisorEmployeeId: nextSupervisor,
+      isActive: nextActive,
+      version: { increment: 1 },
+    },
+  });
+
+  return { nextCode, nextNameBg, nextNameEn, nextSupervisor, nextActive };
+}
+
 /**
  * Re-check sector write access under the sector lock.
  * Allows a sector-scoped actor to deactivate their own active sector in the
@@ -155,10 +205,7 @@ function assertSectorWriteAccessUnderLock(input: {
 }
 
 function mapUniqueConflict(err: unknown): never {
-  if (
-    err instanceof Prisma.PrismaClientKnownRequestError &&
-    err.code === "P2002"
-  ) {
+  if (isP2002(err)) {
     throw new AppError(409, "conflict", "Sector code already exists");
   }
   throw err;
@@ -350,6 +397,7 @@ export async function saveSector(id: string, input: SectorSaveInput) {
           throw new AppError(404, "not_found", "Sector not found");
         }
 
+        // Fail fast on stale version before access re-check / membership work.
         if (existing.version !== input.expectedVersion) {
           throwVersionConflict(existing.version, input.expectedVersion);
         }
@@ -407,27 +455,14 @@ export async function saveSector(id: string, input: SectorSaveInput) {
               })
             : null;
 
-        const nextCode = fields.code ?? existing.code;
-        const nextNameBg = fields.nameBg ?? existing.nameBg;
-        const nextNameEn = fields.nameEn ?? existing.nameEn;
-        const nextSupervisor =
-          input.primarySupervisorEmployeeId !== undefined
-            ? input.primarySupervisorEmployeeId
-            : existing.primarySupervisorEmployeeId;
-        const nextActive =
-          input.isActive !== undefined ? input.isActive : existing.isActive;
-
-        await tx.sector.update({
-          where: { id },
-          data: {
-            code: nextCode,
-            nameBg: nextNameBg,
-            nameEn: nextNameEn,
-            primarySupervisorEmployeeId: nextSupervisor,
-            isActive: nextActive,
-            version: { increment: 1 },
-          },
+        const patched = await applySectorPatch(tx, id, existing, {
+          fields,
+          primarySupervisorEmployeeId: input.primarySupervisorEmployeeId,
+          isActive: input.isActive,
+          expectedVersion: input.expectedVersion,
         });
+        const { nextCode, nextNameBg, nextNameEn, nextSupervisor, nextActive } =
+          patched;
 
         if (locationIds !== undefined) {
           const auth: SectorMembershipAuth = {
@@ -479,10 +514,7 @@ export async function saveSector(id: string, input: SectorSaveInput) {
       { timeout: 20_000, maxWait: 20_000 },
     );
   } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isP2002(err)) {
       if (String(err.meta?.target ?? "").includes("locationId")) {
         throw new AppError(
           409,
@@ -496,52 +528,6 @@ export async function saveSector(id: string, input: SectorSaveInput) {
   }
 
   return getSector(id);
-}
-
-/**
- * Patch sector metadata only (backward compatible). Prefer saveSector when
- * membership should commit atomically with metadata.
- */
-export async function updateSector(
-  id: string,
-  input: {
-    code?: string;
-    nameBg?: string;
-    nameEn?: string;
-    primarySupervisorEmployeeId?: string | null;
-    isActive?: boolean;
-    expectedVersion: number;
-    actorEmployeeId?: string;
-    actorUserId?: string;
-    actorRole?: Role;
-    /** Defaults to hotel-wide scope for internal/manager callers. */
-    scope?: DataScope;
-    allowCrossSectorTransfer?: boolean;
-  },
-) {
-  const scope: DataScope =
-    input.scope ??
-    ({
-      kind: "all",
-      employeeId: input.actorEmployeeId ?? "",
-      role: input.actorRole ?? Role.manager,
-      sectorIds: [],
-    } satisfies DataScope);
-  return saveSector(id, {
-    code: input.code,
-    nameBg: input.nameBg,
-    nameEn: input.nameEn,
-    primarySupervisorEmployeeId: input.primarySupervisorEmployeeId,
-    isActive: input.isActive,
-    expectedVersion: input.expectedVersion,
-    actor: {
-      employeeId: input.actorEmployeeId,
-      userId: input.actorUserId,
-      role: input.actorRole ?? scope.role,
-    },
-    scope,
-    allowCrossSectorTransfer: input.allowCrossSectorTransfer ?? true,
-  });
 }
 
 /**

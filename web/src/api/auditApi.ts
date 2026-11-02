@@ -1,5 +1,5 @@
 /** Audit event log fetch (display labels live in `../audit/labels`). */
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { apiGet, buildQuery } from "./http";
 
 export type AuditEventRow = {
   id: string;
@@ -29,21 +29,16 @@ export async function fetchAuditEvents(params?: {
   to?: string;
   limit?: number;
 }): Promise<AuditEventRow[]> {
-  // Build optional query string; empty params → unfiltered list (server-capped).
-  const search = new URLSearchParams();
-  if (params?.entityType) search.set("entityType", params.entityType);
-  if (params?.entityId) search.set("entityId", params.entityId);
-  if (params?.locationId) search.set("locationId", params.locationId);
-  if (params?.actorEmployeeId)
-    search.set("actorEmployeeId", params.actorEmployeeId);
-  if (params?.action) search.set("action", params.action);
-  if (params?.from) search.set("from", params.from);
-  if (params?.to) search.set("to", params.to);
-  if (params?.limit) search.set("limit", String(params.limit));
-  const qs = search.toString();
-  const res = await apiFetch(
-    `${API_BASE}/audit-events${qs ? `?${qs}` : ""}`,
-    { headers: authHeaders() },
+  return apiGet(
+    `/audit-events${buildQuery({
+      entityType: params?.entityType,
+      entityId: params?.entityId,
+      locationId: params?.locationId,
+      actorEmployeeId: params?.actorEmployeeId,
+      action: params?.action,
+      from: params?.from,
+      to: params?.to,
+      limit: params?.limit,
+    })}`,
   );
-  return parseJson(res);
 }

@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ApiRequestError,
   ROLE_LABELS,
   fetchMe,
   fetchPermissionHistory,
@@ -15,7 +16,6 @@ import {
   type PermissionMatrix,
   type Role,
 } from "../api/client";
-import { ApiRequestError } from "../api/http";
 import {
   applySavedRoleToDraft,
   historyStatusFromResult,

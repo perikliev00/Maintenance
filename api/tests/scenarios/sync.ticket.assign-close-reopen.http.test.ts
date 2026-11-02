@@ -1,5 +1,5 @@
 /**
- * FEAT-002 / P4-T01 — offline sync ticket.assign / close / reopen.
+ * P4-T01 — offline sync ticket.assign / close / reopen.
  * Authz mirrors HTTP: assign→tickets.assign, close→tickets.close,
  * reopen→tickets.resolve. Wrong-state → conflict (not 500).
  */
@@ -19,7 +19,7 @@ import {
   type TicketsWorld,
 } from "../tickets/fixtures";
 
-describe("sync push ticket.assign / close / reopen (FEAT-002 / B4)", () => {
+describe("sync push ticket.assign / close / reopen", () => {
   let world: TicketsWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];

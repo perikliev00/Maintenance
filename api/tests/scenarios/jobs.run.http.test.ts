@@ -86,7 +86,7 @@ describe("POST /jobs/run shared execution lock", () => {
     assert.equal(denied.status, 403, JSON.stringify(denied.body));
   });
 
-  it("NEW-05: jobs.view alone cannot POST /jobs/run", async () => {
+  it("jobs.view alone cannot POST /jobs/run", async () => {
     await prisma.roleGrant.create({
       data: {
         role: "housekeeper",

@@ -27,7 +27,7 @@ after(async () => {
 async function post(path: string, body: unknown, ip: string) {
   return fetch(`${api}${path}`, { method: "POST", headers: { "Content-Type": "application/json", "X-Forwarded-For": ip }, body: JSON.stringify(body) });
 }
-it("P1-93 enabled login limiter shares one normalized email bucket", async () => {
+it("enabled login limiter shares one normalized email bucket", async () => {
   assert.notEqual(process.env.E2E_DISABLE_RATE_LIMIT, "1");
   const email = `${randomUUID()}@rate.test`;
   for (let i = 0; i < 10; i++) {
@@ -38,7 +38,7 @@ it("P1-93 enabled login limiter shares one normalized email bucket", async () =>
   assert.equal((await post("/auth/login", { email: `other-${email}`, password: "wrong" }, "198.51.100.31")).status, 401);
   assert.equal((await post("/auth/login", { email, password: "wrong" }, "198.51.100.32")).status, 401);
 });
-it("P1-94 enabled redeem limiter resets after its real window", async t => {
+it("enabled redeem limiter resets after its real window", async t => {
   assert.notEqual(process.env.E2E_DISABLE_RATE_LIMIT, "1");
   t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const input = { code: "INVALID-CODE", deviceLabel: "test", fingerprint: "test" };
@@ -50,7 +50,7 @@ it("P1-94 enabled redeem limiter resets after its real window", async t => {
     assert.equal((await post("/invitations/redeem", input, "198.51.100.41")).status, 400);
   } finally { t.mock.timers.reset(); }
 });
-it("P1-128 production rejects missing, example and short JWT secrets before listen/jobs", () => {
+it("production rejects missing, example and short JWT secrets before listen/jobs", () => {
   const original = {
     secret: process.env.JWT_SECRET,
     mode: process.env.NODE_ENV,

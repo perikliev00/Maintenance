@@ -2,10 +2,10 @@
  * Row-level `FOR UPDATE` locks used inside cleaning transactions to serialize
  * status transitions and cycle ownership checks.
  */
-import { Prisma } from "@prisma/client";
 import { AppError } from "../../errors";
+import type { Tx } from "../db/types";
 
-export type Tx = Prisma.TransactionClient;
+export type { Tx };
 
 /** Lock a cleaning task row; 404 if missing. */
 export async function lockTask(tx: Tx, taskId: string) {

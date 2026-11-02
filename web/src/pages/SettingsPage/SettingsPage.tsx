@@ -27,6 +27,7 @@ import {
   type SlaPolicyRow,
   type SystemStatus,
 } from "../../api/client";
+import { useBusyMutation } from "../../hooks/useBusyMutation";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import { IssueCatalogPanel } from "../../components/IssueCatalogPanel";
 import { canPerformAction } from "../../api/client";
@@ -40,11 +41,12 @@ import { NotificationsTab } from "./NotificationsTab";
 import { HistoryTab } from "./HistoryTab";
 import {
   applySettingsBundleRefresh,
+  classifySaveError,
   isDraftDirty,
-  resolveSaveFlow,
   SETTINGS_BUNDLE_LIVE_EVENTS,
   SYSTEM_STATUS_LIVE_EVENTS,
 } from "./settingsDraftLogic";
+import { labelFor } from "../../i18n";
 
 type Props = { user: AuthUser };
 
@@ -72,22 +74,19 @@ export function SettingsPage({ user }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [serverConflict, setServerConflict] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { busy, busyRef, runMutationWithRefresh } = useBusyMutation();
   const [loading, setLoading] = useState(true);
   const [slaPolicies, setSlaPolicies] = useState<SlaPolicyRow[]>([]);
 
   const draftRef = useRef(draft);
   const bundleRef = useRef(bundle);
   const tabRef = useRef(tab);
-  const busyRef = useRef(busy);
   const systemRevisionRef = useRef(0);
   draftRef.current = draft;
   bundleRef.current = bundle;
   tabRef.current = tab;
-  busyRef.current = busy;
 
-  /** Pick BG vs EN copy for this page. */
-  const label = (bg: string, en: string) => (locale === "bg" ? bg : en);
+  const label = labelFor(locale);
 
   const currentServerValue = bundle?.[tab]?.value;
   const dirty =
@@ -205,108 +204,92 @@ export function SettingsPage({ user }: Props) {
 
   /** Patch the current tab's draft with CAS version, then best-effort refresh. */
   async function save() {
-    if (!isEditableTab(tab)) return;
-    setBusy(true);
+    if (!isEditableTab(tab) || busyRef.current) return;
     setError(null);
     setMessage(null);
     setRefreshWarning(null);
     const expectedVersion = bundle?.[tab]?.version;
-    const refreshResults: Array<{ ok: true } | { ok: false; message: string }> =
-      [];
-    let patchResult: { ok: true } | { ok: false; error: unknown } = {
-      ok: false,
-      error: new Error("save aborted"),
-    };
-    try {
-      try {
-        await patchSetting(
+
+    const result = await runMutationWithRefresh(
+      () =>
+        patchSetting(
           tab,
           draft,
           reason.trim() || undefined,
           expectedVersion,
-        );
-        patchResult = { ok: true };
-      } catch (err) {
-        patchResult = { ok: false, error: err };
-      }
-
-      if (patchResult.ok) {
+        ),
+      async () => {
+        // Aggregate follow-up reads; any failure → saved_refresh_failed (BUG-07).
+        const errors: string[] = [];
         try {
           await refreshSettings({ forceDraft: true });
-          refreshResults.push({ ok: true });
         } catch (err) {
-          refreshResults.push({
-            ok: false,
-            message:
-              err instanceof Error ? err.message : "settings refresh failed",
-          });
+          errors.push(
+            err instanceof Error ? err.message : "settings refresh failed",
+          );
         }
         try {
           await refreshSystem();
-          refreshResults.push({ ok: true });
         } catch (err) {
-          refreshResults.push({
-            ok: false,
-            message:
-              err instanceof Error ? err.message : "system refresh failed",
-          });
+          errors.push(
+            err instanceof Error ? err.message : "system refresh failed",
+          );
         }
         try {
           const hist = await fetchSettingsHistory({ limit: 80 });
           setHistory(hist);
-          refreshResults.push({ ok: true });
         } catch (err) {
-          refreshResults.push({
-            ok: false,
-            message: err instanceof Error ? err.message : "history failed",
-          });
+          errors.push(err instanceof Error ? err.message : "history failed");
         }
-      } else if (
-        patchResult.error &&
-        typeof patchResult.error === "object" &&
-        "status" in patchResult.error &&
-        (patchResult.error as { status?: number }).status === 409
-      ) {
+        if (errors.length > 0) {
+          throw new Error(errors.join("; "));
+        }
+      },
+    );
+
+    if (!result.ok) {
+      if (result.error === "busy") return;
+      const classified = classifySaveError(
+        result.cause ?? new Error(result.error),
+      );
+      if (classified.kind === "conflict") {
         try {
           await refreshSettings();
         } catch {
           /* keep draft; conflict banner already set */
         }
-      }
-
-      const flow = resolveSaveFlow({ patchResult, refreshResults });
-      if (flow.mutation === "saved") {
-        setMessage(label("Запазено", "Saved"));
-        if (!flow.keepReason) setReason("");
-        setServerConflict(false);
-        setRefreshWarning(
-          flow.refreshWarning
-            ? label(
-                `Записът успя, но опресняването се провали: ${flow.refreshWarning}`,
-                `Saved, but refresh failed: ${flow.refreshWarning}`,
-              )
-            : null,
-        );
-      } else if (flow.mutation === "conflict") {
         setError(
           label(
             "Конфликт: друг потребител вече е променил тази настройка. Черновата е запазена.",
             "Conflict: another user changed this setting. Your draft is kept.",
           ),
         );
-      } else if (flow.mutation === "uncertain") {
+        return;
+      }
+      if (classified.kind === "uncertain") {
         setError(
           label(
             "Мрежова грешка при запис — резултатът е неизвестен. Проверете преди повторен опит.",
             "Network error while saving — outcome unknown. Check before retrying.",
           ),
         );
-      } else {
-        setError(flow.error);
+        return;
       }
-    } finally {
-      setBusy(false);
+      setError(classified.message);
+      return;
     }
+
+    setMessage(label("Запазено", "Saved"));
+    setReason("");
+    setServerConflict(false);
+    setRefreshWarning(
+      result.outcome === "saved_refresh_failed" && result.refreshError
+        ? label(
+            `Записът успя, но опресняването се провали: ${result.refreshError}`,
+            `Saved, but refresh failed: ${result.refreshError}`,
+          )
+        : null,
+    );
   }
 
   function setBool(path: string, value: boolean) {
@@ -583,29 +566,35 @@ export function SettingsPage({ user }: Props) {
                         onChange={async (e) => {
                           const next = Number(e.target.value);
                           if (!Number.isFinite(next) || next < 1) return;
-                          setBusy(true);
+                          if (busyRef.current) return;
                           setError(null);
-                          try {
-                            const updated = await updateSlaPolicy(priority, {
-                              hours: next,
-                              isActive: true,
-                            });
-                            setSlaPolicies((prev) => {
-                              const others = prev.filter((p) => p.priority !== priority);
-                              return [...others, updated].sort((a, b) =>
-                                a.priority.localeCompare(b.priority),
-                              );
-                            });
-                            setMessage(
-                              label("SLA политиката е записана", "SLA policy saved"),
-                            );
-                          } catch (err) {
-                            setError(
-                              err instanceof Error ? err.message : "SLA update failed",
-                            );
-                          } finally {
-                            setBusy(false);
+                          const result = await runMutationWithRefresh(
+                            () =>
+                              updateSlaPolicy(priority, {
+                                hours: next,
+                                isActive: true,
+                              }),
+                          );
+                          if (!result.ok) {
+                            if (result.error !== "busy") {
+                              setError(result.error);
+                            }
+                            return;
                           }
+                          setSlaPolicies((prev) => {
+                            const others = prev.filter(
+                              (p) => p.priority !== priority,
+                            );
+                            return [...others, result.value].sort((a, b) =>
+                              a.priority.localeCompare(b.priority),
+                            );
+                          });
+                          setMessage(
+                            label(
+                              "SLA политиката е записана",
+                              "SLA policy saved",
+                            ),
+                          );
                         }}
                       />
                     </label>

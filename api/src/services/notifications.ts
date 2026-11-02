@@ -12,6 +12,7 @@ import { prisma } from "../db";
 import { AppError } from "../errors";
 import { publish } from "../events/bus";
 import type { Action } from "../permissions";
+import { isP2002 } from "./db/prismaErrors";
 import { sectorSnapshotForLocation } from "./dataScope";
 import { canPerform } from "./roleGrants";
 import { getSetting } from "./settings";
@@ -273,10 +274,7 @@ export async function createNotifications(
       notifiedRecipients.push(row.recipientEmployeeId);
     } catch (err) {
       // Duplicate dedupeKey for this recipient — count as skipped, continue.
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === "P2002"
-      ) {
+      if (isP2002(err)) {
         skipped += 1;
         continue;
       }

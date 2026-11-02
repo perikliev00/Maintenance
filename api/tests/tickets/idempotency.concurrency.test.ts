@@ -1,6 +1,6 @@
 import { withDatabaseBarrier } from "../dbBarrier";
 /**
- * T-TKT-08…10 — concurrent/idempotent commandId (P1-44…46).
+ * 10 — concurrent/idempotent commandId (46).
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -34,7 +34,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
+describe("ticket commandId concurrency (10 / 46)", () => {
   let world: TicketsWorld;
 
   before(async () => {
@@ -69,7 +69,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-TKT-08: concurrent start with same commandId → one event (P1-44)", async () => {
+  it("concurrent start with same commandId → one event", async () => {
     const { ticket } = await reportTicket(prisma, world);
     await advanceTicketTo(world, ticket.id, "assigned");
     const commandId = randomUUID();
@@ -106,7 +106,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     );
   });
 
-  it("T-TKT-08b: concurrent wait with same commandId → one event (P1-44)", async () => {
+  it("concurrent wait with same commandId → one event", async () => {
     const { ticket } = await reportTicket(prisma, world);
     await advanceTicketTo(world, ticket.id, "in_progress");
     const commandId = randomUUID();
@@ -144,7 +144,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     assert.equal(await countTicketEvents(prisma, ticket.id), eventsBefore + 1);
   });
 
-  it("T-TKT-08c: concurrent resume with same commandId → one event, one unpause (P1-44)", async () => {
+  it("concurrent resume with same commandId → one event, one unpause", async () => {
     const T1 = new Date("2026-09-01T09:00:00.000Z");
     const T2 = new Date("2026-09-01T10:00:00.000Z");
     const pauseMs = T2.getTime() - T1.getTime();
@@ -198,7 +198,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     assert.equal(await countTicketEvents(prisma, ticket.id), eventsBefore + 1);
   });
 
-  it("T-TKT-08d: concurrent resolve with same commandId → one event (P1-44)", async () => {
+  it("concurrent resolve with same commandId → one event", async () => {
     const { ticket } = await reportTicket(prisma, world);
     await advanceTicketTo(world, ticket.id, "in_progress");
     const commandId = randomUUID();
@@ -235,7 +235,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     assert.equal(await countTicketEvents(prisma, ticket.id), eventsBefore + 1);
   });
 
-  it("T-TKT-09: commandId not reusable across action kinds or tickets (P1-45)", async () => {
+  it("commandId not reusable across action kinds or tickets", async () => {
     const { ticket: t1 } = await reportTicket(prisma, world);
     await advanceTicketTo(world, t1.id, "assigned");
     const commandId = randomUUID();
@@ -321,7 +321,7 @@ describe("ticket commandId concurrency (T-TKT-08…10 / P1-44…46)", () => {
     }
   });
 
-  it("T-TKT-10: concurrent create same commandId → one ticket + one history (P1-46)", async () => {
+  it("concurrent create same commandId → one ticket + one history", async () => {
     const option = await findActiveIssueOption(prisma);
     const commandId = randomUUID();
     const payload = {

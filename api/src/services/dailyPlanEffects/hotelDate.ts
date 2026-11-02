@@ -2,12 +2,9 @@
  * Hotel-date string helpers for daily plan (UTC-midnight Date columns).
  */
 import { AppError } from "../../errors";
+import { addDaysYmd, formatHotelDate } from "../hotelTime";
 
-/** YYYY-MM-DD from a Prisma `@db.Date` stored as UTC midnight. */
-export function formatHotelDate(d: Date): string {
-  // ISO date portion only; safe because values are stored as UTC midnight.
-  return d.toISOString().slice(0, 10);
-}
+export { addDaysYmd, formatHotelDate };
 
 /**
  * Parse and validate a calendar YYYY-MM-DD into a UTC-midnight Date.
@@ -25,12 +22,4 @@ export function parseHotelDate(hotelDate: string): Date {
     throw new AppError(400, "validation", "hotelDate must be a valid calendar date");
   }
   return parsed;
-}
-
-/** Add calendar days to a YYYY-MM-DD string (UTC date arithmetic). */
-export function addDaysYmd(ymd: string, days: number): string {
-  // Parse as UTC midnight, mutate UTC day, re-format.
-  const d = new Date(`${ymd}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }

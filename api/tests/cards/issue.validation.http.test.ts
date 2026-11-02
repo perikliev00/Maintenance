@@ -1,5 +1,5 @@
 /**
- * P1-79 / P1-80 / P1-81 — card issue validation via HTTP.
+ * card issue validation via HTTP.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -25,7 +25,7 @@ import {
 
 const prisma = new PrismaClient();
 
-describe("card issue validation HTTP (P1-79–81)", () => {
+describe("card issue validation HTTP", () => {
   let world: CardsWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -78,7 +78,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     assert.equal(after.auditCount, before.auditCount, "no partial audit");
   }
 
-  it("P1-79 guest+room → 201; employeeId null; grant on room", async () => {
+  it("guest+room → 201; employeeId null; grant on room", async () => {
     const body = guestIssueBody(world);
     const res = await postJson(api, token, "/cards", body);
     assert.equal(res.status, 201);
@@ -94,7 +94,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     assert.equal(card.grants[0]!.locationId, world.roomId);
   });
 
-  it("P1-79 guest+common_area → 400; no partial rows", async () => {
+  it("guest+common_area → 400; no partial rows", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const res = await postJson(
       api,
@@ -106,7 +106,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-79 guest missing location → 400; no partial rows", async () => {
+  it("guest missing location → 400; no partial rows", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const res = await postJson(
       api,
@@ -118,7 +118,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-79 guest+nonexistent locationId → 404; no partial rows", async () => {
+  it("guest+nonexistent locationId → 404; no partial rows", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const res = await postJson(
       api,
@@ -135,7 +135,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-79 guest+employeeId → 400; no partial rows", async () => {
+  it("guest+employeeId → 400; no partial rows", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const res = await postJson(
       api,
@@ -147,7 +147,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-80 staff without holder → 400", async () => {
+  it("staff without holder → 400", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const res = await postJson(
       api,
@@ -159,7 +159,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-80 unknown employee → 404; no partial rows", async () => {
+  it("unknown employee → 404; no partial rows", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const res = await postJson(
       api,
@@ -171,7 +171,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-80 master+location → 400; no partial rows", async () => {
+  it("master+location → 400; no partial rows", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const res = await postJson(
       api,
@@ -183,7 +183,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-80 master null location → 201; grant.locationId null", async () => {
+  it("master null location → 201; grant.locationId null", async () => {
     const res = await postJson(api, token, "/cards", masterIssueBody(world));
     assert.equal(res.status, 201);
     const card = res.body as {
@@ -195,7 +195,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     assert.equal(card.grants[0]!.locationId, null);
   });
 
-  it("P1-81 until < from → 400; snapshot unchanged", async () => {
+  it("until < from → 400; snapshot unchanged", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const from = "2026-06-01T12:00:00.000Z";
     const until = "2026-06-01T11:00:00.000Z";
@@ -209,7 +209,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-81 until === from → 400; snapshot unchanged", async () => {
+  it("until === from → 400; snapshot unchanged", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const t = "2026-06-01T12:00:00.000Z";
     const res = await postJson(
@@ -222,7 +222,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-81 invalid datetime strings → 400 via Zod; no partial", async () => {
+  it("invalid datetime strings → 400 via Zod; no partial", async () => {
     const before = await worldCardSnapshot(prisma, world);
     const v = defaultValidity();
     const badFrom = await postJson(
@@ -245,7 +245,7 @@ describe("card issue validation HTTP (P1-79–81)", () => {
     await assertNoPartial(before);
   });
 
-  it("P1-81 +1s boundary OK → 201", async () => {
+  it("+1s boundary OK → 201", async () => {
     const from = new Date("2026-06-01T10:00:00.000Z");
     const until = new Date(from.getTime() + 1000);
     const res = await postJson(

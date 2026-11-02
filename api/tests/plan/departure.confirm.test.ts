@@ -1,5 +1,5 @@
 /**
- * T-PLAN-55/56 — deferred departure confirm assignee + scope (P1-55…56).
+ * 56 — deferred departure confirm assignee + scope (56).
  */
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -47,7 +47,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("daily plan departure confirm (T-PLAN-55…56 / P1-55…56)", () => {
+describe("daily plan departure confirm (56 / 56)", () => {
   let world: PlanWorld;
   let api: string;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
@@ -86,7 +86,7 @@ describe("daily plan departure confirm (T-PLAN-55…56 / P1-55…56)", () => {
     ]);
   });
 
-  it("T-PLAN-55a: confirm deferred creates task with preselected assignee/shift", async () => {
+  it("confirm deferred creates task with preselected assignee/shift", async () => {
     await cancelActiveTasks(prisma, world.locationAId, past);
     const entry = await seedDeferredDeparture(prisma, {
       hotelDateYmd: past,
@@ -126,7 +126,7 @@ describe("daily plan departure confirm (T-PLAN-55…56 / P1-55…56)", () => {
     assert.equal(loc.cleaningStatus, CleaningStatus.dirty);
   });
 
-  it("T-PLAN-55b: confirm links preexisting task and preserves its assignee/shift", async () => {
+  it("confirm links preexisting task and preserves its assignee/shift", async () => {
     await cancelActiveTasks(prisma, world.locationAId, past);
     const entry = await seedDeferredDeparture(prisma, {
       hotelDateYmd: past,
@@ -165,7 +165,7 @@ describe("daily plan departure confirm (T-PLAN-55…56 / P1-55…56)", () => {
     assert.equal(await countActiveTasks(prisma, world.locationAId, past), 1);
   });
 
-  it("T-PLAN-56a: confirm out-of-scope entry does not change foreign room", async () => {
+  it("confirm out-of-scope entry does not change foreign room", async () => {
     let fx: ScopeSmokeFixture | null = null;
     try {
       fx = await createScopeSmokeFixture(prisma);
@@ -244,7 +244,7 @@ describe("daily plan departure confirm (T-PLAN-55…56 / P1-55…56)", () => {
     }
   });
 
-  it("T-PLAN-56b: confirm other-day entry on separate room is a no-op for that room", async () => {
+  it("confirm other-day entry on separate room is a no-op for that room", async () => {
     await cancelActiveTasks(prisma, world.locationAId, past);
     await cancelActiveTasks(prisma, world.locationCId, pastOther);
 

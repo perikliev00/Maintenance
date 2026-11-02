@@ -1,5 +1,5 @@
 /**
- * T-TKT-05…07 — SLA dueAt on create, wait/resume, resolve-from-waiting (P1-41…43).
+ * 07 — SLA dueAt on create, wait/resume, resolve-from-waiting (43).
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -34,7 +34,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("ticket SLA lifecycle (T-TKT-05…07 / P1-41…43)", () => {
+describe("ticket SLA lifecycle (07 / 43)", () => {
   let world: TicketsWorld;
 
   before(async () => {
@@ -56,7 +56,7 @@ describe("ticket SLA lifecycle (T-TKT-05…07 / P1-41…43)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-TKT-05a: dueAt from active SLA policy hours (P1-41)", async () => {
+  it("dueAt from active SLA policy hours", async () => {
     const T0 = new Date("2026-06-01T10:00:00.000Z");
     await withSlaPolicyPatch(
       prisma,
@@ -80,7 +80,7 @@ describe("ticket SLA lifecycle (T-TKT-05…07 / P1-41…43)", () => {
     );
   });
 
-  it("T-TKT-05b: inactive policy falls back to defaultTicketSlaHours (P1-41)", async () => {
+  it("inactive policy falls back to defaultTicketSlaHours", async () => {
     const T0 = new Date("2026-06-01T12:00:00.000Z");
     await withSlaPolicyPatch(
       prisma,
@@ -109,7 +109,7 @@ describe("ticket SLA lifecycle (T-TKT-05…07 / P1-41…43)", () => {
     );
   });
 
-  it("T-TKT-05c: missing SLA policy row falls back to defaultTicketSlaHours (P1-41)", async () => {
+  it("missing SLA policy row falls back to defaultTicketSlaHours", async () => {
     const T0 = new Date("2026-06-01T14:00:00.000Z");
     await withMissingSlaPolicy(
       prisma,
@@ -142,7 +142,7 @@ describe("ticket SLA lifecycle (T-TKT-05…07 / P1-41…43)", () => {
     );
   });
 
-  it("T-TKT-06: wait→resume extends dueAt exactly; same-commandId replay does not double-extend (P1-42)", async () => {
+  it("wait→resume extends dueAt exactly; same-commandId replay does not double-extend", async () => {
     const T0 = new Date("2026-07-01T08:00:00.000Z");
     const T1 = new Date("2026-07-01T09:00:00.000Z");
     const T2 = new Date("2026-07-01T10:30:00.000Z");
@@ -222,7 +222,7 @@ describe("ticket SLA lifecycle (T-TKT-05…07 / P1-41…43)", () => {
     assert.equal(row.slaPausedMsTotal, pauseMs);
   });
 
-  it("T-TKT-07: resolve-from-waiting closes pause and stamps resolver (P1-43)", async () => {
+  it("resolve-from-waiting closes pause and stamps resolver", async () => {
     const T0 = new Date("2026-08-01T08:00:00.000Z");
     const T1 = new Date("2026-08-01T09:00:00.000Z");
     const T2 = new Date("2026-08-01T11:00:00.000Z");

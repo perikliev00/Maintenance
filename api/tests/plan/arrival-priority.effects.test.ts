@@ -1,5 +1,5 @@
 /**
- * T-PLAN-52…54 — arrival / priority plan effects (P1-52…54).
+ * 54 — arrival / priority plan effects (54).
  */
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -34,7 +34,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("daily plan arrival/priority effects (T-PLAN-52…54 / P1-52…54)", () => {
+describe("daily plan arrival/priority effects (54 / 54)", () => {
   let world: PlanWorld;
   let today: string;
   let hkA2: Awaited<ReturnType<typeof createExtraHousekeeper>>;
@@ -61,7 +61,7 @@ describe("daily plan arrival/priority effects (T-PLAN-52…54 / P1-52…54)", ()
     ]);
   });
 
-  it("T-PLAN-52a: arrival on dirty room creates high-priority task", async () => {
+  it("arrival on dirty room creates high-priority task", async () => {
     await prepareRoom(prisma, world.locationAId, {
       occupancy: Occupancy.occupied,
       cleaningStatus: CleaningStatus.dirty,
@@ -85,7 +85,7 @@ describe("daily plan arrival/priority effects (T-PLAN-52…54 / P1-52…54)", ()
     assert.equal(await countActiveTasks(prisma, world.locationAId, today), 1);
   });
 
-  it("T-PLAN-52b: arrival bumps existing normal task to high", async () => {
+  it("arrival bumps existing normal task to high", async () => {
     await prepareRoom(prisma, world.locationAId, {
       occupancy: Occupancy.occupied,
       cleaningStatus: CleaningStatus.dirty,
@@ -116,7 +116,7 @@ describe("daily plan arrival/priority effects (T-PLAN-52…54 / P1-52…54)", ()
     assert.equal(await countActiveTasks(prisma, world.locationAId, today), 1);
   });
 
-  it("T-PLAN-53: arrival on verified_clean skips task", async () => {
+  it("arrival on verified_clean skips task", async () => {
     await prepareRoom(prisma, world.locationAId, {
       occupancy: Occupancy.vacant,
       cleaningStatus: CleaningStatus.verified_clean,
@@ -140,7 +140,7 @@ describe("daily plan arrival/priority effects (T-PLAN-52…54 / P1-52…54)", ()
     assert.equal(after.cleaningCycle, before.cleaningCycle);
   });
 
-  it("T-PLAN-54a: priority creates urgent task with assignee/shift", async () => {
+  it("priority creates urgent task with assignee/shift", async () => {
     await prepareRoom(prisma, world.locationAId, {
       occupancy: Occupancy.occupied,
       cleaningStatus: CleaningStatus.dirty,
@@ -168,7 +168,7 @@ describe("daily plan arrival/priority effects (T-PLAN-52…54 / P1-52…54)", ()
     );
   });
 
-  it("T-PLAN-54b: priority bumps high→urgent and preserves assignee/shift", async () => {
+  it("priority bumps high→urgent and preserves assignee/shift", async () => {
     await prepareRoom(prisma, world.locationAId, {
       occupancy: Occupancy.vacant,
       cleaningStatus: CleaningStatus.dirty,
@@ -201,7 +201,7 @@ describe("daily plan arrival/priority effects (T-PLAN-52…54 / P1-52…54)", ()
     assert.equal(await countActiveTasks(prisma, world.locationAId, today), 1);
   });
 
-  it("T-PLAN-54c: priority links urgent task without downgrade or overwrite", async () => {
+  it("priority links urgent task without downgrade or overwrite", async () => {
     await prepareRoom(prisma, world.locationAId, {
       occupancy: Occupancy.vacant,
       cleaningStatus: CleaningStatus.dirty,

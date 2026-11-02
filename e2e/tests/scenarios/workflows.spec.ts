@@ -26,7 +26,7 @@ async function room(page: Page, suffix: string) {
   const hierarchy = await (await page.request.get("/api/locations/hierarchy")).json();
   return mutation(page, "POST", "/locations", { floorId: hierarchy[0].floors[0].id, number: `SC-${suffix}-${Date.now()}`, occupancy: "vacant", kind: "room" });
 }
-test("P1-85 P1-89 P1-129 P2-48 real invitation UI suppresses repeat submit and activates with cookie-only secrets", async ({ page, browser }) => {
+test("real invitation UI suppresses repeat submit and activates with cookie-only secrets", async ({ page, browser }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Екип|Team/); await page.getByRole("button", { name: "Onboarding", exact: true }).click();
   const id = crypto.randomUUID(); const email = `${id}@e2e.test`;
   await page.getByLabel(/Име|Full name/, { exact: true }).fill(`Scenario ${id}`); await page.getByLabel(/Служебен номер|Employee number/, { exact: true }).fill(id); await page.getByLabel("Email", { exact: true }).fill(email);
@@ -85,7 +85,7 @@ test("invitation activate from login screen with manual code entry (no QR, no ha
     await context.close();
   }
 });
-test("P1-95 P1-97 P1-109 P1-110 real queued report reloads then single-flight sync replaces optimistic row", async ({ page }) => {
+test("real queued report reloads then single-flight sync replaces optimistic row", async ({ page }) => {
   await uiLogin(page, USERS.owner); const target = await room(page, "OFFLINE"); await openNav(page, /Повреди|Repairs/);
   await page.getByLabel(/Стая|Room/, { exact: true }).selectOption(target.id); await page.getByLabel(/Опция|Option/, { exact: true }).selectOption({ index: 0 });
   const title = `QUEUED-${crypto.randomUUID()}`; await page.getByLabel(/Заглавие|Title/, { exact: true }).fill(title);
@@ -106,7 +106,7 @@ test("P1-95 P1-97 P1-109 P1-110 real queued report reloads then single-flight sy
   const events = await (await page.request.get(`/api/maintenance/tickets/${tickets[0].id}/events`)).json(); expect(events).toHaveLength(1);
   await page.reload(); await openNav(page, /Повреди|Repairs/); await expect(page.locator("tr").filter({ hasText: title })).toHaveCount(1);
 });
-test("P2-44 P2-48 card type switches send applicable fields; delayed double click commits one actual card", async ({ page }) => {
+test("card type switches send applicable fields; delayed double click commits one actual card", async ({ page }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Карти|Cards/);
   await page.getByRole("button", { name: "Гост", exact: true }).click(); await page.getByRole("button", { name: "Напред", exact: true }).click();
   const roomId = await page.getByRole("combobox", { name: /^Стая/ }).locator("option").nth(1).getAttribute("value"); await page.getByRole("combobox", { name: /^Стая/ }).selectOption(roomId!);
@@ -122,7 +122,7 @@ test("P2-44 P2-48 card type switches send applicable fields; delayed double clic
   expect(bodies[0]).toMatchObject({ cardType: "master", employeeId, locationId: null, label }); expect(bodies[0].validFrom).toBeTruthy(); expect(bodies[0].validUntil).toBeTruthy();
   const rows = await (await page.request.get("/api/cards?staffOnly=true")).json(); const list = Array.isArray(rows) ? rows : rows.cards; expect(list.filter((r: any) => r.label === label)).toHaveLength(1);
 });
-test("P2-24 Rooms uses saved task due hours without changing an existing task", async ({ page }) => {
+test("Rooms uses saved task due hours without changing an existing task", async ({ page }) => {
   await uiLogin(page, USERS.owner); const settings = await (await page.request.get("/api/settings")).json(); const original = settings.operations.value;
   const a = await room(page, "DUE-A"); const b = await room(page, "DUE-B");
   try {
@@ -138,7 +138,7 @@ test("P2-24 Rooms uses saved task due hours without changing an existing task", 
     expect(Math.abs(new Date(taskB.dueAt).getTime() - beforeB - 7 * 3600000)).toBeLessThan(10000); expect(old.dueAt).toBe(taskA.dueAt);
   } finally { await patchSetting(page, "operations", original, "scenario restore"); }
 });
-test("P2-48 rapid report clicks preserve one logical queued report", async ({ page }) => {
+test("rapid report clicks preserve one logical queued report", async ({ page }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Повреди|Repairs/);
   await page.getByLabel(/Заглавие|Title/, { exact: true }).fill(`DOUBLE-${crypto.randomUUID()}`);
   await page.evaluate(() => { Object.defineProperty(navigator, "onLine", { configurable: true, value: false }); window.dispatchEvent(new Event("offline")); });
@@ -146,14 +146,14 @@ test("P2-48 rapid report clicks preserve one logical queued report", async ({ pa
   await expect(page.getByText(/Докладът е в опашката|Report queued for sync/)).toBeVisible();
   const rows = await page.evaluate(async () => (await import(/* @vite-ignore */ "/src/offline/queueOps.ts")).listQueuedActions()); expect(rows).toHaveLength(1);
 });
-test("P1-114 report UI shows storage quota failure without queued success or optimistic row", async ({ page }) => {
+test("report UI shows storage quota failure without queued success or optimistic row", async ({ page }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Повреди|Repairs/);
   const title = `QUOTA-${crypto.randomUUID()}`; await page.getByLabel(/Заглавие|Title/, { exact: true }).fill(title);
   await page.evaluate(() => { Object.defineProperty(navigator, "onLine", { configurable: true, value: false }); window.dispatchEvent(new Event("offline")); IDBObjectStore.prototype.put = function () { throw new DOMException("Storage quota exceeded", "QuotaExceededError"); }; });
   await page.getByRole("button", { name: /Докладвай|Report/, exact: true }).click();
   await expect(page.getByText(/Storage quota exceeded/)).toBeVisible(); await expect(page.getByText(/Докладът е в опашката|Report queued for sync/)).toHaveCount(0); await expect(page.locator("tr").filter({ hasText: title })).toHaveCount(0);
 });
-test("P2-25 disabling current module selects allowed panel and remains hidden after reload", async ({ page }) => {
+test("disabling current module selects allowed panel and remains hidden after reload", async ({ page }) => {
   await uiLogin(page, USERS.owner); const original = (await (await page.request.get("/api/settings")).json()).modules.value;
   try {
     await openNav(page, /Присъствие|Attendance/); await expect(page.getByRole("heading", { name: /Присъствие|Attendance/ })).toBeVisible();
@@ -163,7 +163,7 @@ test("P2-25 disabling current module selects allowed panel and remains hidden af
     await page.reload(); await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible(); await expect(page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: /Присъствие|Attendance/ })).toHaveCount(0);
   } finally { await patchSetting(page, "modules", original, "scenario restore"); }
 });
-test("P2-46 legacy room-QR hash clears without calling retired by-qr API", async ({ page }) => {
+test("legacy room-QR hash clears without calling retired by-qr API", async ({ page }) => {
   await uiLogin(page, USERS.owner);
   let byQrHits = 0;
   page.on("request", (request) => {
@@ -175,7 +175,7 @@ test("P2-46 legacy room-QR hash clears without calling retired by-qr API", async
   expect(byQrHits).toBe(0);
   expect((await page.request.get("/api/locations/by-qr/legacy-retired-token")).status()).toBe(404);
 });
-test("P2-53 app logout aborts its shared live stream and never reconnects", async ({ page }) => {
+test("app logout aborts its shared live stream and never reconnects", async ({ page }) => {
   const streams: import("@playwright/test").Request[] = []; const finished = new Set<import("@playwright/test").Request>();
   page.on("request", request => { if (request.url().includes("/events/stream")) streams.push(request); });
   page.on("requestfailed", request => { finished.add(request); }); page.on("requestfinished", request => { finished.add(request); });
@@ -184,7 +184,7 @@ test("P2-53 app logout aborts its shared live stream and never reconnects", asyn
   await expect.poll(() => finished.has(streams[0]!)).toBe(true); const count = streams.length;
   await page.clock.install(); await page.clock.fastForward(60000); expect(streams.length).toBe(count);
 });
-for (const type of ["guest", "housekeeper"] as const) test(`P2-44 switch from master to ${type} sends exact holder, room and selected validity`, async ({ page }) => {
+for (const type of ["guest", "housekeeper"] as const) test(`switch from master to ${type} sends exact holder, room and selected validity`, async ({ page }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Карти|Cards/);
   await page.getByRole("button", { name: "Мастър", exact: true }).click(); await page.getByRole("button", { name: "Напред", exact: true }).click();
   const employeeId = (await page.getByRole("combobox", { name: /^Служител/ }).locator("option").nth(1).getAttribute("value"))!; await page.getByRole("combobox", { name: /^Служител/ }).selectOption(employeeId);

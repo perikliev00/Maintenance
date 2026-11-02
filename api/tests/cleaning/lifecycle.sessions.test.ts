@@ -1,5 +1,5 @@
 /**
- * T-CLN-13,14,22–26,30 — dates, cancel, stale soft-guard, idempotency, markDirty.
+ * 14,22–26,30 — dates, cancel, stale soft-guard, idempotency, markDirty.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -43,7 +43,7 @@ dotenv.config({
 
 const prisma = new PrismaClient();
 
-describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
+describe("cleaning lifecycle sessions (14/22–26/30)", () => {
   let world: CleaningWorld;
 
   before(async () => {
@@ -60,7 +60,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-CLN-13: cannot start future hotelDate task", async () => {
+  it("cannot start future hotelDate task", async () => {
     const today = await hotelTodayYmd();
     const future = ymdOffset(today, 2);
     const task = await createCleaningTask({
@@ -101,7 +101,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     assert.equal(locAfter.cleaningCycle, locBefore.cleaningCycle);
   });
 
-  it("T-CLN-13b: hotel TZ midnight — startCleaningTask uses hotel today", async () => {
+  it("hotel TZ midnight — startCleaningTask uses hotel today", async () => {
     // 2026-03-15 03:00 UTC = still 2026-03-14 in America/New_York.
     const instant = new Date("2026-03-15T03:00:00.000Z");
     const zone = "America/New_York";
@@ -192,7 +192,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     );
   });
 
-  it("T-CLN-14: unbound cycle binds on start for today", async () => {
+  it("unbound cycle binds on start for today", async () => {
     const today = await hotelTodayYmd();
     const task = await createCleaningTask({
       locationId: world.locationAId,
@@ -222,7 +222,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     assert.equal(started.session.status, SessionStatus.running);
   });
 
-  it("T-CLN-22: cancel returns task to assigned and room dirty", async () => {
+  it("cancel returns task to assigned and room dirty", async () => {
     const { started } = await createAndStartToday(
       world,
       world.locationAId,
@@ -243,7 +243,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     assert.equal(loc.cleaningStatus, CleaningStatus.dirty);
   });
 
-  it("T-CLN-23: cancel old session does not stomp newer room", async () => {
+  it("cancel old session does not stomp newer room", async () => {
     const setup = await createDualDayRunningSetup(prisma, world);
 
     const locBefore = await prisma.location.findUniqueOrThrow({
@@ -270,7 +270,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     assert.equal(day2Session.status, SessionStatus.running);
   });
 
-  it("T-CLN-24: complete old session does not verify newer room", async () => {
+  it("complete old session does not verify newer room", async () => {
     assert.equal((await getFlags()).require_inspection, true);
     const setup = await createDualDayRunningSetup(prisma, world);
 
@@ -298,7 +298,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     assert.equal(day2Task.status, TaskStatus.in_progress);
   });
 
-  it("T-CLN-25: matching commandId replay is idempotent", async () => {
+  it("matching commandId replay is idempotent", async () => {
     const today = await hotelTodayYmd();
     const task = await createCleaningTask({
       locationId: world.locationAId,
@@ -412,7 +412,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     );
   });
 
-  it("T-CLN-26: same commandId with different task/employee/decision conflicts", async () => {
+  it("same commandId with different task/employee/decision conflicts", async () => {
     const today = await hotelTodayYmd();
     const taskA = await createCleaningTask({
       locationId: world.locationAId,
@@ -627,7 +627,7 @@ describe("cleaning lifecycle sessions (T-CLN-13/14/22–26/30)", () => {
     );
   });
 
-  it("T-CLN-30: markDirty during running rebinds and complete updates room", async () => {
+  it("markDirty during running rebinds and complete updates room", async () => {
     assert.equal((await getFlags()).require_inspection, true);
     const { started } = await createAndStartToday(
       world,

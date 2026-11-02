@@ -43,7 +43,7 @@ function cookieHeader(
     .join("; ");
 }
 
-describe("P0-07 CSRF HTTP integration", () => {
+describe("CSRF HTTP integration", () => {
   const fixtureIds: string[] = [];
   const auditActions: string[] = [];
   let handlerRan = false;

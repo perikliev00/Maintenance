@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
     Object.assign(window, { $RefreshReg$: () => {}, $RefreshSig$: () => (type: unknown) => type, __vite_plugin_react_preamble_installed__: true });
   });
 });
-test("P1-116 P1-117 reconnect catch-up and busy event update visible screen", async ({ page }) => {
+test("reconnect catch-up and busy event update visible screen", async ({ page }) => {
   await page.evaluate(async () => {
     const w = window as any;
     w.streams = []; w.streamCalls = 0;
@@ -32,7 +32,7 @@ test("P1-116 P1-117 reconnect catch-up and busy event update visible screen", as
   await expect(page.getByTestId("value")).toHaveText("missed-on-real-reconnect");
   await page.evaluate(() => (window as any).harness.stop());
 });
-test("P2-52 P2-53 split UTF-8/CRLF preserves Bulgarian; subscribers share stream and cancel reconnect", async ({ page }) => {
+test("split UTF-8/CRLF preserves Bulgarian; subscribers share stream and cancel reconnect", async ({ page }) => {
   const result = await page.evaluate(async () => {
     const w = window as any; const controllers: ReadableStreamDefaultController[] = []; let calls = 0; let aborts = 0;
     const fetchOriginal = window.fetch;

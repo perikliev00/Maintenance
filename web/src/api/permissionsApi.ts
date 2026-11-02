@@ -1,6 +1,6 @@
 /** Role-grant matrix and history for the Permissions panel. */
 import type { Action, Panel, Role } from "./capabilities";
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { API_BASE, apiFetch, apiGet, authHeaders, buildQuery, parseJson } from "./http";
 
 export type PermissionMatrix = {
   panels: Panel[];
@@ -34,10 +34,7 @@ export type PutRoleGrantsResult = {
 
 /** Full role→panel/action matrix including owner grants (read-only reference). */
 export async function fetchPermissionMatrix(): Promise<PermissionMatrix> {
-  const res = await apiFetch(`${API_BASE}/permissions/matrix`, {
-    headers: authHeaders(),
-  });
-  return parseJson(res);
+  return apiGet("/permissions/matrix");
 }
 
 /**
@@ -65,13 +62,10 @@ export async function fetchPermissionHistory(params?: {
   role?: Role;
   limit?: number;
 }): Promise<PermissionHistoryRow[]> {
-  const search = new URLSearchParams();
-  if (params?.role) search.set("role", params.role);
-  if (params?.limit) search.set("limit", String(params.limit));
-  const qs = search.toString();
-  const res = await apiFetch(
-    `${API_BASE}/permissions/history${qs ? `?${qs}` : ""}`,
-    { headers: authHeaders() },
+  return apiGet(
+    `/permissions/history${buildQuery({
+      role: params?.role,
+      limit: params?.limit,
+    })}`,
   );
-  return parseJson(res);
 }

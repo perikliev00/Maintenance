@@ -11,6 +11,7 @@ import {
   type Person,
   type RegisteredDevice,
 } from "../../api/client";
+import { useModalLifecycle } from "../../hooks/useModalLifecycle";
 import { t } from "./labels";
 
 type Props = {
@@ -36,9 +37,6 @@ export function TeamPersonDevicesDialog({
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const generationRef = useRef(0);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
   const load = useCallback(async () => {
     const generation = ++generationRef.current;
     setLoading(true);
@@ -66,23 +64,7 @@ export function TeamPersonDevicesDialog({
     };
   }, [load]);
 
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, []);
+  useModalLifecycle(onClose);
 
   async function onRevoke(device: RegisteredDevice) {
     const confirmed = window.confirm(

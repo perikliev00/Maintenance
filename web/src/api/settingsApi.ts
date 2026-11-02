@@ -3,7 +3,7 @@
  * `fetchPublicSettings` also syncs the hotel timezone cache used by plan dates.
  */
 import type { ModuleToggles } from "./capabilities";
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { apiGet, apiPatch, buildQuery } from "./http";
 import { setCachedHotelTimezone } from "./planApi";
 
 export type PublicSettings = {
@@ -70,38 +70,22 @@ export type SystemStatus = {
  * Side effect: refreshes the hotel timezone cache used by plan date helpers.
  */
 export async function fetchPublicSettings(): Promise<PublicSettings> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/settings/public`, {
-    headers: authHeaders(),
-  });
-  const settings = await parseJson<PublicSettings>(res);
-  // Keep `todayHotelDate` aligned with the property timezone from ops settings.
+  const settings = await apiGet<PublicSettings>("/settings/public");
   const tz = settings?.operations?.hotelTimezone;
-  // Branch: conditional gate.
   if (typeof tz === "string" && tz.length > 0) {
-    // State transition.
     setCachedHotelTimezone(tz);
   }
-  // Return value / early exit.
   return settings;
 }
 
 /** Full admin settings bundle keyed by setting key (includes sensitive keys). */
 export async function fetchAllSettings(): Promise<SettingsBundle> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/settings`, { headers: authHeaders() });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiGet("/settings");
 }
 
 /** API/DB health plus coarse entity counts for the System Status section. */
 export async function fetchSystemStatus(): Promise<SystemStatus> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/settings/system`, {
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiGet("/settings/system");
 }
 
 /** Audit trail of setting changes; optional key filter and row limit. */
@@ -109,20 +93,12 @@ export async function fetchSettingsHistory(params?: {
   key?: string;
   limit?: number;
 }): Promise<SettingHistoryRow[]> {
-  const search = new URLSearchParams();
-  // Branch: conditional gate.
-  if (params?.key) search.set("key", params.key);
-  // Branch: conditional gate.
-  if (params?.limit) search.set("limit", String(params.limit));
-  // Optional query suffix.
-  const qs = search.toString();
-  // Authenticated HTTP request.
-  const res = await apiFetch(
-    `${API_BASE}/settings/history${qs ? `?${qs}` : ""}`,
-    { headers: authHeaders() },
+  return apiGet(
+    `/settings/history${buildQuery({
+      key: params?.key,
+      limit: params?.limit,
+    })}`,
   );
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /**
@@ -135,23 +111,15 @@ export async function patchSetting(
   reason?: string,
   expectedVersion?: number,
 ) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/settings/${key}`, {
-    method: "PATCH",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({
-      value,
-      reason,
-      ...(expectedVersion !== undefined ? { expectedVersion } : {}),
-    }),
-  });
-  // Return value / early exit.
-  return parseJson<{
+  return apiPatch<{
     key: string;
     value: unknown;
     version: number;
     updatedAt: string;
     updatedByEmployeeId: string | null;
-  }>(res);
+  }>(`/settings/${key}`, {
+    value,
+    reason,
+    ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+  });
 }

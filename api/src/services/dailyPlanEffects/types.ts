@@ -5,10 +5,10 @@ import {
   CleaningStatus,
   LocationKind,
   Occupancy,
-  Prisma,
 } from "@prisma/client";
+import type { Tx } from "../db/types";
 
-export type Tx = Prisma.TransactionClient;
+export type { Tx };
 
 /** Minimal location fields needed to apply plan effects. */
 export type LocationRow = {

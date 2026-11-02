@@ -1,35 +1,25 @@
 /**
- * Operations live board: polls every 15s (not SSE). Marks connection stale after
- * 45s without success; elapsed timers tick locally each second. Complete session
- * requires cleaning.complete. Category colors and deep-links follow capabilities.
+ * Operations live board: SSE-driven refresh via useLiveRefresh, with local
+ * elapsed timers each second. Marks connection stale after 45s without success.
+ * Complete session requires cleaning.complete. Category colors and deep-links
+ * follow capabilities.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  canPerformAction,
-  completeCleaningSession,
-  fetchOperationsLive,
-  fetchOperationsLiveAttention,
-  filterPanelsByModules,
-  panelsForUser,
-  type AuthUser,
-  type LiveNeedsAttention,
-  type ModuleToggles,
-  type OperationsLive,
-  type Panel,
+import type {
+  AuthUser,
+  LiveNeedsAttention,
+  ModuleToggles,
 } from "../api/client";
 import {
   panelForLocationKind,
-  type BoardFocus,
   type NavigateToFocus,
 } from "../app/boardFocus";
 import { ScopeHint } from "../components/ScopeHint";
 import { priorityLabel } from "./locations/labels";
-import { addBusyId, removeBusyId } from "./locations/busyIds";
+import { needTitle, sessionCategory } from "./liveBoardLogic";
 import {
-  needTitle,
-  sessionCategory,
-  shouldApplyLiveSnapshot,
-} from "./liveBoardLogic";
+  useLiveBoardController,
+  type LiveBoardCategoryFilter,
+} from "./useLiveBoardController";
 
 type Props = {
   user: AuthUser;
@@ -37,19 +27,6 @@ type Props = {
   modules?: ModuleToggles | null;
   onNavigate?: NavigateToFocus;
 };
-
-type ConnState = "live" | "stale" | "offline";
-type CategoryFilter =
-  | "all"
-  | "active"
-  | "overdue"
-  | "anomaly"
-  | "inspection"
-  | "blocking";
-
-const POLL_MS = 15_000;
-const STALE_MS = 45_000;
-const TICK_MS = 1_000;
 
 function formatElapsed(minutes: number): string {
   if (minutes < 60) return `${minutes}m`;
@@ -91,357 +68,34 @@ export function LiveBoardPage({
   modules = null,
   onNavigate,
 }: Props) {
-  const t = (bg: string, en: string) => (locale === "bg" ? bg : en);
-  // Server complete route requires cleaning.complete only (not review_overdue).
-  const canComplete = canPerformAction(user, "cleaning.complete");
-  const allowedPanels = useMemo(
-    () => new Set(filterPanelsByModules(panelsForUser(user), modules)),
-    [user, modules],
-  );
-
-  const [data, setData] = useState<OperationsLive | null>(null);
-  const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
-  const [serverSkewMs, setServerSkewMs] = useState(0);
-  const [conn, setConn] = useState<ConnState>("offline");
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set());
-  const busyIdsRef = useRef<Set<string>>(new Set());
-  const [now, setNow] = useState(() => Date.now());
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
-  const [loadingMoreKind, setLoadingMoreKind] = useState<
-    LiveNeedsAttention["kind"] | null
-  >(null);
-
-  /** Generation so a late GET cannot overwrite a newer post-mutation refresh. */
-  const refreshGen = useRef(0);
-  const refreshInFlight = useRef<{
-    promise: Promise<void>;
-    silent: boolean;
-    gen: number;
-  } | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const beginBusy = useCallback((id: string) => {
-    if (busyIdsRef.current.has(id)) return false;
-    busyIdsRef.current = addBusyId(busyIdsRef.current, id);
-    setBusyIds(busyIdsRef.current);
-    return true;
-  }, []);
-
-  const endBusy = useCallback((id: string) => {
-    busyIdsRef.current = removeBusyId(busyIdsRef.current, id);
-    setBusyIds(busyIdsRef.current);
-  }, []);
-
-  const refresh = useCallback(async (opts?: {
-    silent?: boolean;
-    force?: boolean;
-  }) => {
-    const silent = opts?.silent ?? false;
-    const force = opts?.force ?? false;
-
-    // Coalesce duplicate polls only onto a still-live request. Never join an
-    // aborted in-flight promise (Strict Mode remount / force refresh).
-    if (!force && refreshInFlight.current) {
-      return refreshInFlight.current.promise;
-    }
-
-    if (force && abortRef.current) {
-      abortRef.current.abort();
-      refreshInFlight.current = null;
-    }
-
-    const gen = ++refreshGen.current;
-    const ac = new AbortController();
-    abortRef.current = ac;
-    if (!silent) setLoading(true);
-
-    const run = (async () => {
-      try {
-        const next = await fetchOperationsLive({ signal: ac.signal });
-        if (
-          ac.signal.aborted ||
-          !shouldApplyLiveSnapshot(gen, refreshGen.current)
-        ) {
-          return;
-        }
-        const receivedAt = Date.now();
-        const serverAt = new Date(next.updatedAt).getTime();
-        if (Number.isFinite(serverAt)) {
-          setServerSkewMs(serverAt - receivedAt);
-        }
-        setData(next);
-        setLastSuccessAt(receivedAt);
-        setConn("live");
-        setError(null);
-      } catch (err) {
-        // Aborted refresh must not flip the board to offline or clear loading
-        // for a newer generation that replaced this request.
-        if (
-          ac.signal.aborted ||
-          !shouldApplyLiveSnapshot(gen, refreshGen.current)
-        ) {
-          return;
-        }
-        setError(
-          err instanceof Error ? err.message : "Failed to load live board",
-        );
-        setConn("offline");
-      } finally {
-        if (refreshInFlight.current?.gen === gen) {
-          refreshInFlight.current = null;
-        }
-        if (gen === refreshGen.current && !ac.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    })();
-
-    refreshInFlight.current = { promise: run, silent, gen };
-    return run;
-  }, []);
-
-  useEffect(() => {
-    void refresh({ silent: false });
-    const poll = window.setInterval(
-      () => void refresh({ silent: true }),
-      POLL_MS,
-    );
-    return () => {
-      window.clearInterval(poll);
-      // Invalidate before abort so a remount cannot coalesce onto this promise.
-      refreshGen.current += 1;
-      refreshInFlight.current = null;
-      abortRef.current?.abort();
-      abortRef.current = null;
-    };
-  }, [refresh]);
-
-  useEffect(() => {
-    const tick = window.setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => window.clearInterval(tick);
-  }, []);
-
-  useEffect(() => {
-    if (!lastSuccessAt) return;
-    if (conn === "offline") return;
-    if (now - lastSuccessAt > STALE_MS) {
-      setConn("stale");
-    }
-  }, [now, lastSuccessAt, conn]);
-
-  /** Client clock aligned to last server snapshot for overdue/anomaly parity. */
-  const alignedNow = now + serverSkewMs;
-
-  const sessionsWithTick = useMemo(() => {
-    if (!data) return [];
-    return data.activeSessions.map((s) => {
-      const started = new Date(s.startedAt).getTime();
-      const elapsedMinutes = Math.max(
-        0,
-        Math.floor((alignedNow - started) / 60_000),
-      );
-      return {
-        ...s,
-        elapsedMinutes,
-        overdue: elapsedMinutes >= data.overdueThresholdMinutes,
-        anomaly: elapsedMinutes >= data.anomalyThresholdMinutes,
-      };
-    });
-  }, [data, alignedNow]);
-
-  const liveCounts = useMemo(() => {
-    if (!data) {
-      return {
-        active: 0,
-        overdue: 0,
-        anomalies: 0,
-        awaitingInspection: 0,
-        blockingTickets: 0,
-      };
-    }
-    const overdue = sessionsWithTick.filter((s) => s.overdue).length;
-    const anomalies = sessionsWithTick.filter((s) => s.anomaly).length;
-    return {
-      active: sessionsWithTick.length,
-      overdue,
-      anomalies,
-      awaitingInspection: data.counts.awaitingInspection,
-      blockingTickets: data.counts.blockingTickets,
-    };
-  }, [data, sessionsWithTick]);
-
-  async function onComplete(sessionId: string) {
-    if (!beginBusy(sessionId)) return;
-    setMessage(null);
-    try {
-      await completeCleaningSession(sessionId);
-      setMessage(t("Сесията е приключена", "Session completed"));
-      await refresh({ silent: true, force: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Complete failed");
-    } finally {
-      endBusy(sessionId);
-    }
-  }
-
-  function canOpenPanel(panel: Panel): boolean {
-    return allowedPanels.has(panel);
-  }
-
-  function openFocus(panel: Panel, focus: BoardFocus) {
-    if (!onNavigate || !canOpenPanel(panel)) return;
-    onNavigate(panel, focus);
-  }
-
-  function openLocation(
-    location: OperationsLive["activeSessions"][number]["location"],
-    extra?: { taskId?: string; sessionId?: string },
-  ) {
-    const panel = panelForLocationKind(location.kind);
-    if (!canOpenPanel(panel)) return;
-    openFocus(panel, {
-      type: "location",
-      locationId: location.id,
-      locationKind: location.kind === "common_area" ? "common_area" : "room",
-      taskId: extra?.taskId,
-      sessionId: extra?.sessionId,
-    });
-  }
-
-  async function loadMore(kind: LiveNeedsAttention["kind"]) {
-    if (!data?.attention) return;
-    const meta =
-      kind === "awaiting_inspection"
-        ? data.attention.awaitingInspection
-        : kind === "past_due"
-          ? data.attention.pastDue
-          : data.attention.blockingTickets;
-    if (!meta.hasMore || !meta.nextCursor) return;
-    setLoadingMoreKind(kind);
-    try {
-      const page = await fetchOperationsLiveAttention({
-        kind,
-        cursor: meta.nextCursor,
-      });
-      setData((prev) => {
-        if (!prev) return prev;
-        const existingKeys = new Set(
-          prev.needsAttention.map((n) => `${n.kind}:${n.id}`),
-        );
-        const existingIds = new Set(prev.needsAttention.map((n) => n.id));
-        const merged = [
-          ...prev.needsAttention,
-          ...page.items.filter(
-            (n) =>
-              !existingKeys.has(`${n.kind}:${n.id}`) && !existingIds.has(n.id),
-          ),
-        ];
-        const attention = { ...prev.attention! };
-        const nextMeta = {
-          total: page.total,
-          returned:
-            (kind === "awaiting_inspection"
-              ? attention.awaitingInspection.returned
-              : kind === "past_due"
-                ? attention.pastDue.returned
-                : attention.blockingTickets.returned) + page.returned,
-          hasMore: page.hasMore,
-          nextCursor: page.nextCursor,
-        };
-        if (kind === "awaiting_inspection") {
-          attention.awaitingInspection = nextMeta;
-        } else if (kind === "past_due") {
-          attention.pastDue = nextMeta;
-        } else {
-          attention.blockingTickets = nextMeta;
-        }
-        return { ...prev, needsAttention: merged, attention };
-      });
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load more items",
-      );
-    } finally {
-      setLoadingMoreKind(null);
-    }
-  }
-
-  const filteredSessions = useMemo(() => {
-    if (categoryFilter === "all" || categoryFilter === "inspection" || categoryFilter === "blocking") {
-      return sessionsWithTick;
-    }
-    if (categoryFilter === "active") {
-      return sessionsWithTick.filter((s) => !s.overdue && !s.anomaly);
-    }
-    if (categoryFilter === "overdue") {
-      return sessionsWithTick.filter((s) => s.overdue);
-    }
-    return sessionsWithTick.filter((s) => s.anomaly);
-  }, [sessionsWithTick, categoryFilter]);
-
-  const filteredNeeds = useMemo(() => {
-    if (!data) return [];
-    if (categoryFilter === "inspection") {
-      return data.needsAttention.filter((n) => n.kind === "awaiting_inspection");
-    }
-    if (categoryFilter === "blocking") {
-      return data.needsAttention.filter((n) => n.kind === "blocking_ticket");
-    }
-    if (categoryFilter === "overdue") {
-      // Past-due tasks (not session overdue) when filtering attention by overdue card.
-      return data.needsAttention.filter((n) => n.kind === "past_due");
-    }
-    if (
-      categoryFilter === "active" ||
-      categoryFilter === "anomaly"
-    ) {
-      return [];
-    }
-    return data.needsAttention;
-  }, [data, categoryFilter]);
-
-  const connLabel =
-    conn === "live"
-      ? t("На живо", "Live")
-      : conn === "stale"
-        ? t("Остарели данни", "Stale data")
-        : t("Офлайн", "Offline");
-
-  function actionForNeed(item: LiveNeedsAttention): {
-    label: string;
-    run: () => void;
-  } | null {
-    if (item.kind === "blocking_ticket") {
-      if (!canOpenPanel("repairs")) return null;
-      return {
-        label: t("Отвори повредата", "Open issue"),
-        run: () =>
-          openFocus("repairs", {
-            type: "ticket",
-            ticketId: item.id,
-            locationId: item.location.id,
-          }),
-      };
-    }
-    const panel = panelForLocationKind(item.location.kind);
-    if (!canOpenPanel(panel)) return null;
-    if (item.kind === "awaiting_inspection") {
-      return {
-        label: t("Преглед на инспекцията", "Review inspection"),
-        run: () => openLocation(item.location, { taskId: item.id }),
-      };
-    }
-    return {
-      label: t("Отвори задачата", "Open task"),
-      run: () => openLocation(item.location, { taskId: item.id }),
-    };
-  }
+  const board = useLiveBoardController({ user, locale, modules, onNavigate });
+  const {
+    t,
+    canComplete,
+    data,
+    lastSuccessAt,
+    conn,
+    connLabel,
+    error,
+    message,
+    loading,
+    busyIds,
+    categoryFilter,
+    setCategoryFilter,
+    loadingMoreKind,
+    liveCounts,
+    filteredSessions,
+    filteredNeeds,
+    refresh,
+    onComplete,
+    loadMore,
+    openLocation,
+    canOpenPanel,
+    actionForNeed,
+  } = board;
 
   function cardProps(
-    key: CategoryFilter,
+    key: LiveBoardCategoryFilter,
     label: string,
     count: number,
     cat: "active" | "overdue" | "anomaly" | "inspection" | "blocking",

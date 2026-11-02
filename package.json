@@ -1,0 +1,13 @@
+{
+  "name": "maintenance",
+  "private": true,
+  "description": "Root scripts for Meridian Maintenance (api + web + e2e)",
+  "scripts": {
+    "test": "npm run test --prefix web && npm run test:all --prefix api && npm run test --prefix e2e",
+    "test:web": "npm run test --prefix web",
+    "test:api": "npm run test --prefix api",
+    "test:api:all": "npm run test:all --prefix api",
+    "test:e2e": "npm run test --prefix e2e",
+    "test:unit": "npm run test --prefix web && npm run test:all --prefix api"
+  }
+}

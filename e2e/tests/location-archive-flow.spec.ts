@@ -1,5 +1,5 @@
 /**
- * E2E-03 — Archive location: drops from ops boards; history remains (P1-35).
+ * Archive location: drops from ops boards; history remains .
  */
 import { expect, test } from "@playwright/test";
 import { uiLogin, USERS, DEMO_PASSWORD } from "./helpers/auth";
@@ -12,7 +12,7 @@ import {
   prepareVacantDirtyRoom,
 } from "./helpers/fixtures";
 
-test.describe("E2E-03 location archive flow", () => {
+test.describe("location archive flow", () => {
   test("archive removes room from Rooms; history remains; catalog can show archived", async ({
     page,
   }) => {

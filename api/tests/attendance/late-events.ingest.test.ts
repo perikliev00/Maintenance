@@ -1,5 +1,5 @@
 /**
- * T-ATT-73 / T-ATT-74 — late-event ingest vs approved freeze and pending rematch.
+ * late-event ingest vs approved freeze and pending rematch.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -29,7 +29,7 @@ import {
 
 const prisma = new PrismaClient();
 
-describe("attendance late-events ingest (T-ATT-73 / T-ATT-74)", () => {
+describe("attendance late-events ingest", () => {
   let world: AttendanceWorld;
   let opsBefore: Awaited<ReturnType<typeof getOperations>>;
   let stamp = "";
@@ -90,7 +90,7 @@ describe("attendance late-events ingest (T-ATT-73 / T-ATT-74)", () => {
     return { interval, clockInId: inRes.event.id };
   }
 
-  it("T-ATT-73a approved freeze survives late ingest inside window", async () => {
+  it("approved freeze survives late ingest inside window", async () => {
     const emp = world.technician.employeeId;
     const controlBefore = await prisma.attendanceEvent.count({
       where: { employeeId: world.control.employeeId },
@@ -257,7 +257,7 @@ describe("attendance late-events ingest (T-ATT-73 / T-ATT-74)", () => {
     assert.equal(controlAfter, controlBefore);
   });
 
-  it("T-ATT-74a pending rematch via late ingest remains reviewable", async () => {
+  it("pending rematch via late ingest remains reviewable", async () => {
     const emp = world.housekeeper.employeeId;
     const { interval, clockInId } = await seedClosedShift(emp, "74a");
 

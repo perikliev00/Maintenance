@@ -117,7 +117,7 @@ async function findQueueItem(
 }
 
 /**
- * P0-10 / T-DRAIN-01 (browser): after outbox claim, logout+login as another
+ * (browser): after outbox claim, logout+login as another
  * user must abort before /sync/push so user A's command never leaves the tab.
  *
  * Logout deliberately wipes the outbox (shared-device rule). Unit tests cover

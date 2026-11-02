@@ -1,5 +1,5 @@
 /**
- * T-ATT-71a/b approve (+ mid-TX rollback); T-ATT-72a reject preserves times.
+ * b approve (mid-TX rollback); reject preserves times.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -32,7 +32,7 @@ import {
 
 const prisma = new PrismaClient();
 
-describe("attendance adjustments review HTTP (T-ATT-71 / T-ATT-72)", () => {
+describe("attendance adjustments review HTTP", () => {
   let world: AttendanceWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -76,7 +76,7 @@ describe("attendance adjustments review HTTP (T-ATT-71 / T-ATT-72)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-ATT-71a approve clears flags, rewrites hotelDate, control untouched", async () => {
+  it("approve clears flags, rewrites hotelDate, control untouched", async () => {
     const hotelDate = new Date("2026-10-07T00:00:00.000Z");
     const startedAt = new Date("2026-10-07T19:00:00.000Z");
     const endedAt = new Date("2026-10-08T03:00:00.000Z");
@@ -178,7 +178,7 @@ describe("attendance adjustments review HTTP (T-ATT-71 / T-ATT-72)", () => {
     );
   });
 
-  it("T-ATT-71b mid-TX rollback via BEFORE UPDATE trigger", async () => {
+  it("mid-TX rollback via BEFORE UPDATE trigger", async () => {
     const hotelDate = new Date("2026-10-09T00:00:00.000Z");
     const startedAt = new Date("2026-10-09T07:00:00.000Z");
     const endedAt = new Date("2026-10-09T15:00:00.000Z");
@@ -324,7 +324,7 @@ describe("attendance adjustments review HTTP (T-ATT-71 / T-ATT-72)", () => {
     }
   });
 
-  it("T-ATT-72a reject preserves interval times; adj rejected", async () => {
+  it("reject preserves interval times; adj rejected", async () => {
     const hotelDate = new Date("2026-10-11T00:00:00.000Z");
     const startedAt = new Date("2026-10-11T08:00:00.000Z");
     const endedAt = new Date("2026-10-11T16:00:00.000Z");

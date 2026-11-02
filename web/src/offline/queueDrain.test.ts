@@ -31,7 +31,7 @@ function pendingRow(userId: string): QueuedAction {
   };
 }
 
-describe("T-DRAIN-01 mid-drain account switch", () => {
+describe("mid-drain account switch", () => {
   const originalOnline = navigator.onLine;
 
   afterEach(async () => {
@@ -144,7 +144,7 @@ describe("T-DRAIN-01 mid-drain account switch", () => {
 
   for (const fallback of [false, true]) {
     for (const switchBack of [false, true]) {
-      it(`P0-10 ${fallback ? "fallback" : "batch"} does not retry after pending refresh and A→B${switchBack ? "→A" : ""}`, async () => {
+      it(`${fallback ? "fallback": "batch"} does not retry after pending refresh and A→B${switchBack ? "→A": ""}`, async () => {
         const row = pendingRow("A");
         const store = new Map([[row.id, row]]);
         await bindUserOffline("A");
@@ -178,7 +178,7 @@ describe("T-DRAIN-01 mid-drain account switch", () => {
     }
   }
 
-  it("P0-10 unchanged binding retries successful refresh and consumes the same command", async () => {
+  it("unchanged binding retries successful refresh and consumes the same command", async () => {
     const row = pendingRow("A");
     const store = new Map([[row.id, row]]);
     await bindUserOffline("A");

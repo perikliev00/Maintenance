@@ -17,7 +17,7 @@ afterEach(async () => {
   Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
   setOfflineUser(null); await whenOfflineUserSettled(); setDraining(false); markReachable();
 });
-for (const count of [100, 101, 205]) it(`P2-51 ${count} queued commands use batches <=100 without fallback or loss`, async () => {
+for (const count of [100, 101, 205]) it(`${count} queued commands use batches <=100 without fallback or loss`, async () => {
   await bind();
   const initial = Array.from({ length: count }, (_, i) => row(i + 1));
   const store = new Map(initial.map(r => [r.id, r]));
@@ -40,7 +40,7 @@ for (const count of [100, 101, 205]) it(`P2-51 ${count} queued commands use batc
   assert.deepEqual(batches.flat(), initial.map(r => r.commandId));
   assert.equal(store.size, 0);
 });
-it("P1-108 batch 429 retains all commands pending and avoids per-item request storm", async () => {
+it("batch 429 retains all commands pending and avoids per-item request storm", async () => {
   await bind();
   const initial = [row(1), row(2)]; const store = new Map(initial.map(r => [r.id, r]));
   let fallbacks = 0;
@@ -48,7 +48,7 @@ it("P1-108 batch 429 retains all commands pending and avoids per-item request st
   assert.equal(fallbacks, 0);
   assert.equal(store.size, 2); assert.ok([...store.values()].every(r => r.status === "pending"));
 });
-it("P1-102 P1-103 mixed, missing and unknown sync results preserve unconfirmed payloads", async () => {
+it("mixed, missing and unknown sync results preserve unconfirmed payloads", async () => {
   await bind(); const initial = [row(1), row(2), row(3), row(4), row(5)]; const store = new Map(initial.map(r => [r.id, r]));
   await drainQueue({ listQueueForUserFn: async () => [...store.values()], putQueuedActionFn: async r => { store.set(r.id, r); }, deleteQueuedActionFn: async id => { store.delete(id); }, headersFn: () => ({}), fetchFn: async () => new Response(JSON.stringify({ results: [{ commandId: row(1).commandId, status: "ok" }, { commandId: row(2).commandId, status: "conflict", code: "version_conflict", details: { currentVersion: 4 } }, { commandId: row(3).commandId, status: "forbidden" }, { commandId: row(4).commandId, status: "invented" }, { commandId: "not-sent", status: "ok" }] }), { status: 200 }) });
   assert.equal(store.has(row(1).id), false);

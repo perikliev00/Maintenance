@@ -4,6 +4,7 @@
  */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../middleware/auth";
+import { asyncHandler } from "../middleware/asyncHandler";
 import { invitationRedeemLimiter } from "../middleware/security";
 import * as invitationsController from "../controllers/invitations";
 
@@ -14,7 +15,7 @@ export const devicesRouter = Router();
 invitationsRouter.post(
   "/redeem",
   invitationRedeemLimiter,
-  invitationsController.redeem,
+  asyncHandler(invitationsController.redeem),
 );
 
 // POST / — issue a new invitation for a role/email.
@@ -22,7 +23,7 @@ invitationsRouter.post(
   "/",
   requireAuth,
   requireAction("people.invite"),
-  invitationsController.issue,
+  asyncHandler(invitationsController.issue),
 );
 
 // GET / — list outstanding invitations.
@@ -30,7 +31,7 @@ invitationsRouter.get(
   "/",
   requireAuth,
   requireAction("people.invite"),
-  invitationsController.list,
+  asyncHandler(invitationsController.list),
 );
 
 // POST /:id/revoke — revoke an unused invitation.
@@ -38,7 +39,7 @@ invitationsRouter.post(
   "/:id/revoke",
   requireAuth,
   requireAction("people.invite"),
-  invitationsController.revoke,
+  asyncHandler(invitationsController.revoke),
 );
 
 // GET /devices/ — list activated devices (people.manage_access gate).
@@ -46,7 +47,7 @@ devicesRouter.get(
   "/",
   requireAuth,
   requireAction("people.manage_access"),
-  invitationsController.listDevices,
+  asyncHandler(invitationsController.listDevices),
 );
 
 // POST /devices/:id/revoke — revoke a device activation.
@@ -54,5 +55,5 @@ devicesRouter.post(
   "/:id/revoke",
   requireAuth,
   requireAction("people.manage_access"),
-  invitationsController.revokeDevice,
+  asyncHandler(invitationsController.revokeDevice),
 );

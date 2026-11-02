@@ -1,5 +1,5 @@
 /**
- * T-CLN-28 — reception allow_reception_reassign gate (HTTP).
+ * reception allow_reception_reassign gate (HTTP).
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "crypto";
@@ -35,7 +35,7 @@ process.env.JWT_SECRET =
 
 const prisma = new PrismaClient();
 
-describe("cleaning reassign HTTP (T-CLN-28)", () => {
+describe("cleaning reassign HTTP", () => {
   let world: CleaningWorld;
   let server: Awaited<ReturnType<typeof listenApp>>["server"];
   let api = "";
@@ -55,7 +55,7 @@ describe("cleaning reassign HTTP (T-CLN-28)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-CLN-28: reception blocked by flag; manager succeeds", async () => {
+  it("reception blocked by flag; manager succeeds", async () => {
     await resetCleaningWork(prisma, world);
     const today = await hotelTodayYmd();
     const task = await createCleaningTask({
@@ -122,7 +122,7 @@ describe("cleaning reassign HTTP (T-CLN-28)", () => {
   });
 
   for (const startFirst of [true, false]) {
-    it(`T-CLN-29 HTTP: ${startFirst ? "start" : "reassign"} first never returns 500`, async () => {
+    it(`HTTP: ${startFirst ? "start": "reassign"} first never returns 500`, async () => {
       await resetCleaningWork(prisma, world);
       const today = await hotelTodayYmd();
       const task = await createCleaningTask({

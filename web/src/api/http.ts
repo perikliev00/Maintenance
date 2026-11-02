@@ -151,6 +151,53 @@ export async function parseJson<T>(res: Response): Promise<T> {
   return data as T;
 }
 
+export function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null || v === "") continue;
+    search.set(k, String(v));
+  }
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function apiGet<T>(path: string, init?: { signal?: AbortSignal }): Promise<T> {
+  const res = await apiFetch(`${API_BASE}${path}`, {
+    headers: authHeaders(),
+    signal: init?.signal,
+  });
+  return parseJson<T>(res);
+}
+
+export async function apiPost<T>(path: string, body?: unknown, init?: { signal?: AbortSignal }): Promise<T> {
+  const res = await apiFetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: authHeaders("POST"),
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: init?.signal,
+  });
+  return parseJson<T>(res);
+}
+
+export async function apiPatch<T>(path: string, body?: unknown, init?: { signal?: AbortSignal }): Promise<T> {
+  const res = await apiFetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    headers: authHeaders("PATCH"),
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: init?.signal,
+  });
+  return parseJson<T>(res);
+}
+
+export async function apiDelete<T>(path: string, init?: { signal?: AbortSignal }): Promise<T> {
+  const res = await apiFetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: authHeaders("DELETE"),
+    signal: init?.signal,
+  });
+  return parseJson<T>(res);
+}
+
 /** True when a non-secret user cache exists (cookie session may still be valid). */
 export function hasCachedSession(): boolean {
   return getStoredUser() !== null;

@@ -9,6 +9,8 @@ import {
 import { AppError } from "../errors";
 import { hotelDateAsUtcDate } from "./hotelTime";
 
+export { addDaysYmd } from "./hotelTime";
+
 /** Open intervals older than this without clock-out get `missing_end`. */
 export const OPEN_MISSING_END_HOURS = 14;
 const ABSURD_DURATION_HOURS = 16;
@@ -32,14 +34,6 @@ export function asFlags(value: unknown): AnomalyFlag[] {
 export function uniqueFlags(flags: AnomalyFlag[]): AnomalyFlag[] {
   // Set iteration order is insertion order in modern JS engines.
   return Array.from(new Set(flags));
-}
-
-/** Add calendar days to a YYYY-MM-DD string (UTC date arithmetic). */
-export function addDaysYmd(ymd: string, days: number): string {
-  // Parse as UTC midnight so day math does not shift with local TZ.
-  const d = new Date(`${ymd}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 /** Date-only key for a hotel YMD (not a zoned instant). */

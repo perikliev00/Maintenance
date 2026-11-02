@@ -7,7 +7,7 @@ import {
 import { expectLoginScreen, uiLogin, USERS } from "./helpers/auth";
 
 /**
- * P1-02 UI: role change revokes sessions; open tab is forced back to login
+ * UI: role change revokes sessions; open tab is forced back to login
  * (via people.changed → /me or the next authenticated fetch).
  */
 test.describe("role change kick-out", () => {

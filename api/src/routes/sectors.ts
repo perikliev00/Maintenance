@@ -4,6 +4,7 @@
  */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../middleware/auth";
+import { asyncHandler } from "../middleware/asyncHandler";
 import * as sectorsController from "../controllers/sectors";
 
 export const sectorsRouter = Router();
@@ -13,18 +14,18 @@ sectorsRouter.get(
   "/",
   requireAuth,
   requireAction("sectors.manage"),
-  sectorsController.list,
+  asyncHandler(sectorsController.list),
 );
 
 // GET /mine — sectors for the current employee (auth only; not full admin list).
-sectorsRouter.get("/mine", requireAuth, sectorsController.listMine);
+sectorsRouter.get("/mine", requireAuth, asyncHandler(sectorsController.listMine));
 
 // GET /:id — single sector detail including locations/members.
 sectorsRouter.get(
   "/:id",
   requireAuth,
   requireAction("sectors.manage"),
-  sectorsController.get,
+  asyncHandler(sectorsController.get),
 );
 
 // POST / — create a sector.
@@ -32,7 +33,7 @@ sectorsRouter.post(
   "/",
   requireAuth,
   requireAction("sectors.manage"),
-  sectorsController.create,
+  asyncHandler(sectorsController.create),
 );
 
 // PATCH /:id — update sector metadata / membership.
@@ -40,7 +41,7 @@ sectorsRouter.patch(
   "/:id",
   requireAuth,
   requireAction("sectors.manage"),
-  sectorsController.update,
+  asyncHandler(sectorsController.update),
 );
 
 // PUT /:id/locations — replace the location set for a sector.
@@ -48,5 +49,5 @@ sectorsRouter.put(
   "/:id/locations",
   requireAuth,
   requireAction("sectors.manage"),
-  sectorsController.setLocations,
+  asyncHandler(sectorsController.setLocations),
 );

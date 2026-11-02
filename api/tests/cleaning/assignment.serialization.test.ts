@@ -71,7 +71,7 @@ async function withLateAssignmentBarrier(
   }
 }
 
-describe("P1-15 eligibility remains locked after the final read through assignment commit", () => {
+describe("eligibility remains locked after the final read through assignment commit", () => {
   before(async () => { await assertTestDatabase(prisma); world = await createCleaningWorld(prisma); });
   beforeEach(async () => {
     await resetCleaningWork(prisma, world);

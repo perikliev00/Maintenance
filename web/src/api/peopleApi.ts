@@ -3,7 +3,7 @@
  * `redeemInvitation` is unauthenticated (sets cookies + user cache like login).
  */
 import type { AuthUser, Role } from "./capabilities";
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { API_BASE, apiGet, apiPatch, apiPost, buildQuery, parseJson } from "./http";
 
 export type PersonStatus =
   | "not_activated"
@@ -73,11 +73,10 @@ export type PeoplePage = {
 
 /** Active housekeepers for assignment pickers (abortable). */
 export async function fetchHousekeepers(init?: { signal?: AbortSignal }) {
-  const res = await apiFetch(`${API_BASE}/cleaning/employees/housekeepers`, {
-    headers: authHeaders(),
-    signal: init?.signal,
-  });
-  return parseJson<Array<{ id: string; fullName: string; employeeNumber: string }>>(res);
+  return apiGet<Array<{ id: string; fullName: string; employeeNumber: string }>>(
+    "/cleaning/employees/housekeepers",
+    init,
+  );
 }
 
 /** People directory with optional search, role, and onboarding filters. */
@@ -91,18 +90,16 @@ export async function fetchPeople(
   },
   init?: { signal?: AbortSignal },
 ): Promise<Person[]> {
-  const search = new URLSearchParams();
-  if (params?.q) search.set("q", params.q);
-  if (params?.role) search.set("role", params.role);
-  if (params?.includeInactive) search.set("includeInactive", "true");
-  if (params?.includeArchived) search.set("includeArchived", "true");
-  if (params?.notOnboarded) search.set("notOnboarded", "true");
-  const qs = search.toString();
-  const res = await apiFetch(`${API_BASE}/people${qs ? `?${qs}` : ""}`, {
-    headers: authHeaders(),
-    signal: init?.signal,
-  });
-  return parseJson(res);
+  return apiGet(
+    `/people${buildQuery({
+      q: params?.q,
+      role: params?.role,
+      includeInactive: params?.includeInactive || undefined,
+      includeArchived: params?.includeArchived || undefined,
+      notOnboarded: params?.notOnboarded || undefined,
+    })}`,
+    init,
+  );
 }
 
 /**
@@ -121,19 +118,18 @@ export async function fetchPeoplePage(
   },
   init?: { signal?: AbortSignal },
 ): Promise<PeoplePage> {
-  const search = new URLSearchParams();
-  if (params?.q) search.set("q", params.q);
-  if (params?.role) search.set("role", params.role);
-  if (params?.includeInactive) search.set("includeInactive", "true");
-  if (params?.includeArchived) search.set("includeArchived", "true");
-  if (params?.notOnboarded) search.set("notOnboarded", "true");
-  search.set("limit", String(params?.limit ?? 50));
-  if (params?.cursor) search.set("cursor", params.cursor);
-  const res = await apiFetch(`${API_BASE}/people?${search.toString()}`, {
-    headers: authHeaders(),
-    signal: init?.signal,
-  });
-  return parseJson(res);
+  return apiGet(
+    `/people${buildQuery({
+      q: params?.q,
+      role: params?.role,
+      includeInactive: params?.includeInactive || undefined,
+      includeArchived: params?.includeArchived || undefined,
+      notOnboarded: params?.notOnboarded || undefined,
+      limit: params?.limit ?? 50,
+      cursor: params?.cursor,
+    })}`,
+    init,
+  );
 }
 
 async function postLifecycle(
@@ -142,12 +138,7 @@ async function postLifecycle(
   expectedStatus: PersonStatus,
   accessVersion: number,
 ): Promise<Person> {
-  const res = await apiFetch(`${API_BASE}/people/${employeeId}/${action}`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({ expectedStatus, accessVersion }),
-  });
-  return parseJson(res);
+  return apiPost(`/people/${employeeId}/${action}`, { expectedStatus, accessVersion });
 }
 
 export function blockPerson(
@@ -187,33 +178,19 @@ export async function fetchEmployeeDevices(
   employeeId: string,
   init?: { signal?: AbortSignal },
 ): Promise<RegisteredDevice[]> {
-  const search = new URLSearchParams({ employeeId });
-  const res = await apiFetch(`${API_BASE}/devices?${search.toString()}`, {
-    headers: authHeaders(),
-    signal: init?.signal,
-  });
-  return parseJson(res);
+  return apiGet(`/devices${buildQuery({ employeeId })}`, init);
 }
 
 /** Revoke a device registration (does not block the whole employee). */
 export async function revokeEmployeeDevice(
   deviceId: string,
 ): Promise<{ id: string; revokedAt: string; revokedOwnDevice: boolean }> {
-  const res = await apiFetch(`${API_BASE}/devices/${deviceId}/revoke`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  return parseJson(res);
+  return apiPost(`/devices/${deviceId}/revoke`);
 }
 
 /** Change a user's role (owner-gated on the server). */
 export async function updatePersonRole(userId: string, role: Role): Promise<Person> {
-  const res = await apiFetch(`${API_BASE}/people/${userId}/role`, {
-    method: "PATCH",
-    headers: authHeaders(),
-    body: JSON.stringify({ role }),
-  });
-  return parseJson(res);
+  return apiPatch(`/people/${userId}/role`, { role });
 }
 
 /**
@@ -237,29 +214,17 @@ export async function issueInvitation(
         role?: Role;
       },
 ): Promise<IssuedInvitation> {
-  const res = await apiFetch(`${API_BASE}/invitations`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify(body),
-  });
-  return parseJson(res);
+  return apiPost("/invitations", body);
 }
 
 /** List invitation rows (codes are hinted, not fully revealed after issue). */
 export async function fetchInvitations(): Promise<Invitation[]> {
-  const res = await apiFetch(`${API_BASE}/invitations`, {
-    headers: authHeaders(),
-  });
-  return parseJson(res);
+  return apiGet("/invitations");
 }
 
 /** Revoke an unused invitation so the code can no longer be redeemed. */
 export async function revokeInvitation(id: string): Promise<Invitation> {
-  const res = await apiFetch(`${API_BASE}/invitations/${id}/revoke`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  return parseJson(res);
+  return apiPost(`/invitations/${id}/revoke`);
 }
 
 /**

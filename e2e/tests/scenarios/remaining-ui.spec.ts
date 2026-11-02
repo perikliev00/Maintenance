@@ -39,7 +39,7 @@ async function mount(page: Page, screen: string) {
 for (const screen of ["rooms", "mywork", "repairs"] as const) {
   const events = screen === "repairs" ? ["ticket.changed", "location.changed"] : ["location.changed", "cleaning.changed", "ticket.changed"];
   for (const eventType of events) {
-    test(`P1-117 ${eventType} refreshes actual ${screen} page`, async ({ page }) => {
+    test(`${eventType} refreshes actual ${screen} page`, async ({ page }) => {
       const rooms = await (await page.request.get("/api/rooms")).json();
       expect(rooms.length).toBeGreaterThan(0);
       const tickets = screen === "repairs" ? await (await page.request.get("/api/maintenance/tickets?status=all&limit=1")).json() : [];
@@ -66,7 +66,7 @@ for (const screen of ["rooms", "mywork", "repairs"] as const) {
   }
 }
 
-test("P1-117 actual repair report defers domain refresh while busy and catches up afterward", async ({ page }) => {
+test("actual repair report defers domain refresh while busy and catches up afterward", async ({ page }) => {
   const tickets = await (await page.request.get("/api/maintenance/tickets?status=all&limit=1")).json();
   expect(tickets.length).toBeGreaterThan(0);
   let current = false;
@@ -108,7 +108,7 @@ async function renderSettled(page: Page) {
 
 for (const screen of ["analytics", "results", "repairs"] as const) {
   for (const late of ["success", "error", "loading"] as const) {
-    test(`P2-43 ${screen}: stale A ${late} cannot replace current B state`, async ({ page }) => {
+    test(`${screen}: stale A ${late} cannot replace current B state`, async ({ page }) => {
       const endpoint = screen === "analytics" ? "/api/analytics/summary" : screen === "results" ? "/api/cleaning/results" : "/api/maintenance/tickets";
       const response = await page.request.get(screen === "analytics" ? `${endpoint}?domain=maintenance&from=2000-01-01&to=2000-01-03` : screen === "results" ? `${endpoint}?from=2000-01-01&to=2000-01-03` : `${endpoint}?status=all&limit=1`);
       expect(response.status()).toBe(200);

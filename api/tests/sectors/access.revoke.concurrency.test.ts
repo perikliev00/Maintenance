@@ -1,5 +1,5 @@
 /**
- * BUG-11 / BUG-12 — real PostgreSQL concurrency for sector access + audit.
+ * real PostgreSQL concurrency for sector access + audit.
  *
  * Barriers use promise gates (not sleep-as-proof). Header matches implementation:
  * park AFTER pre-TX auth / AFTER sector lock via test hooks.
@@ -53,7 +53,7 @@ async function waitFlag(get: () => boolean, label: string): Promise<void> {
   assert.equal(get(), true, label);
 }
 
-describe("BUG-11 / BUG-12 sector concurrency", () => {
+describe("sector concurrency", () => {
   let world: SectorsWorld;
 
   before(async () => {
@@ -82,7 +82,7 @@ describe("BUG-11 / BUG-12 sector concurrency", () => {
     });
   });
 
-  it("BUG-11 access recheck: same expectedVersion after revoke → 403 only", async () => {
+  it("access recheck: same expectedVersion after revoke → 403 only", async () => {
     const beforeMembers = await sectorMemberIds(prisma, world.sectorA1Id);
     const beforeRow = await prisma.sector.findUniqueOrThrow({
       where: { id: world.sectorA1Id },
@@ -158,7 +158,7 @@ describe("BUG-11 / BUG-12 sector concurrency", () => {
     );
   });
 
-  it("BUG-11 saveSector requires expectedVersion (no omit path)", async () => {
+  it("saveSector requires expectedVersion (no omit path)", async () => {
     await assert.rejects(
       () =>
         saveSector(world.sectorA1Id, {
@@ -182,7 +182,7 @@ describe("BUG-11 / BUG-12 sector concurrency", () => {
     );
   });
 
-  it("BUG-11 manager version bump yields version_conflict when expectedVersion sent", async () => {
+  it("manager version bump yields version_conflict when expectedVersion sent", async () => {
     const beforeRow = await prisma.sector.findUniqueOrThrow({
       where: { id: world.sectorA1Id },
     });
@@ -231,7 +231,7 @@ describe("BUG-11 / BUG-12 sector concurrency", () => {
     );
   });
 
-  it("BUG-12 audit before is snapshotted under sector lock", async () => {
+  it("audit before is snapshotted under sector lock", async () => {
     await prisma.sectorLocation.deleteMany({
       where: { sectorId: world.sectorA1Id },
     });
@@ -348,7 +348,7 @@ describe("BUG-11 / BUG-12 sector concurrency", () => {
     );
   });
 
-  it("BUG-12 serialized A-then-B: B.before equals A's committed membership", async () => {
+  it("serialized A-then-B: B.before equals A's committed membership", async () => {
     await prisma.sectorLocation.deleteMany({
       where: { sectorId: world.sectorA1Id },
     });

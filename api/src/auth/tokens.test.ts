@@ -7,7 +7,7 @@ import {
   verifyAccessToken,
 } from "./tokens";
 
-describe("access JWT algorithm pin (SUS-002 / B3)", () => {
+describe("access JWT algorithm pin", () => {
   const prev = process.env.JWT_SECRET;
 
   it("signs and verifies with HS256", () => {

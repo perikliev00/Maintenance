@@ -75,7 +75,7 @@ describe("canPerformAction / panelsForUser empty capabilities", () => {
     assert.equal(canPerformAction(owner, "tickets.resolve"), true);
   });
 
-  it("SEC-003: legacy role helpers are not part of the public capabilities surface", async () => {
+  it("legacy role helpers are not part of the public capabilities surface", async () => {
     const caps = await import("./capabilities");
     assert.equal(
       "canResolveIssues" in caps,

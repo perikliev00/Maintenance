@@ -4,26 +4,12 @@
  * (reverts on failure). Drag-and-drop and ↑/↓ share the same persist path.
  */
 import {
-  DragEvent,
-  FormEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import {
   archiveIssueOption,
   archiveMaintenanceCategory,
-  createIssueOption,
-  createMaintenanceCategory,
-  fetchIssueOptions,
-  fetchMaintenanceCategories,
-  reorderIssueOptions,
   updateIssueOption,
   updateMaintenanceCategory,
-  type IssueOptionRow,
-  type MaintenanceCategoryRow,
 } from "../api/client";
+import { useIssueCatalog } from "../hooks/useIssueCatalog";
 
 type Props = {
   locale: "bg" | "en";
@@ -39,271 +25,52 @@ const KIND_LABELS: Record<string, { bg: string; en: string }> = {
  * Option reorder uses optimistic local order, then persists (reverts on failure).
  */
 export function IssueCatalogPanel({ locale }: Props) {
-  /**
-   * Helper `label`.
-   */
-  const label = (bg: string, en: string) => (locale === "bg" ? bg : en);
-  const [subTab, setSubTab] = useState<"options" | "categories">("options");
-  const [categories, setCategories] = useState<MaintenanceCategoryRow[]>([]);
-  const [options, setOptions] = useState<IssueOptionRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Drag-and-drop state for option reorder.
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-  const dragIdRef = useRef<string | null>(null);
+  const {
+    label,
+    subTab,
+    setSubTab,
+    categories,
+    options,
+    loading,
+    error,
+    message,
+    busy,
+    dragId,
+    dropTargetId,
+    catKey,
+    setCatKey,
+    catNameBg,
+    setCatNameBg,
+    catNameEn,
+    setCatNameEn,
+    optCategoryId,
+    setOptCategoryId,
+    optKind,
+    setOptKind,
+    optNameBg,
+    setOptNameBg,
+    optNameEn,
+    setOptNameEn,
+    optDefaultPriority,
+    setOptDefaultPriority,
+    optDefaultBlocks,
+    setOptDefaultBlocks,
+    run,
+    onAddCategory,
+    onAddOption,
+    moveOption,
+    onDragStart,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+    onDragEnd,
+    catName,
+  } = useIssueCatalog({ locale });
 
-  const [catKey, setCatKey] = useState("");
-  const [catNameBg, setCatNameBg] = useState("");
-  const [catNameEn, setCatNameEn] = useState("");
-
-  const [optCategoryId, setOptCategoryId] = useState("");
-  const [optKind, setOptKind] = useState<"maintenance" | "housekeeping">(
-    "maintenance",
-  );
-  const [optNameBg, setOptNameBg] = useState("");
-  const [optNameEn, setOptNameEn] = useState("");
-  const [optDefaultPriority, setOptDefaultPriority] = useState("");
-  const [optDefaultBlocks, setOptDefaultBlocks] = useState<boolean | "">("");
-
-  /** Load categories + options (including inactive) for admin editing. */
-  const refresh = useCallback(async () => {
-    const [cats, opts] = await Promise.all([
-      fetchMaintenanceCategories({ includeInactive: true }),
-      fetchIssueOptions({ includeInactive: true }),
-    ]);
-    // State transition.
-    setCategories(cats);
-    // State transition.
-    setOptions(opts);
-    // Default the option form category once when empty.
-    if (!optCategoryId && cats[0]) setOptCategoryId(cats[0].id);
-  }, [optCategoryId]);
-
-  // Effect: sync props/state to side effects.
-  useEffect(() => {
-    (async () => {
-      // Try block for fallible work.
-      try {
-        // State transition.
-        setLoading(true);
-        // Await async step.
-        await refresh();
-      } catch (err) {
-        // State transition.
-        setError(err instanceof Error ? err.message : "Load failed");
-      } finally {
-        // State transition.
-        setLoading(false);
-      }
-    })();
-  }, [refresh]);
-
-  /** Run a mutating action, refresh, and surface success/error banners. */
-  async function run(action: () => Promise<unknown>) {
-    // State transition.
-    setBusy(true);
-    // State transition.
-    setError(null);
-    // State transition.
-    setMessage(null);
-    // Try block for fallible work.
-    try {
-      // Await async step.
-      await action();
-      // Await async step.
-      await refresh();
-      // State transition.
-      setMessage(label("Запазено", "Saved"));
-    } catch (err) {
-      // State transition.
-      setError(err instanceof Error ? err.message : "Action failed");
-    } finally {
-      // State transition.
-      setBusy(false);
-    }
-  }
-
-  /** Create a maintenance category and clear the form fields. */
-  async function onAddCategory(e: FormEvent) {
-    e.preventDefault();
-    // Await async step.
-    await run(async () => {
-      // Await async step.
-      await createMaintenanceCategory({
-        key: catKey,
-        nameBg: catNameBg,
-        nameEn: catNameEn,
-      });
-      // State transition.
-      setCatKey("");
-      // State transition.
-      setCatNameBg("");
-      // State transition.
-      setCatNameEn("");
-    });
-  }
-
-  /** Create an issue option under the selected category. */
-  async function onAddOption(e: FormEvent) {
-    e.preventDefault();
-    // Branch: conditional gate.
-    if (!optCategoryId) return;
-    // Await async step.
-    await run(async () => {
-      // Await async step.
-      await createIssueOption({
-        maintenanceCategoryId: optCategoryId,
-        kind: optKind,
-        nameBg: optNameBg,
-        nameEn: optNameEn,
-        defaultPriority: optDefaultPriority || undefined,
-        defaultBlocksRoom:
-          optDefaultBlocks === "" ? undefined : optDefaultBlocks,
-      });
-      // State transition.
-      setOptNameBg("");
-      // State transition.
-      setOptNameEn("");
-      // State transition.
-      setOptDefaultPriority("");
-      // State transition.
-      setOptDefaultBlocks("");
-    });
-  }
-
-  /** Optimistic reorder; rolls back UI if the server request fails. */
-  async function persistOrder(ids: string[]) {
-    const previous = options;
-    // State transition.
-    setOptions(
-      ids
-        .map((id) => previous.find((o) => o.id === id))
-        .filter((o): o is IssueOptionRow => Boolean(o)),
-    );
-    // State transition.
-    setBusy(true);
-    // State transition.
-    setError(null);
-    // State transition.
-    setMessage(null);
-    // Try block for fallible work.
-    try {
-      const next = await reorderIssueOptions(ids);
-      // State transition.
-      setOptions(next);
-      // State transition.
-      setMessage(label("Запазено", "Saved"));
-    } catch (err) {
-      // State transition.
-      setOptions(previous);
-      // State transition.
-      setError(err instanceof Error ? err.message : "Action failed");
-    } finally {
-      // State transition.
-      setBusy(false);
-    }
-  }
-
-  /**
-   * Helper `moveOption`.
-   */
-  async function moveOption(id: string, dir: -1 | 1) {
-    const idx = options.findIndex((o) => o.id === id);
-    // Branch: conditional gate.
-    if (idx < 0) return;
-    const next = idx + dir;
-    // Branch: conditional gate.
-    if (next < 0 || next >= options.length) return;
-    const ids = options.map((o) => o.id);
-    [ids[idx], ids[next]] = [ids[next], ids[idx]];
-    // Await async step.
-    await persistOrder(ids);
-  }
-
-  /**
-   * Handler `onDragStart` for user or form events.
-   */
-  function onDragStart(e: DragEvent, id: string) {
-    // Branch: conditional gate.
-    if (busy) {
-      e.preventDefault();
-      return;
-    }
-    dragIdRef.current = id;
-    // State transition.
-    setDragId(id);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", id);
-  }
-
-  /**
-   * Handler `onDragOver` for user or form events.
-   */
-  function onDragOver(e: DragEvent, id: string) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    // Branch: conditional gate.
-    if (dropTargetId !== id) setDropTargetId(id);
-  }
-
-  /**
-   * Handler `onDragLeave` for user or form events.
-   */
-  function onDragLeave(id: string) {
-    // Branch: conditional gate.
-    if (dropTargetId === id) setDropTargetId(null);
-  }
-
-  /**
-   * Handler `onDrop` for user or form events.
-   */
-  async function onDrop(e: DragEvent, targetId: string) {
-    e.preventDefault();
-    const sourceId = dragIdRef.current ?? e.dataTransfer.getData("text/plain");
-    // State transition.
-    setDragId(null);
-    // State transition.
-    setDropTargetId(null);
-    dragIdRef.current = null;
-    // Branch: conditional gate.
-    if (!sourceId || sourceId === targetId || busy) return;
-    const from = options.findIndex((o) => o.id === sourceId);
-    const to = options.findIndex((o) => o.id === targetId);
-    // Branch: conditional gate.
-    if (from < 0 || to < 0) return;
-    const ids = options.map((o) => o.id);
-    ids.splice(from, 1);
-    ids.splice(to, 0, sourceId);
-    // Await async step.
-    await persistOrder(ids);
-  }
-
-  /**
-   * Handler `onDragEnd` for user or form events.
-   */
-  function onDragEnd() {
-    // State transition.
-    setDragId(null);
-    // State transition.
-    setDropTargetId(null);
-    dragIdRef.current = null;
-  }
-
-  /**
-   * Helper `catName`.
-   */
-  const catName = (c: MaintenanceCategoryRow) =>
-    locale === "bg" ? c.nameBg : c.nameEn;
-
-  // Branch: conditional gate.
   if (loading) {
     return <p className="muted">{label("Зареждане…", "Loading…")}</p>;
   }
 
-  // Early / value return.
   return (
     <div className="issue-catalog">
       <div className="settings-tabs" role="tablist">
@@ -323,9 +90,7 @@ export function IssueCatalogPanel({ locale }: Props) {
         </button>
       </div>
 
-      {/* Render branch: error && <div className="error banner">error</div> */}
       {error && <div className="error banner">{error}</div>}
-      {/* Render branch: message && <div className="ok banner">message</div> */}
       {message && <div className="ok banner">{message}</div>}
 
       {subTab === "categories" && (
@@ -384,7 +149,6 @@ export function IssueCatalogPanel({ locale }: Props) {
                         disabled={busy}
                         onClick={() =>
                           run(async () => {
-                            // Await async step.
                             await archiveMaintenanceCategory(c.id);
                           })
                         }
@@ -398,7 +162,6 @@ export function IssueCatalogPanel({ locale }: Props) {
                         disabled={busy}
                         onClick={() =>
                           run(async () => {
-                            // Await async step.
                             await updateMaintenanceCategory(c.id, {
                               isActive: true,
                             });
@@ -441,7 +204,6 @@ export function IssueCatalogPanel({ locale }: Props) {
               <select
                 value={optKind}
                 onChange={(e) =>
-                  // State transition.
                   setOptKind(e.target.value as "maintenance" | "housekeeping")
                 }
               >
@@ -490,7 +252,6 @@ export function IssueCatalogPanel({ locale }: Props) {
                 }
                 onChange={(e) => {
                   const v = e.target.value;
-                  // State transition.
                   setOptDefaultBlocks(v === "" ? "" : v === "1");
                 }}
               >
@@ -532,7 +293,6 @@ export function IssueCatalogPanel({ locale }: Props) {
                 ]
                   .filter(Boolean)
                   .join(" ");
-                // Early / value return.
                 return (
                   <tr
                     key={o.id}
@@ -583,7 +343,6 @@ export function IssueCatalogPanel({ locale }: Props) {
                           disabled={busy}
                           onClick={() =>
                             run(async () => {
-                              // Await async step.
                               await archiveIssueOption(o.id);
                             })
                           }
@@ -597,7 +356,6 @@ export function IssueCatalogPanel({ locale }: Props) {
                           disabled={busy}
                           onClick={() =>
                             run(async () => {
-                              // Await async step.
                               await updateIssueOption(o.id, { isActive: true });
                             })
                           }

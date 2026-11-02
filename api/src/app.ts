@@ -49,7 +49,7 @@ import {
 } from "./middleware/security";
 import { requireCsrf } from "./middleware/session";
 import { prisma } from "./db";
-import { renderMetrics, requestObservability, safeErrorMessage } from "./observability";
+import { log, renderMetrics, requestObservability, safeErrorMessage } from "./observability";
 
 let bootstrapComplete = false;
 let shuttingDown = false;
@@ -204,7 +204,10 @@ export function createApp(options: { probeDatabase?: () => Promise<unknown> } = 
         return res.status(400).json({ error: "validation", message: "Invalid JSON body" });
       }
       // Unexpected failures — log server-side, hide internals from the client.
-      console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "error", service: "maintenance-api", requestId: (res.getHeader("X-Request-Id") as string | undefined) ?? "unknown", event: "request_failed", error: safeErrorMessage(err) }));
+      log.error("request_failed", {
+        requestId: (res.getHeader("X-Request-Id") as string | undefined) ?? "unknown",
+        error: safeErrorMessage(err),
+      });
       return res.status(500).json({ error: "internal", message: "Internal server error" });
     },
   );

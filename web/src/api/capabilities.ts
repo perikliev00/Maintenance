@@ -34,70 +34,55 @@ export const ALL_ROLES: Role[] = [
   "housekeeper",
 ];
 
-export type Panel =
-  | "mywork"
-  | "repairs"
-  | "home"
-  | "rooms"
-  | "common"
-  | "team"
-  | "live"
-  | "plan"
-  | "attendance"
-  | "cards"
-  | "results"
-  | "analytics"
-  | "cleaning"
-  | "audit"
-  | "control"
-  | "settings"
-  | "permissions"
-  | "notifications";
+/** Runtime action catalog (must stay in lockstep with `api/src/permissions.ts`). */
+export const ALL_ACTIONS = [
+  "rooms.view",
+  "rooms.mark_dirty",
+  "rooms.manage",
+  "rooms.set_occupancy",
+  "rooms.set_service_status",
+  "cleaning.create",
+  "cleaning.start",
+  "cleaning.complete",
+  "cleaning.inspect",
+  "cleaning.reassign",
+  "cleaning.review_overdue",
+  "cleaning.results_view",
+  "operations.view_live",
+  "tickets.report",
+  "tickets.resolve",
+  "tickets.assign",
+  "tickets.close",
+  "people.view",
+  "people.change_role",
+  "people.invite",
+  "people.manage_access",
+  "control.access",
+  "settings.manage",
+  "permissions.manage",
+  "plan.view",
+  "plan.manage",
+  "attendance.view",
+  "attendance.ingest",
+  "attendance.request_adjustment",
+  "attendance.approve_adjustment",
+  "cards.view",
+  "cards.issue",
+  "cards.revoke",
+  "analytics.view",
+  "sectors.manage",
+  "sectors.transfer_cross",
+  "shifts.manage",
+  "issue_options.manage",
+  "audit.view",
+  "jobs.view",
+  "jobs.run",
+] as const;
 
-export type Action =
-  | "rooms.view"
-  | "rooms.mark_dirty"
-  | "rooms.manage"
-  | "rooms.set_occupancy"
-  | "rooms.set_service_status"
-  | "cleaning.create"
-  | "cleaning.start"
-  | "cleaning.complete"
-  | "cleaning.inspect"
-  | "cleaning.reassign"
-  | "cleaning.review_overdue"
-  | "cleaning.results_view"
-  | "operations.view_live"
-  | "tickets.report"
-  | "tickets.resolve"
-  | "tickets.assign"
-  | "tickets.close"
-  | "people.view"
-  | "people.change_role"
-  | "people.invite"
-  | "people.manage_access"
-  | "control.access"
-  | "settings.manage"
-  | "permissions.manage"
-  | "plan.view"
-  | "plan.manage"
-  | "attendance.view"
-  | "attendance.ingest"
-  | "attendance.request_adjustment"
-  | "attendance.approve_adjustment"
-  | "cards.view"
-  | "cards.issue"
-  | "cards.revoke"
-  | "analytics.view"
-  | "sectors.manage"
-  | "sectors.transfer_cross"
-  | "shifts.manage"
-  | "issue_options.manage"
-  | "audit.view"
-  | "jobs.view"
-  | "jobs.run";
+export type Action = (typeof ALL_ACTIONS)[number];
 
-const ALL_PANELS: Panel[] = [
+/** Runtime panel catalog (must stay in lockstep with `api/src/permissions.ts`). */
+export const ALL_PANELS = [
   "mywork",
   "repairs",
   "home",
@@ -116,7 +101,9 @@ const ALL_PANELS: Panel[] = [
   "settings",
   "permissions",
   "notifications",
-];
+] as const;
+
+export type Panel = (typeof ALL_PANELS)[number];
 
 /** Bilingual / lookup table `PANEL_BY_ROLE` (data only). */
 const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {

@@ -37,7 +37,7 @@ after(async () => {
   await prisma.$disconnect();
 });
 
-it("P1-105 P1-107 sync recomputes supervisor sector ownership even when expectedVersion is current", async () => {
+it("sync recomputes supervisor sector ownership even when expectedVersion is current", async () => {
   // Losing supervision is actual access loss. Moving a room alone retains the
   // task's sector snapshot and supervisors intentionally bypass its assignee.
   await prisma.cleaningTask.update({

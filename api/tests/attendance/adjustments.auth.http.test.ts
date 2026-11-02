@@ -1,5 +1,5 @@
 /**
- * T-ATT-69a..f — POST /attendance/adjustments auth matrix (own/other × grant).
+ * f — POST /attendance/adjustments auth matrix (own/other × grant).
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -28,7 +28,7 @@ import {
 const prisma = new PrismaClient();
 const REQUEST_KEY = "attendance.request_adjustment";
 
-describe("attendance adjustments auth HTTP (T-ATT-69)", () => {
+describe("attendance adjustments auth HTTP", () => {
   let world: AttendanceWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -111,7 +111,7 @@ describe("attendance adjustments auth HTTP (T-ATT-69)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-ATT-69a HK+grant+own → 201", async () => {
+  it("HK+grant+own → 201", async () => {
     const restore = await ensureActionGrant(
       prisma,
       Role.housekeeper,
@@ -139,7 +139,7 @@ describe("attendance adjustments auth HTTP (T-ATT-69)", () => {
     }
   });
 
-  it("T-ATT-69b HK+grant+other → 403; no Adjustment row", async () => {
+  it("HK+grant+other → 403; no Adjustment row", async () => {
     const restore = await ensureActionGrant(
       prisma,
       Role.housekeeper,
@@ -167,7 +167,7 @@ describe("attendance adjustments auth HTTP (T-ATT-69)", () => {
     }
   });
 
-  it("T-ATT-69c HK without grant → 403", async () => {
+  it("HK without grant → 403", async () => {
     const restore = await removeActionGrant(
       prisma,
       Role.housekeeper,
@@ -195,7 +195,7 @@ describe("attendance adjustments auth HTTP (T-ATT-69)", () => {
     }
   });
 
-  it("T-ATT-69d tech own → 201; tech other → 403", async () => {
+  it("tech own → 201; tech other → 403", async () => {
     const restore = await ensureActionGrant(
       prisma,
       Role.technician,
@@ -232,7 +232,7 @@ describe("attendance adjustments auth HTTP (T-ATT-69)", () => {
     }
   });
 
-  it("T-ATT-69e supervisor without request grant → 403; with grant+other → 201", async () => {
+  it("supervisor without request grant → 403; with grant+other → 201", async () => {
     const removeRestore = await removeActionGrant(
       prisma,
       Role.supervisor,
@@ -276,7 +276,7 @@ describe("attendance adjustments auth HTTP (T-ATT-69)", () => {
     }
   });
 
-  it("T-ATT-69f owner+other → 201", async () => {
+  it("owner+other → 201", async () => {
     const iv = await seedClosedFor(world.technician.employeeId);
     const owner = await loginBearer(api, world.owner.email, ATT_PASSWORD);
     const res = await postJson(api, owner.token, "/attendance/adjustments", {

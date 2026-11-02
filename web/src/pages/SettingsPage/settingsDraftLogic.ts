@@ -2,6 +2,7 @@
  * Pure helpers for Settings draft / save / live-refresh behavior.
  * Kept framework-free so node:test can lock BUG-03/04/06/07 regressions.
  */
+import { mergeSavedWithRefreshFailure } from "../../saveRefresh";
 
 /** Domain events that should refresh system diagnostics only (not the draft). */
 export const SYSTEM_STATUS_LIVE_EVENTS = [
@@ -63,32 +64,6 @@ export function applySettingsBundleRefresh(input: {
   };
 }
 
-/** While a PATCH is in flight, editors and tab switches must be locked (BUG-04). */
-export function isSettingsEditingLocked(busy: boolean): boolean {
-  return busy;
-}
-
-/** Which live event types should trigger a system-status refresh (BUG-06). */
-export function shouldRefreshSystemStatus(eventType: string): boolean {
-  return (SYSTEM_STATUS_LIVE_EVENTS as readonly string[]).includes(eventType);
-}
-
-/** Settings bundle refresh must not run for operational domain events (BUG-06). */
-export function shouldRefreshSettingsBundle(eventType: string): boolean {
-  return (SETTINGS_BUNDLE_LIVE_EVENTS as readonly string[]).includes(eventType);
-}
-
-/**
- * Race-safe apply for system status responses (BUG-06).
- * A slower older response must not overwrite a newer one.
- */
-export function shouldApplySystemStatusRevision(
-  mine: number,
-  latest: number,
-): boolean {
-  return mine === latest;
-}
-
 export type SaveErrorOutcome =
   | { kind: "conflict"; message: string; currentVersion?: number }
   | { kind: "failed"; message: string }
@@ -146,10 +121,10 @@ export function mergePostSaveRefresh(input: {
   if (!input.saveOk) {
     return { message: null, refreshWarning: null };
   }
-  return {
-    message: "saved",
-    refreshWarning: input.refreshError ?? null,
-  };
+  return mergeSavedWithRefreshFailure({
+    successMessage: "saved",
+    refreshError: input.refreshError,
+  });
 }
 
 /**

@@ -16,6 +16,7 @@ import {
 } from "../../api/client";
 import { ScopeHint } from "../../components/ScopeHint";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
+import { executeMutationWithRefresh } from "../../saveRefresh";
 import { LocationDetailPanel, useLocationAudit } from "./audit";
 import { addBusyId, removeBusyId } from "./busyIds";
 import {
@@ -91,6 +92,7 @@ export function LocationsPage({
   const [assigneeId, setAssigneeId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set());
   const [issueLocationId, setIssueLocationId] = useState<string | null>(null);
@@ -467,11 +469,22 @@ export function LocationsPage({
     if (!beginBusy(locationId)) return;
     setError(null);
     setMessage(null);
+    setRefreshWarning(null);
     try {
-      await action();
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Action failed");
+      // Keep success when only the follow-up board refresh fails (BUG-06/07).
+      const result = await executeMutationWithRefresh(action, refresh);
+      if (!result.ok) {
+        setError(result.error);
+      } else if (result.outcome === "saved_refresh_failed") {
+        setRefreshWarning(
+          result.refreshError ??
+            boardT(
+              locale,
+              "Запазено, но таблото не се обнови",
+              "Saved, but the board did not refresh",
+            ),
+        );
+      }
     } finally {
       endBusy(locationId);
     }
@@ -718,6 +731,11 @@ export function LocationsPage({
 
       {error && <div className="error banner">{error}</div>}
       {message && <div className="ok banner">{message}</div>}
+      {refreshWarning && (
+        <div className="warn banner" role="status">
+          {refreshWarning}
+        </div>
+      )}
 
       {issueLocationId && (
         <IssueDialogHost

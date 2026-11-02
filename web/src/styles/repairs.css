@@ -1,0 +1,191 @@
+.repairs-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.9fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.repairs-side .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.repairs-page,
+.repairs-page .repairs-grid,
+.repairs-page .panel {
+  /* Grid/flex min-width:auto would expand the page to the table's intrinsic width. */
+  min-width: 0;
+  max-width: 100%;
+}
+
+.repairs-page .table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.repairs-page .ticket-lifecycle-actions,
+.repairs-page .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.repairs-count {
+  font-weight: 500;
+  font-size: 0.9em;
+}
+
+.repairs-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem 0 0.25rem;
+}
+
+.repairs-blocking,
+.repairs-archived {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  vertical-align: middle;
+}
+
+.repairs-blocking {
+  background: color-mix(in srgb, var(--warn-bg, #f5e6c8) 90%, transparent);
+  color: var(--warn-text, #8a5a00);
+}
+
+.repairs-archived {
+  background: color-mix(in srgb, var(--border, #999) 35%, transparent);
+}
+
+.pill.priority-urgent {
+  background: color-mix(in srgb, var(--danger-bg, #f8d7da) 85%, transparent);
+  color: var(--danger-text, #842029);
+}
+
+.pill.priority-high {
+  background: color-mix(in srgb, var(--warn-bg, #f5e6c8) 85%, transparent);
+  color: var(--warn-text, #8a5a00);
+}
+
+.repairs-sla-due {
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  align-items: end;
+}
+
+.filters-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.filters-row label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.event-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.event-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+}
+
+.audit-details-list {
+  margin: 0.35rem 0 0.5rem;
+  padding: 0.75rem 0.95rem 0.75rem 1.45rem;
+  list-style: disc;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: inherit;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.audit-details-list li + li {
+  margin-top: 0.25rem;
+}
+
+tr.selected {
+  background: color-mix(in srgb, var(--accent, #1f6f5b) 12%, transparent);
+}
+
+@media (max-width: 960px) {
+  .repairs-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .repairs-page .filters-row {
+    gap: 0.5rem 0.75rem;
+  }
+
+  .repairs-page .filters-row label {
+    min-width: min(100%, 10rem);
+  }
+}
+
+@media (max-width: 720px) {
+  .repairs-page .page-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .repairs-sla-due {
+    white-space: normal;
+  }
+}
+
+
+.audit-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.audit-timeline-item {
+  border-left: 2px solid var(--border-strong);
+  padding: 0.15rem 0 0.15rem 0.75rem;
+}
+
+.audit-timeline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+.audit-timeline-actor {
+  font-weight: 600;
+}
+
+.audit-timeline-summary {
+  margin-top: 0.15rem;
+}
+
+.audit-timeline-reason {
+  margin-top: 0.15rem;
+  font-size: 0.85rem;
+}

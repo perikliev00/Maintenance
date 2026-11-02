@@ -3,7 +3,7 @@
  */
 import { runAllJobs } from "./orchestrator";
 import { abandonStaleRunningJobRuns } from "./runLifecycle";
-import { jobRunFinished, safeErrorMessage } from "../../observability";
+import { jobRunFinished, safeErrorMessage, log } from "../../observability";
 import { runWithJobExecutionLock, waitForJobExecution } from "./executionLock";
 
 /** Single timer handle so startJobScheduler is idempotent. */
@@ -12,15 +12,7 @@ let initialTimer: ReturnType<typeof setTimeout> | null = null;
 let currentRun: Promise<void> | null = null;
 
 function warnAbandonFailed(err: unknown) {
-  console.warn(
-    JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level: "warn",
-      service: "maintenance-api",
-      event: "abandon_stale_job_runs_failed",
-      error: safeErrorMessage(err),
-    }),
-  );
+  log.warn("abandon_stale_job_runs_failed", { error: safeErrorMessage(err) });
 }
 
 async function runOnce(run: typeof runAllJobs) {
@@ -32,10 +24,10 @@ async function runOnce(run: typeof runAllJobs) {
       const results = locked.value;
       const failed = Object.values(results).some((value) => !!value && typeof value === "object" && "error" in value);
       jobRunFinished(failed);
-      if (failed) console.warn(JSON.stringify({ timestamp: new Date().toISOString(), level: "warn", service: "maintenance-api", event: "background_job_cycle_failed" }));
+      if (failed) log.warn("background_job_cycle_failed");
     } catch (err) {
       jobRunFinished(true);
-      console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "error", service: "maintenance-api", event: "background_job_cycle_failed", error: safeErrorMessage(err) }));
+      log.error("background_job_cycle_failed", { error: safeErrorMessage(err) });
     } finally { currentRun = null; }
   })();
   return currentRun;

@@ -5,22 +5,22 @@
  * silently clobber each other; audit `before` is read inside the same transaction.
  */
 import { LocationKind, Prisma, SessionStatus } from "@prisma/client";
-import { prisma } from "../db";
-import { OPEN_TICKET_STATUSES } from "../constants";
-import { AppError } from "../errors";
+import { prisma } from "../../db";
+import { OPEN_TICKET_STATUSES } from "../../constants";
+import { AppError } from "../../errors";
 import {
   DEFAULT_SETTINGS,
   SETTING_KEYS,
   SETTING_SCHEMAS,
   type AccessSettings,
   type FlagsSettings,
-  type ModulesSettings,
   type OperationsSettings,
   type SettingKey,
   isSettingKey,
-} from "./settingsSchema";
-import { publish } from "../events/bus";
-import { listAuditEvents, recordAudit } from "./audit";
+} from "./schema";
+import { publish } from "../../events/bus";
+import { listAuditEvents, recordAudit } from "../audit";
+import { isP2002 } from "../db/prismaErrors";
 
 type CacheEntry = { value: unknown; loadedAt: number };
 
@@ -280,10 +280,7 @@ export async function updateSetting(input: {
       );
       return row;
     } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === "P2002"
-      ) {
+      if (isP2002(err)) {
         const fresh = await tx.appSetting.findUnique({ where: { key } });
         throwVersionConflict({
           key,
@@ -432,9 +429,4 @@ export async function getOperations(): Promise<OperationsSettings> {
 /** Typed shortcut for access / invitation policy settings. */
 export async function getAccess(): Promise<AccessSettings> {
   return getSetting("access");
-}
-
-/** Typed shortcut for module visibility settings. */
-export async function getModules(): Promise<ModulesSettings> {
-  return getSetting("modules");
 }

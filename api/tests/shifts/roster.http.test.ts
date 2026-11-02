@@ -1,5 +1,5 @@
 /**
- * T-SH-64 / T-SH-65 — daily roster replace + validation + mid-TX rollback.
+ * daily roster replace + validation + mid-TX rollback.
  */
 import "../preloadIsolatedTestEnv";
 import assert from "node:assert/strict";
@@ -34,12 +34,12 @@ function rosterMap(
   return out;
 }
 
-describe("shift roster HTTP (T-SH-64 / T-SH-65)", () => {
+describe("shift roster HTTP", () => {
   let world: ShiftsWorld;
   let api: string;
   let server: import("node:http").Server;
 
-  /** Known non-empty baseline for D (fixture seed shape). Independent of T-SH-64/64b order. */
+  /* * Known non-empty baseline for D (fixture seed shape). Independent of /64b order. *
   function knownRosterD(): Array<{ employeeId: string; shiftId: string }> {
     return [
       {
@@ -105,7 +105,7 @@ describe("shift roster HTTP (T-SH-64 / T-SH-65)", () => {
     await prisma.$disconnect();
   });
 
-  it("T-SH-64 successful replace changes only day D", async () => {
+  it("successful replace changes only day D", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     await restoreKnownRosters();
     const beforeD2 = await rosterEntriesForDay(prisma, world.dayD2);
@@ -133,7 +133,7 @@ describe("shift roster HTTP (T-SH-64 / T-SH-65)", () => {
     assert.deepEqual(afterD2, beforeD2);
   });
 
-  it("T-SH-64b empty entries clears only day D", async () => {
+  it("empty entries clears only day D", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     await restoreKnownRosters();
     const beforeD2 = await rosterEntriesForDay(prisma, world.dayD2);
@@ -146,7 +146,7 @@ describe("shift roster HTTP (T-SH-64 / T-SH-65)", () => {
     assert.deepEqual(await rosterEntriesForDay(prisma, world.dayD2), beforeD2);
   });
 
-  it("T-SH-65a duplicate employee → 400; both days unchanged", async () => {
+  it("duplicate employee → 400; both days unchanged", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const { beforeD, beforeD2 } = await restoreKnownRosters();
     const res = await putJson(api, mgr.token, "/shifts/roster", {
@@ -177,7 +177,7 @@ describe("shift roster HTTP (T-SH-64 / T-SH-65)", () => {
     assert.deepEqual(await rosterEntriesForDay(prisma, world.dayD2), beforeD2);
   });
 
-  it("T-SH-65b missing employee → 400", async () => {
+  it("missing employee → 400", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const { beforeD, beforeD2 } = await restoreKnownRosters();
     const res = await putJson(api, mgr.token, "/shifts/roster", {
@@ -203,7 +203,7 @@ describe("shift roster HTTP (T-SH-64 / T-SH-65)", () => {
     assert.deepEqual(await rosterEntriesForDay(prisma, world.dayD2), beforeD2);
   });
 
-  it("T-SH-65c missing shift → 400", async () => {
+  it("missing shift → 400", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const { beforeD, beforeD2 } = await restoreKnownRosters();
     const res = await putJson(api, mgr.token, "/shifts/roster", {
@@ -229,7 +229,7 @@ describe("shift roster HTTP (T-SH-64 / T-SH-65)", () => {
     assert.deepEqual(await rosterEntriesForDay(prisma, world.dayD2), beforeD2);
   });
 
-  it("T-SH-65d inactive shift → 400 invalid_state", async () => {
+  it("inactive shift → 400 invalid_state", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const { beforeD, beforeD2 } = await restoreKnownRosters();
     const res = await putJson(api, mgr.token, "/shifts/roster", {
@@ -255,7 +255,7 @@ describe("shift roster HTTP (T-SH-64 / T-SH-65)", () => {
     assert.deepEqual(await rosterEntriesForDay(prisma, world.dayD2), beforeD2);
   });
 
-  it("T-SH-65e mid-TX rollback via BEFORE INSERT trigger", async () => {
+  it("mid-TX rollback via BEFORE INSERT trigger", async () => {
     const mgr = await loginBearer(api, world.manager.email, world.password);
     const { beforeD, beforeD2 } = await restoreKnownRosters();
     const fn = `roster_fail_${world.stamp.replace(/[^a-zA-Z0-9]/g, "")}`;

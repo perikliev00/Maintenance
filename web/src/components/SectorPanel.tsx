@@ -2,14 +2,13 @@
  * Sector list + create/edit modals with paginated location membership picker.
  * Create is hidden for supervisor scope; edit uses a centered modal.
  */
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import {
-  fetchLocationsCatalogPage,
-  type Person,
-  type Room,
-  type SectorRow,
-} from "../api/client";
+import { useMemo } from "react";
+import { type Person, type SectorRow } from "../api/client";
+import { useLocationCatalogPicker } from "../hooks/useLocationCatalogPicker";
+import type { useSectorEditor } from "../pages/housekeeping/useSectorEditor";
 import { FormModal } from "./FormModal";
+
+type SectorEditor = ReturnType<typeof useSectorEditor>;
 
 type Props = {
   label: (bg: string, en: string) => string;
@@ -21,30 +20,8 @@ type Props = {
   canCreate: boolean;
   isSupervisorScope: boolean;
   busy: boolean;
-  formError: string | null;
-  mode: "closed" | "create" | "edit";
-  editingSector: SectorRow | null;
-  sectorCode: string;
-  sectorNameBg: string;
-  sectorNameEn: string;
-  sectorSupervisorId: string;
-  sectorActive: boolean;
-  selectedLocationIds: string[];
-  selectedLocationMeta: Map<string, Room | SectorRow["locations"][number]>;
-  onSectorCodeChange: (value: string) => void;
-  onSectorNameBgChange: (value: string) => void;
-  onSectorNameEnChange: (value: string) => void;
-  onSectorSupervisorIdChange: (value: string) => void;
-  onSectorActiveChange: (value: boolean) => void;
-  onToggleLocation: (id: string, meta?: Room) => void;
-  onStartCreate: () => void;
-  onStartEdit: (sector: SectorRow) => void;
-  onCloseForm: () => void;
-  onSave: (e: FormEvent) => void;
-  dirty: boolean;
+  editor: SectorEditor;
 };
-
-const PAGE_SIZES = [25, 50, 100] as const;
 
 export function SectorPanel({
   label,
@@ -55,77 +32,50 @@ export function SectorPanel({
   canCreate,
   isSupervisorScope,
   busy,
-  formError,
-  mode,
-  editingSector,
-  sectorCode,
-  sectorNameBg,
-  sectorNameEn,
-  sectorSupervisorId,
-  sectorActive,
-  selectedLocationIds,
-  selectedLocationMeta,
-  onSectorCodeChange,
-  onSectorNameBgChange,
-  onSectorNameEnChange,
-  onSectorSupervisorIdChange,
-  onSectorActiveChange,
-  onToggleLocation,
-  onStartCreate,
-  onStartEdit,
-  onCloseForm,
-  onSave,
-  dirty,
+  editor,
 }: Props) {
-  const [pickerQ, setPickerQ] = useState("");
-  const [debouncedQ, setDebouncedQ] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
-  const [pickerRows, setPickerRows] = useState<Room[]>([]);
-  const [pickerTotal, setPickerTotal] = useState(0);
-  const [pickerTotalPages, setPickerTotalPages] = useState(1);
-  const [pickerLoading, setPickerLoading] = useState(false);
-  const [pickerError, setPickerError] = useState<string | null>(null);
+  const {
+    formError,
+    sectorMode: mode,
+    editingSector,
+    sectorCode,
+    sectorNameBg,
+    sectorNameEn,
+    sectorSupervisorId,
+    sectorActive,
+    selectedLocationIds,
+    selectedLocationMeta,
+    dirty,
+    setSectorCode,
+    setSectorNameBg,
+    setSectorNameEn,
+    setSectorSupervisorId,
+    setSectorActive,
+    toggleLocation,
+    startCreateSector,
+    startEditSector,
+    closeSectorForm,
+    onSaveSector,
+  } = editor;
 
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedQ(pickerQ), 300);
-    return () => window.clearTimeout(t);
-  }, [pickerQ]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedQ, pageSize, mode]);
-
-  useEffect(() => {
-    if (mode === "closed") return;
-    const ac = new AbortController();
-    (async () => {
-      try {
-        setPickerLoading(true);
-        setPickerError(null);
-        const result = await fetchLocationsCatalogPage({
-          includeArchived: true,
-          q: debouncedQ,
-          page,
-          pageSize,
-          signal: ac.signal,
-        });
-        if (ac.signal.aborted) return;
-        setPickerRows(result.items);
-        setPickerTotal(result.total);
-        setPickerTotalPages(result.totalPages);
-        if (result.page !== page && result.totalPages >= 1) {
-          setPage(result.page);
-        }
-      } catch (err) {
-        if (ac.signal.aborted) return;
-        setPickerError(err instanceof Error ? err.message : "Load failed");
-      } finally {
-        if (!ac.signal.aborted) setPickerLoading(false);
-      }
-    })();
-    return () => ac.abort();
-  }, [mode, debouncedQ, page, pageSize]);
+  const pickerOpen = mode !== "closed";
+  const {
+    pageSizes,
+    search: pickerQ,
+    setSearch: setPickerQ,
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    items: pickerRows,
+    total: pickerTotal,
+    totalPages: pickerTotalPages,
+    loading: pickerLoading,
+    error: pickerError,
+  } = useLocationCatalogPicker({
+    enabled: pickerOpen,
+    includeArchived: true,
+  });
 
   const selectedSet = useMemo(
     () => new Set(selectedLocationIds),
@@ -144,7 +94,7 @@ export function SectorPanel({
       <div className="panel-header">
         <h2>{label("Сектори", "Sectors")}</h2>
         {canCreate && (
-          <button type="button" onClick={onStartCreate} disabled={busy}>
+          <button type="button" onClick={startCreateSector} disabled={busy}>
             {label("+ Добави сектор", "+ Add sector")}
           </button>
         )}
@@ -190,7 +140,7 @@ export function SectorPanel({
                     <button
                       type="button"
                       className="ghost"
-                      onClick={() => onStartEdit(s)}
+                      onClick={() => startEditSector(s)}
                       disabled={busy}
                     >
                       {label("Редакция", "Edit")}
@@ -219,14 +169,14 @@ export function SectorPanel({
           wide
           submitLabel={label("Запази промените", "Save changes")}
           cancelLabel={label("Отмени", "Cancel")}
-          onClose={onCloseForm}
-          onSubmit={onSave}
+          onClose={closeSectorForm}
+          onSubmit={onSaveSector}
         >
           <label>
             {label("Код", "Code")}
             <input
               value={sectorCode}
-              onChange={(e) => onSectorCodeChange(e.target.value)}
+              onChange={(e) => setSectorCode(e.target.value)}
               required
               maxLength={32}
               disabled={busy}
@@ -236,7 +186,7 @@ export function SectorPanel({
             {label("Име BG", "Name BG")}
             <input
               value={sectorNameBg}
-              onChange={(e) => onSectorNameBgChange(e.target.value)}
+              onChange={(e) => setSectorNameBg(e.target.value)}
               required
               disabled={busy}
             />
@@ -245,7 +195,7 @@ export function SectorPanel({
             {label("Име EN", "Name EN")}
             <input
               value={sectorNameEn}
-              onChange={(e) => onSectorNameEnChange(e.target.value)}
+              onChange={(e) => setSectorNameEn(e.target.value)}
               required
               disabled={busy}
             />
@@ -254,7 +204,7 @@ export function SectorPanel({
             {label("Супервайзър", "Supervisor")}
             <select
               value={sectorSupervisorId}
-              onChange={(e) => onSectorSupervisorIdChange(e.target.value)}
+              onChange={(e) => setSectorSupervisorId(e.target.value)}
               disabled={isSupervisorScope || busy}
             >
               <option value="">—</option>
@@ -269,7 +219,7 @@ export function SectorPanel({
             <input
               type="checkbox"
               checked={sectorActive}
-              onChange={(e) => onSectorActiveChange(e.target.checked)}
+              onChange={(e) => setSectorActive(e.target.checked)}
               disabled={busy}
             />
             {label("Активен", "Active")}
@@ -332,7 +282,7 @@ export function SectorPanel({
                   <input
                     type="checkbox"
                     checked={selectedSet.has(r.id)}
-                    onChange={() => onToggleLocation(r.id, r)}
+                    onChange={() => toggleLocation(r.id, r)}
                     disabled={busy}
                   />
                   {r.buildingCode} {r.number}
@@ -371,7 +321,7 @@ export function SectorPanel({
                   onChange={(e) => setPageSize(Number(e.target.value))}
                   disabled={busy}
                 >
-                  {PAGE_SIZES.map((n) => (
+                  {pageSizes.map((n) => (
                     <option key={n} value={n}>
                       {n}
                     </option>

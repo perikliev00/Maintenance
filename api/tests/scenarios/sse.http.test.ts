@@ -34,7 +34,7 @@ after(async () => {
   await prisma.$disconnect();
 });
 
-it("P1-115 real open SSE authorizes sector changes and revoke/expiry before delivery, without waiting for heartbeat", async (t) => {
+it("real open SSE authorizes sector changes and revoke/expiry before delivery, without waiting for heartbeat", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
   const controllers: AbortController[] = [];
   const pumps: Promise<void>[] = [];
@@ -129,7 +129,7 @@ it("P1-115 real open SSE authorizes sector changes and revoke/expiry before deli
   }
 });
 
-it("P1-115 idle revoked and expired streams still close at heartbeat", async (t) => {
+it("idle revoked and expired streams still close at heartbeat", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
   try {
     for (const invalidation of ["revoke", "expiry"] as const) {

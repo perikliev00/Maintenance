@@ -1,7 +1,7 @@
 /**
  * Rooms, common areas, and location catalog REST helpers.
  */
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { API_BASE, apiFetch, apiGet, apiPatch, apiPost, authHeaders, buildQuery, parseJson } from "./http";
 
 /** Location row as returned by room/common-area boards (includes readiness). */
 export type Room = {
@@ -116,36 +116,19 @@ export async function fetchCommonAreas(init?: {
 
 /** Mark a guest room dirty and rebind active cleaning work server-side. */
 export async function markRoomDirty(roomId: string): Promise<Room> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/rooms/${roomId}/mark-dirty`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost(`/rooms/${roomId}/mark-dirty`);
 }
 
 /** Mark a common area dirty (parallel endpoint to rooms). */
 export async function markCommonAreaDirty(locationId: string): Promise<Room> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/common-areas/${locationId}/mark-dirty`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost(`/common-areas/${locationId}/mark-dirty`);
 }
 
 /** Building → floor tree for location create/edit pickers. */
 export async function fetchLocationHierarchy(): Promise<
   LocationHierarchyBuilding[]
 > {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/locations/hierarchy`, {
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiGet("/locations/hierarchy");
 }
 
 export type LocationsCatalogPage = {
@@ -168,18 +151,17 @@ export async function fetchLocationsCatalogPage(params?: {
   pageSize?: number;
   signal?: AbortSignal;
 }): Promise<LocationsCatalogPage> {
-  const search = new URLSearchParams();
-  search.set("paged", "true");
-  if (params?.kind) search.set("kind", params.kind);
-  if (params?.includeArchived) search.set("includeArchived", "true");
-  if (params?.q?.trim()) search.set("q", params.q.trim());
-  if (params?.page != null) search.set("page", String(params.page));
-  if (params?.pageSize != null) search.set("pageSize", String(params.pageSize));
-  const res = await apiFetch(`${API_BASE}/locations?${search}`, {
-    headers: authHeaders(),
-    signal: params?.signal,
-  });
-  return parseJson(res);
+  return apiGet(
+    `/locations${buildQuery({
+      paged: true,
+      kind: params?.kind,
+      includeArchived: params?.includeArchived || undefined,
+      q: params?.q?.trim() || undefined,
+      page: params?.page,
+      pageSize: params?.pageSize,
+    })}`,
+    { signal: params?.signal },
+  );
 }
 
 /** Create a location on a floor (room or common area). */
@@ -190,15 +172,7 @@ export async function createLocation(input: {
   occupancy?: LocationOccupancy;
   serviceStatus?: LocationServiceStatus;
 }): Promise<Room> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/locations`, {
-    method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    // Serialize request body.
-    body: JSON.stringify(input),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost("/locations", input);
 }
 
 /** Patch location identity fields (floor / number / kind). */
@@ -210,37 +184,17 @@ export async function updateLocation(
     kind?: LocationKind;
   },
 ): Promise<Room> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/locations/${id}`, {
-    method: "PATCH",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    // Serialize request body.
-    body: JSON.stringify(input),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPatch(`/locations/${id}`, input);
 }
 
 /** Soft-archive a location so it leaves operational boards. */
 export async function archiveLocation(id: string): Promise<Room> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/locations/${id}/archive`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost(`/locations/${id}/archive`);
 }
 
 /** Restore a previously archived location. */
 export async function restoreLocation(id: string): Promise<Room> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/locations/${id}/restore`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost(`/locations/${id}/restore`);
 }
 
 /** Set occupancy (vacant / occupied / unknown) with audit on the server. */
@@ -248,15 +202,7 @@ export async function setLocationOccupancy(
   id: string,
   occupancy: LocationOccupancy,
 ): Promise<Room> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/locations/${id}/occupancy`, {
-    method: "PATCH",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    // Serialize request body.
-    body: JSON.stringify({ occupancy }),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPatch(`/locations/${id}/occupancy`, { occupancy });
 }
 
 /** Set in-service / out-of-service / unknown. */
@@ -264,13 +210,5 @@ export async function setLocationServiceStatus(
   id: string,
   serviceStatus: LocationServiceStatus,
 ): Promise<Room> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/locations/${id}/service-status`, {
-    method: "PATCH",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    // Serialize request body.
-    body: JSON.stringify({ serviceStatus }),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPatch(`/locations/${id}/service-status`, { serviceStatus });
 }

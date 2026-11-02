@@ -3,11 +3,13 @@
  */
 import { Prisma } from "@prisma/client";
 // Module dependency import.
-import { prisma } from "../db";
+import { prisma } from "../../db";
 // Module dependency import.
-import { AppError } from "../errors";
-import { recordAudit } from "./audit";
-import { parseHotelDate } from "./dailyPlanEffects/hotelDate";
+import { AppError } from "../../errors";
+import { isP2002 } from "../db/prismaErrors";
+import { recordAudit } from "../audit";
+import { parseHotelDate } from "../dailyPlanEffects/hotelDate";
+import { formatHotelDate } from "../hotelTime";
 
 const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -112,10 +114,7 @@ export async function createShift(input: {
     return mapShift(shift);
   } catch (err) {
     // Unique code conflict → 409 for the client.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isP2002(err)) {
       throw new AppError(409, "conflict", "Shift code already exists");
     }
     throw err;
@@ -155,24 +154,20 @@ export async function updateShift(
     const shift = await prisma.shift.update({
       where: { id },
       data: {
-        ...(input.code !== undefined
-          ? { code: input.code.trim().toUpperCase() }
-          : {}),
-        ...(input.nameBg !== undefined ? { nameBg: input.nameBg.trim() } : {}),
-        ...(input.nameEn !== undefined ? { nameEn: input.nameEn.trim() } : {}),
-        ...(input.startTime !== undefined ? { startTime: input.startTime } : {}),
-        ...(input.endTime !== undefined ? { endTime: input.endTime } : {}),
-        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
-        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        code:
+          input.code !== undefined ? input.code.trim().toUpperCase() : undefined,
+        nameBg: input.nameBg !== undefined ? input.nameBg.trim() : undefined,
+        nameEn: input.nameEn !== undefined ? input.nameEn.trim() : undefined,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        sortOrder: input.sortOrder,
+        isActive: input.isActive,
       },
     });
     return mapShift(shift);
   } catch (err) {
     // Unique code conflict → 409.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (isP2002(err)) {
       throw new AppError(409, "conflict", "Shift code already exists");
     }
     throw err;
@@ -201,13 +196,6 @@ export async function assertActiveShiftId(
   }
   // Resolved canonical shift id for roster/attendance writes.
   return shift.id;
-}
-
-/** Parse YYYY-MM-DD into a UTC-midnight Date for Prisma Date columns. */
-
-/** Format a Prisma Date key back to YYYY-MM-DD. */
-function formatHotelDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 /** Flatten roster join (employee + shift) into the API entry shape. */
@@ -344,7 +332,13 @@ export async function upsertShiftRoster(input: {
   }
 
   // Full replace for the day: clear then insert (empty entries → clear only).
+  // Serialize per hotelDate so concurrent PUTs cannot both delete then insert
+  // overlapping (employeeId, hotelDate) rows (P2002 → HTTP 500). Second writer
+  // waits, then LWW-replaces — same pattern as ticket duplicate advisory locks.
   await prisma.$transaction(async (tx) => {
+    const rosterLockKey = `shift-roster:${input.hotelDate}`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${rosterLockKey}))`;
+
     // Wipe prior rows for this hotelDate key.
     await tx.employeeShiftRoster.deleteMany({ where: { hotelDate } });
     if (input.entries.length) {

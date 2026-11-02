@@ -2,7 +2,7 @@
  * Maintenance tickets, issue catalog, and SLA policy REST helpers.
  * Mutations that need offline support should prefer `../offline` queued wrappers.
  */
-import { API_BASE, apiFetch, authHeaders, parseJson } from "./http";
+import { API_BASE, apiFetch, apiGet, apiPatch, apiPost, authHeaders, buildQuery, parseJson } from "./http";
 
 export type MaintenanceCategoryRow = {
   id: string;
@@ -96,18 +96,10 @@ export type ReportIssueInput = {
  * For offline-capable reporting use `reportTicketQueued` from `../offline`.
  */
 export async function reportIssue(input: ReportIssueInput) {
-  // Online path always mint a fresh commandId for server idempotency.
-  const res = await apiFetch(`${API_BASE}/maintenance/tickets`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({
-      ...input,
-      commandId: input.commandId ?? crypto.randomUUID(),
-    }),
+  return apiPost("/maintenance/tickets", {
+    ...input,
+    commandId: input.commandId ?? crypto.randomUUID(),
   });
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /** Catalog categories; pass `includeInactive` for admin editing. */
@@ -115,19 +107,12 @@ export async function fetchMaintenanceCategories(params?: {
   includeInactive?: boolean;
   signal?: AbortSignal;
 }): Promise<MaintenanceCategoryRow[]> {
-  // Build query string.
-  const q = new URLSearchParams();
-  // Branch: conditional gate.
-  if (params?.includeInactive) q.set("includeInactive", "true");
-  // Optional query suffix.
-  const qs = q.toString();
-  // Authenticated HTTP request.
-  const res = await apiFetch(
-    `${API_BASE}/maintenance/categories${qs ? `?${qs}` : ""}`,
-    { headers: authHeaders(), signal: params?.signal },
+  return apiGet(
+    `/maintenance/categories${buildQuery({
+      includeInactive: params?.includeInactive || undefined,
+    })}`,
+    { signal: params?.signal },
   );
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /** Create a maintenance category (stable `key` + bilingual names). */
@@ -138,15 +123,7 @@ export async function createMaintenanceCategory(input: {
   sortOrder?: number;
   isActive?: boolean;
 }): Promise<MaintenanceCategoryRow> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/categories`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify(input),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost("/maintenance/categories", input);
 }
 
 /** Patch category display fields / sort / active flag. */
@@ -159,28 +136,14 @@ export async function updateMaintenanceCategory(
     isActive: boolean;
   }>,
 ): Promise<MaintenanceCategoryRow> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/categories/${id}`, {
-    method: "PATCH",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify(input),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPatch(`/maintenance/categories/${id}`, input);
 }
 
 /** Soft-archive a category (keeps historical ticket references). */
 export async function archiveMaintenanceCategory(
   id: string,
 ): Promise<MaintenanceCategoryRow> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/categories/${id}/archive`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost(`/maintenance/categories/${id}/archive`);
 }
 
 /** Issue-option catalog; optional category filter and inactive include. */
@@ -189,21 +152,13 @@ export async function fetchIssueOptions(params?: {
   categoryId?: string;
   signal?: AbortSignal;
 }): Promise<IssueOptionRow[]> {
-  // Build query string.
-  const q = new URLSearchParams();
-  // Branch: conditional gate.
-  if (params?.includeInactive) q.set("includeInactive", "true");
-  // Branch: conditional gate.
-  if (params?.categoryId) q.set("categoryId", params.categoryId);
-  // Optional query suffix.
-  const qs = q.toString();
-  // Authenticated HTTP request.
-  const res = await apiFetch(
-    `${API_BASE}/maintenance/issue-options${qs ? `?${qs}` : ""}`,
-    { headers: authHeaders(), signal: params?.signal },
+  return apiGet(
+    `/maintenance/issue-options${buildQuery({
+      includeInactive: params?.includeInactive || undefined,
+      categoryId: params?.categoryId,
+    })}`,
+    { signal: params?.signal },
   );
-  // Return value / early exit.
-  return parseJson(res);
 }
 
 /** Create a selectable issue option under a category. */
@@ -217,15 +172,7 @@ export async function createIssueOption(input: {
   sortOrder?: number;
   isActive?: boolean;
 }): Promise<IssueOptionRow> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/issue-options`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify(input),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost("/maintenance/issue-options", input);
 }
 
 /** Patch an issue option (including moving it to another category). */
@@ -242,39 +189,17 @@ export async function updateIssueOption(
     isActive: boolean;
   }>,
 ): Promise<IssueOptionRow> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/issue-options/${id}`, {
-    method: "PATCH",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify(input),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPatch(`/maintenance/issue-options/${id}`, input);
 }
 
 /** Soft-archive an issue option so it no longer appears in report UIs. */
 export async function archiveIssueOption(id: string): Promise<IssueOptionRow> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/issue-options/${id}/archive`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost(`/maintenance/issue-options/${id}/archive`);
 }
 
 /** Persist a new sort order; `ids` is the full ordered id list. */
 export async function reorderIssueOptions(ids: string[]): Promise<IssueOptionRow[]> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/issue-options/reorder`, {
-    method: "POST",
-    headers: authHeaders(),
-    // Serialize request body.
-    body: JSON.stringify({ ids }),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiPost("/maintenance/issue-options/reorder", { ids });
 }
 
 export type TicketListPage = {
@@ -315,48 +240,32 @@ export async function fetchTickets(
 export async function fetchTickets(
   params?: FetchTicketsParams,
 ): Promise<MaintenanceTicket[] | TicketListPage> {
-  const search = new URLSearchParams();
-  // Branch: conditional gate.
-  if (params?.limit) search.set("limit", String(params.limit));
-  // Branch: conditional gate.
-  if (params?.status) search.set("status", params.status);
-  // Branch: conditional gate.
-  if (params?.locationId) search.set("locationId", params.locationId);
-  // Branch: conditional gate.
-  if (params?.mine) search.set("mine", "1");
-  // Branch: conditional gate.
-  if (params?.assigneeId) search.set("assigneeId", params.assigneeId);
-  // Branch: conditional gate.
-  if (params?.priority) search.set("priority", params.priority);
-  // Branch: conditional gate.
-  if (params?.slaBreached) search.set("slaBreached", "1");
-  // Explicit true/false — omit when undefined so the server does not filter.
-  if (params?.blocksRoom === true) search.set("blocksRoom", "1");
-  // Branch: conditional gate.
-  if (params?.blocksRoom === false) search.set("blocksRoom", "0");
-  if (params?.cursor) search.set("cursor", params.cursor);
   const wantPage = Boolean(params?.paginated || params?.cursor);
-  if (wantPage) search.set("paginated", "1");
-  // Optional query suffix.
-  const qs = search.toString();
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/maintenance/tickets${qs ? `?${qs}` : ""}`, {
-    headers: authHeaders(),
-    signal: params?.signal,
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiGet(
+    `/maintenance/tickets${buildQuery({
+      limit: params?.limit,
+      status: params?.status,
+      locationId: params?.locationId,
+      mine: params?.mine ? "1" : undefined,
+      assigneeId: params?.assigneeId,
+      priority: params?.priority,
+      slaBreached: params?.slaBreached ? "1" : undefined,
+      blocksRoom:
+        params?.blocksRoom === true
+          ? "1"
+          : params?.blocksRoom === false
+            ? "0"
+            : undefined,
+      cursor: params?.cursor,
+      paginated: wantPage ? "1" : undefined,
+    })}`,
+    { signal: params?.signal },
+  );
 }
 
 /** Timeline events for one ticket (status changes, notes, SLA pauses). */
 export async function fetchTicketEvents(ticketId: string) {
-  // Authenticated HTTP request.
-  const res = await apiFetch(
-    `${API_BASE}/maintenance/tickets/${ticketId}/events`,
-    { headers: authHeaders() },
-  );
-  // Return value / early exit.
-  return parseJson(res);
+  return apiGet(`/maintenance/tickets/${ticketId}/events`);
 }
 
 export type SlaPolicyRow = {
@@ -368,12 +277,7 @@ export type SlaPolicyRow = {
 
 /** SLA hours-by-priority policies from settings. */
 export async function fetchSlaPolicies(): Promise<SlaPolicyRow[]> {
-  // Authenticated HTTP request.
-  const res = await apiFetch(`${API_BASE}/settings/sla-policies`, {
-    headers: authHeaders(),
-  });
-  // Return value / early exit.
-  return parseJson(res);
+  return apiGet("/settings/sla-policies");
 }
 
 /** Replace SLA hours (and optional active flag) for one priority. */
@@ -381,13 +285,10 @@ export async function updateSlaPolicy(
   priority: string,
   input: { hours: number; isActive?: boolean },
 ): Promise<SlaPolicyRow> {
-  // Authenticated HTTP request.
   const res = await apiFetch(`${API_BASE}/settings/sla-policies/${priority}`, {
     method: "PUT",
     headers: authHeaders(),
-    // Serialize request body.
     body: JSON.stringify(input),
   });
-  // Return value / early exit.
   return parseJson(res);
 }

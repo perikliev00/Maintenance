@@ -25,7 +25,7 @@ function conflictErr() {
 }
 
 describe("runPermissionsSave", () => {
-  it("BUG-06: PUT success + failed refresh → saved_refresh_failed without re-put", async () => {
+  it("PUT success + failed refresh → saved_refresh_failed without re-put", async () => {
     let puts = 0;
     const outcome = await runPermissionsSave(
       {
@@ -57,7 +57,7 @@ describe("runPermissionsSave", () => {
     assert.equal(outcome.saved?.version, 4);
   });
 
-  it("BUG-06: PUT success + refresh ok → ok feedback", async () => {
+  it("PUT success + refresh ok → ok feedback", async () => {
     const outcome = await runPermissionsSave(
       {
         role: "technician",
@@ -80,7 +80,7 @@ describe("runPermissionsSave", () => {
     assert.equal(outcome.putSucceeded, true);
   });
 
-  it("BUG-01 UI: 409 → conflict feedback and reloadOnConflict", async () => {
+  it("UI: 409 → conflict feedback and reloadOnConflict", async () => {
     let reloaded = 0;
     const outcome = await runPermissionsSave(
       {
@@ -156,7 +156,7 @@ describe("runPermissionsSave", () => {
   });
 });
 
-describe("BUG-03 draft merge after single-role save", () => {
+describe("draft merge after single-role save", () => {
   it("keeps dirty sibling draft while applying saved role", () => {
     const afterPut = applySavedRoleToDraft(
       {
@@ -181,7 +181,7 @@ describe("BUG-03 draft merge after single-role save", () => {
   });
 });
 
-describe("BUG-04 overlapping saves", () => {
+describe("overlapping saves", () => {
   it("a-then-b: sibling stays busy until its own finally", async () => {
     const { snapshots, final } = await runOverlappingRoleSaves({
       roleA: "housekeeper",

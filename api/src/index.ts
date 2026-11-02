@@ -7,7 +7,7 @@ import { stopJobScheduler } from "./services/jobs";
 import { wireJobSchedulerAfterBootstrap } from "./services/jobs/schedulerBoot";
 import { prisma } from "./db";
 import { closeSseStreams } from "./controllers/events";
-import { safeErrorMessage } from "./observability";
+import { log, safeErrorMessage } from "./observability";
 
 async function main() {
   assertEnv();
@@ -16,7 +16,7 @@ async function main() {
   let closing = false;
   let startupTask: Promise<void> = Promise.resolve();
   server.listen(port, "0.0.0.0", () => {
-    console.log(JSON.stringify({ timestamp: new Date().toISOString(), level: "info", service: "maintenance-api", event: "listening", port, release: process.env.RELEASE_SHA ?? "unknown" }));
+    log.info("listening", { port, release: process.env.RELEASE_SHA ?? "unknown" });
     startupTask = initializeRequiredDefaults()
       .then(() => {
         // E2E / local probes set DISABLE_JOB_SCHEDULER=1 so manual POST /jobs/run
@@ -24,7 +24,7 @@ async function main() {
         wireJobSchedulerAfterBootstrap(closing);
       })
       .catch(async (err) => {
-        console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "fatal", service: "maintenance-api", event: "bootstrap_failed", error: safeErrorMessage(err) }));
+        log.fatal("bootstrap_failed", { error: safeErrorMessage(err) });
         setShuttingDown(true);
         server.close();
         await prisma.$disconnect().catch(() => undefined);
@@ -32,7 +32,7 @@ async function main() {
       });
   });
   server.on("error", (err) => {
-    console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "fatal", service: "maintenance-api", event: "listen_failed", error: err.message }));
+    log.fatal("listen_failed", { error: err.message });
     process.exitCode = 1;
   });
 
@@ -40,7 +40,7 @@ async function main() {
     if (closing) return;
     closing = true;
     setShuttingDown(true);
-    console.log(JSON.stringify({ timestamp: new Date().toISOString(), level: "info", service: "maintenance-api", event: "shutdown_started", signal }));
+    log.info("shutdown_started", { signal });
     const timeout = setTimeout(() => process.exit(1), 25_000);
     timeout.unref();
     closeSseStreams();
@@ -55,7 +55,7 @@ async function main() {
 }
 
 main().catch(async (err) => {
-  console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "fatal", service: "maintenance-api", event: "startup_failed", error: safeErrorMessage(err) }));
+  log.fatal("startup_failed", { error: safeErrorMessage(err) });
   await prisma.$disconnect().catch(() => undefined);
   process.exit(1);
 });

@@ -1,7 +1,7 @@
 /**
- * P1-82 / P1-83 — card issue commandId idempotency + fingerprint.
+ * card issue commandId idempotency + fingerprint.
  *
- * Diagnostics note (P1-83d): fingerprint only on the early `existing` path
+ * Diagnostics note: fingerprint only on the early `existing` path
  * would still let the P2002 loser return 200 without comparing payload.
  * Both existing + raced paths must fingerprint (implemented in cards.ts).
  */
@@ -31,7 +31,7 @@ import {
 
 const prisma = new PrismaClient();
 
-describe("card issue idempotency HTTP (P1-82–83)", () => {
+describe("card issue idempotency HTTP", () => {
   let world: CardsWorld;
   let api: string;
   let server: import("node:http").Server;
@@ -83,7 +83,7 @@ describe("card issue idempotency HTTP (P1-82–83)", () => {
     assert.equal(await countCardAudits(prisma, "card.issue", [cardId]), 1);
   }
 
-  it("P1-82a sequential same commandId+payload → 201 then 200; counts=1", async () => {
+  it("sequential same commandId+payload → 201 then 200; counts=1", async () => {
     const body = staffIssueBody(world);
     const first = await postJson(api, token, "/cards", body);
     assert.equal(first.status, 201);
@@ -94,7 +94,7 @@ describe("card issue idempotency HTTP (P1-82–83)", () => {
     await assertCounts(body.commandId, card.id);
   });
 
-  it("P1-82b concurrent same payload behind AccessCard table lock; both wait; counts=1", async () => {
+  it("concurrent same payload behind AccessCard table lock; both wait; counts=1", async () => {
     const body = staffIssueBody(world);
     const settled = await runWhileAccessCardTableLocked({
       prisma,
@@ -122,7 +122,7 @@ describe("card issue idempotency HTTP (P1-82–83)", () => {
     await assertCounts(body.commandId, card.id);
   });
 
-  it("P1-83a sequential mismatch employee → 409; DB unchanged; identical replay 200", async () => {
+  it("sequential mismatch employee → 409; DB unchanged; identical replay 200", async () => {
     const body = staffIssueBody(world);
     const first = await postJson(api, token, "/cards", body);
     assert.equal(first.status, 201);
@@ -150,7 +150,7 @@ describe("card issue idempotency HTTP (P1-82–83)", () => {
     await assertCounts(body.commandId, card.id);
   });
 
-  it("P1-83b sequential mismatch location → 409; DB unchanged", async () => {
+  it("sequential mismatch location → 409; DB unchanged", async () => {
     const body = staffIssueBody(world);
     const first = await postJson(api, token, "/cards", body);
     assert.equal(first.status, 201);
@@ -244,7 +244,7 @@ describe("card issue idempotency HTTP (P1-82–83)", () => {
     };
   }
 
-  it("P1-83c sequential mismatch validFrom only → 409; content unchanged", async () => {
+  it("sequential mismatch validFrom only → 409; content unchanged", async () => {
     const body = staffIssueBody(world);
     const first = await postJson(api, token, "/cards", body);
     assert.equal(first.status, 201);
@@ -266,7 +266,7 @@ describe("card issue idempotency HTTP (P1-82–83)", () => {
     await assertCardContentUnchanged(cardId, content);
   });
 
-  it("P1-83c2 sequential mismatch validUntil only → 409; content unchanged", async () => {
+  it("sequential mismatch validUntil only → 409; content unchanged", async () => {
     const body = staffIssueBody(world);
     const first = await postJson(api, token, "/cards", body);
     assert.equal(first.status, 201);
@@ -287,7 +287,7 @@ describe("card issue idempotency HTTP (P1-82–83)", () => {
     await assertCardContentUnchanged(cardId, content);
   });
 
-  it("P1-83d concurrent mismatch different valid payloads same commandId; one card one audit; loser 409", async () => {
+  it("concurrent mismatch different valid payloads same commandId; one card one audit; loser 409", async () => {
     const base = staffIssueBody(world);
     const bodyA: IssueBody = {
       ...base,

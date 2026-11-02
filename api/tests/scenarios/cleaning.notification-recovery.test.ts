@@ -1,5 +1,5 @@
 /**
- * BUG-03: session complete must succeed even when inspection notices fail
+ * session complete must succeed even when inspection notices fail
  * after commit; replay / flush must repair without duplicates.
  */
 import "../preloadIsolatedTestEnv";

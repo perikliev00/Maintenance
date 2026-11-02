@@ -10,6 +10,10 @@ import type {
   Room,
 } from "../../api/client";
 import {
+  IssueReportForm,
+  type IssuePriority,
+} from "../../components/IssueReportForm";
+import {
   isArchivedLocation,
   locLabel,
   priorityLabel,
@@ -86,102 +90,61 @@ export function Detail({
         <form className="stack" onSubmit={onReport}>
           {/* Section heading. */}
           <h2>{t(locale, "Докладвай", "Report")}</h2>
-          {/* Room picker — locations already loaded by the parent page. */}
-          <label>
-            {t(locale, "Стая", "Room")}
-            {/* Select input. */}
-            <select
-              value={locationId}
-              onChange={(e) => onLocationIdChange(e.target.value)}
-            >
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.buildingCode} {r.number}
-                </option>
-              ))}
-            </select>
-          </label>
-          {/* Catalog option — parent may fill title/priority defaults. */}
-          <label>
-            {t(locale, "Опция", "Option")}
-            {/* Select input. */}
-            <select
-              value={issueOptionId}
-              onChange={(e) => onIssueOptionSelect(e.target.value)}
-            >
-              {options.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {locale === "en" ? o.nameEn : o.nameBg}
-                </option>
-              ))}
-            </select>
-          </label>
-          {title ? (
-            <p className="muted">
-              {t(locale, "Заглавие", "Title")}: <strong>{title}</strong>
-            </p>
-          ) : null}
-          <label>
-            {t(locale, "Уточнение (опционално)", "Clarification (optional)")}
-            <textarea
-              value={description}
-              onChange={(e) => onDescriptionChange(e.target.value)}
-              rows={2}
-              placeholder={t(
-                locale,
-                "Допълнителни детайли…",
-                "Additional details…",
-              )}
-            />
-          </label>
-          {/* Form field. */}
-          <label>
-            {t(locale, "Приоритет", "Priority")}
-            {/* Select input. */}
-            <select
-              value={priority}
-              onChange={(e) => onPriorityChange(e.target.value)}
-            >
-              <option value="low">{priorityLabel(locale, "low")}</option>
-              <option value="normal">{priorityLabel(locale, "normal")}</option>
-              <option value="high">{priorityLabel(locale, "high")}</option>
-              <option value="urgent">{priorityLabel(locale, "urgent")}</option>
-            </select>
-          </label>
-          {/* Whether the new ticket should block room readiness. */}
-          <label className="check">
-            {/* Text/checkbox input. */}
-            <input
-              type="checkbox"
-              checked={blocksRoom}
-              onChange={(e) => {
-                const next = e.target.checked;
-                if (
-                  next &&
-                  !window.confirm(
-                    t(
-                      locale,
-                      "Стаята ще остане „не готова“ за настаняване, докато този проблем е отворен. Потвърждавате ли?",
-                      "The room will stay not-ready for occupancy while this issue is open. Confirm?",
-                    ),
-                  )
-                ) {
-                  return;
-                }
-                onBlocksRoomChange(next);
-              }}
-            />
-            {t(locale, "Блокира стая", "Blocks room")}
-          </label>
-          {blocksRoom && (
-            <p className="warn-inline" role="status">
-              {t(
-                locale,
-                "Стаята няма да е готова за настаняване, докато проблемът е отворен.",
-                "The room will not be ready for occupancy while this issue is open.",
-              )}
-            </p>
-          )}
+          <IssueReportForm
+            locale={locale}
+            mode="catalog-only"
+            optionId={issueOptionId}
+            titlePreview={title || null}
+            description={description}
+            showDescription
+            blocksRoom={blocksRoom}
+            priority={priority}
+            options={options}
+            categories={categories}
+            labels={{
+              blocksRoom: t(locale, "Блокира стая", "Blocks room"),
+            }}
+            beforeFields={
+              <label>
+                {t(locale, "Стая", "Room")}
+                <select
+                  value={locationId}
+                  onChange={(e) => onLocationIdChange(e.target.value)}
+                >
+                  {rooms.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.buildingCode} {r.number}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            }
+            onOptionIdChange={(id) => onIssueOptionSelect(id)}
+            onDescriptionChange={onDescriptionChange}
+            onBlocksRoomChange={onBlocksRoomChange}
+            onPriorityChange={(p: IssuePriority) => onPriorityChange(p)}
+            confirmBlocksRoom={(next) => {
+              if (!next) return true;
+              return window.confirm(
+                t(
+                  locale,
+                  "Стаята ще остане „не готова“ за настаняване, докато този проблем е отворен. Потвърждавате ли?",
+                  "The room will stay not-ready for occupancy while this issue is open. Confirm?",
+                ),
+              );
+            }}
+            afterBlocks={
+              blocksRoom ? (
+                <p className="warn-inline" role="status">
+                  {t(
+                    locale,
+                    "Стаята няма да е готова за настаняване, докато проблемът е отворен.",
+                    "The room will not be ready for occupancy while this issue is open.",
+                  )}
+                </p>
+              ) : null
+            }
+          />
           {/* Submit disabled while the parent mutation/outbox write is in flight. */}
           <button type="submit" disabled={submitting}>
             {t(locale, "Докладвай", "Report")}
