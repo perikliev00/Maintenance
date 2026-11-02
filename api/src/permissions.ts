@@ -1,143 +1,31 @@
 /**
  * Permission catalog and role-assignment policy for the hotel ops UI.
  *
- * Panel/action string catalogs and DEFAULT_*_GRANTS seed RoleGrant rows;
- * runtime authorization reads grants from the DB via roleGrants services.
+ * Panel/action catalogs live in `./contracts/permissionsCatalog` (shared with web).
+ * DEFAULT_*_GRANTS seed RoleGrant rows; runtime authorization reads DB grants.
  * Owner is excluded from matrix defaults — owners bypass or are handled separately.
  */
 import { Role } from "@prisma/client";
+import {
+  ALL_ACTIONS,
+  ALL_PANELS,
+  DEFAULT_PANEL_BY_ROLE,
+  LANDING_BY_ROLE as LANDING_BY_ROLE_CATALOG,
+  type Action,
+  type Panel,
+} from "./contracts/permissionsCatalog";
 
-/** UI panels the client may show; keys match RoleGrant panel grants. */
-export const ALL_PANELS = [
-  "mywork",
-  "repairs",
-  "home",
-  "rooms",
-  "common",
-  "team",
-  "live",
-  "plan",
-  "attendance",
-  "cards",
-  "results",
-  "analytics",
-  "cleaning",
-  "audit",
-  "control",
-  "settings",
-  "permissions",
-  "notifications",
-] as const;
-/** Panel union derived from the catalog above. */
-export type Panel = (typeof ALL_PANELS)[number];
-
-/** Fine-grained actions checked by requireAction / canPerform. */
-export const ALL_ACTIONS = [
-  "rooms.view",
-  "rooms.mark_dirty",
-  "rooms.manage",
-  "rooms.set_occupancy",
-  "rooms.set_service_status",
-  "cleaning.create",
-  "cleaning.start",
-  "cleaning.complete",
-  "cleaning.inspect",
-  "cleaning.reassign",
-  "cleaning.review_overdue",
-  "cleaning.results_view",
-  "operations.view_live",
-  "tickets.report",
-  "tickets.resolve",
-  "tickets.assign",
-  "tickets.close",
-  "people.view",
-  "people.change_role",
-  "people.invite",
-  "people.manage_access",
-  "control.access",
-  "settings.manage",
-  "permissions.manage",
-  "plan.view",
-  "plan.manage",
-  "attendance.view",
-  "attendance.ingest",
-  "attendance.request_adjustment",
-  "attendance.approve_adjustment",
-  "cards.view",
-  "cards.issue",
-  "cards.revoke",
-  "analytics.view",
-  "sectors.manage",
-  "sectors.transfer_cross",
-  "shifts.manage",
-  "issue_options.manage",
-  "audit.view",
-  "jobs.view",
-  "jobs.run",
-] as const;
-/** Action union derived from the catalog above. */
-export type Action = (typeof ALL_ACTIONS)[number];
+export { ALL_ACTIONS, ALL_PANELS };
+export type { Action, Panel };
 
 /** Seed / bootstrap source only — runtime reads RoleGrant from DB. */
 export const DEFAULT_PANEL_GRANTS: Record<Exclude<Role, "owner">, Panel[]> = {
-  // Floor roles: limited nav surface for day-to-day work (+ inbox).
-  housekeeper: ["mywork", "home", "rooms", "common", "notifications"],
-  technician: ["mywork", "repairs", "home", "rooms", "common", "notifications"],
-  reception: ["home", "rooms", "common", "plan", "cards", "notifications"],
-  // Ops leadership: live board, plan, results, analytics.
-  supervisor: [
-    "home",
-    "rooms",
-    "common",
-    "team",
-    "live",
-    "plan",
-    "attendance",
-    "cards",
-    "results",
-    "analytics",
-    "cleaning",
-    "repairs",
-    "notifications",
-  ],
-  // Manager: full ops + control / settings / permissions.
-  manager: [
-    "home",
-    "rooms",
-    "common",
-    "team",
-    "live",
-    "plan",
-    "attendance",
-    "cards",
-    "results",
-    "analytics",
-    "cleaning",
-    "repairs",
-    "audit",
-    "control",
-    "settings",
-    "permissions",
-    "notifications",
-  ],
-  // Admin: broad access without live/control board defaults.
-  admin: [
-    "home",
-    "rooms",
-    "common",
-    "team",
-    "plan",
-    "attendance",
-    "cards",
-    "results",
-    "analytics",
-    "cleaning",
-    "repairs",
-    "audit",
-    "settings",
-    "permissions",
-    "notifications",
-  ],
+  housekeeper: [...DEFAULT_PANEL_BY_ROLE.housekeeper],
+  technician: [...DEFAULT_PANEL_BY_ROLE.technician],
+  reception: [...DEFAULT_PANEL_BY_ROLE.reception],
+  supervisor: [...DEFAULT_PANEL_BY_ROLE.supervisor],
+  manager: [...DEFAULT_PANEL_BY_ROLE.manager],
+  admin: [...DEFAULT_PANEL_BY_ROLE.admin],
 };
 
 /** Seed / bootstrap source only — runtime reads RoleGrant from DB. */
@@ -274,13 +162,13 @@ export const DEFAULT_ACTION_GRANTS: Record<Exclude<Role, "owner">, Action[]> = {
 
 /** Default first panel after login when no override is stored. */
 const LANDING_BY_ROLE: Record<Role, Panel> = {
-  housekeeper: "mywork",
-  technician: "mywork",
-  reception: "rooms",
-  supervisor: "rooms",
-  manager: "control",
-  admin: "team",
-  owner: "control",
+  housekeeper: LANDING_BY_ROLE_CATALOG.housekeeper,
+  technician: LANDING_BY_ROLE_CATALOG.technician,
+  reception: LANDING_BY_ROLE_CATALOG.reception,
+  supervisor: LANDING_BY_ROLE_CATALOG.supervisor,
+  manager: LANDING_BY_ROLE_CATALOG.manager,
+  admin: LANDING_BY_ROLE_CATALOG.admin,
+  owner: LANDING_BY_ROLE_CATALOG.owner,
 };
 
 /** Roles editable in the permissions matrix UI (owner excluded). */

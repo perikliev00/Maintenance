@@ -381,6 +381,18 @@ model CleaningNotificationOutbox {
   @@index([deliveredAt, createdAt])
 }
 
+/// Durable attendance-adjustment notice snapshot keyed by notification dedupeKey
+/// (`attendance.adjustment_requested:<id>` / `attendance.adjustment_reviewed:<id>`),
+/// written in the same transaction as the adjustment + audit (replay-safe).
+model AttendanceNotificationOutbox {
+  dedupeKey   String    @id
+  payload     Json
+  createdAt   DateTime  @default(now())
+  deliveredAt DateTime?
+
+  @@index([deliveredAt, createdAt])
+}
+
 /// Supervisor approve/reject of a completed cleaning session. `commandId` makes inspect idempotent.
 model Inspection {
   id                  String           @id @default(cuid())
@@ -544,7 +556,7 @@ model TicketReopenEvent {
   @@index([reopenedAt])
 }
 
-/// Key/value app configuration (modules, flags, access policy). Validated by settingsSchema in code.
+/// Key/value app configuration (modules, flags, access policy). Validated by settings/schema in code.
 model AppSetting {
   key                   String    @id
   value                 Json

@@ -14,6 +14,7 @@ import type {
   CleaningResultsResponse,
 } from "./types";
 import { assembleCleaningResults } from "./assembleCleaningResults";
+import { normalizeAnomalyFlags } from "./metrics";
 import { dayEndExclusiveUtc, dayStartUtc } from "./periodBounds";
 
 /**
@@ -133,11 +134,30 @@ export async function getCleaningResults(
     }),
   ]);
 
+  // Normalize Prisma JsonValue → string[] at the aggregator boundary.
   return assembleCleaningResults({
     query,
     anomalyThresholdMinutes,
-    sessions,
-    completedTasks,
+    sessions: sessions.map((s) => ({
+      finishedAt: s.finishedAt,
+      startedAt: s.startedAt,
+      anomalyFlags: normalizeAnomalyFlags(s.anomalyFlags),
+      employee: s.employee,
+    })),
+    completedTasks: completedTasks.map((t) => ({
+      locationId: t.locationId,
+      serviceType: t.serviceType,
+      dueAt: t.dueAt,
+      completedAt: t.completedAt,
+      assignedEmployee: t.assignedEmployee,
+      sessions: t.sessions.map((s) => ({
+        startedAt: s.startedAt,
+        finishedAt: s.finishedAt,
+        anomalyFlags: normalizeAnomalyFlags(s.anomalyFlags),
+        employeeId: s.employeeId,
+      })),
+      inspections: t.inspections,
+    })),
     approvedInspections,
     rejectedInspections,
     approvedRows,

@@ -9,7 +9,7 @@ import {
   closeTicketQueued,
   reopenTicketQueued,
   reportTicketQueued,
-} from "../offline";
+} from "../offline/mutations";
 import { t } from "../i18n";
 
 export type TicketLifecycleActionDeps = {

@@ -276,7 +276,12 @@ describe("runLockInactiveUsers policy gate", () => {
       finishJobRun: async () => undefined,
     });
 
-    assert.deepEqual(result, { locked: 0, skipped: true });
+    // Skip path must advertise why work was not attempted (JobRun summary).
+    assert.deepEqual(result, {
+      locked: 0,
+      skipped: true,
+      reason: "disabled",
+    });
     assert.equal(findCandidatesCalls, 0);
     assert.equal(claimFindCalls, 0);
     assert.equal(claimUpdateCalls, 0);

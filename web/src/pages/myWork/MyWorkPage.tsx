@@ -16,10 +16,9 @@ import { OutboxIssuesPanel } from "../../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import {
   completeCleaningQueued,
-  loadMyWorkCache,
-  saveMyWorkCache,
   startCleaningQueued,
-} from "../../offline";
+} from "../../offline/mutations";
+import { loadMyWorkCache, saveMyWorkCache } from "../../offline/session";
 import { useOfflineStatus } from "../../hooks/useOfflineStatus";
 import { t } from "./labels";
 import { ConnStatusBadge } from "../../components/offline/ConnStatusBadge";

@@ -1,9 +1,8 @@
 /**
  * Offline ticket lifecycle commands. Mid-lifecycle steps reuse tickets.resolve;
  * assign/close use their finer grants; reopen uses tickets.resolve (same as HTTP).
- * report uses tickets.report. commandId is forwarded for server-side idempotency.
+ * Payloads are already Zod-parsed by applyCommand.
  */
-import { Priority } from "@prisma/client";
 import type { AuthUser } from "../../../auth/tokens";
 import { canPerform } from "../../roleGrants";
 import {
@@ -22,15 +21,15 @@ import {
   startMaintenanceTicket,
   waitMaintenanceTicket,
 } from "../../maintenance";
-import type { SyncCommand, SyncCommandResult } from "../types";
+import type { ParsedSyncCommand } from "../commandSchemas";
+import type { SyncCommandResult } from "../types";
 
 /** Create a ticket from offline report; location must be in the user's scope. */
 export async function handleTicketReport(
   user: AuthUser,
   scope: DataScope,
-  cmd: SyncCommand,
+  cmd: Extract<ParsedSyncCommand, { type: "ticket.report" }>,
 ): Promise<SyncCommandResult> {
-  // Soft-forbidden so the batch can continue with other commands.
   if (!(await canPerform(user.role, "tickets.report"))) {
     return {
       commandId: cmd.commandId,
@@ -38,57 +37,25 @@ export async function handleTicketReport(
       message: "Missing tickets.report",
     };
   }
-  // Location must be in the caller's data scope.
-  const locationId = String(cmd.payload.locationId ?? "");
-  await assertCanAccessLocation(scope, locationId);
-  // Narrow payload fields; commandId enables create idempotency.
-  // blocksRoom omitted → catalog default inside createMaintenanceTicket.
+  const p = cmd.payload;
+  await assertCanAccessLocation(scope, p.locationId);
   const result = await createMaintenanceTicket({
-    locationId,
-    title:
-      typeof cmd.payload.title === "string" ? cmd.payload.title : undefined,
-    description:
-      typeof cmd.payload.description === "string"
-        ? cmd.payload.description
-        : undefined,
-    issueOptionId:
-      typeof cmd.payload.issueOptionId === "string"
-        ? cmd.payload.issueOptionId
-        : undefined,
-    categoryId:
-      typeof cmd.payload.categoryId === "string"
-        ? cmd.payload.categoryId
-        : undefined,
-    priority:
-      typeof cmd.payload.priority === "string"
-        ? (cmd.payload.priority as Priority)
-        : undefined,
-    blocksRoom:
-      typeof cmd.payload.blocksRoom === "boolean"
-        ? cmd.payload.blocksRoom
-        : undefined,
-    allowDuplicate:
-      typeof cmd.payload.allowDuplicate === "boolean"
-        ? cmd.payload.allowDuplicate
-        : undefined,
-    duplicateOverrideReason:
-      typeof cmd.payload.duplicateOverrideReason === "string"
-        ? cmd.payload.duplicateOverrideReason
-        : undefined,
-    confirmSimilar:
-      typeof cmd.payload.confirmSimilar === "boolean"
-        ? cmd.payload.confirmSimilar
-        : undefined,
+    locationId: p.locationId,
+    title: p.title,
+    description: p.description,
+    issueOptionId: p.issueOptionId,
+    categoryId: p.categoryId,
+    priority: p.priority,
+    blocksRoom: p.blocksRoom,
+    allowDuplicate: p.allowDuplicate,
+    duplicateOverrideReason: p.duplicateOverrideReason,
+    confirmSimilar: p.confirmSimilar,
     reportedByEmployeeId: user.employeeId,
     commandId: cmd.commandId,
   });
   return { commandId: cmd.commandId, status: "ok", data: result };
 }
 
-/**
- * Start/wait/resume/resolve share tickets.resolve: field workers who can
- * progress tickets offline need one grant covering the mid-lifecycle set.
- */
 type TicketResolveGate =
   | { ok: true; ticketId: string }
   | { ok: false; result: SyncCommandResult };
@@ -96,19 +63,19 @@ type TicketResolveGate =
 async function requireTicketResolve(
   user: AuthUser,
   scope: DataScope,
-  cmd: SyncCommand,
+  commandId: string,
+  ticketId: string,
 ): Promise<TicketResolveGate> {
   if (!(await canPerform(user.role, "tickets.resolve"))) {
     return {
       ok: false,
       result: {
-        commandId: cmd.commandId,
+        commandId,
         status: "forbidden",
         message: "Missing tickets.resolve",
       },
     };
   }
-  const ticketId = String(cmd.payload.ticketId ?? "");
   await assertCanAccessTicket(scope, ticketId);
   return { ok: true, ticketId };
 }
@@ -116,9 +83,14 @@ async function requireTicketResolve(
 export async function handleTicketStart(
   user: AuthUser,
   scope: DataScope,
-  cmd: SyncCommand,
+  cmd: Extract<ParsedSyncCommand, { type: "ticket.start" }>,
 ): Promise<SyncCommandResult> {
-  const gate = await requireTicketResolve(user, scope, cmd);
+  const gate = await requireTicketResolve(
+    user,
+    scope,
+    cmd.commandId,
+    cmd.payload.ticketId,
+  );
   if (!gate.ok) return gate.result;
   const ticket = await startMaintenanceTicket({
     ticketId: gate.ticketId,
@@ -129,34 +101,39 @@ export async function handleTicketStart(
   return { commandId: cmd.commandId, status: "ok", data: ticket };
 }
 
-/** Put ticket into waiting (pauses SLA); optional reason from payload. */
 export async function handleTicketWait(
   user: AuthUser,
   scope: DataScope,
-  cmd: SyncCommand,
+  cmd: Extract<ParsedSyncCommand, { type: "ticket.wait" }>,
 ): Promise<SyncCommandResult> {
-  const gate = await requireTicketResolve(user, scope, cmd);
+  const gate = await requireTicketResolve(
+    user,
+    scope,
+    cmd.commandId,
+    cmd.payload.ticketId,
+  );
   if (!gate.ok) return gate.result;
   const ticket = await waitMaintenanceTicket({
     ticketId: gate.ticketId,
     actorEmployeeId: user.employeeId,
     bypassAssigneeCheck: canBypassTicketAssignee(user.role),
-    reason:
-      typeof cmd.payload.reason === "string"
-        ? cmd.payload.reason
-        : undefined,
+    reason: cmd.payload.reason,
     commandId: cmd.commandId,
   });
   return { commandId: cmd.commandId, status: "ok", data: ticket };
 }
 
-/** Resume from waiting (unpauses SLA). */
 export async function handleTicketResume(
   user: AuthUser,
   scope: DataScope,
-  cmd: SyncCommand,
+  cmd: Extract<ParsedSyncCommand, { type: "ticket.resume" }>,
 ): Promise<SyncCommandResult> {
-  const gate = await requireTicketResolve(user, scope, cmd);
+  const gate = await requireTicketResolve(
+    user,
+    scope,
+    cmd.commandId,
+    cmd.payload.ticketId,
+  );
   if (!gate.ok) return gate.result;
   const ticket = await resumeMaintenanceTicket({
     ticketId: gate.ticketId,
@@ -167,32 +144,32 @@ export async function handleTicketResume(
   return { commandId: cmd.commandId, status: "ok", data: ticket };
 }
 
-/** Resolve ticket; optional resolutionNotes from payload. */
 export async function handleTicketResolve(
   user: AuthUser,
   scope: DataScope,
-  cmd: SyncCommand,
+  cmd: Extract<ParsedSyncCommand, { type: "ticket.resolve" }>,
 ): Promise<SyncCommandResult> {
-  const gate = await requireTicketResolve(user, scope, cmd);
+  const gate = await requireTicketResolve(
+    user,
+    scope,
+    cmd.commandId,
+    cmd.payload.ticketId,
+  );
   if (!gate.ok) return gate.result;
   const ticket = await resolveMaintenanceTicket({
     ticketId: gate.ticketId,
     resolvedByEmployeeId: user.employeeId,
     bypassAssigneeCheck: canBypassTicketAssignee(user.role),
-    resolutionNotes:
-      typeof cmd.payload.resolutionNotes === "string"
-        ? cmd.payload.resolutionNotes
-        : undefined,
+    resolutionNotes: cmd.payload.resolutionNotes,
     commandId: cmd.commandId,
   });
   return { commandId: cmd.commandId, status: "ok", data: ticket };
 }
 
-/** Assign / reassign (new|assigned only); requires tickets.assign. */
 export async function handleTicketAssign(
   user: AuthUser,
   scope: DataScope,
-  cmd: SyncCommand,
+  cmd: Extract<ParsedSyncCommand, { type: "ticket.assign" }>,
 ): Promise<SyncCommandResult> {
   if (!(await canPerform(user.role, "tickets.assign"))) {
     return {
@@ -201,8 +178,7 @@ export async function handleTicketAssign(
       message: "Missing tickets.assign",
     };
   }
-  const ticketId = String(cmd.payload.ticketId ?? "");
-  const assigneeId = String(cmd.payload.assigneeId ?? "");
+  const { ticketId, assigneeId } = cmd.payload;
   await assertCanAccessTicket(scope, ticketId);
   const ticket = await assignMaintenanceTicket({
     ticketId,
@@ -213,11 +189,10 @@ export async function handleTicketAssign(
   return { commandId: cmd.commandId, status: "ok", data: ticket };
 }
 
-/** Close a resolved ticket; requires tickets.close. */
 export async function handleTicketClose(
   user: AuthUser,
   scope: DataScope,
-  cmd: SyncCommand,
+  cmd: Extract<ParsedSyncCommand, { type: "ticket.close" }>,
 ): Promise<SyncCommandResult> {
   if (!(await canPerform(user.role, "tickets.close"))) {
     return {
@@ -226,24 +201,19 @@ export async function handleTicketClose(
       message: "Missing tickets.close",
     };
   }
-  const ticketId = String(cmd.payload.ticketId ?? "");
-  await assertCanAccessTicket(scope, ticketId);
+  await assertCanAccessTicket(scope, cmd.payload.ticketId);
   const ticket = await closeMaintenanceTicket({
-    ticketId,
+    ticketId: cmd.payload.ticketId,
     closedByEmployeeId: user.employeeId,
     commandId: cmd.commandId,
   });
   return { commandId: cmd.commandId, status: "ok", data: ticket };
 }
 
-/**
- * Reopen resolved/closed → in_progress. Matches HTTP: tickets.resolve grant
- * (not tickets.close).
- */
 export async function handleTicketReopen(
   user: AuthUser,
   scope: DataScope,
-  cmd: SyncCommand,
+  cmd: Extract<ParsedSyncCommand, { type: "ticket.reopen" }>,
 ): Promise<SyncCommandResult> {
   if (!(await canPerform(user.role, "tickets.resolve"))) {
     return {
@@ -252,13 +222,11 @@ export async function handleTicketReopen(
       message: "Missing tickets.resolve",
     };
   }
-  const ticketId = String(cmd.payload.ticketId ?? "");
-  await assertCanAccessTicket(scope, ticketId);
+  await assertCanAccessTicket(scope, cmd.payload.ticketId);
   const ticket = await reopenMaintenanceTicket({
-    ticketId,
+    ticketId: cmd.payload.ticketId,
     reopenedByEmployeeId: user.employeeId,
-    reason:
-      typeof cmd.payload.reason === "string" ? cmd.payload.reason : undefined,
+    reason: cmd.payload.reason,
     commandId: cmd.commandId,
   });
   return { commandId: cmd.commandId, status: "ok", data: ticket };

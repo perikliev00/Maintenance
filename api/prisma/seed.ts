@@ -2177,7 +2177,7 @@ async function main() {
   );
 
   const { DEFAULT_SETTINGS, SETTING_KEYS } = await import(
-    "../src/services/settingsSchema"
+    "../src/services/settings/schema"
   );
   for (const key of SETTING_KEYS) {
     await prisma.appSetting.create({

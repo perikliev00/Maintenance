@@ -9,6 +9,7 @@ import { runStaleOpenAttendance } from "./staleAttendance";
 import { jobExecutionFinished } from "../../observability";
 import { flushTicketNotificationOutbox } from "../maintenance/notificationOutbox";
 import { flushCleaningNotificationOutbox } from "../cleaning/notificationOutbox";
+import { flushAttendanceNotificationOutbox } from "../attendance/notificationOutbox";
 
 async function execute(key: string, task: () => Promise<unknown>) {
   const started = process.hrtime.bigint();
@@ -31,6 +32,10 @@ export async function runAllJobs() {
   results.cleaning_notifications = await execute(
     "cleaning_notifications",
     flushCleaningNotificationOutbox,
+  );
+  results.attendance_notifications = await execute(
+    "attendance_notifications",
+    flushAttendanceNotificationOutbox,
   );
   // Lock users who have been inactive past the configured threshold.
   results.lock_inactive_users = await execute("lock_inactive_users", runLockInactiveUsers);

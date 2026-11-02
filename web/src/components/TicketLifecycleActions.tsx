@@ -10,7 +10,7 @@ import {
   startTicketQueued,
   waitTicketQueued,
   // Offline / online path.
-} from "../offline";
+} from "../offline/mutations";
 import type { MaintenanceTicket } from "../api/client";
 import { t } from "../i18n";
 import { runWithBusyGate } from "./ticketBusyGate";

@@ -21,7 +21,10 @@ import {
   type ExistingTicketSummary,
 } from "./duplicateDetection";
 import { writeTicketEvent } from "./events";
-import { formatMaintenanceTicket } from "./format";
+import {
+  formatMaintenanceTicket,
+  type FormattedMaintenanceTicket,
+} from "./format";
 import { notifyTicketEvent, publishTicketChanged } from "./notify";
 import { isP2002 } from "./prismaConflicts";
 import {
@@ -90,7 +93,7 @@ type PersistOutcome =
   | PersistNewTicketResult
   | {
       kind: "replayed";
-      value: { ticket: ReturnType<typeof formatMaintenanceTicket>; idempotent: true };
+      value: { ticket: FormattedMaintenanceTicket; idempotent: true };
     };
 
 /** Transactional create + side effects (events, audit, notify, publish). */
@@ -343,7 +346,12 @@ function buildCreateDto(result: PersistNewTicketResult) {
  * Exact active duplicates are rejected unless `allowDuplicate` + reason.
  * Probable (similar) duplicates require `confirmSimilar`.
  */
-export async function createMaintenanceTicket(input: CreateMaintenanceTicketInput) {
+export async function createMaintenanceTicket(
+  input: CreateMaintenanceTicketInput,
+): Promise<{
+  ticket: FormattedMaintenanceTicket & { suggestReopenTicketId?: string };
+  idempotent: boolean;
+}> {
   const now = input.now ?? new Date();
 
   const validated = await validateMaintenanceReport({

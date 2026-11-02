@@ -39,7 +39,7 @@ describe("shift roster HTTP", () => {
   let api: string;
   let server: import("node:http").Server;
 
-  /* * Known non-empty baseline for D (fixture seed shape). Independent of /64b order. *
+  /** Known non-empty baseline for D (fixture seed shape). Independent of /64b order. */
   function knownRosterD(): Array<{ employeeId: string; shiftId: string }> {
     return [
       {

@@ -225,7 +225,8 @@ export type RunLockInactiveUsersDeps = {
  * deps are injectable for unit tests (fake DB / settings).
  *
  * @param deps - Optional overrides for settings, DB, audit, and JobRun hooks.
- * @returns Locked count, or `{ locked: 0, skipped: true }` when disabled.
+ * @returns Locked count + cutoff ISO when active, or
+ * `{ locked: 0, skipped: true, reason: "disabled" }` when the feature flag is off.
  */
 export async function runLockInactiveUsers(deps: RunLockInactiveUsersDeps = {}) {
   // Prefer injected deps in tests; fall back to production modules.

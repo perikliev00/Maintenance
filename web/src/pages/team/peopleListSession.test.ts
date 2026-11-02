@@ -28,6 +28,7 @@ function person(employeeId: string): Person {
     onboarded: false,
     status: "not_activated",
     archivedAt: null,
+    accessVersion: 0,
     deviceCount: 0,
     createdAt: "2026-01-01T00:00:00.000Z",
   };

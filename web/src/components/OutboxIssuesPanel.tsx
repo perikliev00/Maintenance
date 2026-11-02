@@ -14,7 +14,7 @@ import {
   subscribeOffline,
   type QueuedAction,
 // Offline / online path.
-} from "../offline";
+} from "../offline/session";
 import { t } from "../i18n";
 
 type Props = {

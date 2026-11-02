@@ -3,11 +3,28 @@ import { describe, it } from "node:test";
 import {
   avgValidMinutesFromTaskMs,
   isAnomalousSession,
+  normalizeAnomalyFlags,
   sessionDurationBuckets,
   sumValidSessionMs,
 } from "./metrics";
 
 const threshold = 480; // 2 × default overdueSessionMinutes (240)
+
+describe("normalizeAnomalyFlags", () => {
+  it("returns string[] for valid JSON arrays", () => {
+    assert.deepEqual(normalizeAnomalyFlags(["overdue", "clock_skew"]), [
+      "overdue",
+      "clock_skew",
+    ]);
+  });
+
+  it("returns [] for null, objects, scalars, and non-string entries", () => {
+    assert.deepEqual(normalizeAnomalyFlags(null), []);
+    assert.deepEqual(normalizeAnomalyFlags({ a: 1 }), []);
+    assert.deepEqual(normalizeAnomalyFlags("overdue"), []);
+    assert.deepEqual(normalizeAnomalyFlags([1, "ok", null, true]), ["ok"]);
+  });
+});
 
 function minsAgo(finishedAt: Date, minutes: number): Date {
   return new Date(finishedAt.getTime() - minutes * 60_000);

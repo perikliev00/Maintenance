@@ -24,7 +24,7 @@ import { TicketLifecycleActions } from "../../components/TicketLifecycleActions"
 import { OutboxIssuesPanel } from "../../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import { useTicketLifecycleActions } from "../../hooks/useTicketLifecycleActions";
-import { reportTicketQueued } from "../../offline";
+import { reportTicketQueued } from "../../offline/mutations";
 import { useOfflineStatus } from "../../hooks/useOfflineStatus";
 import { Detail, type TicketEventRow } from "./detail";
 import { Filters } from "./filters";

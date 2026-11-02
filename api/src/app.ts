@@ -2,8 +2,8 @@
  * Express application factory: security middleware, CORS, CSRF, rate limits,
  * domain routers, and a terminal AppError-aware error handler.
  *
- * Bootstrap seeds (settings, role grants, SLA) run fire-and-forget so the
- * process can accept traffic even if DB seed races or fails (logged as warn).
+ * Required defaults run via `initializeRequiredDefaults()` (awaited after listen
+ * in `index.ts`). Until it completes, `/health/ready` returns 503; failure is fatal.
  */
 import express from "express";
 import cors from "cors";

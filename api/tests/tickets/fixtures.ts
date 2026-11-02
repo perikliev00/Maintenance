@@ -16,7 +16,7 @@ import {
 } from "../../src/services/maintenance";
 import { upsertSlaPolicy } from "../../src/services/slaPolicies";
 import { getOperations, updateSetting } from "../../src/services/settings";
-import type { OperationsSettings } from "../../src/services/settingsSchema";
+import type { OperationsSettings } from "../../src/services/settings/schema";
 import {
   CLN_PASSWORD,
   cleanupReadinessWorld,

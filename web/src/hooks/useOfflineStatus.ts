@@ -7,7 +7,7 @@ import {
   subscribeOffline,
   type ConnMode,
   type QueueStats,
-} from "../offline";
+} from "../offline/session";
 
 const EMPTY_STATS: QueueStats = {
   pending: 0,

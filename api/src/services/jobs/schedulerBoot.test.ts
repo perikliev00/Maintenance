@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { startJobScheduler } from "./scheduler";
 import {
@@ -128,8 +127,7 @@ describe("getJobSchedulerWireBindings / wire internals", () => {
   });
 
   it("wire AST body is a single afterBootstrapStartJobs({ ...bindings(), closing })", () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const filePath = join(here, "schedulerBoot.ts");
+    const filePath = join(__dirname, "schedulerBoot.ts");
     const raw = readFileSync(filePath, "utf8");
     const source = parseTs(filePath, raw);
 
@@ -188,8 +186,7 @@ describe("getJobSchedulerWireBindings / wire internals", () => {
 
 describe("index.ts job-scheduler wiring contract (AST)", () => {
   it("then-callback live-wires closing with shutdown assign and no shadows", () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const filePath = join(here, "../../index.ts");
+    const filePath = join(__dirname, "../../index.ts");
     const raw = readFileSync(filePath, "utf8");
     const source = parseTs(filePath, raw);
 

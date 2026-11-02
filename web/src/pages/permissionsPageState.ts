@@ -35,35 +35,68 @@ export function isRoleDraftDirty(
   );
 }
 
-/**
- * After a full matrix fetch: keep dirty drafts for roles other than
- * `replacedRole` (the role just saved or conflict-reloaded).
- */
-export function mergeMatrixIntoDraft(
-  prev: Record<string, RoleGrantDraft>,
-  byRole: Record<string, RoleGrantDraft>,
-  roles: string[],
-  replacedRole?: string,
-): Record<string, RoleGrantDraft> {
-  const next: Record<string, RoleGrantDraft> = {};
-  for (const role of roles) {
-    const server = {
-      panels: [...(byRole[role]?.panels ?? [])],
-      actions: [...(byRole[role]?.actions ?? [])],
-    };
-    if (
-      replacedRole &&
-      role !== replacedRole &&
-      isRoleDraftDirty(prev[role], byRole[role])
-    ) {
-      next[role] = prev[role]!;
-    } else {
-      next[role] = server;
-    }
-  }
-  return next;
+/** Server state a draft was started from; `version` is the CAS token to save with. */
+export type RoleBase = { version: number; grants: RoleGrantDraft };
+
+export type RoleBases = Record<string, RoleBase>;
+
+function copyGrants(g: RoleGrantDraft | undefined): RoleGrantDraft {
+  return { panels: [...(g?.panels ?? [])], actions: [...(g?.actions ?? [])] };
 }
 
+/**
+ * After a full matrix fetch. A role with local edits (draft differs from the
+ * server grants it was based on) keeps BOTH its draft and its own base version,
+ * so a newer remote version surfaces as a conflict instead of being adopted.
+ * Untouched roles — and `takeRemoteRole` (explicit reconcile) — rebase onto the
+ * fresh server grants and version.
+ */
+export function reconcileMatrixIntoDraft(
+  prevDraft: Record<string, RoleGrantDraft>,
+  prevBases: RoleBases,
+  data: {
+    byRole: Record<string, RoleGrantDraft>;
+    versions: Record<string, number>;
+    roles: string[];
+  },
+  takeRemoteRole?: string,
+): { draft: Record<string, RoleGrantDraft>; bases: RoleBases } {
+  const draft: Record<string, RoleGrantDraft> = {};
+  const bases: RoleBases = {};
+  for (const role of data.roles) {
+    const prevBase = prevBases[role];
+    const prev = prevDraft[role];
+    const keepLocal =
+      role !== takeRemoteRole &&
+      prev !== undefined &&
+      prevBase !== undefined &&
+      isRoleDraftDirty(prev, prevBase.grants);
+    if (keepLocal) {
+      draft[role] = prev;
+      bases[role] = prevBase;
+    } else {
+      const remote = copyGrants(data.byRole[role]);
+      draft[role] = remote;
+      bases[role] = {
+        version: data.versions[role] ?? 1,
+        grants: copyGrants(remote),
+      };
+    }
+  }
+  return { draft, bases };
+}
+
+/** True when the draft's base version is not the current remote version. */
+export function isRoleConflict(
+  base: RoleBase | undefined,
+  remoteVersion: number | undefined,
+): boolean {
+  return (
+    base !== undefined &&
+    remoteVersion !== undefined &&
+    base.version !== remoteVersion
+  );
+}
 /** Apply a successful PUT result to one role without wiping other drafts. */
 export function applySavedRoleToDraft(
   prev: Record<string, RoleGrantDraft>,
@@ -126,5 +159,13 @@ export function saveFeedbackForConflict(): SaveFeedback {
   return {
     kind: "conflict",
     text: "Матрицата е променена от друг администратор. Презаредете и опитайте отново.",
+  };
+}
+
+/** Save blocked locally: the role changed remotely since this draft was started. */
+export function saveFeedbackForDraftConflict(roleLabel: string): SaveFeedback {
+  return {
+    kind: "conflict",
+    text: `Правата за ${roleLabel} са променени от друг администратор, след като започнахте редакцията. Приемете сървърната версия (или презаредете), за да продължите.`,
   };
 }

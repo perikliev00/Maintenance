@@ -31,7 +31,7 @@ import {
   type ThemeMode,
 } from "../theme";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
-import { setOfflineUser } from "../offline";
+import { setOfflineUser } from "../offline/session";
 
 /** Auth + settings bootstrap for the root shell. */
 export function useAuthBootstrap() {

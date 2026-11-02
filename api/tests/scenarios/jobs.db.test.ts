@@ -135,9 +135,17 @@ describe("real background jobs", () => {
       await prisma.device.create({ data: { userId: world.hk2.userId, employeeId: world.hk2.employeeId, label: "active", fingerprint: randomUUID(), lastSeenAt: new Date(now) } });
       await prisma.device.create({ data: { userId: world.hk1.userId, employeeId: world.hk1.employeeId, label: "revoked", fingerprint: randomUUID(), lastSeenAt: new Date(now), revokedAt: new Date(now) } });
       await updateSetting({ key: "access", value: { ...access, lockInactiveUsers: false, sessionIdleDays: 30 }, actorEmployeeId: world.owner.employeeId, reason: "disabled" });
-      assert.deepEqual(await runLockInactiveUsers(), { locked: 0, skipped: true });
+      assert.deepEqual(await runLockInactiveUsers(), {
+        locked: 0,
+        skipped: true,
+        reason: "disabled",
+      });
       await updateSetting({ key: "access", value: { ...access, lockInactiveUsers: true, sessionIdleDays: 30 }, actorEmployeeId: world.owner.employeeId, reason: "enabled" });
-      assert.deepEqual(await runLockInactiveUsers(), { locked: 1, skipped: false });
+      const lockedResult = await runLockInactiveUsers();
+      assert.equal(lockedResult.skipped, false);
+      assert.equal(lockedResult.locked, 1);
+      assert.equal(typeof lockedResult.cutoff, "string");
+      assert.ok(!Number.isNaN(Date.parse(lockedResult.cutoff)));
       assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: world.hk1.userId } })).isActive, false);
       assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: world.hk2.userId } })).isActive, true);
       const res = await fetch(`${api}/auth/me`, { headers: { Authorization: `Bearer ${auth.token}` } }); assert.equal(res.status, 401);

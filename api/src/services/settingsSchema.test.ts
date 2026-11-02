@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import {
   isValidIanaTimeZone,
   operationsSchema,
-} from "./settingsSchema";
+} from "./settings/schema";
 import {
   hotelDateString,
   resolveUsableHotelTimeZone,

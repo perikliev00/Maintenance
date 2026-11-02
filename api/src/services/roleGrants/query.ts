@@ -1,7 +1,7 @@
 /**
  * Read helpers over the grant cache: panels/actions, canPerform, matrix for UI.
  */
-import { Role } from "@prisma/client";
+import { Prisma, Role, type GrantKind } from "@prisma/client";
 import { prisma } from "../../db";
 import {
   ALL_ACTIONS,
@@ -13,7 +13,12 @@ import {
   isOwner,
   landingPanelFor,
 } from "../../permissions";
-import { emptyGrants, getGrantMap, type RoleGrants } from "./cache";
+import {
+  emptyGrants,
+  foldGrantRows,
+  getGrantMap,
+  type RoleGrants,
+} from "./cache";
 
 /**
  * Owner always receives the full catalog; other roles use DB grants.
@@ -111,19 +116,61 @@ export async function getRoleGrantVersions(): Promise<Record<string, number>> {
   return versions;
 }
 
+/** Default revision for a matrix role that has no RoleGrantRevision row yet. */
+const DEFAULT_REVISION = 1;
+
+/**
+ * Pure fold of rows read from ONE DB snapshot into grants + versions.
+ * Callers must never mix rows from different reads (TD-04).
+ */
+export function foldMatrixSnapshot(
+  grantRows: { role: Role; kind: GrantKind; key: string }[],
+  revisionRows: { role: Role; version: number }[],
+): {
+  byRole: Record<string, RoleGrants>;
+  versions: Record<string, number>;
+} {
+  const map = foldGrantRows(grantRows);
+  const byRole: Record<string, RoleGrants> = {};
+  const versions: Record<string, number> = {};
+  for (const role of MATRIX_ROLES) {
+    byRole[role] = map.get(role) ?? emptyGrants();
+    versions[role] = DEFAULT_REVISION;
+  }
+  for (const row of revisionRows) {
+    if (row.role in versions) versions[row.role] = row.version;
+  }
+  return { byRole, versions };
+}
+
+/**
+ * Read every grant row and revision in a single REPEATABLE READ snapshot.
+ * replaceRoleGrants bumps the revision in the same transaction as the grant
+ * rewrite, so a snapshot always sees either (old grants, old version) or
+ * (new grants, new version) — never a mix. Deliberately bypasses the TTL cache.
+ */
+async function readMatrixSnapshot() {
+  await ensureRevisionRows();
+  return prisma.$transaction(
+    async (tx) => {
+      const grantRows = await tx.roleGrant.findMany();
+      const revisionRows = await tx.roleGrantRevision.findMany({
+        where: { role: { in: [...MATRIX_ROLES] } },
+        select: { role: true, version: true },
+      });
+      return foldMatrixSnapshot(grantRows, revisionRows);
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
+}
+
 /**
  * Full matrix payload for the permissions admin UI (includes owner synthetic row).
  * `editableRoles` is scoped to what the acting role is allowed to change.
+ * Grants and versions come from one snapshot, never from the TTL cache.
  */
 export async function getFullMatrix(actorRole: Role) {
-  // Cached grant map for every matrix role.
-  const map = await getGrantMap();
-  // Build byRole for every matrix role; missing DB rows → empty grants.
-  const byRole: Record<string, RoleGrants> = {};
-  for (const role of MATRIX_ROLES) {
-    byRole[role] = map.get(role) ?? emptyGrants();
-  }
-  const versions = await getRoleGrantVersions();
+  const { byRole, versions } = await readMatrixSnapshot();
   return {
     // Full catalog of panel/action keys for the matrix columns.
     panels: [...ALL_PANELS],

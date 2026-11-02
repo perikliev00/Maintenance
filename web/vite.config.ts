@@ -1,6 +1,11 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(rootDir, "..");
 
 export default defineConfig({
   plugins: [
@@ -53,13 +58,25 @@ export default defineConfig({
       },
     }),
   ],
+  // Allow importing the shared permissions catalog from ../api/src/contracts.
+  resolve: {
+    alias: {
+      "@maintenance/contracts": path.resolve(
+        repoRoot,
+        "api/src/contracts/permissionsCatalog.ts",
+      ),
+    },
+  },
   server: {
     port: 5173,
+    fs: {
+      allow: [repoRoot],
+    },
     proxy: {
       "/api": {
         target: "http://localhost:4000",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
+        rewrite: (p) => p.replace(/^\/api/, ""),
       },
     },
   },

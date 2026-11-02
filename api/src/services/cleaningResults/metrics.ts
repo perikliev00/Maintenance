@@ -10,7 +10,7 @@ export function round1(n: number): number {
 }
 
 /** Coerce JSON anomalyFlags to a string array (empty if malformed). */
-function asFlags(value: unknown): string[] {
+export function normalizeAnomalyFlags(value: unknown): string[] {
   // Non-arrays (null, objects, scalars) are treated as no flags.
   if (!Array.isArray(value)) return [];
   // Drop non-string entries that may appear in loosely typed JSON.
@@ -25,7 +25,7 @@ export function isAnomalousSession(input: {
   anomalyThresholdMinutes: number;
 }): boolean {
   // Explicit flags (e.g. overdue) always exclude the session from valid time.
-  const flags = asFlags(input.anomalyFlags);
+  const flags = normalizeAnomalyFlags(input.anomalyFlags);
   if (flags.length > 0) return true;
   // Duration-based anomaly when the session ran too long.
   const durationMin =

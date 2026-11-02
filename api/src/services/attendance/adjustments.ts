@@ -25,9 +25,19 @@ import { getOperations } from "../settings";
 import { hotelDateAsUtcDate } from "../hotelTime";
 import { recordAudit } from "../audit";
 import {
-  createNotifications,
   recipientsWithAction,
+  type CreateNotificationInput,
 } from "../notifications";
+import {
+  enqueueAttendanceNotice,
+  tryDeliverAttendanceNotice,
+} from "./notificationOutbox";
+
+/** Outbox/notification dedupe keys: one request + one review notice per adjustment. */
+const requestedNoticeKey = (adjustmentId: string) =>
+  `attendance.adjustment_requested:${adjustmentId}`;
+const reviewedNoticeKey = (adjustmentId: string) =>
+  `attendance.adjustment_reviewed:${adjustmentId}`;
 
 /**
  * Create a pending adjustment. Employees may only request their own intervals;
@@ -114,67 +124,78 @@ export async function requestAdjustment(input: {
   // Reject inverted / impossible time windows.
   assertValidAdjustmentTimes(effStart, effEnd, effBreak);
 
-  // Persist the pending adjustment request.
-  const adj = await prisma.attendanceAdjustment.create({
-    data: {
-      // Target interval under correction.
-      intervalId: interval.id,
-      requestedById: input.requestedById,
-      reason,
-      proposedStartedAt,
-      proposedEndedAt,
-      proposedBreakMinutes: input.proposedBreakMinutes ?? null,
-      // All new requests start pending until reviewed.
-      status: AttendanceAdjustmentStatus.pending,
-    },
-  });
+  // Recipients are read before the TX; the notice itself is snapshotted into
+  // the outbox inside the TX so it commits (or rolls back) with the request.
+  const recipients = await recipientsWithAction(
+    "attendance.approve_adjustment",
+  );
 
-  // Closed intervals enter needs_review while a pending adjustment exists.
-  if (interval.status === AttendanceIntervalStatus.closed) {
-    // Await async persistence or side effect.
-    await prisma.attendanceInterval.update({
-      where: { id: interval.id },
-      data: { status: AttendanceIntervalStatus.needs_review },
+  // Request row + needs_review flip + required audit + notice intent commit
+  // atomically. An audit/outbox failure rolls everything back so a retry
+  // starts from a clean state (no orphan pending adjustment).
+  const adj = await prisma.$transaction(async (tx) => {
+    const created = await tx.attendanceAdjustment.create({
+      data: {
+        // Target interval under correction.
+        intervalId: interval.id,
+        requestedById: input.requestedById,
+        reason,
+        proposedStartedAt,
+        proposedEndedAt,
+        proposedBreakMinutes: input.proposedBreakMinutes ?? null,
+        // All new requests start pending until reviewed.
+        status: AttendanceAdjustmentStatus.pending,
+      },
     });
-  }
 
-  // Audit the request with proposed fields.
-  await recordAudit({
-    actorEmployeeId: input.requestedById,
-    action: "adjustment.request",
-    entityType: "attendance_adjustment",
-    entityId: adj.id,
-    reason,
-    after: {
-      intervalId: interval.id,
-      proposedStartedAt,
-      proposedEndedAt,
-      proposedBreakMinutes: input.proposedBreakMinutes ?? null,
-    },
-    summary: `Requested attendance adjustment`,
-  });
+    // Closed intervals enter needs_review while a pending adjustment exists.
+    if (interval.status === AttendanceIntervalStatus.closed) {
+      await tx.attendanceInterval.update({
+        where: { id: interval.id },
+        data: { status: AttendanceIntervalStatus.needs_review },
+      });
+    }
 
-  {
-    // Notify anyone who can approve adjustments.
-    const recipients = await recipientsWithAction(
-      "attendance.approve_adjustment",
+    // Required audit: same TX as the business write.
+    await recordAudit(
+      {
+        actorEmployeeId: input.requestedById,
+        action: "adjustment.request",
+        entityType: "attendance_adjustment",
+        entityId: created.id,
+        reason,
+        after: {
+          intervalId: interval.id,
+          proposedStartedAt,
+          proposedEndedAt,
+          proposedBreakMinutes: input.proposedBreakMinutes ?? null,
+        },
+        summary: `Requested attendance adjustment`,
+      },
+      tx,
     );
-    // Await async persistence or side effect.
-    await createNotifications({
+
+    // Durable notify intent for anyone who can approve adjustments.
+    await enqueueAttendanceNotice(tx, {
       type: "attendance.adjustment_requested",
       title: "Attendance adjustment requested",
       body: "A team member requested an attendance adjustment",
       entityType: "attendance_adjustment",
-      entityId: adj.id,
+      entityId: created.id,
       actorEmployeeId: input.requestedById,
       recipientEmployeeIds: recipients,
-      dedupeKey: `attendance.adjustment_requested:${adj.id}`,
+      dedupeKey: requestedNoticeKey(created.id),
       payload: {
         panel: "attendance",
-        adjustmentId: adj.id,
+        adjustmentId: created.id,
       },
     });
-  }
+
+    return created;
+  });
+
+  // Post-commit best-effort delivery; failure never fails the request.
+  await tryDeliverAttendanceNotice(requestedNoticeKey(adj.id));
 
   // Return result to caller.
   return adj;
@@ -202,8 +223,19 @@ export async function reviewAdjustment(input: {
     // Fail closed with structured AppError.
     throw new AppError(404, "not_found", "Adjustment not found");
   }
-  // Already approved/rejected — do not re-apply.
+  // Already approved/rejected — never re-apply. A retry of the SAME decision by
+  // the SAME reviewer (e.g. response lost after commit) is an idempotent
+  // success: return current state and re-attempt the pending notice.
   if (adj.status !== AttendanceAdjustmentStatus.pending) {
+    const sameDecision =
+      adj.status ===
+      (input.decision === "approved"
+        ? AttendanceAdjustmentStatus.approved
+        : AttendanceAdjustmentStatus.rejected);
+    if (sameDecision && adj.reviewedById === input.reviewedById) {
+      await tryDeliverAttendanceNotice(reviewedNoticeKey(adj.id));
+      return getInterval(adj.intervalId);
+    }
     // Fail closed with structured AppError.
     throw new AppError(409, "conflict", "Adjustment already reviewed");
   }
@@ -227,7 +259,30 @@ export async function reviewAdjustment(input: {
   const ops =
     input.decision === "approved" ? await getOperations() : null;
 
-  // Await async persistence or side effect.
+  // Notice snapshot is built from pre-TX data and enqueued inside the TX.
+  const approved = input.decision === "approved";
+  const notice: CreateNotificationInput = {
+    type: "attendance.adjustment_reviewed",
+    title: approved
+      ? "Attendance adjustment approved"
+      : "Attendance adjustment rejected",
+    body: approved
+      ? "Your attendance adjustment was approved"
+      : "Your attendance adjustment was rejected",
+    entityType: "attendance_adjustment",
+    entityId: adj.id,
+    actorEmployeeId: input.reviewedById,
+    recipientEmployeeIds: [adj.requestedById],
+    dedupeKey: reviewedNoticeKey(adj.id),
+    payload: {
+      panel: "attendance",
+      adjustmentId: adj.id,
+    },
+  };
+
+  // Decision claim + interval write + required audit + notice intent commit
+  // atomically. If audit/outbox fails, everything rolls back: the adjustment
+  // stays `pending` and the client can retry the same review.
   await prisma.$transaction(async (tx) => {
     // Conditional claim so concurrent reviewers cannot double-apply.
     const claimed = await tx.attendanceAdjustment.updateMany({
@@ -237,14 +292,13 @@ export async function reviewAdjustment(input: {
       },
       data: {
         // Terminal status from reviewer decision.
-        status:
-          input.decision === "rejected"
-            ? AttendanceAdjustmentStatus.rejected
-            : AttendanceAdjustmentStatus.approved,
+        status: approved
+          ? AttendanceAdjustmentStatus.approved
+          : AttendanceAdjustmentStatus.rejected,
         reviewedById: input.reviewedById,
         reviewedAt,
         // Reject may replace reason with reviewer note.
-        ...(input.decision === "rejected"
+        ...(!approved
           ? { reason: input.reason?.trim() || adj.reason }
           : {}),
       },
@@ -256,8 +310,7 @@ export async function reviewAdjustment(input: {
     }
 
     // Apply proposed times and freeze as `adjusted` (rebuild skips these).
-    if (input.decision === "approved" && ops) {
-      // Await async persistence or side effect.
+    if (approved && ops) {
       await tx.attendanceInterval.update({
         where: { id: adj.intervalId },
         data: {
@@ -274,70 +327,42 @@ export async function reviewAdjustment(input: {
         },
       });
     }
+
+    // Required audit: same TX as the decision/interval write.
+    await recordAudit(
+      approved
+        ? {
+            actorEmployeeId: input.reviewedById,
+            action: "adjustment.review",
+            entityType: "attendance_adjustment",
+            entityId: adj.id,
+            after: {
+              decision: "approved",
+              intervalId: adj.intervalId,
+              startedAt,
+              endedAt,
+              breakMinutes,
+            },
+            summary: `Approved attendance adjustment`,
+          }
+        : {
+            actorEmployeeId: input.reviewedById,
+            action: "adjustment.review",
+            entityType: "attendance_adjustment",
+            entityId: adj.id,
+            reason: input.reason,
+            after: { decision: "rejected", intervalId: adj.intervalId },
+            summary: `Rejected attendance adjustment`,
+          },
+      tx,
+    );
+
+    // Durable notify intent for the requester.
+    await enqueueAttendanceNotice(tx, notice);
   });
 
-  // Reject path: audit + notify requester; interval times unchanged.
-  if (input.decision === "rejected") {
-    // Await async persistence or side effect.
-    await recordAudit({
-      actorEmployeeId: input.reviewedById,
-      action: "adjustment.review",
-      entityType: "attendance_adjustment",
-      entityId: adj.id,
-      reason: input.reason,
-      after: { decision: "rejected", intervalId: adj.intervalId },
-      summary: `Rejected attendance adjustment`,
-    });
-    // Await async persistence or side effect.
-    await createNotifications({
-      type: "attendance.adjustment_reviewed",
-      title: "Attendance adjustment rejected",
-      body: "Your attendance adjustment was rejected",
-      entityType: "attendance_adjustment",
-      entityId: adj.id,
-      actorEmployeeId: input.reviewedById,
-      recipientEmployeeIds: [adj.requestedById],
-      dedupeKey: `attendance.adjustment_reviewed:${adj.id}`,
-      payload: {
-        panel: "attendance",
-        adjustmentId: adj.id,
-      },
-    });
-    // Return result to caller.
-    return getInterval(adj.intervalId);
-  }
-
-  // Approve path: audit applied times + notify requester.
-  await recordAudit({
-    actorEmployeeId: input.reviewedById,
-    action: "adjustment.review",
-    entityType: "attendance_adjustment",
-    entityId: adj.id,
-    after: {
-      decision: "approved",
-      intervalId: adj.intervalId,
-      startedAt,
-      endedAt,
-      breakMinutes,
-    },
-    summary: `Approved attendance adjustment`,
-  });
-
-  // Await async persistence or side effect.
-  await createNotifications({
-    type: "attendance.adjustment_reviewed",
-    title: "Attendance adjustment approved",
-    body: "Your attendance adjustment was approved",
-    entityType: "attendance_adjustment",
-    entityId: adj.id,
-    actorEmployeeId: input.reviewedById,
-    recipientEmployeeIds: [adj.requestedById],
-    dedupeKey: `attendance.adjustment_reviewed:${adj.id}`,
-    payload: {
-      panel: "attendance",
-      adjustmentId: adj.id,
-    },
-  });
+  // Post-commit best-effort delivery; failure never fails the review.
+  await tryDeliverAttendanceNotice(reviewedNoticeKey(adj.id));
 
   // Return result to caller.
   return getInterval(adj.intervalId);

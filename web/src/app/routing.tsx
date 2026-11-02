@@ -3,28 +3,11 @@
  *
  * Hash routes: `#/activate` (invite redeem). Legacy `#/room-qr/...` is cleared.
  * Until `authReady`, render nothing to avoid a login flash over a valid cookie.
+ * Authenticated panels are React.lazy so Vite can split page chunks.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { LoginPage } from "../pages/LoginPage";
 import { ActivatePage } from "../pages/ActivatePage";
-import { HomePage } from "../pages/HomePage";
-import { MyWorkPage } from "../pages/MyWorkPage";
-import { RepairsPage } from "../pages/RepairsPage";
-import { AuditPage } from "../pages/AuditPage";
-import { RoomsPage } from "../pages/RoomsPage";
-import { CommonAreasPage } from "../pages/CommonAreasPage";
-import { TeamPage } from "../pages/TeamPage";
-import { ControlPage } from "../pages/ControlPage";
-import { SettingsPage } from "../pages/SettingsPage";
-import { PermissionsPage } from "../pages/PermissionsPage";
-import { ResultsPage } from "../pages/ResultsPage";
-import { AnalyticsPage } from "../pages/AnalyticsPage";
-import { PlanPage } from "../pages/PlanPage";
-import { LiveBoardPage } from "../pages/LiveBoardPage";
-import { AttendancePage } from "../pages/AttendancePage";
-import { CardsPage } from "../pages/CardsPage";
-import { HousekeepingPage } from "../pages/HousekeepingPage";
-import { NotificationsPage } from "../pages/NotificationsPage";
 import {
   landingForUser,
   type AuthUser,
@@ -32,6 +15,71 @@ import {
   type PublicSettings,
 } from "../api/client";
 import type { ThemeMode } from "../theme";
+
+const HomePage = lazy(() =>
+  import("../pages/HomePage").then((m) => ({ default: m.HomePage })),
+);
+const MyWorkPage = lazy(() =>
+  import("../pages/myWork/MyWorkPage").then((m) => ({ default: m.MyWorkPage })),
+);
+const RepairsPage = lazy(() =>
+  import("../pages/RepairsPage").then((m) => ({ default: m.RepairsPage })),
+);
+const AuditPage = lazy(() =>
+  import("../pages/AuditPage").then((m) => ({ default: m.AuditPage })),
+);
+const RoomsPage = lazy(() =>
+  import("../pages/RoomsPage").then((m) => ({ default: m.RoomsPage })),
+);
+const CommonAreasPage = lazy(() =>
+  import("../pages/CommonAreasPage").then((m) => ({
+    default: m.CommonAreasPage,
+  })),
+);
+const TeamPage = lazy(() =>
+  import("../pages/TeamPage").then((m) => ({ default: m.TeamPage })),
+);
+const ControlPage = lazy(() =>
+  import("../pages/ControlPage").then((m) => ({ default: m.ControlPage })),
+);
+const SettingsPage = lazy(() =>
+  import("../pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+const PermissionsPage = lazy(() =>
+  import("../pages/PermissionsPage").then((m) => ({
+    default: m.PermissionsPage,
+  })),
+);
+const ResultsPage = lazy(() =>
+  import("../pages/ResultsPage").then((m) => ({ default: m.ResultsPage })),
+);
+const AnalyticsPage = lazy(() =>
+  import("../pages/AnalyticsPage").then((m) => ({ default: m.AnalyticsPage })),
+);
+const PlanPage = lazy(() =>
+  import("../pages/PlanPage").then((m) => ({ default: m.PlanPage })),
+);
+const LiveBoardPage = lazy(() =>
+  import("../pages/LiveBoardPage").then((m) => ({ default: m.LiveBoardPage })),
+);
+const AttendancePage = lazy(() =>
+  import("../pages/AttendancePage").then((m) => ({
+    default: m.AttendancePage,
+  })),
+);
+const CardsPage = lazy(() =>
+  import("../pages/CardsPage").then((m) => ({ default: m.CardsPage })),
+);
+const HousekeepingPage = lazy(() =>
+  import("../pages/HousekeepingPage").then((m) => ({
+    default: m.HousekeepingPage,
+  })),
+);
+const NotificationsPage = lazy(() =>
+  import("../pages/NotificationsPage").then((m) => ({
+    default: m.NotificationsPage,
+  })),
+);
 
 type AppRoutingProps = {
   authReady: boolean;
@@ -59,41 +107,29 @@ export function AppRouting({
   setAuthEpoch,
   children,
 }: AppRoutingProps) {
-  // Local React state.
   const [hash, setHash] = useState(
     () => (typeof window !== "undefined" ? window.location.hash : ""),
   );
 
-  // Effect: sync props/state to side effects.
   useEffect(() => {
-    /**
-     * Handler `onHash` for UI or form events.
-     */
     const onHash = () => setHash(window.location.hash);
     window.addEventListener("hashchange", onHash);
-    // Return value / early exit.
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  // Clear retired room-QR deep links so old stickers land on the normal shell.
   useEffect(() => {
     if (hash.startsWith("#/room-qr/")) {
       window.location.hash = "";
     }
   }, [hash]);
 
-  // Hash deep-links checked before the authenticated shell.
   const isActivateRoute = hash.startsWith("#/activate");
 
-  // Avoid login flash while bootstrap is still resolving cookies.
   if (!authReady) {
-    // Return value / early exit.
     return null;
   }
 
-  // Invite redeem — only when not already signed in.
   if (isActivateRoute && (!signedIn || !user)) {
-    // Return value / early exit.
     return (
       <ActivatePage
         theme={theme}
@@ -102,43 +138,31 @@ export function AppRouting({
           window.location.hash = "";
         }}
         onActivated={(nextUser) => {
-          // Clear hash, bind identity, land on role home, re-bootstrap.
           window.location.hash = "";
-          // State transition.
           setUser(nextUser);
-          // State transition.
           setSignedIn(true);
-          // State transition.
           setView(landingForUser(nextUser));
-          // State transition.
           setAuthEpoch((n) => n + 1);
         }}
       />
     );
   }
 
-  // Unauthenticated → login.
   if (!signedIn || !user) {
-    // Return value / early exit.
     return (
       <LoginPage
         theme={theme}
         onToggleTheme={onToggleTheme}
         onLogin={(nextUser) => {
-          // State transition.
           setUser(nextUser);
-          // State transition.
           setSignedIn(true);
-          // State transition.
           setView(landingForUser(nextUser));
-          // State transition.
           setAuthEpoch((n) => n + 1);
         }}
       />
     );
   }
 
-  // Authenticated shell (sidebar + ActivePanel) from App.tsx.
   return children;
 }
 
@@ -155,7 +179,11 @@ type ActivePanelProps = {
   onNavigateToFocus: import("./boardFocus").NavigateToFocus;
 };
 
-/** Mount the page component for the current nav panel. */
+function PanelFallback() {
+  return <p className="muted">…</p>;
+}
+
+/** Mount the page component for the current nav panel (lazy chunk). */
 export function ActivePanel({
   view,
   user,
@@ -173,102 +201,116 @@ export function ActivePanel({
   const ticketFocus =
     boardFocus?.type === "ticket" ? boardFocus : null;
 
-  return (
-    <>
-      {view === "mywork" && (
-        <MyWorkPage user={user} locale={locale} />
-      )}
-      {view === "repairs" && (
-        <RepairsPage
-          user={user}
-          locale={locale}
-          focusTicketId={
-            ticketFocus && view === "repairs" ? ticketFocus.ticketId : null
-          }
-          onFocusConsumed={onBoardFocusConsumed}
-        />
-      )}
-      {view === "audit" && (
-        <AuditPage user={user} locale={locale} />
-      )}
-      {view === "home" && <HomePage user={user} locale={locale} />}
-      {view === "rooms" && (
-        <RoomsPage
-          user={user}
-          publicSettings={publicSettings}
-          locale={locale}
-          focusLocationId={
-            locationFocus && locationFocus.locationKind === "room"
-              ? locationFocus.locationId
-              : null
-          }
-          focusTaskId={
-            locationFocus && locationFocus.locationKind === "room"
-              ? locationFocus.taskId ?? null
-              : null
-          }
-          focusSessionId={
-            locationFocus && locationFocus.locationKind === "room"
-              ? locationFocus.sessionId ?? null
-              : null
-          }
-          onFocusConsumed={onBoardFocusConsumed}
-        />
-      )}
-      {view === "common" && (
-        <CommonAreasPage
-          user={user}
-          publicSettings={publicSettings}
-          locale={locale}
-          focusLocationId={
-            locationFocus && locationFocus.locationKind === "common_area"
-              ? locationFocus.locationId
-              : null
-          }
-          focusTaskId={
-            locationFocus && locationFocus.locationKind === "common_area"
-              ? locationFocus.taskId ?? null
-              : null
-          }
-          focusSessionId={
-            locationFocus && locationFocus.locationKind === "common_area"
-              ? locationFocus.sessionId ?? null
-              : null
-          }
-          onFocusConsumed={onBoardFocusConsumed}
-        />
-      )}
-      {view === "team" && <TeamPage user={user} locale={locale} />}
-      {view === "live" && (
-        <LiveBoardPage
-          user={user}
-          locale={locale}
-          modules={publicSettings?.modules ?? null}
-          onNavigate={onNavigateToFocus}
-        />
-      )}
-      {view === "plan" && <PlanPage user={user} />}
-      {view === "attendance" && <AttendancePage user={user} />}
-      {view === "cards" && <CardsPage user={user} locale={locale} />}
-      {view === "results" && <ResultsPage />}
-      {view === "analytics" && <AnalyticsPage locale={locale} />}
-      {view === "cleaning" && <HousekeepingPage user={user} />}
-      {view === "control" && <ControlPage user={user} />}
-      {view === "settings" && <SettingsPage user={user} />}
-      {view === "permissions" && (
-        <PermissionsPage
-          user={user}
-          onUserUpdated={(me) => setUser(me)}
-        />
-      )}
-      {view === "notifications" && (
-        <NotificationsPage
-          locale={locale}
-          onNavigate={(panel) => {
-            if (panels.includes(panel)) setView(panel);
-          }}
-        />
-      )}
-    </>
-  );
+  let panel: ReactNode = null;
+  if (view === "mywork") {
+    panel = <MyWorkPage user={user} locale={locale} />;
+  } else if (view === "repairs") {
+    panel = (
+      <RepairsPage
+        user={user}
+        locale={locale}
+        focusTicketId={
+          ticketFocus && view === "repairs" ? ticketFocus.ticketId : null
+        }
+        onFocusConsumed={onBoardFocusConsumed}
+      />
+    );
+  } else if (view === "audit") {
+    panel = <AuditPage user={user} locale={locale} />;
+  } else if (view === "home") {
+    panel = <HomePage user={user} locale={locale} />;
+  } else if (view === "rooms") {
+    panel = (
+      <RoomsPage
+        user={user}
+        publicSettings={publicSettings}
+        locale={locale}
+        focusLocationId={
+          locationFocus && locationFocus.locationKind === "room"
+            ? locationFocus.locationId
+            : null
+        }
+        focusTaskId={
+          locationFocus && locationFocus.locationKind === "room"
+            ? locationFocus.taskId ?? null
+            : null
+        }
+        focusSessionId={
+          locationFocus && locationFocus.locationKind === "room"
+            ? locationFocus.sessionId ?? null
+            : null
+        }
+        onFocusConsumed={onBoardFocusConsumed}
+      />
+    );
+  } else if (view === "common") {
+    panel = (
+      <CommonAreasPage
+        user={user}
+        publicSettings={publicSettings}
+        locale={locale}
+        focusLocationId={
+          locationFocus && locationFocus.locationKind === "common_area"
+            ? locationFocus.locationId
+            : null
+        }
+        focusTaskId={
+          locationFocus && locationFocus.locationKind === "common_area"
+            ? locationFocus.taskId ?? null
+            : null
+        }
+        focusSessionId={
+          locationFocus && locationFocus.locationKind === "common_area"
+            ? locationFocus.sessionId ?? null
+            : null
+        }
+        onFocusConsumed={onBoardFocusConsumed}
+      />
+    );
+  } else if (view === "team") {
+    panel = <TeamPage user={user} locale={locale} />;
+  } else if (view === "live") {
+    panel = (
+      <LiveBoardPage
+        user={user}
+        locale={locale}
+        modules={publicSettings?.modules ?? null}
+        onNavigate={onNavigateToFocus}
+      />
+    );
+  } else if (view === "plan") {
+    panel = <PlanPage user={user} />;
+  } else if (view === "attendance") {
+    panel = <AttendancePage user={user} />;
+  } else if (view === "cards") {
+    panel = <CardsPage user={user} locale={locale} />;
+  } else if (view === "results") {
+    panel = <ResultsPage />;
+  } else if (view === "analytics") {
+    panel = <AnalyticsPage locale={locale} />;
+  } else if (view === "cleaning") {
+    panel = <HousekeepingPage user={user} />;
+  } else if (view === "control") {
+    panel = <ControlPage user={user} />;
+  } else if (view === "settings") {
+    panel = <SettingsPage user={user} />;
+  } else if (view === "permissions") {
+    panel = (
+      <PermissionsPage
+        user={user}
+        onUserUpdated={(me) => setUser(me)}
+      />
+    );
+  } else if (view === "notifications") {
+    panel = (
+      <NotificationsPage
+        locale={locale}
+        onNavigate={(panelName) => {
+          if (panels.includes(panelName)) setView(panelName);
+        }}
+      />
+    );
+  }
+
+  return <Suspense fallback={<PanelFallback />}>{panel}</Suspense>;
 }

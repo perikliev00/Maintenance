@@ -1,29 +1,16 @@
 /**
- * Offline outbox public API.
+ * Offline outbox public API (compat barrel).
  *
- * Housekeeping/ticket mutations can enqueue into IndexedDB when offline or when
- * the API is unreachable, then drain via `/sync/push` (or per-item POST) once
- * connectivity returns. Bind the active user with `setOfflineUser` so queues
- * never leak across accounts on a shared device.
+ * Prefer `./mutations` (queued writes) or `./session` (status/userScope) from
+ * pages so Vite can split `queueDrain`. Import `./drainBoot` only from app boot.
  */
-export type { ConnMode, QueueStats } from "./connState";
-export { subscribeOffline } from "./connState";
-
-export type {
-  MyWorkCachePayload,
-  QueueActionStatus,
-  QueueCommandType,
-  QueuedAction,
-} from "./storage";
-
+export type { ConnMode, QueueStats } from "./session";
 export {
+  subscribeOffline,
   canRebaseConflict,
   parseConflictDetails,
   entityIdFromQueued,
   rebaseBodyWithCurrentVersion,
-} from "./conflict";
-
-export {
   clearAuthenticatedHttpCaches,
   clearPrivateOfflineState,
   getOfflineUser,
@@ -31,22 +18,23 @@ export {
   purgePrivateOfflineData,
   setOfflineUser,
   whenOfflineUserSettled,
-} from "./userScope";
-
-export { postJsonWithSessionRefresh } from "./transport";
-
-export {
+  postJsonWithSessionRefresh,
   getQueueStats,
   listQueuedActions,
   loadMyWorkCache,
   resolveQueuedAction,
   retryQueuedAction,
   saveMyWorkCache,
-} from "./queueOps";
+} from "./session";
 
-export { drainQueue } from "./queueDrain";
+export type {
+  MyWorkCachePayload,
+  QueueActionStatus,
+  QueueCommandType,
+  QueuedAction,
+} from "./session";
 
-export type { QueuedResult } from "./runOrEnqueue";
+export type { QueuedResult } from "./mutations";
 export {
   assignTicketQueued,
   closeTicketQueued,
@@ -58,24 +46,7 @@ export {
   startCleaningQueued,
   startTicketQueued,
   waitTicketQueued,
-} from "./runOrEnqueue";
+} from "./mutations";
 
-import { markReachable } from "./connState";
-import { drainQueue } from "./queueDrain";
-
-/**
- * Kick an initial drain when this module loads in the browser.
- * Also re-drains on `online` so queued work resumes without waiting for UI.
- */
-// Browser-only side effect: wire connectivity → outbox drain (no-op under SSR).
-if (typeof window !== "undefined") {
-  // Resume drain whenever the browser reports connectivity restored.
-  window.addEventListener("online", () => {
-    markReachable();
-    void drainQueue();
-  });
-  // Kick an initial drain if we already appear online at module load.
-  if (navigator.onLine) {
-    void drainQueue();
-  }
-}
+// drainQueue lives in ./drainBoot (and ./queueDrain) — do not re-export here
+// so page/barrel importers do not pull the drain chunk into the main graph.

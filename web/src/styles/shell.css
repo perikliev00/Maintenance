@@ -325,6 +325,16 @@
   display: grid;
   gap: var(--space-4);
   flex: 1;
+  /* Grid/flex min-width:auto would otherwise expand the document past the
+     viewport when a child table has min-width: 960px (scroll must stay in
+     .table-wrap, which the mobile E2E overflow check asserts). */
+  min-width: 0;
+  max-width: 100%;
+}
+
+.page {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .page-header {
@@ -378,6 +388,7 @@
 
 .table-wrap {
   overflow: auto;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);

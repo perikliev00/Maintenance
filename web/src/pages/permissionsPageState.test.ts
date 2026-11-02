@@ -5,7 +5,8 @@ import {
   applySavedRoleToDraft,
   historyStatusFromResult,
   isRoleDraftDirty,
-  mergeMatrixIntoDraft,
+  isRoleConflict,
+  reconcileMatrixIntoDraft,
   removeSavingRole,
   saveFeedbackForPutSuccess,
   saveFeedbackForRefreshFailure,
@@ -29,28 +30,74 @@ describe("permissionsPageState", () => {
     );
   });
 
-  it("preserves dirty drafts for other roles after one role is replaced", () => {
-    const prev = {
-      housekeeper: { panels: ["home"], actions: ["rooms.view"] },
-      technician: { panels: ["home", "repairs"], actions: ["tickets.report"] },
+  const G = (panels: string[], actions: string[] = []) => ({ panels, actions });
+
+  it("rebases untouched roles onto the new remote grants and version", () => {
+    const prevBases = {
+      housekeeper: { version: 1, grants: G(["home"]) },
     };
-    const byRole = {
-      housekeeper: { panels: ["home", "rooms"], actions: ["rooms.view"] },
-      technician: { panels: ["home"], actions: ["tickets.report"] },
-    };
-    const merged = mergeMatrixIntoDraft(
-      prev,
-      byRole,
-      ["housekeeper", "technician"],
-      "housekeeper",
+    const out = reconcileMatrixIntoDraft(
+      { housekeeper: G(["home"]) },
+      prevBases,
+      {
+        roles: ["housekeeper"],
+        byRole: { housekeeper: G(["home", "rooms"]) },
+        versions: { housekeeper: 2 },
+      },
     );
-    assert.deepEqual(merged.housekeeper, {
-      panels: ["home", "rooms"],
-      actions: ["rooms.view"],
-    });
-    assert.deepEqual(merged.technician, prev.technician);
+    assert.deepEqual(out.draft.housekeeper, G(["home", "rooms"]));
+    assert.equal(out.bases.housekeeper.version, 2);
   });
 
+  it("keeps a dirty draft with its OWN baseVersion when remote moves on", () => {
+    const prevBases = {
+      housekeeper: { version: 1, grants: G(["home"]) },
+    };
+    const dirty = G(["home", "repairs"]);
+    const out = reconcileMatrixIntoDraft(
+      { housekeeper: dirty },
+      prevBases,
+      {
+        roles: ["housekeeper"],
+        byRole: { housekeeper: G(["home", "rooms"]) },
+        versions: { housekeeper: 2 },
+      },
+    );
+    assert.deepEqual(out.draft.housekeeper, dirty);
+    assert.equal(out.bases.housekeeper.version, 1);
+    assert.equal(isRoleConflict(out.bases.housekeeper, 2), true);
+  });
+
+  it("takeRemoteRole discards the draft and adopts the remote version", () => {
+    const out = reconcileMatrixIntoDraft(
+      { housekeeper: G(["home", "repairs"]) },
+      { housekeeper: { version: 1, grants: G(["home"]) } },
+      {
+        roles: ["housekeeper"],
+        byRole: { housekeeper: G(["home", "rooms"]) },
+        versions: { housekeeper: 2 },
+      },
+      "housekeeper",
+    );
+    assert.deepEqual(out.draft.housekeeper, G(["home", "rooms"]));
+    assert.equal(out.bases.housekeeper.version, 2);
+    assert.equal(isRoleConflict(out.bases.housekeeper, 2), false);
+  });
+
+  it("initial load (no bases) adopts remote for every role", () => {
+    const out = reconcileMatrixIntoDraft({}, {}, {
+      roles: ["housekeeper"],
+      byRole: { housekeeper: G(["home"]) },
+      versions: { housekeeper: 5 },
+    });
+    assert.equal(out.bases.housekeeper.version, 5);
+    assert.deepEqual(out.draft.housekeeper, G(["home"]));
+  });
+
+  it("isRoleConflict is false without a base or remote version", () => {
+    assert.equal(isRoleConflict(undefined, 2), false);
+    assert.equal(isRoleConflict({ version: 1, grants: G([]) }, undefined), false);
+  });
   it("applySavedRoleToDraft updates only the saved role", () => {
     const next = applySavedRoleToDraft(
       {

@@ -6,12 +6,9 @@ import {
   classifySaveError,
   formatStatusCount,
   isDraftDirty,
-  isSettingsEditingLocked,
   mergePostSaveRefresh,
   resolveSaveFlow,
-  shouldApplySystemStatusRevision,
-  shouldRefreshSettingsBundle,
-  shouldRefreshSystemStatus,
+  SETTINGS_BUNDLE_LIVE_EVENTS,
   shouldReplaceDraftOnRefresh,
   SYSTEM_STATUS_LIVE_EVENTS,
 } from "./settingsDraftLogic";
@@ -69,23 +66,46 @@ describe("settingsDraftLogic", () => {
     assert.deepEqual(applied.draft, { attendance: false });
   });
 
-  it("editing is locked while busy", () => {
-    assert.equal(isSettingsEditingLocked(true), true);
-    assert.equal(isSettingsEditingLocked(false), false);
+  it("busy client keeps its draft even when clean, without flagging a conflict", () => {
+    const draft = { attendance: true };
+    const applied = applySettingsBundleRefresh({
+      dirty: false,
+      busy: true,
+      previousServerValue: { attendance: true },
+      nextServerValue: { attendance: false },
+      draft,
+      reason: "saving",
+    });
+    assert.equal(applied.replaced, false);
+    assert.equal(applied.serverConflict, false);
+    assert.deepEqual(applied.draft, draft);
+    assert.equal(applied.reason, "saving");
+  });
+
+  it("forceDraft replaces a dirty draft and clears the reason", () => {
+    const applied = applySettingsBundleRefresh({
+      dirty: true,
+      busy: true,
+      forceDraft: true,
+      previousServerValue: { attendance: true },
+      nextServerValue: { attendance: false },
+      draft: { attendance: true },
+      reason: "local reason",
+    });
+    assert.equal(applied.replaced, true);
+    assert.equal(applied.serverConflict, false);
+    assert.deepEqual(applied.draft, { attendance: false });
+    assert.equal(applied.reason, "");
   });
 
   it("system refresh events are operational, not settings.changed", () => {
+    const bundleEvents: readonly string[] = SETTINGS_BUNDLE_LIVE_EVENTS;
+    assert.deepEqual([...SETTINGS_BUNDLE_LIVE_EVENTS], ["settings.changed"]);
     for (const type of SYSTEM_STATUS_LIVE_EVENTS) {
-      assert.equal(shouldRefreshSystemStatus(type), true);
-      assert.equal(shouldRefreshSettingsBundle(type), false);
+      assert.equal(bundleEvents.includes(type), false);
     }
-    assert.equal(shouldRefreshSystemStatus("settings.changed"), false);
-    assert.equal(shouldRefreshSettingsBundle("settings.changed"), true);
-  });
-
-  it("stale system status revisions are ignored", () => {
-    assert.equal(shouldApplySystemStatusRevision(3, 3), true);
-    assert.equal(shouldApplySystemStatusRevision(2, 3), false);
+    const systemEvents: readonly string[] = SYSTEM_STATUS_LIVE_EVENTS;
+    assert.equal(systemEvents.includes("settings.changed"), false);
   });
 
   it("classifies 409 as conflict and network as uncertain", () => {

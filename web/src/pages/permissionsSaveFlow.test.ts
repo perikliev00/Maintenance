@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import { ApiRequestError } from "../api/http";
 import {
   applySavedRoleToDraft,
-  mergeMatrixIntoDraft,
+  reconcileMatrixIntoDraft,
 } from "./permissionsPageState";
 import {
   beginPermissionsSave,
@@ -166,17 +166,21 @@ describe("draft merge after single-role save", () => {
       "housekeeper",
       { panels: ["home", "rooms"], actions: ["rooms.view"] },
     );
-    const matrixByRole = {
-      housekeeper: { panels: ["home", "rooms"], actions: ["rooms.view"] },
-      technician: { panels: ["home"], actions: ["tickets.report"] },
-    };
-    const merged = mergeMatrixIntoDraft(
+    const merged = reconcileMatrixIntoDraft(
       afterPut,
-      matrixByRole,
-      ["housekeeper", "technician"],
-      "housekeeper",
-    );
-    assert.deepEqual(merged.technician.panels, ["home", "repairs"]);
+      {
+        housekeeper: { version: 2, grants: { panels: ["home", "rooms"], actions: ["rooms.view"] } },
+        technician: { version: 1, grants: { panels: ["home"], actions: ["tickets.report"] } },
+      },
+      {
+        roles: ["housekeeper", "technician"],
+        byRole: {
+          housekeeper: { panels: ["home", "rooms"], actions: ["rooms.view"] },
+          technician: { panels: ["home"], actions: ["tickets.report"] },
+        },
+        versions: { housekeeper: 2, technician: 2 },
+      },
+    ).draft;
     assert.deepEqual(merged.housekeeper.panels, ["home", "rooms"]);
   });
 });

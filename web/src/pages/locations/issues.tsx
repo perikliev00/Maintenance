@@ -10,7 +10,7 @@ import {
 } from "../../api/client";
 import { TicketLifecycleActions } from "../../components/TicketLifecycleActions";
 import { LocationIssueDialog } from "../../components/LocationIssueDialog";
-import { reportTicketQueued } from "../../offline";
+import { reportTicketQueued } from "../../offline/mutations";
 import { statusLabel as repairStatusLabel } from "../RepairsPage/helpers";
 import { boardT, type BoardLocale } from "./labels";
 

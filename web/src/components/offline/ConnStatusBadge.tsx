@@ -1,5 +1,5 @@
 /** Shared offline / sync connection badge for My Work and Repairs. */
-import type { ConnMode, QueueStats } from "../../offline";
+import type { ConnMode, QueueStats } from "../../offline/session";
 import { t } from "../../i18n";
 
 /** CSS modifier from conn mode plus in-flight outbox counts. */

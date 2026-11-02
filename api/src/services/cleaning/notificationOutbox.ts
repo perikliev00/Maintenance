@@ -1,16 +1,15 @@
 /**
  * Durable inspection-notice intent for cleaning session complete.
- * Mirrors ticket notification outbox: enqueue in the domain TX, deliver after
- * commit, and repair partial/failed delivery via replay or background flush.
+ * Delivery/flush use the shared outbox runtime; enqueue stays domain-specific.
  */
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../db";
 import type { Tx } from "../db/types";
+import type { CreateNotificationInput } from "../notifications";
 import {
-  createNotifications,
-  type CreateNotificationInput,
-} from "../notifications";
-import { getSetting } from "../settings";
+  deliverOutboxIntent,
+  flushOutbox,
+} from "../notifications/outboxRuntime";
 
 /** Snapshot recipients/content with the complete command — replay stays stable. */
 export async function enqueueCleaningInspectionNotice(
@@ -26,53 +25,45 @@ export async function enqueueCleaningInspectionNotice(
   });
 }
 
-/** Idempotent delivery; unique (recipient, dedupeKey) repairs partial inserts. */
-export async function deliverCleaningInspectionNotice(
-  commandId: string,
-): Promise<void> {
-  const intent = await prisma.cleaningNotificationOutbox.findUnique({
-    where: { commandId },
-  });
-  if (!intent || intent.deliveredAt) return;
-
-  const payload = intent.payload as unknown as CreateNotificationInput;
-  if (!(await getSetting("notifications")).in_app.enabled) {
+const cleaningAdapters = {
+  findPending: async (commandId: string) => {
+    const intent = await prisma.cleaningNotificationOutbox.findUnique({
+      where: { commandId },
+    });
+    if (!intent) return null;
+    return {
+      key: intent.commandId,
+      payload: intent.payload,
+      deliveredAt: intent.deliveredAt,
+    };
+  },
+  markDelivered: async (commandId: string) => {
     await prisma.cleaningNotificationOutbox.update({
       where: { commandId },
       data: { deliveredAt: new Date() },
     });
-    return;
-  }
+  },
+};
 
-  await createNotifications(payload);
-  await prisma.cleaningNotificationOutbox.update({
-    where: { commandId },
-    data: { deliveredAt: new Date() },
-  });
+/** Idempotent delivery; unique (recipient, dedupeKey) repairs partial inserts. */
+export async function deliverCleaningInspectionNotice(
+  commandId: string,
+): Promise<void> {
+  await deliverOutboxIntent(commandId, cleaningAdapters);
 }
 
 /** Bounded background recovery for crash / first-delivery failure. */
 export async function flushCleaningNotificationOutbox() {
-  const intents = await prisma.cleaningNotificationOutbox.findMany({
-    where: { deliveredAt: null },
-    orderBy: [{ createdAt: "asc" }, { commandId: "asc" }],
-    take: 100,
+  return flushOutbox({
+    listPendingKeys: async () => {
+      const intents = await prisma.cleaningNotificationOutbox.findMany({
+        where: { deliveredAt: null },
+        orderBy: [{ createdAt: "asc" }, { commandId: "asc" }],
+        take: 100,
+      });
+      return intents.map((i) => i.commandId);
+    },
+    deliver: deliverCleaningInspectionNotice,
+    errorLabel: "Cleaning notification delivery failed",
   });
-  let delivered = 0;
-  const failures: string[] = [];
-  for (const intent of intents) {
-    try {
-      await deliverCleaningInspectionNotice(intent.commandId);
-      delivered++;
-    } catch {
-      failures.push(intent.commandId);
-    }
-  }
-  return failures.length
-    ? {
-        delivered,
-        pending: failures.length,
-        error: "Cleaning notification delivery failed",
-      }
-    : { delivered, pending: 0 };
 }

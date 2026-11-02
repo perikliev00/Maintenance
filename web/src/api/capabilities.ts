@@ -3,7 +3,17 @@
  *
  * Prefer server-provided `user.panels` and `user.actions` when present; role
  * tables here are a fallback for stale sessions and offline UI gating.
+ * Catalogs come from `api/src/contracts/permissionsCatalog` (single source).
  */
+import {
+  ALL_ACTIONS,
+  ALL_PANELS,
+  DEFAULT_PANEL_BY_ROLE,
+  LANDING_BY_ROLE as LANDING_BY_ROLE_CATALOG,
+  type Action,
+  type Panel,
+} from "../../../api/src/contracts/permissionsCatalog";
+
 export type Role =
   | "reception"
   | "housekeeper"
@@ -34,144 +44,27 @@ export const ALL_ROLES: Role[] = [
   "housekeeper",
 ];
 
-/** Runtime action catalog (must stay in lockstep with `api/src/permissions.ts`). */
-export const ALL_ACTIONS = [
-  "rooms.view",
-  "rooms.mark_dirty",
-  "rooms.manage",
-  "rooms.set_occupancy",
-  "rooms.set_service_status",
-  "cleaning.create",
-  "cleaning.start",
-  "cleaning.complete",
-  "cleaning.inspect",
-  "cleaning.reassign",
-  "cleaning.review_overdue",
-  "cleaning.results_view",
-  "operations.view_live",
-  "tickets.report",
-  "tickets.resolve",
-  "tickets.assign",
-  "tickets.close",
-  "people.view",
-  "people.change_role",
-  "people.invite",
-  "people.manage_access",
-  "control.access",
-  "settings.manage",
-  "permissions.manage",
-  "plan.view",
-  "plan.manage",
-  "attendance.view",
-  "attendance.ingest",
-  "attendance.request_adjustment",
-  "attendance.approve_adjustment",
-  "cards.view",
-  "cards.issue",
-  "cards.revoke",
-  "analytics.view",
-  "sectors.manage",
-  "sectors.transfer_cross",
-  "shifts.manage",
-  "issue_options.manage",
-  "audit.view",
-  "jobs.view",
-  "jobs.run",
-] as const;
+export { ALL_ACTIONS, ALL_PANELS };
+export type { Action, Panel };
 
-export type Action = (typeof ALL_ACTIONS)[number];
-
-/** Runtime panel catalog (must stay in lockstep with `api/src/permissions.ts`). */
-export const ALL_PANELS = [
-  "mywork",
-  "repairs",
-  "home",
-  "rooms",
-  "common",
-  "team",
-  "live",
-  "plan",
-  "attendance",
-  "cards",
-  "results",
-  "analytics",
-  "cleaning",
-  "audit",
-  "control",
-  "settings",
-  "permissions",
-  "notifications",
-] as const;
-
-export type Panel = (typeof ALL_PANELS)[number];
-
-/** Bilingual / lookup table `PANEL_BY_ROLE` (data only). */
+/** Offline / stale-session fallback panels (same data as API seed defaults). */
 const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {
-  housekeeper: ["mywork", "home", "rooms", "common", "notifications"],
-  technician: ["mywork", "repairs", "home", "rooms", "common", "notifications"],
-  reception: ["home", "rooms", "common", "plan", "cards", "notifications"],
-  supervisor: [
-    "home",
-    "rooms",
-    "common",
-    "team",
-    "live",
-    "plan",
-    "attendance",
-    "cards",
-    "results",
-    "analytics",
-    "cleaning",
-    "repairs",
-    "notifications",
-  ],
-  manager: [
-    "home",
-    "rooms",
-    "common",
-    "team",
-    "live",
-    "plan",
-    "attendance",
-    "cards",
-    "results",
-    "analytics",
-    "cleaning",
-    "repairs",
-    "audit",
-    "control",
-    "settings",
-    "permissions",
-    "notifications",
-  ],
-  admin: [
-    "home",
-    "rooms",
-    "common",
-    "team",
-    "plan",
-    "attendance",
-    "cards",
-    "results",
-    "analytics",
-    "cleaning",
-    "repairs",
-    "audit",
-    "settings",
-    "permissions",
-    "notifications",
-  ],
+  housekeeper: [...DEFAULT_PANEL_BY_ROLE.housekeeper],
+  technician: [...DEFAULT_PANEL_BY_ROLE.technician],
+  reception: [...DEFAULT_PANEL_BY_ROLE.reception],
+  supervisor: [...DEFAULT_PANEL_BY_ROLE.supervisor],
+  manager: [...DEFAULT_PANEL_BY_ROLE.manager],
+  admin: [...DEFAULT_PANEL_BY_ROLE.admin],
 };
 
-/** Bilingual / lookup table `LANDING_BY_ROLE` (data only). */
 const LANDING_BY_ROLE: Record<Role, Panel> = {
-  housekeeper: "mywork",
-  technician: "mywork",
-  reception: "rooms",
-  supervisor: "rooms",
-  manager: "control",
-  admin: "team",
-  owner: "control",
+  housekeeper: LANDING_BY_ROLE_CATALOG.housekeeper,
+  technician: LANDING_BY_ROLE_CATALOG.technician,
+  reception: LANDING_BY_ROLE_CATALOG.reception,
+  supervisor: LANDING_BY_ROLE_CATALOG.supervisor,
+  manager: LANDING_BY_ROLE_CATALOG.manager,
+  admin: LANDING_BY_ROLE_CATALOG.admin,
+  owner: LANDING_BY_ROLE_CATALOG.owner,
 };
 
 /** Owner bypasses all client-side capability checks. */

@@ -60,8 +60,30 @@ describe("P2 settings, catalog, calendar and plan contracts", () => {
       const ver = (await prisma.appSetting.findUniqueOrThrow({ where: { key: "operations" } })).version;
       assert.equal((await patchJson(api, token, "/settings/operations", { value, reason: "restart contract", expectedVersion: ver })).status, 200);
       assert.equal((await getSetting("operations")).overdueSessionMinutes, value.overdueSessionMinutes);
-      const child = spawnSync(process.execPath, ["--import", "./tests/registerP1TestEnv.mjs", "--import", "tsx", "-e", "const {getSetting}=require('./src/services/settings'); const {prisma}=require('./src/db'); getSetting('operations').then(v=>console.log('PERSISTED',v.overdueSessionMinutes)).finally(()=>prisma.$disconnect())"], { cwd: process.cwd(), encoding: "utf8", timeout: 10000, env: process.env });
-      assert.equal(child.status, 0, child.stderr); assert.match(child.stdout, new RegExp(`PERSISTED ${value.overdueSessionMinutes}`));
+      // Concatenate into one string: console.log(label, number) uses util.inspect
+      // and emits ANSI color under FORCE_COLOR (e.g. from the parent test runner).
+      const child = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "./tests/registerP1TestEnv.mjs",
+          "--import",
+          "tsx",
+          "-e",
+          "const {getSetting}=require('./src/services/settings'); const {prisma}=require('./src/db'); getSetting('operations').then(v=>console.log('PERSISTED '+v.overdueSessionMinutes)).finally(()=>prisma.$disconnect())",
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          timeout: 10000,
+          env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+        },
+      );
+      assert.equal(child.status, 0, child.stderr);
+      assert.match(
+        child.stdout,
+        new RegExp(`PERSISTED ${value.overdueSessionMinutes}`),
+      );
     } finally { await updateSetting({ key: "operations", value: operations, actorEmployeeId: world.owner.employeeId, reason: "restore" }); }
   });
   it("changing default SLA changes new ticket only; existing deadline stays fixed", async () => {

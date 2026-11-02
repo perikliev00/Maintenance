@@ -120,8 +120,11 @@ test.describe("rooms reassign modal", () => {
     await expect(row.getByText(/Elena Petrova/i).first()).toBeVisible({
       timeout: 15_000,
     });
+    // Reason prefix is localized (`преназначаване` / `reassign`).
     await expect(
-      row.getByText(/reassign: E2E reassign Maria to Elena/i),
+      row.getByText(
+        /(преназначаване|reassign):\s*E2E reassign Maria to Elena/i,
+      ),
     ).toBeVisible();
 
     // Elena owns the task via cleaning tasks API (mine=1).

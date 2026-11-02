@@ -225,7 +225,7 @@ async function wipeLocalSession(): Promise<void> {
   localStorage.removeItem("token");
   localStorage.removeItem("refreshToken");
   localStorage.removeItem("user");
-  const m = await import("../offline");
+  const m = await import("../offline/session");
   if (revision !== sessionRevision) return;
   m.clearPrivateOfflineState();
   await m.whenOfflineUserSettled();

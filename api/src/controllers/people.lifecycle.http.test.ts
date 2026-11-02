@@ -493,7 +493,14 @@ describe("people lifecycle HTTP", () => {
       managerActor.email,
       "test-password-t03",
     );
-    const listed = await getJson(api, actorTok, "/people?limit=100");
+    // Scope with q= so a polluted shared DB (many prior fixtures) cannot hide
+    // this row behind the default limit=100 page window.
+    const archivedQ = encodeURIComponent(archivedEmp.employeeNumber);
+    const listed = await getJson(
+      api,
+      actorTok,
+      `/people?limit=100&q=${archivedQ}`,
+    );
     assert.equal(listed.status, 200);
     const items = (listed.body as { items: Array<{ employeeId: string }> })
       .items;
@@ -502,7 +509,7 @@ describe("people lifecycle HTTP", () => {
     const withArchived = await getJson(
       api,
       actorTok,
-      "/people?limit=100&includeArchived=true&includeInactive=true",
+      `/people?limit=100&includeArchived=true&includeInactive=true&q=${archivedQ}`,
     );
     assert.equal(withArchived.status, 200);
     const archivedItems = (
@@ -515,6 +522,7 @@ describe("people lifecycle HTTP", () => {
         (p) =>
           p.employeeId === archivedEmp.employeeId && p.status === "archived",
       ),
+      `expected archived person in scoped list; got ${JSON.stringify(archivedItems).slice(0, 400)}`,
     );
 
     const detail = await getJson(api, actorTok, `/people/${target.employeeId}`);

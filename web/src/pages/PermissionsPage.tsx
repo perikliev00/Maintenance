@@ -19,8 +19,11 @@ import {
 import {
   applySavedRoleToDraft,
   historyStatusFromResult,
-  mergeMatrixIntoDraft,
+  isRoleConflict,
+  reconcileMatrixIntoDraft,
+  saveFeedbackForDraftConflict,
   type HistoryUiStatus,
+  type RoleBases,
   type RoleGrantDraft,
   type SaveFeedback,
 } from "./permissionsPageState";
@@ -44,7 +47,20 @@ type Tab = "panels" | "actions" | "history";
 export function PermissionsPage({ user, onUserUpdated }: Props) {
   const [tab, setTab] = useState<Tab>("panels");
   const [matrix, setMatrix] = useState<PermissionMatrix | null>(null);
-  const [draft, setDraft] = useState<Record<string, RoleGrantDraft>>({});
+  // Draft values plus the server snapshot/version each role draft started from.
+  const [editor, setEditor] = useState<{
+    draft: Record<string, RoleGrantDraft>;
+    bases: RoleBases;
+  }>({ draft: {}, bases: {} });
+  const { draft, bases } = editor;
+  const setDraft = useCallback(
+    (
+      update: (
+        prev: Record<string, RoleGrantDraft>,
+      ) => Record<string, RoleGrantDraft>,
+    ) => setEditor((e) => ({ ...e, draft: update(e.draft) })),
+    [],
+  );
   const [reasonByRole, setReasonByRole] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<PermissionHistoryRow[]>([]);
   const [historyStatus, setHistoryStatus] = useState<HistoryUiStatus>("idle");
@@ -57,24 +73,32 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
   );
   const savingRolesRef = useRef<Set<string>>(new Set());
 
-  const applyMatrix = useCallback(
-    (data: PermissionMatrix, replacedRole?: string) => {
-      setMatrix(data);
-      setDraft((prev) =>
-        mergeMatrixIntoDraft(prev, data.byRole, data.roles, replacedRole),
-      );
-    },
-    [],
-  );
+  /** Dirty drafts keep their own baseVersion; remote changes surface as conflicts. */
+  const applyMatrix = useCallback((data: PermissionMatrix) => {
+    setMatrix(data);
+    setEditor((e) =>
+      reconcileMatrixIntoDraft(e.draft, e.bases, data),
+    );
+  }, []);
 
-  /** Full matrix load; optionally preserve dirty drafts except one replaced role. */
-  const refresh = useCallback(
-    async (replacedRole?: string) => {
-      const data = await fetchPermissionMatrix();
-      applyMatrix(data, replacedRole);
-      return data;
-    },
-    [applyMatrix],
+  /** Full matrix load; never discards local edits (conflicts are flagged instead). */
+  const refresh = useCallback(async () => {
+    const data = await fetchPermissionMatrix();
+    applyMatrix(data);
+    return data;
+  }, [applyMatrix]);
+
+  /** Explicit reconcile: drop the local draft for `role` and adopt the remote one. */
+  function acceptRemote(role: string) {
+    if (!matrix || savingRolesRef.current.has(role)) return;
+    setEditor((e) => reconcileMatrixIntoDraft(e.draft, e.bases, matrix, role));
+    setFeedback(null);
+  }
+
+  const conflictRoles = new Set<string>(
+    (matrix?.roles ?? []).filter((r) =>
+      isRoleConflict(bases[r], matrix?.versions?.[r]),
+    ),
   );
 
   useEffect(() => {
@@ -171,6 +195,12 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
   async function saveRole(role: string) {
     const body = draft[role];
     if (!body) return;
+    const roleLabel = ROLE_LABELS[role as Role] ?? role;
+    // Never save an old draft under a newer remote version.
+    if (conflictRoles.has(role)) {
+      setFeedback(saveFeedbackForDraftConflict(roleLabel));
+      return;
+    }
 
     const started = beginPermissionsSave(savingRolesRef.current, role);
     if (!started) return;
@@ -179,14 +209,13 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
     setError(null);
     setFeedback(null);
 
-    const roleLabel = ROLE_LABELS[role as Role] ?? role;
     try {
       const outcome = await runPermissionsSave(
         {
           role,
           roleLabel,
           draft: body,
-          expectedVersion: matrix?.versions?.[role],
+          expectedVersion: bases[role]?.version,
           reason: reasonByRole[role]?.trim() || undefined,
           savingRoles: new Set(), // already gated via beginPermissionsSave
         },
@@ -201,7 +230,8 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
             await reloadHistoryIfVisible();
           },
           reloadOnConflict: async () => {
-            await refresh(role);
+            // Keeps the draft; the role is now flagged as conflicting.
+            await refresh();
           },
           isConflictError: (err) =>
             err instanceof ApiRequestError && err.status === 409,
@@ -215,12 +245,22 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
 
       if (outcome.saved) {
         const result = outcome.saved;
-        setDraft((prev) =>
-          applySavedRoleToDraft(prev, role, {
+        setEditor((e) => ({
+          draft: applySavedRoleToDraft(e.draft, role, {
             panels: result.panels,
             actions: result.actions,
           }),
-        );
+          bases: {
+            ...e.bases,
+            [role]: {
+              version: result.version,
+              grants: {
+                panels: [...result.panels],
+                actions: [...result.actions],
+              },
+            },
+          },
+        }));
         setMatrix((prev) =>
           prev
             ? {
@@ -337,6 +377,19 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                       {!editableSet.has(role) && (
                         <div className="muted">read-only</div>
                       )}
+                      {conflictRoles.has(role) && (
+                        <div className="error">
+                          conflict
+                          <button
+                            type="button"
+                            className="linkish"
+                            disabled={savingRoles.has(role)}
+                            onClick={() => acceptRemote(role)}
+                          >
+                            Приеми сървърната
+                          </button>
+                        </div>
+                      )}
                     </th>
                   ))}
                   <th>
@@ -405,7 +458,9 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
                           />
                           <button
                             type="button"
-                            disabled={savingRoles.has(role)}
+                            disabled={
+                              savingRoles.has(role) || conflictRoles.has(role)
+                            }
                             onClick={() => saveRole(role)}
                           >
                             {savingRoles.has(role) ? "…" : "Save"}

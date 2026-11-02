@@ -1,15 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { t } from "../i18n";
-
-/** Mirrors CardsPage CARD_TYPES labels without importing React page. */
-const CARD_TYPES = [
-  { id: "guest", bg: "Гост", en: "Guest" },
-  { id: "housekeeper", bg: "Камериерка", en: "Housekeeper" },
-  { id: "maintenance", bg: "Поддръжка", en: "Maintenance" },
-  { id: "manager", bg: "Мениджър", en: "Manager" },
-  { id: "master", bg: "Мастър", en: "Master" },
-] as const;
+import { CARD_TYPES } from "./cards/cardLabels";
 
 describe("CardsPage i18n labels", () => {
   it("switches card type labels by locale", () => {

@@ -46,11 +46,15 @@ test.describe("readiness blocking flow", () => {
     await openNav(page, /Стаи|Rooms/);
     await page.getByLabel(/Търсене|Search/).fill(room.number);
     await expect(roomRow()).toBeVisible({ timeout: 20_000 });
-    const completeBtn = roomRow().getByRole("button", { name: "Complete" });
+    // Board uses publicSettings.interface.locale (typically bg) via boardT.
+    const completeBtn = roomRow().getByRole("button", {
+      name: /Завърши|Complete/,
+    });
     await expect(completeBtn).toBeVisible({ timeout: 20_000 });
     await completeBtn.click();
+    // Cleaning status pill (localized label; avoid matching readiness reasons).
     await expect(
-      roomRow().getByText(/^awaiting_inspection\b/),
+      roomRow().locator(".pill.cleaning-pending_inspection"),
     ).toBeVisible({ timeout: 15_000 });
 
     await page.getByRole("button", { name: "Log out" }).click();
@@ -61,10 +65,14 @@ test.describe("readiness blocking flow", () => {
     await openNav(page, /Стаи|Rooms/);
     await page.getByLabel(/Търсене|Search/).fill(room.number);
     await expect(roomRow()).toBeVisible({ timeout: 20_000 });
-    const approveBtn = roomRow().getByRole("button", { name: "Approve" });
+    const approveBtn = roomRow().getByRole("button", {
+      name: /Одобри|Approve/,
+    });
     await expect(approveBtn).toBeVisible({ timeout: 20_000 });
     await approveBtn.click();
-    await expect(page.getByText(new RegExp(`Approved.*${room.number}`, "i"))).toBeVisible({
+    await expect(
+      page.getByText(new RegExp(`(Одобрена|Approved).*${room.number}`, "i")),
+    ).toBeVisible({
       timeout: 15_000,
     });
     await expect(roomRow().locator(".pill.cleaning-verified_clean")).toBeVisible({

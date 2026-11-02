@@ -1,11 +1,11 @@
 /**
  * Dispatch one sync command by type and map AppError status to SyncCommandResult.
+ * Zod-parses the payload once, then hands a typed command to the handler.
  * 403 → forbidden, 409 → conflict; unknown types → error.
  */
 import { Prisma } from "@prisma/client";
 import { AppError } from "../../errors";
 import { safeErrorMessage } from "../../observability";
-import { z } from "zod/v3";
 import type { AuthUser } from "../../auth/tokens";
 import { resolveDataScope } from "../dataScope";
 import {
@@ -22,31 +22,11 @@ import {
   handleTicketStart,
   handleTicketWait,
 } from "./commands/tickets";
-import { maintenanceTicketReportSchema } from "../maintenance/validation/ticketReportSchema";
+import {
+  syncCommandSchemas,
+  type ParsedSyncCommand,
+} from "./commandSchemas";
 import type { SyncCommand, SyncCommandResult } from "./types";
-
-const id = z.string().min(1);
-const version = z.number().int().positive().optional();
-
-const payloadSchemas: Record<string, z.ZodTypeAny> = {
-  "cleaning.start": z.object({ taskId: id, expectedVersion: version }),
-  "cleaning.complete": z.object({
-    sessionId: id,
-    expectedVersion: version,
-    notes: z.string().optional(),
-  }),
-  "ticket.report": maintenanceTicketReportSchema,
-  "ticket.start": z.object({ ticketId: id }),
-  "ticket.wait": z.object({ ticketId: id, reason: z.string().optional() }),
-  "ticket.resume": z.object({ ticketId: id }),
-  "ticket.resolve": z.object({
-    ticketId: id,
-    resolutionNotes: z.string().optional(),
-  }),
-  "ticket.assign": z.object({ ticketId: id, assigneeId: id }),
-  "ticket.close": z.object({ ticketId: id }),
-  "ticket.reopen": z.object({ ticketId: id, reason: z.string().optional() }),
-};
 
 /** Prisma codes that usually mean the database is temporarily unavailable. */
 const TRANSIENT_PRISMA_CODES = new Set([
@@ -69,6 +49,87 @@ const PERMANENT_PRISMA_CODES = new Set([
   "P2025", // record not found
 ]);
 
+function parseSyncCommand(
+  cmd: SyncCommand,
+):
+  | { ok: true; parsed: ParsedSyncCommand }
+  | { ok: false; result: SyncCommandResult } {
+  const entry = Object.hasOwn(syncCommandSchemas, cmd.type)
+    ? syncCommandSchemas[cmd.type as ParsedSyncCommand["type"]]
+    : undefined;
+  if (!entry) {
+    return {
+      ok: false,
+      result: {
+        commandId: cmd.commandId,
+        status: "error",
+        message: `Unknown command type ${cmd.type}`,
+        retryable: false,
+      },
+    };
+  }
+  const parsedPayload = entry.schema.safeParse(cmd.payload);
+  if (!parsedPayload.success) {
+    return {
+      ok: false,
+      result: {
+        commandId: cmd.commandId,
+        status: "error",
+        code: "validation",
+        message: "Invalid command payload",
+        retryable: false,
+      },
+    };
+  }
+  return {
+    ok: true,
+    parsed: {
+      commandId: cmd.commandId,
+      type: entry.type,
+      payload: parsedPayload.data,
+      clientTime: cmd.clientTime,
+    } as ParsedSyncCommand,
+  };
+}
+
+async function dispatchParsed(
+  user: AuthUser,
+  scope: Awaited<ReturnType<typeof resolveDataScope>>,
+  cmd: ParsedSyncCommand,
+): Promise<SyncCommandResult> {
+  switch (cmd.type) {
+    case "cleaning.start":
+      return await handleCleaningStart(user, scope, cmd);
+    case "cleaning.complete":
+      return await handleCleaningComplete(user, scope, cmd);
+    case "ticket.report":
+      return await handleTicketReport(user, scope, cmd);
+    case "ticket.start":
+      return await handleTicketStart(user, scope, cmd);
+    case "ticket.wait":
+      return await handleTicketWait(user, scope, cmd);
+    case "ticket.resume":
+      return await handleTicketResume(user, scope, cmd);
+    case "ticket.resolve":
+      return await handleTicketResolve(user, scope, cmd);
+    case "ticket.assign":
+      return await handleTicketAssign(user, scope, cmd);
+    case "ticket.close":
+      return await handleTicketClose(user, scope, cmd);
+    case "ticket.reopen":
+      return await handleTicketReopen(user, scope, cmd);
+    default: {
+      const _exhaustive: never = cmd;
+      return {
+        commandId: (_exhaustive as ParsedSyncCommand).commandId,
+        status: "error",
+        message: "Unknown command type",
+        retryable: false,
+      };
+    }
+  }
+}
+
 /**
  * Resolve the user's data scope once, then hand off to a typed handler.
  * Handlers may further remap access-loss 403s to conflict (see conflicts.ts).
@@ -78,52 +139,11 @@ export async function applyCommand(
   cmd: SyncCommand,
 ): Promise<SyncCommandResult> {
   try {
-    const schema = Object.hasOwn(payloadSchemas, cmd.type)
-      ? payloadSchemas[cmd.type]
-      : undefined;
-    if (schema && !schema.safeParse(cmd.payload).success) {
-      return {
-        commandId: cmd.commandId,
-        status: "error",
-        code: "validation",
-        message: "Invalid command payload",
-        retryable: false,
-      };
-    }
-    // Scope once per command so handlers share the same sector/assignment view.
-    const scope = await resolveDataScope(user);
+    const parsed = parseSyncCommand(cmd);
+    if (!parsed.ok) return parsed.result;
 
-    // Dispatch by offline command type; handlers own validation + mutations.
-    switch (cmd.type) {
-      case "cleaning.start":
-        return await handleCleaningStart(user, scope, cmd);
-      case "cleaning.complete":
-        return await handleCleaningComplete(user, scope, cmd);
-      case "ticket.report":
-        return await handleTicketReport(user, scope, cmd);
-      case "ticket.start":
-        return await handleTicketStart(user, scope, cmd);
-      case "ticket.wait":
-        return await handleTicketWait(user, scope, cmd);
-      case "ticket.resume":
-        return await handleTicketResume(user, scope, cmd);
-      case "ticket.resolve":
-        return await handleTicketResolve(user, scope, cmd);
-      case "ticket.assign":
-        return await handleTicketAssign(user, scope, cmd);
-      case "ticket.close":
-        return await handleTicketClose(user, scope, cmd);
-      case "ticket.reopen":
-        return await handleTicketReopen(user, scope, cmd);
-      default:
-        // Forward-compat: unknown types fail soft so the batch can continue.
-        return {
-          commandId: cmd.commandId,
-          status: "error",
-          message: `Unknown command type ${cmd.type}`,
-          retryable: false,
-        };
-    }
+    const scope = await resolveDataScope(user);
+    return await dispatchParsed(user, scope, parsed.parsed);
   } catch (err) {
     // Map AppError HTTP statuses into sync result statuses for the client.
     if (err instanceof AppError) {
@@ -178,7 +198,6 @@ export async function applyCommand(
           retryable: true,
         };
       }
-      // Unique / FK / data conflicts after domain handlers are permanent for the client.
       return {
         commandId: cmd.commandId,
         status: "error",
@@ -204,7 +223,6 @@ export async function applyCommand(
       };
     }
 
-    // Unexpected throws become opaque error results (batch continues).
     return {
       commandId: cmd.commandId,
       status: "error",

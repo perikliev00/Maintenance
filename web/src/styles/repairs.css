@@ -5,10 +5,34 @@
   align-items: start;
 }
 
+.repairs-side,
+.repairs-side .stack,
+.repairs-side label {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .repairs-side .stack {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+}
+
+/* Native <select> sizes to the widest <option>; long room/assignee labels must
+   not expand the document past the viewport (mobile E2E overflow check). */
+.repairs-side select,
+.repairs-side input,
+.repairs-side textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.filters-row select,
+.filters-row input {
+  max-width: min(100%, 18rem);
+  box-sizing: border-box;
 }
 
 .repairs-page,

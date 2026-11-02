@@ -10,7 +10,7 @@ import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { applyTheme, getStoredTheme } from "./theme";
-import { drainQueue } from "./offline";
+import { drainQueue } from "./offline/drainBoot";
 import "./index.css";
 
 applyTheme(getStoredTheme());

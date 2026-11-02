@@ -33,7 +33,7 @@ import {
 import type {
   FlagsSettings,
   OperationsSettings,
-} from "../../src/services/settingsSchema";
+} from "../../src/services/settings/schema";
 import {
   cleanupEmployeeGraph,
   createEmployeeWithUser,
