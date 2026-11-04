@@ -16,6 +16,7 @@
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
+    "deepmerge": "file:./vendor/deepmerge",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -37,6 +38,9 @@
   "overrides": {
     "fast-uri": "3.1.9",
     "qs": "6.16.1",
-    "serialize-javascript": "7.1.3"
+    "serialize-javascript": "7.1.3",
+    "glob": "14.0.2",
+    "minimatch": "11.0.1",
+    "deepmerge": "$deepmerge"
   }
 }
