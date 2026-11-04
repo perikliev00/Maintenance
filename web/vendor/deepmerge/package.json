@@ -3,7 +3,7 @@
   "description": "Patched deepmerge 4.3.2 (GHSA-gcqx-w48m-w2h4). See SECURITY.md.",
   "version": "4.3.2",
   "homepage": "https://github.com/TehShrike/deepmerge",
-  "main": "dist/cjs.js",
+  "main": "index.js",
   "types": "index.d.ts",
   "engines": {
     "node": ">=0.10.0"
