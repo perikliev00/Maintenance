@@ -7,11 +7,15 @@ import { addBusyId, isBusy, removeBusyId } from "./locations/busyIds";
 import { createDebouncedSearch } from "./team/debouncedSearch";
 import {
   assignedEmployeeIdPayload,
+  bannerAfterLoad,
   controlLoadPlan,
   defaultTaskAssigneeIfNeeded,
   formatRoleConflicts,
   mergeMutationAndRefresh,
+  mergeRecentTickets,
   mergeRoleDraftsOnRefresh,
+  replaceSectionErrors,
+  sectionErrorViews,
   sectionFromSettled,
   settleOptional,
   shouldApplyControlRefresh,
@@ -265,5 +269,103 @@ describe("mutation success vs refresh failure", () => {
         refreshWarning: "Failed to reload",
       },
     );
+  });
+});
+
+describe("per-section error slots", () => {
+  it("a load replaces only the slots it covers", () => {
+    const prev = { people: "people down", rooms: "rooms down" };
+    const next = replaceSectionErrors(prev, ["people"], {});
+    assert.deepEqual(next, { rooms: "rooms down" });
+    assert.deepEqual(prev, { people: "people down", rooms: "rooms down" });
+
+    const failed = replaceSectionErrors(
+      { rooms: "rooms down" },
+      ["openTickets", "resolvedTickets", "closedTickets"],
+      { closedTickets: "closed down" },
+    );
+    assert.deepEqual(failed, {
+      rooms: "rooms down",
+      closedTickets: "closed down",
+    });
+  });
+
+  it("maps slots to the section that owns them", () => {
+    assert.deepEqual(
+      sectionErrorViews({
+        people: "p",
+        assignees: "a",
+        resolvedTickets: "r",
+        closedTickets: "c",
+        housekeepers: "h",
+      }),
+      {
+        peopleError: "p",
+        ticketsError: "a",
+        recentError: "r",
+        cleaningError: "h",
+      },
+    );
+    assert.equal(sectionErrorViews({ rooms: "r" }).peopleError, undefined);
+    assert.equal(sectionErrorViews({ people: "p" }).ticketsError, undefined);
+    assert.equal(
+      sectionErrorViews({ openTickets: "o", assignees: "a" }).ticketsError,
+      "o",
+    );
+  });
+
+  it("page banner: first error only during initial load, cleared when all sections recover", () => {
+    // Fixed slot order decides which error leads, not report order.
+    assert.deepEqual(
+      bannerAfterLoad({ rooms: "rooms", people: "people" }, true),
+      { action: "set", message: "people" },
+    );
+    assert.deepEqual(bannerAfterLoad({ rooms: "rooms" }, false), {
+      action: "keep",
+    });
+    assert.deepEqual(bannerAfterLoad({}, false), { action: "clear" });
+    assert.deepEqual(bannerAfterLoad({}, true), { action: "clear" });
+  });
+
+  it("another section's error keeps the banner while one section recovers", () => {
+    const afterTicketsOk = replaceSectionErrors(
+      { people: "people down" },
+      ["openTickets", "resolvedTickets", "closedTickets"],
+      {},
+    );
+    assert.deepEqual(bannerAfterLoad(afterTicketsOk, false), {
+      action: "keep",
+    });
+  });
+});
+
+describe("recent tickets merge", () => {
+  it("dedupes resolved and closed by id, closed winning", () => {
+    const merged = mergeRecentTickets(
+      [
+        { id: "1", status: "resolved" },
+        { id: "2", status: "resolved" },
+      ],
+      [
+        { id: "2", status: "closed" },
+        { id: "3", status: "closed" },
+      ],
+    );
+    assert.deepEqual(merged, [
+      { id: "1", status: "resolved" },
+      { id: "2", status: "closed" },
+      { id: "3", status: "closed" },
+    ]);
+  });
+
+  it("uses whichever feed loaded; null keeps the previous list", () => {
+    assert.deepEqual(mergeRecentTickets([{ id: "1" }], undefined), [
+      { id: "1" },
+    ]);
+    assert.deepEqual(mergeRecentTickets(undefined, [{ id: "9" }]), [
+      { id: "9" },
+    ]);
+    assert.deepEqual(mergeRecentTickets([], []), []);
+    assert.equal(mergeRecentTickets(undefined, undefined), null);
   });
 });

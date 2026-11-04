@@ -10,6 +10,11 @@ import {
   deliverOutboxIntent,
   flushOutbox,
 } from "../notifications/outboxRuntime";
+import {
+  countOutboxBacklog,
+  listEligibleOutboxKeys,
+  recordOutboxFailure,
+} from "../notifications/outboxAdapterHelpers";
 
 /** Snapshot recipients/content with the complete command — replay stays stable. */
 export async function enqueueCleaningInspectionNotice(
@@ -40,7 +45,12 @@ const cleaningAdapters = {
   markDelivered: async (commandId: string) => {
     await prisma.cleaningNotificationOutbox.update({
       where: { commandId },
-      data: { deliveredAt: new Date() },
+      data: {
+        deliveredAt: new Date(),
+        nextAttemptAt: null,
+        failedPermanentlyAt: null,
+        lastError: null,
+      },
     });
   },
 };
@@ -55,15 +65,11 @@ export async function deliverCleaningInspectionNotice(
 /** Bounded background recovery for crash / first-delivery failure. */
 export async function flushCleaningNotificationOutbox() {
   return flushOutbox({
-    listPendingKeys: async () => {
-      const intents = await prisma.cleaningNotificationOutbox.findMany({
-        where: { deliveredAt: null },
-        orderBy: [{ createdAt: "asc" }, { commandId: "asc" }],
-        take: 100,
-      });
-      return intents.map((i) => i.commandId);
-    },
+    listEligibleKeys: () => listEligibleOutboxKeys(prisma, "cleaning"),
     deliver: deliverCleaningInspectionNotice,
+    recordFailure: (key, kind, message) =>
+      recordOutboxFailure(prisma, "cleaning", key, kind, message),
+    countBacklog: () => countOutboxBacklog(prisma, "cleaning"),
     errorLabel: "Cleaning notification delivery failed",
   });
 }

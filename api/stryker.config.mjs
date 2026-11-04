@@ -10,7 +10,8 @@ export default {
       'src/services/roleGrants/normalize.test.ts',
       'src/services/cleaning/deriveServiceType.test.ts',
     ],
-    nodeArgs: ['--import', 'tsx'],
+    // Node >= 23 prints the spec reporter even when piped; tap-runner parses TAP only.
+    nodeArgs: ['--test-reporter=tap', '--import', 'tsx'],
     forceBail: true,
   },
   mutate: [
@@ -32,7 +33,10 @@ export default {
   reporters: ['clear-text', 'html', 'json', 'progress'],
   htmlReporter: { fileName: 'reports/stryker.html' },
   jsonReporter: { fileName: 'reports/stryker.json' },
-  thresholds: { high: 80, low: 60, break: null },
+  // Blocking gate for the targeted critical-logic scope (see docs/testing/MUTATION_TESTING.md).
+  // Measured baseline 98.66 % (295 killed / 4 survived, 2026-11-03);
+  // break = baseline - ~4 points (about 12 extra undetected mutants).
+  thresholds: { high: 98, low: 96, break: 95 },
 };
 
 

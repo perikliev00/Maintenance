@@ -317,10 +317,12 @@ describe("attendance adjustment atomicity (TD-05)", () => {
         }),
       (err: unknown) => err instanceof AppError && err.status === 409,
     );
-    assert.deepEqual(await flushAttendanceNotificationOutbox(), {
-      delivered: 0,
-      pending: 0,
-    });
+    {
+      const empty = await flushAttendanceNotificationOutbox();
+      assert.equal(empty.delivered, 0);
+      assert.equal(empty.pending, 0);
+      assert.equal(empty.backlog, 0);
+    }
   });
 
   it("request notice failure keeps request success; background flush delivers without duplicates", async () => {

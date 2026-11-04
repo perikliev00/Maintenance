@@ -13,6 +13,33 @@ type Props = {
 };
 
 /**
+ * Shown when diagnostics never loaded successfully (no prior counts to show).
+ * Isolated from settings errors: settings stay editable while this is visible.
+ */
+export function SystemStatusUnavailable({
+  label,
+  onRetry,
+}: {
+  label: LabelFn;
+  onRetry: () => void;
+}) {
+  return (
+    <section className="panel settings-system">
+      <h2>{label("Системно състояние", "System status")}</h2>
+      <p className="error">
+        {label(
+          "Диагностиката е недостъпна (вероятно проблем с базата или сесията).",
+          "Diagnostics unavailable (likely database or session failure).",
+        )}
+      </p>
+      <button type="button" onClick={onRetry}>
+        {label("Опитай отново", "Retry")}
+      </button>
+    </section>
+  );
+}
+
+/**
  * Read-only API/DB health tiles and live entity counts from `fetchSystemStatus`.
  */
 export function SystemStatusSection({

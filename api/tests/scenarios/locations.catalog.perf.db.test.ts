@@ -145,7 +145,7 @@ describe("locations catalog performance", () => {
     console.log("\n[PERF 1k] elapsedMs=", elapsedMs, "\n", plan, "\n");
   });
 
-  it("10_000 locations: page 1 and mid-page stay bounded (number-first)", async () => {
+  it("10_000 locations: broad prefix stays paged and number-first (no index plan mandate)", async () => {
     assert.ok(world);
     const existing = await prisma.location.count({
       where: { floorId: world.floorId, number: { startsWith: PREFIX } },
@@ -157,6 +157,8 @@ describe("locations catalog performance", () => {
       where: { floorId: world.floorId, number: { startsWith: PREFIX } },
     });
     assert.ok(seeded >= 10_000, `seeded=${seeded}`);
+    // Refresh planner stats after bulk insert so EXPLAIN is meaningful.
+    await prisma.$executeRawUnsafe(`ANALYZE "Location"`);
 
     const numberHits = await countNumberHits(PREFIX);
     assert.ok(
@@ -164,7 +166,8 @@ describe("locations catalog performance", () => {
       `expected number-first path; numberHits=${numberHits}`,
     );
 
-    // Scope metrics to the perf prefix so other fixtures do not dilute asserts.
+    // Broad prefix matches ~all fixtures — planner may Seq Scan / Bitmap Heap
+    // without Location_number_trgm_idx. Assert pagination + latency, not plan.
     const first = await listLocationsCatalog({
       includeArchived: false,
       page: 1,
@@ -174,6 +177,7 @@ describe("locations catalog performance", () => {
     assert.ok(!Array.isArray(first));
     assert.ok(first.items.length <= 25);
     assert.ok(first.total >= 10_000, `total=${first.total}`);
+    assert.equal(first.items.length, Math.min(25, first.total));
 
     const midPage = Math.min(200, first.totalPages);
     const t0 = Date.now();
@@ -190,7 +194,7 @@ describe("locations catalog performance", () => {
 
     const plan = await explainPagedCatalog(PREFIX, 25);
     console.log(
-      "\n[PERF 10k number-first] midPage=",
+      "\n[PERF 10k broad prefix] midPage=",
       midPage,
       "elapsedMs=",
       elapsedMs,
@@ -209,15 +213,61 @@ describe("locations catalog performance", () => {
       /Join Filter:.*~~\*.*OR/i,
       "number-first EXPLAIN must not use broad OR Join Filter",
     );
+  });
+
+  it("10_000 locations: selective number search uses Location_number_trgm_idx", async () => {
+    assert.ok(world);
+    const seeded = await prisma.location.count({
+      where: { floorId: world.floorId, number: { startsWith: PREFIX } },
+    });
+    assert.ok(
+      seeded >= 10_000,
+      `selective case requires prior 10k seed; seeded=${seeded}`,
+    );
+    await prisma.$executeRawUnsafe(`ANALYZE "Location"`);
+
+    // Highly selective substring: one fixture row (PREFIX + zero-padded index).
+    const selectiveQ = `${PREFIX}000042`;
+    const hits = await countNumberHits(selectiveQ);
+    assert.ok(hits >= 1 && hits <= 5, `selective hits=${hits}`);
+
+    const page = await listLocationsCatalog({
+      includeArchived: false,
+      page: 1,
+      pageSize: 25,
+      q: selectiveQ,
+    });
+    assert.ok(!Array.isArray(page));
+    assert.ok(page.items.length <= 25);
+    assert.ok(page.total >= 1 && page.total <= 5, `total=${page.total}`);
+    assert.ok(page.items.every((row) => row.number.includes(selectiveQ)));
+
+    const plan = await explainPagedCatalog(selectiveQ, 25);
+    console.log(
+      "\n[PERF 10k selective] q=",
+      selectiveQ,
+      "hits=",
+      hits,
+      "\n",
+      plan,
+      "\n",
+    );
+    assert.match(plan, /Execution Time/i);
+    assert.doesNotMatch(
+      plan,
+      /Join Filter:.*~~\*.*OR/i,
+      "selective number-first must not use broad OR Join Filter",
+    );
+    // Controlled selectivity + ANALYZE: regression if trgm GIN is dropped/ignored.
     assert.match(
       plan,
       /Location_number_trgm_idx/i,
-      "number-first EXPLAIN must use Location_number_trgm_idx",
+      "selective number-first EXPLAIN must use Location_number_trgm_idx",
     );
   });
 
   it(
-    "100_000 locations (opt-in LOCATIONS_PERF_100K=1)",
+    "100_000 locations selective (opt-in LOCATIONS_PERF_100K=1)",
     { skip: process.env.LOCATIONS_PERF_100K !== "1" },
     async () => {
       assert.ok(world);
@@ -227,24 +277,43 @@ describe("locations catalog performance", () => {
       if (existing < 100_000) {
         await seedLocations(world, 100_000 - existing, existing);
       }
+      await prisma.$executeRawUnsafe(`ANALYZE "Location"`);
       const numberHits = await countNumberHits(PREFIX);
       assert.ok(numberHits >= 100_000, `numberHits=${numberHits}`);
 
-      const t0 = Date.now();
-      const page = await listLocationsCatalog({
+      // Broad prefix: pagination budget only (planner may skip trgm when ~all match).
+      const broadT0 = Date.now();
+      const broad = await listLocationsCatalog({
         includeArchived: false,
         page: 1,
         pageSize: 50,
         q: PREFIX,
       });
+      const broadMs = Date.now() - broadT0;
+      assert.ok(!Array.isArray(broad));
+      assert.ok(broad.items.length <= 50);
+      assert.ok(broad.total >= 100_000, `total=${broad.total}`);
+      assert.ok(broadMs < 15_000, `100k broad page1 took ${broadMs}ms`);
+
+      const selectiveQ = `${PREFIX}000042`;
+      const t0 = Date.now();
+      const page = await listLocationsCatalog({
+        includeArchived: false,
+        page: 1,
+        pageSize: 50,
+        q: selectiveQ,
+      });
       const elapsedMs = Date.now() - t0;
       assert.ok(!Array.isArray(page));
       assert.ok(page.items.length <= 50);
+      assert.ok(page.total >= 1 && page.total <= 5);
 
-      const plan = await explainPagedCatalog(PREFIX, 50);
+      const plan = await explainPagedCatalog(selectiveQ, 50);
       console.log(
-        "\n[PERF 100k number-first] elapsedMs=",
+        "\n[PERF 100k selective] elapsedMs=",
         elapsedMs,
+        "broadMs=",
+        broadMs,
         "total=",
         page.total,
         "\n",
@@ -256,10 +325,9 @@ describe("locations catalog performance", () => {
       assert.match(
         plan,
         /Location_number_trgm_idx/i,
-        "100k number-first EXPLAIN must use Location_number_trgm_idx",
+        "100k selective EXPLAIN must use Location_number_trgm_idx",
       );
-      assert.ok(page.total >= 100_000, `total=${page.total}`);
-      assert.ok(elapsedMs < 15_000, `100k page1 took ${elapsedMs}ms`);
+      assert.ok(elapsedMs < 15_000, `100k selective page1 took ${elapsedMs}ms`);
     },
   );
 });

@@ -9,6 +9,11 @@ import {
   deliverOutboxIntent,
   flushOutbox,
 } from "../notifications/outboxRuntime";
+import {
+  countOutboxBacklog,
+  listEligibleOutboxKeys,
+  recordOutboxFailure,
+} from "../notifications/outboxAdapterHelpers";
 import type { Tx, TicketWithRelations } from "./types";
 
 /** Snapshot recipients/content now, so replay never uses a later ticket state. */
@@ -65,7 +70,12 @@ const ticketAdapters = {
   markDelivered: async (eventId: string) => {
     await prisma.ticketNotificationOutbox.update({
       where: { eventId },
-      data: { deliveredAt: new Date() },
+      data: {
+        deliveredAt: new Date(),
+        nextAttemptAt: null,
+        failedPermanentlyAt: null,
+        lastError: null,
+      },
     });
   },
 };
@@ -78,15 +88,11 @@ export async function deliverTicketOutcome(eventId: string): Promise<void> {
 /** Bounded background recovery also covers crashes and online calls without commandId. */
 export async function flushTicketNotificationOutbox() {
   return flushOutbox({
-    listPendingKeys: async () => {
-      const intents = await prisma.ticketNotificationOutbox.findMany({
-        where: { deliveredAt: null },
-        orderBy: [{ createdAt: "asc" }, { eventId: "asc" }],
-        take: 100,
-      });
-      return intents.map((i) => i.eventId);
-    },
+    listEligibleKeys: () => listEligibleOutboxKeys(prisma, "ticket"),
     deliver: deliverTicketOutcome,
+    recordFailure: (key, kind, message) =>
+      recordOutboxFailure(prisma, "ticket", key, kind, message),
+    countBacklog: () => countOutboxBacklog(prisma, "ticket"),
     errorLabel: "Ticket notification delivery failed",
   });
 }

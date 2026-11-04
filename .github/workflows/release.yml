@@ -36,4 +36,4 @@ jobs:
           docker buildx build --sbom=true --provenance=mode=max --push --target migrate -t "$owner/maintenance-migrate:$RELEASE_SHA" ./api
           docker buildx build --sbom=true --provenance=mode=max --push --target bootstrap -t "$owner/maintenance-bootstrap:$RELEASE_SHA" ./api
           docker buildx build --sbom=true --provenance=mode=max --push --target owner-bootstrap -t "$owner/maintenance-owner:$RELEASE_SHA" ./api
-          docker buildx build --sbom=true --provenance=mode=max --push --target web -t "$owner/maintenance-web:$RELEASE_SHA" ./web
+          docker buildx build --sbom=true --provenance=mode=max --push --target web -f web/Dockerfile -t "$owner/maintenance-web:$RELEASE_SHA" .

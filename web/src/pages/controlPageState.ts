@@ -189,6 +189,108 @@ export async function settleOptional<T>(
   }
 }
 
+/**
+ * Error slots, in the fixed order the first-error banner uses. Each slot is
+ * owned by exactly one Control section (see `sectionErrorViews`).
+ */
+export const CONTROL_ERROR_KEYS = [
+  "people",
+  "assignees",
+  "openTickets",
+  "resolvedTickets",
+  "closedTickets",
+  "rooms",
+  "housekeepers",
+] as const;
+
+export type ControlErrorKey = (typeof CONTROL_ERROR_KEYS)[number];
+export type ControlSectionErrors = Partial<Record<ControlErrorKey, string>>;
+
+/**
+ * Outcome of one section load. `stale` = a newer load of that section
+ * superseded it (or the page unmounted): nothing was applied or reported.
+ * `scope` lists every error slot the load covers, so a success clears them.
+ */
+export type SectionLoadResult =
+  | { status: "stale" }
+  | {
+      status: "done";
+      scope: readonly ControlErrorKey[];
+      errors: ControlSectionErrors;
+    };
+
+/** Replace only the slots a load covered; other sections' errors survive. */
+export function replaceSectionErrors(
+  prev: ControlSectionErrors,
+  scope: readonly ControlErrorKey[],
+  next: ControlSectionErrors,
+): ControlSectionErrors {
+  const merged: ControlSectionErrors = { ...prev };
+  for (const key of scope) delete merged[key];
+  for (const key of CONTROL_ERROR_KEYS) {
+    const message = next[key];
+    if (message !== undefined) merged[key] = message;
+  }
+  return merged;
+}
+
+export function firstSectionError(
+  errors: ControlSectionErrors,
+): string | undefined {
+  for (const key of CONTROL_ERROR_KEYS) {
+    const message = errors[key];
+    if (message !== undefined) return message;
+  }
+  return undefined;
+}
+
+/**
+ * Page-level error banner after a section load: surface the first section
+ * error only during the initial load; otherwise clear it once no section is
+ * failing; else leave whatever (e.g. an action error) is showing.
+ */
+export function bannerAfterLoad(
+  errors: ControlSectionErrors,
+  initialLoading: boolean,
+): { action: "set"; message: string } | { action: "clear" } | { action: "keep" } {
+  const first = firstSectionError(errors);
+  if (first !== undefined && initialLoading) {
+    return { action: "set", message: first };
+  }
+  if (first === undefined) return { action: "clear" };
+  return { action: "keep" };
+}
+
+/** Per-section error text; one failing section never hides another's data. */
+export function sectionErrorViews(errors: ControlSectionErrors): {
+  peopleError: string | undefined;
+  ticketsError: string | undefined;
+  recentError: string | undefined;
+  cleaningError: string | undefined;
+} {
+  return {
+    peopleError: errors.people,
+    ticketsError: errors.openTickets ?? errors.assignees,
+    recentError: errors.resolvedTickets ?? errors.closedTickets,
+    cleaningError: errors.rooms ?? errors.housekeepers,
+  };
+}
+
+/**
+ * Recent tickets = resolved ∪ closed (deduped by id). Only the feeds that
+ * loaded take part; returns null when neither loaded (keep the old list).
+ */
+export function mergeRecentTickets<T extends { id: string }>(
+  resolved: readonly T[] | undefined,
+  closed: readonly T[] | undefined,
+): T[] | null {
+  if (resolved === undefined && closed === undefined) return null;
+  const byId = new Map<string, T>();
+  for (const t of resolved ?? []) byId.set(t.id, t);
+  for (const t of closed ?? []) byId.set(t.id, t);
+  return [...byId.values()];
+}
+
 /** Stale HTTP responses must not clobber a newer refresh generation. */
 export function shouldApplyControlRefresh(
   responseGen: number,

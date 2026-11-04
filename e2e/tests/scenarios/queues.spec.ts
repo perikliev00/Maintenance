@@ -10,16 +10,27 @@ test("real My Work loads repairs beyond the first 50 without duplicate cards", a
   const room = await prepareVacantDirtyRoom(token);
   const option = await findActiveIssueOption(token);
   const prefix = `PAGE-${crypto.randomUUID()}`;
-  for (let i = 0; i < 55; i++) {
-    const created = await apiPost(token, "/maintenance/tickets", {
-      locationId: room.id, issueOptionId: option.id, blocksRoom: false,
-      title: `${prefix}-${i}`, commandId: crypto.randomUUID(),
-    });
-    expect(created.status).toBe(201);
-    const id = (created.body as { id: string }).id;
-    expect((await apiPost(token, `/maintenance/tickets/${id}/assign`, { assigneeId: tech.employeeId })).status).toBe(200);
-  }
+  // Cleanup must run even when setup fails mid-loop (duplicate prevention / assign).
   try {
+    for (let i = 0; i < 55; i++) {
+      // Same room+option is exact duplicate identity; allowDuplicate keeps prevention
+      // armed for non-override creates while this fixture seeds a paging volume.
+      const created = await apiPost(token, "/maintenance/tickets", {
+        locationId: room.id,
+        issueOptionId: option.id,
+        blocksRoom: false,
+        title: `${prefix}-${i}`,
+        commandId: crypto.randomUUID(),
+        allowDuplicate: true,
+        duplicateOverrideReason: "e2e my-work pagination fixture",
+      });
+      expect(
+        created.status,
+        `${prefix}-${i} → ${created.status} ${JSON.stringify(created.body)}`,
+      ).toBe(201);
+      const id = (created.body as { id: string }).id;
+      expect((await apiPost(token, `/maintenance/tickets/${id}/assign`, { assigneeId: tech.employeeId })).status).toBe(200);
+    }
     await uiLogin(page, tech.email);
     await openNav(page, /^(Моите задачи|My Work)$/);
     const cards = page.locator("article.mywork-card").filter({ hasText: prefix });

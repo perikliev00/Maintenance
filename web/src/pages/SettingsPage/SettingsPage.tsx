@@ -1,147 +1,107 @@
 /**
- * Admin settings shell: tabbed drafts patched with a required reason, plus
+ * Admin settings shell: tabbed drafts patched with an optional reason, plus
  * system status and optional issue catalog (`issue_options.manage`).
  *
- * Server bundle and local draft are separated so SSE refreshes do not wipe
- * unsaved edits. Saves send expectedVersion (optimistic concurrency). System
- * counts refresh on domain events without touching the draft.
+ * Lifecycles are owned by focused hooks; this component only wires them:
+ * - useSettingsServerState: last-known bundle, locale, SLA rows (read side)
+ * - useSettingsDraft: draft / reason / dirty / server-conflict rules
+ * - useSettingsSave: PATCH with expectedVersion + post-save refresh outcome
+ * - useSystemStatus: diagnostics polling; failure only marks stale
+ * - useSettingsHistory: timeline tab; failure scoped to that tab
+ * - useSlaPolicySave: immediate SLA edits; failure scoped to the SLA block
+ * - useSettingsFeedback: error/saved/refresh-warning banners for edits+saves
  */
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from "react";
-import {
-  fetchAllSettings,
-  fetchSettingsHistory,
-  fetchSlaPolicies,
-  fetchSystemStatus,
-  patchSetting,
-  updateSlaPolicy,
-  type AuthUser,
-  type SettingHistoryRow,
-  type SettingsBundle,
-  type SlaPolicyRow,
-  type SystemStatus,
-} from "../../api/client";
+import { useCallback, useEffect, useState } from "react";
+import { canPerformAction, type AuthUser } from "../../api/client";
 import { useBusyMutation } from "../../hooks/useBusyMutation";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import { IssueCatalogPanel } from "../../components/IssueCatalogPanel";
-import { canPerformAction } from "../../api/client";
 import { TABS, type Tab } from "./constants";
-import { SystemStatusSection } from "./SystemStatusSection";
+import {
+  SystemStatusSection,
+  SystemStatusUnavailable,
+} from "./SystemStatusSection";
 import { ModulesTab } from "./ModulesTab";
 import { FlagsTab } from "./FlagsTab";
 import { InterfaceTab } from "./InterfaceTab";
+import { OperationsTab } from "./OperationsTab";
 import { AccessTab } from "./AccessTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { HistoryTab } from "./HistoryTab";
-import {
-  applySettingsBundleRefresh,
-  classifySaveError,
-  isDraftDirty,
-  SETTINGS_BUNDLE_LIVE_EVENTS,
-  SYSTEM_STATUS_LIVE_EVENTS,
-} from "./settingsDraftLogic";
+import { isEditableTab, SETTINGS_BUNDLE_LIVE_EVENTS } from "./settingsDraftLogic";
+import { useSettingsDraft } from "./useSettingsDraft";
+import { useSettingsFeedback } from "./useSettingsFeedback";
+import { useSettingsHistory } from "./useSettingsHistory";
+import { useSettingsSave } from "./useSettingsSave";
+import { useSettingsServerState } from "./useSettingsServerState";
+import { useSlaPolicySave } from "./useSlaPolicySave";
+import { useSystemStatus } from "./useSystemStatus";
 import { labelFor } from "../../i18n";
 
 type Props = { user: AuthUser };
 
-function isEditableTab(tab: Tab): boolean {
-  return tab !== "history" && tab !== "issues";
-}
-
-/**
- * Admin settings shell: tabbed drafts patched with an optional reason, plus
- * system status and optional issue catalog (`issue_options.manage`).
- */
 export function SettingsPage({ user }: Props) {
   // Gate for the issue-catalog tab.
   const canManageIssues = canPerformAction(user, "issue_options.manage");
   const [tab, setTab] = useState<Tab>("modules");
-  const [bundle, setBundle] = useState<SettingsBundle | null>(null);
-  const [system, setSystem] = useState<SystemStatus | null>(null);
-  const [systemStale, setSystemStale] = useState(false);
-  const [systemSuccessAt, setSystemSuccessAt] = useState<string | null>(null);
-  const [history, setHistory] = useState<SettingHistoryRow[]>([]);
-  const [draft, setDraft] = useState<Record<string, unknown>>({});
-  const [reason, setReason] = useState("");
-  const [locale, setLocale] = useState<"bg" | "en">("bg");
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
-  const [serverConflict, setServerConflict] = useState(false);
-  const { busy, busyRef, runMutationWithRefresh } = useBusyMutation();
   const [loading, setLoading] = useState(true);
-  const [slaPolicies, setSlaPolicies] = useState<SlaPolicyRow[]>([]);
 
-  const draftRef = useRef(draft);
-  const bundleRef = useRef(bundle);
-  const tabRef = useRef(tab);
-  const systemRevisionRef = useRef(0);
-  draftRef.current = draft;
-  bundleRef.current = bundle;
-  tabRef.current = tab;
+  // One in-flight mutation at a time across settings saves and SLA edits.
+  const mutation = useBusyMutation();
+  const { busy } = mutation;
 
-  const label = labelFor(locale);
+  const feedback = useSettingsFeedback();
+  const server = useSettingsServerState();
+  const systemStatus = useSystemStatus({ liveEnabled: !loading });
+  const history = useSettingsHistory();
+  const draftState = useSettingsDraft({
+    tab,
+    bundle: server.bundle,
+    busyRef: mutation.busyRef,
+    clearFeedback: feedback.clearOutcome,
+  });
 
-  const currentServerValue = bundle?.[tab]?.value;
-  const dirty =
-    isEditableTab(tab) && isDraftDirty(draft, currentServerValue ?? draft);
+  const label = labelFor(server.locale);
+  const { dirty } = draftState;
 
-  /** Load settings bundle (+ SLA) without clobbering a dirty draft. */
-  const refreshSettings = useCallback(async (opts?: { forceDraft?: boolean }) => {
-    const [all, policies] = await Promise.all([
-      fetchAllSettings(),
-      fetchSlaPolicies().catch(() => [] as SlaPolicyRow[]),
-    ]);
-    setSlaPolicies(policies);
-    setBundle(all);
-    const iface = all.interface?.value as { locale?: "bg" | "en" } | undefined;
-    if (iface?.locale) setLocale(iface.locale);
+  const { load: loadServer } = server;
+  const { applyServerBundle } = draftState;
+  /** Load the server snapshot, then let the draft rules decide what to apply. */
+  const refreshSettings = useCallback(
+    async (opts?: { forceDraft?: boolean }) => {
+      applyServerBundle(await loadServer(), opts);
+    },
+    [loadServer, applyServerBundle],
+  );
 
-    const activeTab = tabRef.current;
-    if (!isEditableTab(activeTab) || !all[activeTab]) return;
-
-    const previous = bundleRef.current?.[activeTab]?.value;
-    const localDirty = isDraftDirty(draftRef.current, previous);
-    const applied = applySettingsBundleRefresh({
-      dirty: localDirty,
-      busy: busyRef.current,
-      forceDraft: opts?.forceDraft,
-      previousServerValue: previous,
-      nextServerValue: all[activeTab].value,
-      draft: draftRef.current,
-      reason: "",
-    });
-    if (applied.replaced) {
-      setDraft(applied.draft as Record<string, unknown>);
-    }
-    setServerConflict(applied.serverConflict);
-  }, []);
-
-  /** Refresh diagnostics only — never touches draft / reason. */
-  const refreshSystem = useCallback(async () => {
-    const mine = ++systemRevisionRef.current;
-    try {
-      const sys = await fetchSystemStatus();
-      if (mine !== systemRevisionRef.current) return;
-      setSystem(sys);
-      setSystemSuccessAt(sys.fetchedAt ?? sys.serverTime);
-      setSystemStale(false);
-    } catch {
-      if (mine !== systemRevisionRef.current) return;
-      setSystemStale(true);
-    }
-  }, []);
-
+  const { refresh: refreshSystem } = systemStatus;
   /** Initial / full page load: settings + system together. */
   const refreshAll = useCallback(async () => {
     await Promise.all([refreshSettings({ forceDraft: true }), refreshSystem()]);
   }, [refreshSettings, refreshSystem]);
+
+  const { save } = useSettingsSave({
+    tab,
+    bundle: server.bundle,
+    draft: draftState.draft,
+    reason: draftState.reason,
+    busy: mutation,
+    feedback,
+    label,
+    refresh: {
+      settings: refreshSettings,
+      system: refreshSystem,
+      history: history.refresh,
+    },
+    onSaved: draftState.clearReasonAndConflict,
+  });
+
+  const { slaError, saveSlaPolicy } = useSlaPolicySave({
+    busy: mutation,
+    applySlaPolicy: server.applySlaPolicy,
+    setMessage: feedback.setMessage,
+    label,
+  });
 
   // Live-refresh settings while not in the initial loading state.
   useLiveRefresh(
@@ -155,20 +115,8 @@ export function SettingsPage({ user }: Props) {
     },
   );
 
-  // Event-driven system counts (tickets / cleaning / locations).
-  useLiveRefresh(
-    () => {
-      void refreshSystem();
-    },
-    {
-      enabled: !loading,
-      busy: false,
-      eventTypes: [...SYSTEM_STATUS_LIVE_EVENTS],
-      debounceMs: 600,
-    },
-  );
-
   // Initial load.
+  const { setError } = feedback;
   useEffect(() => {
     (async () => {
       try {
@@ -180,154 +128,15 @@ export function SettingsPage({ user }: Props) {
         setLoading(false);
       }
     })();
-  }, [refreshAll]);
+  }, [refreshAll, setError]);
 
-  // On tab change only (not bundle): clone draft so SSE updates cannot wipe edits.
+  // History is loaded each time its tab opens.
+  const { load: loadHistory } = history;
   useEffect(() => {
-    if (tab === "history") {
-      fetchSettingsHistory({ limit: 80 })
-        .then(setHistory)
-        .catch((err) =>
-          setError(err instanceof Error ? err.message : "History failed"),
-        );
-      return;
-    }
-    const row = bundleRef.current?.[tab];
-    if (isEditableTab(tab) && row) {
-      setDraft(structuredClone(row.value) as Record<string, unknown>);
-      setReason("");
-      setServerConflict(false);
-      setMessage(null);
-      setRefreshWarning(null);
-    }
-  }, [tab]);
+    if (tab === "history") loadHistory();
+  }, [tab, loadHistory]);
 
-  /** Patch the current tab's draft with CAS version, then best-effort refresh. */
-  async function save() {
-    if (!isEditableTab(tab) || busyRef.current) return;
-    setError(null);
-    setMessage(null);
-    setRefreshWarning(null);
-    const expectedVersion = bundle?.[tab]?.version;
-
-    const result = await runMutationWithRefresh(
-      () =>
-        patchSetting(
-          tab,
-          draft,
-          reason.trim() || undefined,
-          expectedVersion,
-        ),
-      async () => {
-        // Aggregate follow-up reads; any failure → saved_refresh_failed (BUG-07).
-        const errors: string[] = [];
-        try {
-          await refreshSettings({ forceDraft: true });
-        } catch (err) {
-          errors.push(
-            err instanceof Error ? err.message : "settings refresh failed",
-          );
-        }
-        try {
-          await refreshSystem();
-        } catch (err) {
-          errors.push(
-            err instanceof Error ? err.message : "system refresh failed",
-          );
-        }
-        try {
-          const hist = await fetchSettingsHistory({ limit: 80 });
-          setHistory(hist);
-        } catch (err) {
-          errors.push(err instanceof Error ? err.message : "history failed");
-        }
-        if (errors.length > 0) {
-          throw new Error(errors.join("; "));
-        }
-      },
-    );
-
-    if (!result.ok) {
-      if (result.error === "busy") return;
-      const classified = classifySaveError(
-        result.cause ?? new Error(result.error),
-      );
-      if (classified.kind === "conflict") {
-        try {
-          await refreshSettings();
-        } catch {
-          /* keep draft; conflict banner already set */
-        }
-        setError(
-          label(
-            "Конфликт: друг потребител вече е променил тази настройка. Черновата е запазена.",
-            "Conflict: another user changed this setting. Your draft is kept.",
-          ),
-        );
-        return;
-      }
-      if (classified.kind === "uncertain") {
-        setError(
-          label(
-            "Мрежова грешка при запис — резултатът е неизвестен. Проверете преди повторен опит.",
-            "Network error while saving — outcome unknown. Check before retrying.",
-          ),
-        );
-        return;
-      }
-      setError(classified.message);
-      return;
-    }
-
-    setMessage(label("Запазено", "Saved"));
-    setReason("");
-    setServerConflict(false);
-    setRefreshWarning(
-      result.outcome === "saved_refresh_failed" && result.refreshError
-        ? label(
-            `Записът успя, но опресняването се провали: ${result.refreshError}`,
-            `Saved, but refresh failed: ${result.refreshError}`,
-          )
-        : null,
-    );
-  }
-
-  function setBool(path: string, value: boolean) {
-    setMessage(null);
-    setRefreshWarning(null);
-    setDraft((prev) => ({ ...prev, [path]: value }));
-  }
-
-  function setNestedChannel(
-    channel: string,
-    field: "enabled" | "status",
-    value: boolean | string,
-  ) {
-    setMessage(null);
-    setRefreshWarning(null);
-    setDraft((prev) => {
-      const cur = { ...((prev[channel] as object) ?? {}) } as Record<
-        string,
-        unknown
-      >;
-      cur[field] = value;
-      if (channel === "device_push" && field === "enabled") {
-        cur.enabled = false;
-        cur.status = "not_configured";
-      }
-      return { ...prev, [channel]: cur };
-    });
-  }
-
-  const setDraftTracked: Dispatch<SetStateAction<Record<string, unknown>>> = (
-    action,
-  ) => {
-    setMessage(null);
-    setRefreshWarning(null);
-    setDraft(action);
-  };
-
-  if (loading && !bundle) {
+  if (loading && !server.bundle) {
     return (
       <main className="content">
         <p className="muted">{label("Зареждане…", "Loading…")}</p>
@@ -349,27 +158,19 @@ export function SettingsPage({ user }: Props) {
         </div>
       </header>
 
-      {system && (
+      {systemStatus.system && (
         <SystemStatusSection
-          system={system}
+          system={systemStatus.system}
           label={label}
-          stale={systemStale}
-          lastSuccessAt={systemSuccessAt}
+          stale={systemStatus.stale}
+          lastSuccessAt={systemStatus.lastSuccessAt}
         />
       )}
-      {!system && systemStale && (
-        <section className="panel settings-system">
-          <h2>{label("Системно състояние", "System status")}</h2>
-          <p className="error">
-            {label(
-              "Диагностиката е недостъпна (вероятно проблем с базата или сесията).",
-              "Diagnostics unavailable (likely database or session failure).",
-            )}
-          </p>
-          <button type="button" onClick={() => void refreshSystem()}>
-            {label("Опитай отново", "Retry")}
-          </button>
-        </section>
+      {!systemStatus.system && systemStatus.stale && (
+        <SystemStatusUnavailable
+          label={label}
+          onRetry={() => void refreshSystem()}
+        />
       )}
 
       <div className="settings-tabs" role="tablist">
@@ -383,7 +184,7 @@ export function SettingsPage({ user }: Props) {
             disabled={busy}
             onClick={() => setTab(t.id)}
           >
-            {locale === "bg" ? t.bg : t.en}
+            {server.locale === "bg" ? t.bg : t.en}
           </button>
         ))}
         {canManageIssues && (
@@ -400,12 +201,12 @@ export function SettingsPage({ user }: Props) {
         )}
       </div>
 
-      {error && <div className="error banner">{error}</div>}
-      {message && <div className="ok banner">{message}</div>}
-      {refreshWarning && (
+      {feedback.error && <div className="error banner">{feedback.error}</div>}
+      {feedback.message && <div className="ok banner">{feedback.message}</div>}
+      {feedback.refreshWarning && (
         <div className="error banner" role="status">
           {label("Записът успя, но опресняването се провали: ", "Saved, but refresh failed: ")}
-          {refreshWarning}
+          {feedback.refreshWarning}
           <button
             type="button"
             className="linkish"
@@ -415,9 +216,9 @@ export function SettingsPage({ user }: Props) {
                 try {
                   await refreshSettings({ forceDraft: !dirty });
                   await refreshSystem();
-                  setRefreshWarning(null);
+                  feedback.setRefreshWarning(null);
                 } catch (err) {
-                  setRefreshWarning(
+                  feedback.setRefreshWarning(
                     err instanceof Error ? err.message : "Refresh failed",
                   );
                 }
@@ -428,7 +229,7 @@ export function SettingsPage({ user }: Props) {
           </button>
         </div>
       )}
-      {serverConflict && dirty && (
+      {draftState.serverConflict && dirty && (
         <div className="error banner" role="status">
           {label(
             "Има по-нова сървърна версия. Черновата ви е запазена — презаредете съзнателно или запишете (може да получите конфликт).",
@@ -440,9 +241,8 @@ export function SettingsPage({ user }: Props) {
             disabled={busy}
             onClick={() => {
               void refreshSettings({ forceDraft: true }).then(() => {
-                setReason("");
-                setServerConflict(false);
-                setError(null);
+                draftState.clearReasonAndConflict();
+                feedback.setError(null);
               });
             }}
           >
@@ -450,7 +250,7 @@ export function SettingsPage({ user }: Props) {
           </button>
         </div>
       )}
-      {bundle?.[tab]?.valueValid === false && (
+      {server.bundle?.[tab]?.valueValid === false && (
         <div className="error banner" role="status">
           {label(
             "Съхранената конфигурация е повредена — показани са стойности по подразбиране.",
@@ -466,220 +266,78 @@ export function SettingsPage({ user }: Props) {
         >
           {tab === "modules" && (
             <ModulesTab
-              draft={draft}
-              setBool={setBool}
+              draft={draftState.draft}
+              setBool={draftState.setBool}
               label={label}
               disabled={busy}
             />
           )}
 
-          {tab === "flags" && <FlagsTab draft={draft} setBool={setBool} />}
+          {tab === "flags" && (
+            <FlagsTab draft={draftState.draft} setBool={draftState.setBool} />
+          )}
 
           {tab === "interface" && (
-            <InterfaceTab draft={draft} setDraft={setDraftTracked} label={label} />
+            <InterfaceTab
+              draft={draftState.draft}
+              setDraft={draftState.editDraft}
+              label={label}
+            />
           )}
 
           {tab === "operations" && (
-            <div className="settings-form">
-              <label>
-                {label("Overdue праг (минути)", "Overdue threshold (minutes)")}
-                <input
-                  type="number"
-                  min={15}
-                  max={1440}
-                  value={Number(
-                    (draft as { overdueSessionMinutes?: number })
-                      .overdueSessionMinutes ?? 240,
-                  )}
-                  onChange={(e) =>
-                    setDraftTracked((p) => ({
-                      ...p,
-                      overdueSessionMinutes: Number(e.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                {label("Срок на задача по подразбиране (часове)", "Default task due (hours)")}
-                <input
-                  type="number"
-                  min={1}
-                  max={72}
-                  value={Number(
-                    (draft as { defaultTaskDueHours?: number })
-                      .defaultTaskDueHours ?? 4,
-                  )}
-                  onChange={(e) =>
-                    setDraftTracked((p) => ({
-                      ...p,
-                      defaultTaskDueHours: Number(e.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                {label("SLA на тикет (часове)", "Default ticket SLA (hours)")}
-                <input
-                  type="number"
-                  min={1}
-                  max={168}
-                  value={Number(
-                    (draft as { defaultTicketSlaHours?: number })
-                      .defaultTicketSlaHours ?? 24,
-                  )}
-                  onChange={(e) =>
-                    setDraftTracked((p) => ({
-                      ...p,
-                      defaultTicketSlaHours: Number(e.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <div className="settings-block">
-                <h3>{label("SLA по приоритет", "SLA by priority")}</h3>
-                <p className="muted">
-                  {label(
-                    "Часове до resolve при създаване на тикет. Промяната не мести вече отворени срокове.",
-                    "Hours to resolve when a ticket is created. Changes do not rewrite open due dates.",
-                  )}
-                </p>
-                {(["low", "normal", "high", "urgent"] as const).map((priority) => {
-                  const row = slaPolicies.find((p) => p.priority === priority);
-                  const hours =
-                    row?.hours ??
-                    (priority === "urgent"
-                      ? 4
-                      : priority === "high"
-                        ? 8
-                        : priority === "low"
-                          ? 72
-                          : 24);
-                  return (
-                    <label key={priority}>
-                      {priority}
-                      <input
-                        type="number"
-                        min={1}
-                        max={168}
-                        value={hours}
-                        disabled={busy}
-                        onChange={async (e) => {
-                          const next = Number(e.target.value);
-                          if (!Number.isFinite(next) || next < 1) return;
-                          if (busyRef.current) return;
-                          setError(null);
-                          const result = await runMutationWithRefresh(
-                            () =>
-                              updateSlaPolicy(priority, {
-                                hours: next,
-                                isActive: true,
-                              }),
-                          );
-                          if (!result.ok) {
-                            if (result.error !== "busy") {
-                              setError(result.error);
-                            }
-                            return;
-                          }
-                          setSlaPolicies((prev) => {
-                            const others = prev.filter(
-                              (p) => p.priority !== priority,
-                            );
-                            return [...others, result.value].sort((a, b) =>
-                              a.priority.localeCompare(b.priority),
-                            );
-                          });
-                          setMessage(
-                            label(
-                              "SLA политиката е записана",
-                              "SLA policy saved",
-                            ),
-                          );
-                        }}
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-              <label>
-                {label("Праг за рискова стая (тикети)", "Risk room ticket threshold")}
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={Number(
-                    (draft as { riskTicketThreshold?: number })
-                      .riskTicketThreshold ?? 2,
-                  )}
-                  onChange={(e) =>
-                    setDraftTracked((p) => ({
-                      ...p,
-                      riskTicketThreshold: Number(e.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                {label("Прозорец за риск (дни)", "Risk window (days)")}
-                <input
-                  type="number"
-                  min={1}
-                  max={365}
-                  value={Number(
-                    (draft as { riskWindowDays?: number }).riskWindowDays ?? 30,
-                  )}
-                  onChange={(e) =>
-                    setDraftTracked((p) => ({
-                      ...p,
-                      riskWindowDays: Number(e.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                {label("Часова зона на хотела", "Hotel timezone")}
-                <input
-                  value={String(
-                    (draft as { hotelTimezone?: string }).hotelTimezone ??
-                      "Europe/Sofia",
-                  )}
-                  onChange={(e) =>
-                    setDraftTracked((p) => ({ ...p, hotelTimezone: e.target.value }))
-                  }
-                />
-              </label>
-            </div>
+            <OperationsTab
+              draft={draftState.draft}
+              setDraft={draftState.editDraft}
+              label={label}
+              slaPolicies={server.slaPolicies}
+              slaError={slaError}
+              onSaveSlaPolicy={(priority, hours) =>
+                void saveSlaPolicy(priority, hours)
+              }
+              disabled={busy}
+            />
           )}
 
           {tab === "access" && (
-            <AccessTab draft={draft} setDraft={setDraftTracked} label={label} />
+            <AccessTab
+              draft={draftState.draft}
+              setDraft={draftState.editDraft}
+              label={label}
+            />
           )}
 
           {tab === "notifications" && (
             <NotificationsTab
-              draft={draft}
-              setNestedChannel={setNestedChannel}
+              draft={draftState.draft}
+              setNestedChannel={draftState.setNestedChannel}
               label={label}
             />
           )}
         </fieldset>
 
         {tab === "issues" && canManageIssues && (
-          <IssueCatalogPanel locale={locale} />
+          <IssueCatalogPanel locale={server.locale} />
         )}
 
-        {tab === "history" && <HistoryTab history={history} label={label} />}
+        {tab === "history" && (
+          <HistoryTab
+            history={history.history}
+            label={label}
+            error={history.historyError}
+          />
+        )}
 
         {isEditableTab(tab) && (
           <div className="settings-save">
             <label>
               {label("Причина (опционално)", "Reason (optional)")}
               <input
-                value={reason}
+                value={draftState.reason}
                 disabled={busy}
                 onChange={(e) => {
-                  setMessage(null);
-                  setReason(e.target.value);
+                  feedback.setMessage(null);
+                  draftState.setReason(e.target.value);
                 }}
                 placeholder={label("защо се променя", "why this change")}
               />

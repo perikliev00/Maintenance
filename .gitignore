@@ -17,3 +17,8 @@ api/reports/stryker*.html
 web/reports/stryker*.json
 web/reports/stryker*.html
 .stryker-tmp/
+
+api/coverage/
+web/coverage/
+api/reports/analytics-measure-*.json
+api/reports/baseline/

@@ -150,4 +150,27 @@ describe("analytics against real rows and joins", () => {
     }
     assert.deepEqual(seen, [...employeeIds].sort());
   });
+  it("housekeeping summary survives a window above the 32,767 bind-variable limit (CODE-05)", async () => {
+    // Regression: nested `include: sessions` produced `taskId IN (<all ids>)`, which Prisma/PG reject
+    // (`too many bind variables`) once more than 32,767 tasks completed in one period.
+    const count = 32_800; const prefix = `an-bulk-${randomUUID()}-`; const bulkDay = new Date("1999-06-10T12:00:00Z");
+    const bulkPeriod = { from: new Date("1999-06-10T00:00:00Z"), to: new Date("1999-06-10T23:59:59.999Z"), now: new Date("1999-06-11T12:00:00Z") };
+    const ids = Array.from({ length: count }, (_, i) => `${prefix}${i}`);
+    try {
+      for (let i = 0; i < count; i += 4000) {
+        const slice = ids.slice(i, i + 4000);
+        await prisma.cleaningTask.createMany({ data: slice.map((id) => ({ id, locationId: world.locationAId, assignedEmployeeId: world.hk2.employeeId, hotelDate: bulkDay, status: "completed" as const, cleaningCycle: 0, completedAt: bulkDay, dueAt: new Date(bulkDay.getTime() + 60000) })) });
+        await prisma.cleaningSession.createMany({ data: slice.map((id) => ({ id: `${id}-s`, taskId: id, employeeId: world.hk1.employeeId, startedAt: new Date(bulkDay.getTime() - 10 * 60000), finishedAt: bulkDay, status: "completed" as const, anomalyFlags: [], startCommandId: randomUUID(), completeCommandId: randomUUID() })) });
+      }
+      const bulkScope = { taskWhere: { id: { startsWith: prefix } }, sessionWhere: { task: { id: { startsWith: prefix } } } };
+      const result = await getHousekeepingSummary(bulkPeriod, 3, bulkScope);
+      assert.equal(result.kpis.cleanedTasks, count); assert.equal(result.kpis.completedSessions, count);
+      assert.equal(result.kpis.acceptedTasks, count); assert.equal(result.kpis.distinctRooms, 1);
+      assert.equal(result.kpis.onTimePct, 100); assert.equal(result.kpis.avgMinutesPerTask, 10);
+      assert.equal(result.kpis.totalValidSessionMinutes, count * 10); assert.equal(result.kpis.anomalousSessions, 0);
+    } finally {
+      await prisma.cleaningSession.deleteMany({ where: { taskId: { startsWith: prefix } } });
+      await prisma.cleaningTask.deleteMany({ where: { id: { startsWith: prefix } } });
+    }
+  });
 });

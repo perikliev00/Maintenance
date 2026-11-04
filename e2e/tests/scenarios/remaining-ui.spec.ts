@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { ticketListResponse } from "./helpers/ticketListMock";
 
 test.beforeEach(async ({ page }) => {
   const response = await page.request.post("/api/auth/login", { data: { email: "owner@meridian.local", password: "demo1234" } });
@@ -50,7 +51,12 @@ for (const screen of ["rooms", "mywork", "repairs"] as const) {
         requests++;
         const marker = current ? "AFTER-DOMAIN-EVENT" : "BEFORE-DOMAIN-EVENT";
         const task = { id: "event-task", status: "assigned", priority: "normal", version: 1, sessions: [], inspections: [], location: { id: rooms[0].id, number: marker, floor: { number: 1, building: { code: "EVENT", name: "Event" } } } };
-        const json = screen === "rooms" ? [{ ...rooms[0], number: marker }] : screen === "mywork" ? { tasks: [task], tickets: [], hotelDate: "2000-01-01", summary: { taskCount: 1, ticketCount: 0, runningSessions: 0 } } : [{ ...tickets[0], blocksRoom: false, title: marker, status: "new" }];
+        const repairsItems = [{ ...tickets[0], blocksRoom: false, title: marker, status: "new" }];
+        const json = screen === "rooms"
+          ? [{ ...rooms[0], number: marker }]
+          : screen === "mywork"
+            ? { tasks: [task], tickets: [], hotelDate: "2000-01-01", summary: { taskCount: 1, ticketCount: 0, runningSessions: 0 } }
+            : ticketListResponse(route.request().url(), repairsItems);
         return route.fulfill({ json });
       });
       await mount(page, screen);
@@ -71,22 +77,29 @@ test("actual repair report defers domain refresh while busy and catches up after
   expect(tickets.length).toBeGreaterThan(0);
   let current = false;
   let reads = 0;
-  await page.route("**/api/maintenance/tickets?*", route => {
-    reads++;
-    return route.fulfill({ json: [{ ...tickets[0], blocksRoom: false, title: current ? "UPDATED-WHILE-REPORTING" : "BEFORE-REPORTING", status: "new" }] });
-  });
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   let submitted = false;
-  await page.route("**/api/maintenance/tickets", async route => {
-    submitted = true;
-    await gate;
-    await route.fulfill({ status: 400, json: { message: "Controlled report failure" } });
+  await page.route("**/maintenance/tickets**", async route => {
+    const method = route.request().method();
+    const url = route.request().url();
+    // POST create only — do not steal paginated GETs that share this path.
+    if (method === "POST") {
+      submitted = true;
+      await gate;
+      return route.fulfill({ status: 400, json: { message: "Controlled report failure" } });
+    }
+    if (method !== "GET") return route.fallback();
+    reads++;
+    const items = [{ ...tickets[0], blocksRoom: false, title: current ? "UPDATED-WHILE-REPORTING" : "BEFORE-REPORTING", status: "new" }];
+    return route.fulfill({ json: ticketListResponse(url, items) });
   });
   await mount(page, "repairs");
   await expect(page.getByText("BEFORE-REPORTING", { exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => Boolean((window as any).scenarioStream))).toBe(true);
-  await page.getByLabel("Title", { exact: true }).fill("Local report");
+  await expect(page.getByRole("combobox", { name: "Room", exact: true })).not.toHaveValue("");
+  await expect(page.getByRole("combobox", { name: "Option", exact: true })).not.toHaveValue("");
+  // Catalog option mode shows Title as preview text, not an input — submit as-is.
   await page.getByRole("button", { name: "Report", exact: true }).click();
   await expect.poll(() => submitted).toBe(true);
   const before = reads;
@@ -113,12 +126,12 @@ for (const screen of ["analytics", "results", "repairs"] as const) {
       const response = await page.request.get(screen === "analytics" ? `${endpoint}?domain=maintenance&from=2000-01-01&to=2000-01-03` : screen === "results" ? `${endpoint}?from=2000-01-01&to=2000-01-03` : `${endpoint}?status=all&limit=1`);
       expect(response.status()).toBe(200);
       const original = await response.json();
-      const payload = (current: boolean) => {
+      const payload = (url: string, current: boolean) => {
         const marker = current ? "CURRENT-FILTER-B" : "STALE-FILTER-A";
         if (screen === "analytics") return { ...original, forecast: { ...original.forecast, formula: marker } };
         if (screen === "results") return { ...original, total: 1, rows: [{ employeeId: marker, fullName: marker, employeeNumber: marker, completedTasks: 0, completedSessions: 0, acceptedTasks: 0, reworkEvents: 0, anomalousSessions: 0, distinctRooms: 0, onTimePct: null, avgValidMinutes: null, totalValidSessionMinutes: 0, totalExcludedSessionMinutes: 0 }] };
         expect(original.length).toBeGreaterThan(0);
-        return [{ ...original[0], blocksRoom: false, title: marker, status: current ? "resolved" : "new" }];
+        return ticketListResponse(url, [{ ...original[0], blocksRoom: false, title: marker, status: current ? "resolved" : "new" }]);
       };
       let releaseA!: () => void;
       const gateA = new Promise<void>(resolve => { releaseA = resolve; });
@@ -126,12 +139,25 @@ for (const screen of ["analytics", "results", "repairs"] as const) {
       const gateB = new Promise<void>(resolve => { releaseB = resolve; });
       let capturedA = false;
       let capturedB = false;
+      let aSettled = false;
       const isB = (url: string) => new URL(url).searchParams.get(screen === "repairs" ? "status" : "from") === (screen === "repairs" ? "resolved" : "2000-01-02");
       await page.route(`**${endpoint}?*`, async route => {
         const current = isB(route.request().url());
-        if (!current) { capturedA = true; await gateA; }
-        else { capturedB = true; if (late === "loading") await gateB; }
-        await route.fulfill(!current && late === "error" ? { status: 503, json: { message: "STALE-ERROR-A" } } : { json: payload(current) });
+        if (!current) {
+          capturedA = true;
+          await gateA;
+          try {
+            await route.fulfill(!current && late === "error" ? { status: 503, json: { message: "STALE-ERROR-A" } } : { json: payload(route.request().url(), current) });
+          } catch {
+            // Client may abort stale A when B starts; that is the race under test.
+          } finally {
+            aSettled = true;
+          }
+          return;
+        }
+        capturedB = true;
+        if (late === "loading") await gateB;
+        await route.fulfill({ json: payload(route.request().url(), current) });
       });
       await mount(page, screen);
       await expect.poll(() => capturedA).toBe(true);
@@ -139,9 +165,9 @@ for (const screen of ["analytics", "results", "repairs"] as const) {
       else await page.getByLabel("От", { exact: true }).fill("2000-01-02");
       await expect.poll(() => capturedB).toBe(true);
       if (late !== "loading") await expect(page.getByText("CURRENT-FILTER-B", { exact: true }).first()).toBeVisible();
-      const oldResponse = page.waitForResponse(r => r.url().includes(`${endpoint}?`) && !isB(r.url()));
+      // Prefer route settlement over waitForResponse — aborted A never emits a page response.
       releaseA();
-      await (await oldResponse).finished();
+      await expect.poll(() => aSettled).toBe(true);
       await renderSettled(page);
       if (late === "loading") {
         await expect(page.getByText(screen === "analytics" ? "Зареждане на аналитиката…" : screen === "results" ? "Зареждане…" : "Loading…", { exact: true })).toBeVisible();

@@ -1,6 +1,9 @@
 /**
  * Shared notification-outbox delivery / flush helpers.
  * Domain modules keep their own enqueue + Prisma table adapters.
+ *
+ * Flush selects only *eligible* intents (not quarantined, nextAttempt due) so
+ * a stuck batch of permanent failures cannot starve newer valid rows.
  */
 import { z } from "zod/v3";
 import {
@@ -8,6 +11,12 @@ import {
   type CreateNotificationInput,
 } from "../notifications";
 import { getSetting } from "../settings";
+
+/** Cap for one flush batch (fairness window). */
+export const OUTBOX_FLUSH_BATCH_SIZE = 100;
+
+/** Transient failures beyond this are quarantined as permanent. */
+export const OUTBOX_MAX_TRANSIENT_ATTEMPTS = 8;
 
 /** Zod decoder for persisted CreateNotificationInput JSON (rejects malformed rows). */
 export const createNotificationInputSchema: z.ZodType<CreateNotificationInput> =
@@ -29,6 +38,38 @@ export function decodeNotificationPayload(
   raw: unknown,
 ): CreateNotificationInput {
   return createNotificationInputSchema.parse(raw);
+}
+
+export type OutboxFailureKind = "transient" | "permanent";
+
+/** Permanent = malformed / unrecoverable payload; else retryable delivery. */
+export function classifyOutboxError(err: unknown): OutboxFailureKind {
+  if (err instanceof z.ZodError) return "permanent";
+  const name = err instanceof Error ? err.name : "";
+  if (name === "ZodError") return "permanent";
+  return "transient";
+}
+
+/**
+ * Exponential backoff after a transient failure (attemptCount is post-increment).
+ * Caps at 1 hour: 30s, 60s, 120s, … 
+ */
+export function computeNextAttemptAt(
+  attemptCount: number,
+  now = new Date(),
+): Date {
+  const exp = Math.min(Math.max(attemptCount, 1) - 1, 10);
+  const seconds = Math.min(3600, 30 * 2 ** exp);
+  return new Date(now.getTime() + seconds * 1000);
+}
+
+/** Shared Prisma filter: undelivered, not quarantined, due for attempt. */
+export function eligibleOutboxWhere(now = new Date()) {
+  return {
+    deliveredAt: null,
+    failedPermanentlyAt: null,
+    OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+  } as const;
 }
 
 export type OutboxDeliverAdapters = {
@@ -61,34 +102,81 @@ export async function deliverOutboxIntent(
   await adapters.markDelivered(key);
 }
 
+export type OutboxBacklogCounts = {
+  /** Undelivered, not quarantined, nextAttempt due (or null). */
+  eligiblePending: number;
+  /** Undelivered with future nextAttemptAt. */
+  scheduledRetry: number;
+  /** Undelivered with failedPermanentlyAt set. */
+  quarantined: number;
+  /** All undelivered rows (eligible + scheduled + quarantined). */
+  backlog: number;
+};
+
 export type OutboxFlushAdapters = {
-  listPendingKeys: () => Promise<string[]>;
+  /** Eligible keys only (excludes quarantined / not-yet-due), oldest first, ≤ batch. */
+  listEligibleKeys: () => Promise<string[]>;
   deliver: (key: string) => Promise<void>;
+  /** Record transient backoff or permanent quarantine after a failed deliver. */
+  recordFailure: (
+    key: string,
+    kind: OutboxFailureKind,
+    message: string,
+  ) => Promise<void>;
+  /** Post-flush backlog accounting (must not treat quarantined as “pending=0”). */
+  countBacklog: () => Promise<OutboxBacklogCounts>;
   errorLabel: string;
 };
 
-/** Bounded background recovery: take ≤100 pending keys, collect failures. */
-export async function flushOutbox(adapters: OutboxFlushAdapters): Promise<{
+export type OutboxFlushResult = {
   delivered: number;
+  /**
+   * Eligible undelivered intents remaining after this flush (due now).
+   * Quarantined / future-scheduled rows are not included — see backlog fields.
+   */
   pending: number;
+  batchFailures: number;
+  eligiblePending: number;
+  scheduledRetry: number;
+  quarantined: number;
+  backlog: number;
   error?: string;
-}> {
-  const keys = await adapters.listPendingKeys();
+};
+
+/** Bounded background recovery with retry / quarantine and honest backlog metrics. */
+export async function flushOutbox(
+  adapters: OutboxFlushAdapters,
+): Promise<OutboxFlushResult> {
+  const keys = await adapters.listEligibleKeys();
   let delivered = 0;
-  const failures: string[] = [];
+  let batchFailures = 0;
   for (const key of keys) {
     try {
       await adapters.deliver(key);
       delivered++;
-    } catch {
-      failures.push(key);
+    } catch (err) {
+      batchFailures++;
+      const kind = classifyOutboxError(err);
+      const message = err instanceof Error ? err.message : String(err);
+      try {
+        await adapters.recordFailure(key, kind, message.slice(0, 500));
+      } catch {
+        // Best-effort; next flush will retry eligibility selection.
+      }
     }
   }
-  return failures.length
-    ? {
-        delivered,
-        pending: failures.length,
-        error: adapters.errorLabel,
-      }
-    : { delivered, pending: 0 };
+  const counts = await adapters.countBacklog();
+  const result: OutboxFlushResult = {
+    delivered,
+    pending: counts.eligiblePending,
+    batchFailures,
+    eligiblePending: counts.eligiblePending,
+    scheduledRetry: counts.scheduledRetry,
+    quarantined: counts.quarantined,
+    backlog: counts.backlog,
+  };
+  if (batchFailures > 0) {
+    result.error = adapters.errorLabel;
+  }
+  return result;
 }

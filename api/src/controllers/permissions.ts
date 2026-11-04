@@ -54,9 +54,23 @@ export async function listHistory(req: Request, res: Response) {
   );
 }
 
+/** Accept any known Role string; service rejects owner / non-editable targets. */
+function parseRoleParam(raw: string | undefined): Role | null {
+  if (!raw) return null;
+  return (Object.values(Role) as string[]).includes(raw) ? (raw as Role) : null;
+}
+
 /** Replace all panel/action grants for a matrix role (audited in the service). */
 export async function replaceRole(req: Request, res: Response) {
-  const roleParam = req.params.role as Role;
+  const roleParam = parseRoleParam(
+    typeof req.params.role === "string" ? req.params.role : undefined,
+  );
+  if (!roleParam) {
+    return res.status(400).json({
+      error: "validation",
+      message: "Unknown role",
+    });
+  }
   const schema = z.object({
     panels: z.array(z.string()),
     actions: z.array(z.string()),

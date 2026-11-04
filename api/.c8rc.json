@@ -1,0 +1,21 @@
+{
+  "$comment": "TEST-09 baseline. Denominator = every production .ts under src/ (all:true adds files no test imports as 0%). Tests, declarations and generated output are excluded. Reporting only: no check-coverage gate. See docs/testing/COVERAGE.md.",
+  "all": true,
+  "src": ["src"],
+  "extension": [".ts"],
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.d.ts",
+    "**/__fixtures__/**",
+    "**/fixtures/**",
+    "**/__mocks__/**",
+    "**/generated/**",
+    "**/node_modules/**"
+  ],
+  "excludeAfterRemap": true,
+  "clean": true,
+  "reporter": ["text-summary", "json-summary", "lcovonly", "html"],
+  "reportsDir": "coverage",
+  "tempDirectory": "coverage/tmp"
+}

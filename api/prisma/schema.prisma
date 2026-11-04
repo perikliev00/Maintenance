@@ -373,24 +373,34 @@ model CleaningSession {
 
 /// Durable inspection-notice snapshot keyed by completeCommandId (replay-safe).
 model CleaningNotificationOutbox {
-  commandId   String    @id
-  payload     Json
-  createdAt   DateTime  @default(now())
-  deliveredAt DateTime?
+  commandId             String    @id
+  payload               Json
+  createdAt             DateTime  @default(now())
+  deliveredAt           DateTime?
+  attemptCount          Int       @default(0)
+  nextAttemptAt         DateTime?
+  failedPermanentlyAt   DateTime?
+  lastError             String?
 
   @@index([deliveredAt, createdAt])
+  @@index([deliveredAt, failedPermanentlyAt, nextAttemptAt, createdAt], map: "CleaningNotificationOutbox_eligible_idx")
 }
 
 /// Durable attendance-adjustment notice snapshot keyed by notification dedupeKey
 /// (`attendance.adjustment_requested:<id>` / `attendance.adjustment_reviewed:<id>`),
 /// written in the same transaction as the adjustment + audit (replay-safe).
 model AttendanceNotificationOutbox {
-  dedupeKey   String    @id
-  payload     Json
-  createdAt   DateTime  @default(now())
-  deliveredAt DateTime?
+  dedupeKey             String    @id
+  payload               Json
+  createdAt             DateTime  @default(now())
+  deliveredAt           DateTime?
+  attemptCount          Int       @default(0)
+  nextAttemptAt         DateTime?
+  failedPermanentlyAt   DateTime?
+  lastError             String?
 
   @@index([deliveredAt, createdAt])
+  @@index([deliveredAt, failedPermanentlyAt, nextAttemptAt, createdAt], map: "AttendanceNotificationOutbox_eligible_idx")
 }
 
 /// Supervisor approve/reject of a completed cleaning session. `commandId` makes inspect idempotent.
@@ -532,13 +542,18 @@ model TicketEvent {
 
 /// Durable notification snapshot, committed with the lifecycle event.
 model TicketNotificationOutbox {
-  eventId     String      @id
-  event       TicketEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  payload     Json
-  createdAt   DateTime    @default(now())
-  deliveredAt DateTime?
+  eventId               String      @id
+  event                 TicketEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  payload               Json
+  createdAt             DateTime    @default(now())
+  deliveredAt           DateTime?
+  attemptCount          Int         @default(0)
+  nextAttemptAt         DateTime?
+  failedPermanentlyAt   DateTime?
+  lastError             String?
 
   @@index([deliveredAt, createdAt])
+  @@index([deliveredAt, failedPermanentlyAt, nextAttemptAt, createdAt], map: "TicketNotificationOutbox_eligible_idx")
 }
 
 /// Explicit reopen history (separate from TicketEvent for analytics / audit clarity).

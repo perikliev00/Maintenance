@@ -1,5 +1,24 @@
+/**
+ * Control page composition. Each section hook owns its own data, drafts,
+ * actions and refresh; this hook only owns what is genuinely shared:
+ * permissions/load plan, page banners, per-section error slots, the initial
+ * load gate, and live/manual refresh.
+ *
+ * Section ownership
+ * - useControlPeople   roles list, role drafts, search, role saves
+ * - useControlTickets  open/recent lists, assign picker + drafts, ticket busy
+ * - useControlCleaning rooms/housekeepers pickers and task creation
+ *
+ * Which refresh touches which section
+ * - initial load, live events, manual Refresh → all sections (`refreshAll`)
+ * - committed role search                      → people only
+ * - role save                                  → people + ticket assignees
+ * - ticket action                              → ticket lists only
+ * - task created                               → cleaning pickers only
+ * A section without permission is skipped (no fetch, no error) and never
+ * blocks the others; a failing section only fills its own error slot.
+ */
 import {
-  FormEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -9,46 +28,21 @@ import {
 import {
   assignableRolesFor,
   canPerformAction,
-  createCleaningTask,
-  fetchHousekeepers,
-  fetchPeople,
-  fetchRooms,
-  fetchTickets,
-  todayHotelDate,
-  updatePersonRole,
   type AuthUser,
-  type MaintenanceTicket,
-  type Person,
-  type Role,
-  type Room,
 } from "../../api/client";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
-import { executeMutationWithRefresh } from "../../saveRefresh";
-import { addBusyId, removeBusyId } from "../locations/busyIds";
-import { createDebouncedSearch } from "../team/debouncedSearch";
 import {
-  assignedEmployeeIdPayload,
+  bannerAfterLoad,
   controlLoadPlan,
-  defaultTaskAssigneeIfNeeded,
-  formatRoleConflicts,
-  mergeMutationAndRefresh,
-  mergeRoleDraftsOnRefresh,
-  sectionFromSettled,
-  settleOptional,
-  shouldApplyControlRefresh,
-  techniciansFromPeople,
-  type TaskAssigneeState,
+  replaceSectionErrors,
+  sectionErrorViews,
+  type ControlSectionErrors,
+  type SectionLoadResult,
 } from "../controlPageState";
-
-const SEARCH_DEBOUNCE_MS = 300;
-
-type HousekeeperOption = {
-  id: string;
-  fullName: string;
-  employeeNumber: string;
-};
-
-type SectionErrors = Partial<Record<string, string>>;
+import type { ControlFeedback } from "./controlBoardTypes";
+import { useControlCleaning } from "./useControlCleaning";
+import { useControlPeople } from "./useControlPeople";
+import { useControlTickets } from "./useControlTickets";
 
 export function useControlBoard(user: AuthUser) {
   const allowedRoles = useMemo(
@@ -73,280 +67,83 @@ export function useControlBoard(user: AuthUser) {
     [canChangeRole, canCreateCleaning, canWorkTickets],
   );
 
-  const [people, setPeople] = useState<Person[]>([]);
-  const [roleDrafts, setRoleDrafts] = useState<Record<string, Role>>({});
-  const roleDraftsRef = useRef<Record<string, Role>>({});
-  const serverRolesRef = useRef<Record<string, Role>>({});
-  const [searchInput, setSearchInput] = useState("");
-  const [committedQuery, setCommittedQuery] = useState("");
-  const [searchPending, setSearchPending] = useState(false);
-  roleDraftsRef.current = roleDrafts;
-
-  const [assignees, setAssignees] = useState<Person[]>([]);
-  const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
-  const [resolvedTickets, setResolvedTickets] = useState<MaintenanceTicket[]>(
-    [],
-  );
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [housekeepers, setHousekeepers] = useState<HousekeeperOption[]>([]);
-
   const [initialLoading, setInitialLoading] = useState(true);
-  const [peopleLoading, setPeopleLoading] = useState(false);
-  const [sectionErrors, setSectionErrors] = useState<SectionErrors>({});
+  const initialLoadingRef = useRef(true);
+  initialLoadingRef.current = initialLoading;
+  const mountedRef = useRef(true);
+
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
-
-  const [savingIds, setSavingIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const savingIdsRef = useRef<Set<string>>(new Set());
-  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const busyIdsRef = useRef<Set<string>>(new Set());
-
-  const [taskRoomId, setTaskRoomId] = useState("");
-  const [taskAssignee, setTaskAssignee] = useState<TaskAssigneeState>({
-    status: "uninitialized",
-  });
-  const [taskPriority, setTaskPriority] = useState("normal");
-  const [creatingTask, setCreatingTask] = useState(false);
-  const [assignDrafts, setAssignDrafts] = useState<Record<string, string>>({});
-
-  const requestRevision = useRef(0);
-  const mountedRef = useRef(true);
-  const initialLoadingRef = useRef(true);
-  const taskRoomIdRef = useRef(taskRoomId);
-  taskRoomIdRef.current = taskRoomId;
-  initialLoadingRef.current = initialLoading;
-
-  const technicians = useMemo(
-    () => techniciansFromPeople(assignees),
-    [assignees],
-  );
-
-  const beginBusy = useCallback((id: string) => {
-    if (busyIdsRef.current.has(id)) return false;
-    busyIdsRef.current = addBusyId(busyIdsRef.current, id);
-    setBusyIds(busyIdsRef.current);
-    return true;
-  }, []);
-
-  const endBusy = useCallback((id: string) => {
-    busyIdsRef.current = removeBusyId(busyIdsRef.current, id);
-    setBusyIds(busyIdsRef.current);
-  }, []);
-
-  const beginSaving = useCallback((id: string) => {
-    if (savingIdsRef.current.has(id)) return false;
-    savingIdsRef.current = addBusyId(savingIdsRef.current, id);
-    setSavingIds(savingIdsRef.current);
-    return true;
-  }, []);
-
-  const endSaving = useCallback((id: string) => {
-    savingIdsRef.current = removeBusyId(savingIdsRef.current, id);
-    setSavingIds(savingIdsRef.current);
-  }, []);
-
-  const applyPeopleSection = useCallback(
-    (
-      peopleData: Person[],
-      opts?: { replaceUserIds?: ReadonlySet<string> },
-    ) => {
-      const merged = mergeRoleDraftsOnRefresh({
-        prevDrafts: roleDraftsRef.current,
-        prevServerRoles: serverRolesRef.current,
-        nextPeople: peopleData,
-        replaceUserIds: opts?.replaceUserIds,
-        busyUserIds: savingIdsRef.current,
-      });
-      serverRolesRef.current = merged.serverRoles;
-      roleDraftsRef.current = merged.drafts;
-      setPeople(peopleData);
-      setRoleDrafts(merged.drafts);
-      const nameByUserId: Record<string, string> = {};
-      for (const p of peopleData) {
-        if (p.userId) nameByUserId[p.userId] = p.fullName;
-      }
-      const conflictMsg = formatRoleConflicts(merged.conflicts, nameByUserId);
-      if (conflictMsg) setRefreshWarning(conflictMsg);
-    },
+  const feedback: ControlFeedback = useMemo(
+    () => ({ setError, setMessage, setRefreshWarning }),
     [],
   );
 
-  const refresh = useCallback(
-    async (opts?: {
-      silent?: boolean;
-      peopleQuery?: string;
-      replaceUserIds?: ReadonlySet<string>;
-    }) => {
-      const revision = ++requestRevision.current;
-      const q =
-        opts?.peopleQuery !== undefined
-          ? opts.peopleQuery
-          : committedQuery.trim();
+  // Per-section error slots. A load replaces only the slots it covers.
+  const [sectionErrors, setSectionErrors] = useState<ControlSectionErrors>({});
+  const sectionErrorsRef = useRef<ControlSectionErrors>({});
 
-      const markedPeopleLoading = !opts?.silent && loadPlan.people;
-      if (markedPeopleLoading) setPeopleLoading(true);
+  const reportLoad = useCallback((result: SectionLoadResult) => {
+    if (result.status === "stale") return;
+    const next = replaceSectionErrors(
+      sectionErrorsRef.current,
+      result.scope,
+      result.errors,
+    );
+    sectionErrorsRef.current = next;
+    setSectionErrors(next);
+    const banner = bannerAfterLoad(next, initialLoadingRef.current);
+    if (banner.action === "set") setError(banner.message);
+    else if (banner.action === "clear") setError(null);
+  }, []);
 
-      try {
-        const [
-          peopleSettled,
-          assigneesSettled,
-          openSettled,
-          resolvedSettled,
-          closedSettled,
-          roomsSettled,
-          hkSettled,
-        ] = await Promise.all([
-          settleOptional(
-            loadPlan.people
-              ? fetchPeople({ q: q || undefined, includeInactive: true })
-              : null,
-          ),
-          settleOptional(
-            loadPlan.assignees
-              ? fetchPeople({ includeInactive: true })
-              : null,
-          ),
-          settleOptional(
-            loadPlan.openTickets
-              ? fetchTickets({ limit: 20, status: "open" })
-              : null,
-          ),
-          settleOptional(
-            loadPlan.recentTickets
-              ? fetchTickets({ limit: 20, status: "resolved" })
-              : null,
-          ),
-          settleOptional(
-            loadPlan.recentTickets
-              ? fetchTickets({ limit: 20, status: "closed" })
-              : null,
-          ),
-          settleOptional(loadPlan.rooms ? fetchRooms() : null),
-          settleOptional(loadPlan.housekeepers ? fetchHousekeepers() : null),
-        ]);
+  const tickets = useControlTickets({ plan: loadPlan, reportLoad });
+  const cleaning = useControlCleaning({
+    plan: loadPlan,
+    canCreate: canCreateCleaning,
+    feedback,
+    reportLoad,
+  });
+  const people = useControlPeople({
+    enabled: loadPlan.people,
+    initialLoading,
+    feedback,
+    reportLoad,
+    refreshAssignees: tickets.loadAssignees,
+  });
 
-        if (!shouldApplyControlRefresh(revision, requestRevision.current)) {
-          return;
-        }
-        if (!mountedRef.current) return;
+  const { load: loadPeople, commitSearchNow } = people;
+  const { load: loadTickets } = tickets;
+  const { load: loadCleaning } = cleaning;
 
-        const nextErrors: SectionErrors = {};
-        const peopleResult = sectionFromSettled(
-          peopleSettled,
-          loadPlan.people,
-        );
-        const assigneesResult = sectionFromSettled(
-          assigneesSettled,
-          loadPlan.assignees,
-        );
-        const openResult = sectionFromSettled(
-          openSettled,
-          loadPlan.openTickets,
-        );
-        const resolvedResult = sectionFromSettled(
-          resolvedSettled,
-          loadPlan.recentTickets,
-        );
-        const closedResult = sectionFromSettled(
-          closedSettled,
-          loadPlan.recentTickets,
-        );
-        const roomsResult = sectionFromSettled(roomsSettled, loadPlan.rooms);
-        const hkResult = sectionFromSettled(
-          hkSettled,
-          loadPlan.housekeepers,
-        );
-
-        if (peopleResult.status === "ok") {
-          applyPeopleSection(peopleResult.data, {
-            replaceUserIds: opts?.replaceUserIds,
-          });
-        } else if (peopleResult.status === "error") {
-          nextErrors.people = peopleResult.message;
-        }
-
-        if (assigneesResult.status === "ok") {
-          setAssignees(assigneesResult.data);
-        } else if (assigneesResult.status === "error") {
-          nextErrors.assignees = assigneesResult.message;
-        }
-
-        if (openResult.status === "ok") {
-          setTickets(openResult.data);
-        } else if (openResult.status === "error") {
-          nextErrors.openTickets = openResult.message;
-        }
-
-        if (
-          resolvedResult.status === "ok" ||
-          closedResult.status === "ok"
-        ) {
-          const recentById = new Map<string, MaintenanceTicket>();
-          if (resolvedResult.status === "ok") {
-            for (const t of resolvedResult.data) recentById.set(t.id, t);
-          }
-          if (closedResult.status === "ok") {
-            for (const t of closedResult.data) recentById.set(t.id, t);
-          }
-          setResolvedTickets([...recentById.values()]);
-        }
-        if (resolvedResult.status === "error") {
-          nextErrors.resolvedTickets = resolvedResult.message;
-        }
-        if (closedResult.status === "error") {
-          nextErrors.closedTickets = closedResult.message;
-        }
-
-        if (roomsResult.status === "ok") {
-          setRooms(roomsResult.data);
-          if (!taskRoomIdRef.current && roomsResult.data[0]) {
-            setTaskRoomId(roomsResult.data[0].id);
-          }
-        } else if (roomsResult.status === "error") {
-          nextErrors.rooms = roomsResult.message;
-        }
-
-        if (hkResult.status === "ok") {
-          setHousekeepers(hkResult.data);
-          setTaskAssignee((prev) =>
-            defaultTaskAssigneeIfNeeded(prev, hkResult.data[0]?.id),
-          );
-        } else if (hkResult.status === "error") {
-          nextErrors.housekeepers = hkResult.message;
-        }
-
-        setSectionErrors(nextErrors);
-        const firstError = Object.values(nextErrors)[0];
-        if (firstError && initialLoadingRef.current) setError(firstError);
-        else if (!firstError) setError(null);
-      } finally {
-        if (
-          mountedRef.current &&
-          revision === requestRevision.current
-        ) {
-          if (markedPeopleLoading) setPeopleLoading(false);
-          if (initialLoadingRef.current) {
-            initialLoadingRef.current = false;
-            setInitialLoading(false);
-          }
-        }
+  /** All sections in parallel; the first settled pass ends the initial load. */
+  const refreshAll = useCallback(
+    async (opts?: { silent?: boolean; peopleQuery?: string }) => {
+      const results = await Promise.all([
+        loadPeople({ silent: opts?.silent, query: opts?.peopleQuery }),
+        loadTickets(),
+        loadCleaning(),
+      ]);
+      const superseded = results.some((r) => r.status === "stale");
+      if (initialLoadingRef.current && !superseded) {
+        initialLoadingRef.current = false;
+        setInitialLoading(false);
       }
     },
-    [applyPeopleSection, committedQuery, loadPlan],
+    [loadPeople, loadTickets, loadCleaning],
   );
 
   const liveAt = useLiveRefresh(
     () => {
-      void refresh({ silent: true }).catch(() => undefined);
+      void refreshAll({ silent: true }).catch(() => undefined);
     },
     {
       enabled: !initialLoading,
-      busy: savingIds.size > 0 || busyIds.size > 0 || creatingTask,
+      busy:
+        people.savingIds.size > 0 ||
+        tickets.busyIds.size > 0 ||
+        cleaning.creatingTask,
       eventTypes: [
         "people.changed",
         "ticket.changed",
@@ -357,156 +154,40 @@ export function useControlBoard(user: AuthUser) {
     },
   );
 
-  const searchBridgeRef = useRef(
-    createDebouncedSearch({
-      debounceMs: SEARCH_DEBOUNCE_MS,
-      onInvalidate: () => setSearchPending(true),
-      onCommit: (q) => {
-        setSearchPending(false);
-        setCommittedQuery(q);
-      },
-    }),
-  );
-
   useEffect(() => {
     mountedRef.current = true;
-    const bridge = searchBridgeRef.current;
     return () => {
       mountedRef.current = false;
-      bridge.dispose();
-      requestRevision.current++;
     };
   }, []);
 
   useEffect(() => {
-    void refresh().catch((err) => {
+    void refreshAll().catch((err) => {
       if (!mountedRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load control");
       setInitialLoading(false);
-      setPeopleLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (initialLoading) return;
-    if (!loadPlan.people) return;
-    void refresh({ silent: false }).catch((err) => {
-      if (!mountedRef.current) return;
-      setSectionErrors((prev) => ({
-        ...prev,
-        people: err instanceof Error ? err.message : "Failed to search people",
-      }));
-      setPeopleLoading(false);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [committedQuery]);
-
-  const onSearchInputChange = useCallback((raw: string) => {
-    setSearchInput(raw);
-    searchBridgeRef.current.onInput(raw);
-  }, []);
-
-  const saveRole = useCallback(
-    async (person: Person) => {
-      if (!person.userId || !person.role) return;
-      const next = roleDrafts[person.userId];
-      if (!next || next === person.role) return;
-      if (!beginSaving(person.userId)) return;
-      setError(null);
-      setMessage(null);
-      setRefreshWarning(null);
-      try {
-        await updatePersonRole(person.userId, next);
-        try {
-          await refresh({
-            silent: true,
-            replaceUserIds: new Set([person.userId]),
-          });
-          setMessage(`Updated role for ${person.fullName}`);
-          setRefreshWarning(null);
-        } catch (err) {
-          const feedback = mergeMutationAndRefresh({
-            successMessage: `Updated role for ${person.fullName}`,
-            refreshError:
-              err instanceof Error ? err.message : "Failed to refresh",
-          });
-          setMessage(feedback.message);
-          setRefreshWarning(feedback.refreshWarning);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to update role");
-      } finally {
-        endSaving(person.userId);
-      }
-    },
-    [beginSaving, endSaving, refresh, roleDrafts],
-  );
-
-  const onCreateTask = useCallback(
-    async (e: FormEvent) => {
-      e.preventDefault();
-      if (!taskRoomId || !canCreateCleaning) return;
-      setCreatingTask(true);
-      setError(null);
-      setMessage(null);
-      setRefreshWarning(null);
-      try {
-        const due = new Date();
-        due.setHours(due.getHours() + 4);
-        const result = await executeMutationWithRefresh(
-          () =>
-            createCleaningTask({
-              locationId: taskRoomId,
-              hotelDate: todayHotelDate(),
-              priority: taskPriority,
-              assignedEmployeeId: assignedEmployeeIdPayload(taskAssignee),
-              dueAt: due.toISOString(),
-            }),
-          async () => {
-            await refresh({ silent: true });
-          },
-        );
-        if (!result.ok) {
-          setError(result.error || "Failed to create task");
-          return;
-        }
-        setMessage("Cleaning task created");
-        if (result.outcome === "saved_refresh_failed") {
-          setRefreshWarning(result.refreshError ?? "Failed to refresh");
-        } else {
-          setRefreshWarning(null);
-        }
-      } finally {
-        setCreatingTask(false);
-      }
-    },
-    [canCreateCleaning, refresh, taskAssignee, taskPriority, taskRoomId],
-  );
 
   const onManualRefresh = useCallback(async () => {
     setError(null);
     setRefreshWarning(null);
-    const q = searchBridgeRef.current.forceCommitFromInput();
-    setSearchInput(searchBridgeRef.current.getInput());
-    setSearchPending(false);
-    if (q !== committedQuery) {
-      setCommittedQuery(q);
-      return;
-    }
+    const { query, changed } = commitSearchNow();
     try {
-      await refresh({ peopleQuery: q });
+      if (changed) {
+        // People reload via the committed-query effect; refresh the rest here.
+        await Promise.all([loadTickets(), loadCleaning()]);
+        return;
+      }
+      await refreshAll({ peopleQuery: query });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refresh");
     }
-  }, [committedQuery, refresh]);
+  }, [commitSearchNow, loadCleaning, loadTickets, refreshAll]);
 
-  const peopleError = sectionErrors.people;
-  const ticketsError =
-    sectionErrors.openTickets ?? sectionErrors.assignees;
-  const recentError =
-    sectionErrors.resolvedTickets ?? sectionErrors.closedTickets;
-  const cleaningError = sectionErrors.rooms ?? sectionErrors.housekeepers;
+  const { peopleError, ticketsError, recentError, cleaningError } =
+    sectionErrorViews(sectionErrors);
 
   return {
     user,
@@ -522,38 +203,38 @@ export function useControlBoard(user: AuthUser) {
     message,
     refreshWarning,
     liveAt,
-    people,
-    roleDrafts,
-    setRoleDrafts,
-    searchInput,
-    searchPending,
-    peopleLoading,
+    people: people.people,
+    roleDrafts: people.roleDrafts,
+    setRoleDrafts: people.setRoleDrafts,
+    searchInput: people.searchInput,
+    searchPending: people.searchPending,
+    peopleLoading: people.peopleLoading,
     peopleError,
-    onSearchInputChange,
-    saveRole,
-    savingIds,
-    rooms,
-    housekeepers,
-    taskRoomId,
-    setTaskRoomId,
-    taskAssignee,
-    setTaskAssignee,
-    taskPriority,
-    setTaskPriority,
-    creatingTask,
-    onCreateTask,
+    onSearchInputChange: people.onSearchInputChange,
+    saveRole: people.saveRole,
+    savingIds: people.savingIds,
+    rooms: cleaning.rooms,
+    housekeepers: cleaning.housekeepers,
+    taskRoomId: cleaning.taskRoomId,
+    setTaskRoomId: cleaning.setTaskRoomId,
+    taskAssignee: cleaning.taskAssignee,
+    setTaskAssignee: cleaning.setTaskAssignee,
+    taskPriority: cleaning.taskPriority,
+    setTaskPriority: cleaning.setTaskPriority,
+    creatingTask: cleaning.creatingTask,
+    onCreateTask: cleaning.onCreateTask,
     cleaningError,
-    tickets,
-    resolvedTickets,
+    tickets: tickets.tickets,
+    resolvedTickets: tickets.resolvedTickets,
     ticketsError,
     recentError,
-    technicians,
-    assignDrafts,
-    setAssignDrafts,
-    busyIds,
-    beginBusy,
-    endBusy,
-    refresh,
+    technicians: tickets.technicians,
+    assignDrafts: tickets.assignDrafts,
+    setAssignDrafts: tickets.setAssignDrafts,
+    busyIds: tickets.busyIds,
+    beginBusy: tickets.beginBusy,
+    endBusy: tickets.endBusy,
+    refreshTickets: tickets.refreshLists,
     setError,
     setMessage,
     setRefreshWarning,
