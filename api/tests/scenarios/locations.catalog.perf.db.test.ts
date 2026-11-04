@@ -1,6 +1,6 @@
 /**
  * Catalog pagination performance on realistic volumes (1k / 10k).
- * Uses EXPLAIN (ANALYZE, BUFFERS) evidence; cleans up seeded rows.
+ * Separates index presence/usability from result, pagination, and latency.
  * 100k is opt-in via LOCATIONS_PERF_100K=1 (slow; skipped by default).
  */
 import "../preloadIsolatedTestEnv";
@@ -86,6 +86,61 @@ async function countNumberHits(q: string): Promise<number> {
       number: { contains: q, mode: "insensitive" },
     },
   });
+}
+
+/** Assert the migration-backed GIN trgm index exists with the expected ops. */
+async function assertNumberTrgmIndexPresent(): Promise<void> {
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{ indexname: string; indexdef: string }>
+  >(`
+    SELECT indexname, indexdef
+    FROM pg_indexes
+    WHERE schemaname = ANY (current_schemas(false))
+      AND tablename = 'Location'
+      AND indexname = 'Location_number_trgm_idx'
+  `);
+  assert.equal(rows.length, 1, "Location_number_trgm_idx must exist");
+  assert.match(
+    rows[0]!.indexdef,
+    /USING gin/i,
+    `expected GIN index, got: ${rows[0]!.indexdef}`,
+  );
+  assert.match(
+    rows[0]!.indexdef,
+    /gin_trgm_ops/i,
+    `expected gin_trgm_ops, got: ${rows[0]!.indexdef}`,
+  );
+}
+
+/**
+ * Prove the index is usable for the selective ILIKE shape. enable_seqscan=off
+ * is only a usability probe — CI heaps of ~10k rows often Seq Scan in ~5ms
+ * under default costs, which is not evidence the index is missing.
+ */
+async function assertNumberTrgmIndexUsable(selectiveQ: string): Promise<void> {
+  const probe = new PrismaClient();
+  try {
+    await probe.$connect();
+    await probe.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL enable_seqscan = off`);
+      const escaped = selectiveQ.replace(/'/g, "''");
+      const rows = await tx.$queryRawUnsafe<Array<{ "QUERY PLAN": string }>>(
+        `EXPLAIN (FORMAT TEXT)
+         SELECT id FROM "Location"
+         WHERE "catalogStatus" = 'active'
+           AND "number" ILIKE '%${escaped}%'
+         LIMIT 25`,
+      );
+      const text = rows.map((r) => r["QUERY PLAN"]).join("\n");
+      assert.match(
+        text,
+        /Location_number_trgm_idx/i,
+        `enable_seqscan=off must select Location_number_trgm_idx\n${text}`,
+      );
+    });
+  } finally {
+    await probe.$disconnect();
+  }
 }
 
 describe("locations catalog performance", () => {
@@ -215,7 +270,7 @@ describe("locations catalog performance", () => {
     );
   });
 
-  it("10_000 locations: selective number search uses Location_number_trgm_idx", async () => {
+  it("10_000 locations: selective number search — index, results, latency", async () => {
     assert.ok(world);
     const seeded = await prisma.location.count({
       where: { floorId: world.floorId, number: { startsWith: PREFIX } },
@@ -225,22 +280,28 @@ describe("locations catalog performance", () => {
       `selective case requires prior 10k seed; seeded=${seeded}`,
     );
     await prisma.$executeRawUnsafe(`ANALYZE "Location"`);
+    await assertNumberTrgmIndexPresent();
 
     // Highly selective substring: one fixture row (PREFIX + zero-padded index).
+    // Shared long PREFIX alone is not selective — the zero-padded suffix is.
     const selectiveQ = `${PREFIX}000042`;
     const hits = await countNumberHits(selectiveQ);
     assert.ok(hits >= 1 && hits <= 5, `selective hits=${hits}`);
 
+    const t0 = Date.now();
     const page = await listLocationsCatalog({
       includeArchived: false,
       page: 1,
       pageSize: 25,
       q: selectiveQ,
     });
+    const elapsedMs = Date.now() - t0;
     assert.ok(!Array.isArray(page));
     assert.ok(page.items.length <= 25);
     assert.ok(page.total >= 1 && page.total <= 5, `total=${page.total}`);
     assert.ok(page.items.every((row) => row.number.includes(selectiveQ)));
+    // Production path: correct results + latency budget (CI may Seq Scan ~5ms).
+    assert.ok(elapsedMs < 2_000, `selective page took ${elapsedMs}ms`);
 
     const plan = await explainPagedCatalog(selectiveQ, 25);
     console.log(
@@ -248,6 +309,8 @@ describe("locations catalog performance", () => {
       selectiveQ,
       "hits=",
       hits,
+      "elapsedMs=",
+      elapsedMs,
       "\n",
       plan,
       "\n",
@@ -258,12 +321,7 @@ describe("locations catalog performance", () => {
       /Join Filter:.*~~\*.*OR/i,
       "selective number-first must not use broad OR Join Filter",
     );
-    // Controlled selectivity + ANALYZE: regression if trgm GIN is dropped/ignored.
-    assert.match(
-      plan,
-      /Location_number_trgm_idx/i,
-      "selective number-first EXPLAIN must use Location_number_trgm_idx",
-    );
+    await assertNumberTrgmIndexUsable(selectiveQ);
   });
 
   it(
@@ -278,6 +336,7 @@ describe("locations catalog performance", () => {
         await seedLocations(world, 100_000 - existing, existing);
       }
       await prisma.$executeRawUnsafe(`ANALYZE "Location"`);
+      await assertNumberTrgmIndexPresent();
       const numberHits = await countNumberHits(PREFIX);
       assert.ok(numberHits >= 100_000, `numberHits=${numberHits}`);
 
@@ -322,6 +381,8 @@ describe("locations catalog performance", () => {
       );
       assert.match(plan, /Execution Time/i);
       assert.doesNotMatch(plan, /Join Filter:.*~~\*.*OR/i);
+      // At 100k rows the default planner should prefer the GIN index for a
+      // single-row selective ILIKE; keep this as a volume-gated regression.
       assert.match(
         plan,
         /Location_number_trgm_idx/i,

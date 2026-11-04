@@ -4,6 +4,18 @@ updates:
     directory: /api
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    # Prisma 7 drops datasource.url from schema and needs a coordinated
+    # migrate (prisma.config, client/adapter, seed, Docker targets). Keep CLI
+    # and @prisma/client on the same major 6 line until that work lands.
+    ignore:
+      - dependency-name: "prisma"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/client"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prisma"
+        versions: [">=7"]
+      - dependency-name: "@prisma/client"
+        versions: [">=7"]
   - package-ecosystem: npm
     directory: /web
     schedule: { interval: weekly }
