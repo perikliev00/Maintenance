@@ -90,7 +90,7 @@ export function ControlPage({ user }: Props) {
               busyIds={board.busyIds}
               beginBusy={board.beginBusy}
               endBusy={board.endBusy}
-              refresh={board.refresh}
+              refreshTickets={board.refreshTickets}
               setError={board.setError}
               setMessage={board.setMessage}
               setRefreshWarning={board.setRefreshWarning}

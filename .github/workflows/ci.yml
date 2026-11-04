@@ -121,32 +121,70 @@ jobs:
             'WEB_ORIGIN=http://127.0.0.1:5173' \
             > .env.p1_test
       - run: npm run prove:p1-isolation
-      - run: npm run test:scenarios
-      - run: npm test
-      - run: npm run test:cleaning-lifecycle
-      - run: npm run test:readiness
-      - run: npm run test:tickets-lifecycle
-      - run: npm run test:plan
-      - run: npm run test:sectors
+      - run: npm run test:inventory
+      # Independent suites: collect exit codes so one failure cannot hide the rest.
+      # Final exit is non-zero if any mandatory suite failed (no continue-on-error green).
+      - name: Run API test suites (collect failures)
         env:
           EXPECTED_TEST_DATABASE: maintenance_p1_test
-      - run: npm run test:shifts
-        env:
-          EXPECTED_TEST_DATABASE: maintenance_p1_test
-      - run: npm run test:my-work
-        env:
-          EXPECTED_TEST_DATABASE: maintenance_p1_test
-      - run: npm run test:attendance
-      - run: npm run test:cards
+        run: |
+          set +e
+          failed=0
+          run_suite() {
+            local name="$1"
+            shift
+            echo "::group::${name}"
+            "$@"
+            local ec=$?
+            echo "::endgroup::"
+            if [ "$ec" -ne 0 ]; then
+              echo "::error::suite '${name}' failed with exit ${ec}"
+              failed=1
+            else
+              echo "suite '${name}' passed"
+            fi
+          }
+          run_suite scenarios npm run test:scenarios
+          run_suite unit-src npm test
+          run_suite cleaning npm run test:cleaning-lifecycle
+          run_suite readiness npm run test:readiness
+          run_suite tickets npm run test:tickets-lifecycle
+          run_suite plan npm run test:plan
+          run_suite sectors npm run test:sectors
+          run_suite shifts npm run test:shifts
+          run_suite my-work npm run test:my-work
+          run_suite attendance npm run test:attendance
+          run_suite cards npm run test:cards
+          run_suite people npm run test:people
+          exit "$failed"
       - run: npm run db:seed
-      - run: npx tsx scripts/smoke-ticket-lifecycle-idempotency.ts
-      - run: npx tsx scripts/smoke-cleaning-atomic.ts
-      - run: npx tsx scripts/smoke-invitation-atomic.ts
-      - run: npx tsx scripts/smoke-invitation-role.ts
-      - run: npm run smoke:attendance:isolated
-      - run: npx tsx scripts/smoke-maintenance-atomic.ts
-      - run: npx tsx scripts/smoke-daily-plan-atomic.ts
-      - run: npx tsx scripts/smoke-data-scope.ts
+      - name: Run smoke scripts (collect failures)
+        run: |
+          set +e
+          failed=0
+          run_suite() {
+            local name="$1"
+            shift
+            echo "::group::${name}"
+            "$@"
+            local ec=$?
+            echo "::endgroup::"
+            if [ "$ec" -ne 0 ]; then
+              echo "::error::smoke '${name}' failed with exit ${ec}"
+              failed=1
+            else
+              echo "smoke '${name}' passed"
+            fi
+          }
+          run_suite ticket-lifecycle npx tsx scripts/smoke-ticket-lifecycle-idempotency.ts
+          run_suite cleaning-atomic npx tsx scripts/smoke-cleaning-atomic.ts
+          run_suite invitation-atomic npx tsx scripts/smoke-invitation-atomic.ts
+          run_suite invitation-role npx tsx scripts/smoke-invitation-role.ts
+          run_suite attendance-isolated npm run smoke:attendance:isolated
+          run_suite maintenance-atomic npx tsx scripts/smoke-maintenance-atomic.ts
+          run_suite daily-plan-atomic npx tsx scripts/smoke-daily-plan-atomic.ts
+          run_suite data-scope npx tsx scripts/smoke-data-scope.ts
+          exit "$failed"
 
   smoke-audit-upgrade:
     name: Smoke audit upgrade
@@ -311,7 +349,7 @@ jobs:
           docker build --target migrate -t maintenance-migrate:${GITHUB_SHA} ./api
           docker build --target bootstrap -t maintenance-bootstrap:${GITHUB_SHA} ./api
           docker build --target owner-bootstrap -t maintenance-owner:${GITHUB_SHA} ./api
-          docker build --target web -t maintenance-web:${GITHUB_SHA} ./web
+          docker build --target web -f web/Dockerfile -t maintenance-web:${GITHUB_SHA} .
       - name: Verify runtime Prisma client
         run: docker run --rm --entrypoint node maintenance-api:${GITHUB_SHA} -e "const {PrismaClient}=require('@prisma/client'); if(!PrismaClient) process.exit(1); console.log('Prisma client available')"
       - name: Verify edge routing and monitoring delivery in isolated containers

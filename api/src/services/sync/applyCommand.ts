@@ -23,9 +23,19 @@ import {
   handleTicketWait,
 } from "./commands/tickets";
 import {
+  cleaningCompletePayloadSchema,
+  cleaningStartPayloadSchema,
   syncCommandSchemas,
+  ticketAssignPayloadSchema,
+  ticketClosePayloadSchema,
+  ticketReopenPayloadSchema,
+  ticketResumePayloadSchema,
+  ticketResolvePayloadSchema,
+  ticketStartPayloadSchema,
+  ticketWaitPayloadSchema,
   type ParsedSyncCommand,
 } from "./commandSchemas";
+import { maintenanceTicketReportSchema } from "../maintenance/validation/ticketReportSchema";
 import type { SyncCommand, SyncCommandResult } from "./types";
 
 /** Prisma codes that usually mean the database is temporarily unavailable. */
@@ -49,15 +59,95 @@ const PERMANENT_PRISMA_CODES = new Set([
   "P2025", // record not found
 ]);
 
+function isSyncCommandType(type: string): type is ParsedSyncCommand["type"] {
+  return Object.hasOwn(syncCommandSchemas, type);
+}
+
+/**
+ * Parse payload with the schema that matches `type`, rebuilding the
+ * discriminated union without an uncorrelated cast.
+ */
+function buildParsedSyncCommand(
+  commandId: string,
+  type: ParsedSyncCommand["type"],
+  payload: unknown,
+  clientTime: string | undefined,
+): ParsedSyncCommand | null {
+  switch (type) {
+    case "cleaning.start": {
+      const parsed = cleaningStartPayloadSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    case "cleaning.complete": {
+      const parsed = cleaningCompletePayloadSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    case "ticket.report": {
+      const parsed = maintenanceTicketReportSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    case "ticket.start": {
+      const parsed = ticketStartPayloadSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    case "ticket.wait": {
+      const parsed = ticketWaitPayloadSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    case "ticket.resume": {
+      const parsed = ticketResumePayloadSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    case "ticket.resolve": {
+      const parsed = ticketResolvePayloadSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    case "ticket.assign": {
+      const parsed = ticketAssignPayloadSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    case "ticket.close": {
+      const parsed = ticketClosePayloadSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    case "ticket.reopen": {
+      const parsed = ticketReopenPayloadSchema.safeParse(payload);
+      return parsed.success
+        ? { commandId, type, payload: parsed.data, clientTime }
+        : null;
+    }
+    default: {
+      const _exhaustive: never = type;
+      void _exhaustive;
+      return null;
+    }
+  }
+}
+
 function parseSyncCommand(
   cmd: SyncCommand,
 ):
   | { ok: true; parsed: ParsedSyncCommand }
   | { ok: false; result: SyncCommandResult } {
-  const entry = Object.hasOwn(syncCommandSchemas, cmd.type)
-    ? syncCommandSchemas[cmd.type as ParsedSyncCommand["type"]]
-    : undefined;
-  if (!entry) {
+  if (!isSyncCommandType(cmd.type)) {
     return {
       ok: false,
       result: {
@@ -68,8 +158,13 @@ function parseSyncCommand(
       },
     };
   }
-  const parsedPayload = entry.schema.safeParse(cmd.payload);
-  if (!parsedPayload.success) {
+  const parsed = buildParsedSyncCommand(
+    cmd.commandId,
+    cmd.type,
+    cmd.payload,
+    cmd.clientTime,
+  );
+  if (!parsed) {
     return {
       ok: false,
       result: {
@@ -81,15 +176,7 @@ function parseSyncCommand(
       },
     };
   }
-  return {
-    ok: true,
-    parsed: {
-      commandId: cmd.commandId,
-      type: entry.type,
-      payload: parsedPayload.data,
-      clientTime: cmd.clientTime,
-    } as ParsedSyncCommand,
-  };
+  return { ok: true, parsed };
 }
 
 async function dispatchParsed(
@@ -120,12 +207,7 @@ async function dispatchParsed(
       return await handleTicketReopen(user, scope, cmd);
     default: {
       const _exhaustive: never = cmd;
-      return {
-        commandId: (_exhaustive as ParsedSyncCommand).commandId,
-        status: "error",
-        message: "Unknown command type",
-        retryable: false,
-      };
+      throw new Error(`Unhandled sync command type: ${JSON.stringify(_exhaustive)}`);
     }
   }
 }

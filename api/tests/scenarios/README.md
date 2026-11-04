@@ -9,6 +9,13 @@ database first; run `npm run prove:p1-isolation` before the suites.
 Local isolation DB setup (including `P1_TEST_DATABASE_URL` when `:55439` is
 unreachable): see [`docs/testing/P1_ISOLATION_DB.md`](../../docs/testing/P1_ISOLATION_DB.md).
 
+From the repository root, `npm test` now runs everything in one go: `web` unit tests,
+`api` `test:all` (which includes these `tests/scenarios/*.test.ts`), the main Playwright suite
+(`e2e` `npm test`) and the isolated browser scenarios (`e2e` `npm run test:scenarios`), stopping at
+the first failing step. It therefore needs the isolated database, a seeded working DB and Chromium.
+`npm run test:unit` (web + API only), `npm run test:e2e` and `npm run test:e2e:scenarios` run the
+pieces separately.
+
 Run from `web/`: `npm test` and `npm run typecheck:tests`.
 Run from `e2e/`: `npm run typecheck:scenarios` and `npm run test:scenarios`.
 Chromium must be installed. The scenario config starts separate servers on

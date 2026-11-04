@@ -2,7 +2,9 @@
  * Pure helpers for Settings draft / save / live-refresh behavior.
  * Kept framework-free so node:test can lock BUG-03/04/06/07 regressions.
  */
+import type { SlaPolicyRow } from "../../api/client";
 import { mergeSavedWithRefreshFailure } from "../../saveRefresh";
+import type { Tab } from "./constants";
 
 /** Domain events that should refresh system diagnostics only (not the draft). */
 export const SYSTEM_STATUS_LIVE_EVENTS = [
@@ -17,6 +19,67 @@ export const SETTINGS_BUNDLE_LIVE_EVENTS = ["settings.changed"] as const;
 /** Stable JSON compare for dirty detection (key order from structuredClone drafts). */
 export function isDraftDirty(draft: unknown, serverValue: unknown): boolean {
   return JSON.stringify(draft) !== JSON.stringify(serverValue);
+}
+
+/** Tabs backed by a settings row (draft + save); history/issues are not. */
+export function isEditableTab(tab: Tab): boolean {
+  return tab !== "history" && tab !== "issues";
+}
+
+/**
+ * Dirty = the editable tab's draft differs from its last-known server value.
+ * Non-editable tabs and tabs without a loaded row are never dirty.
+ */
+export function isTabDraftDirty(
+  tab: Tab,
+  draft: unknown,
+  serverValue: unknown,
+): boolean {
+  return isEditableTab(tab) && isDraftDirty(draft, serverValue ?? draft);
+}
+
+/**
+ * Set one field on a notification channel draft. Device push cannot be enabled
+ * from the UI: any `enabled` edit forces `enabled=false, status=not_configured`.
+ */
+export function patchDraftChannel(
+  draft: Record<string, unknown>,
+  channel: string,
+  field: "enabled" | "status",
+  value: boolean | string,
+): Record<string, unknown> {
+  const cur = { ...((draft[channel] as object) ?? {}) } as Record<
+    string,
+    unknown
+  >;
+  cur[field] = value;
+  if (channel === "device_push" && field === "enabled") {
+    cur.enabled = false;
+    cur.status = "not_configured";
+  }
+  return { ...draft, [channel]: cur };
+}
+
+/** Replace one priority's SLA row, keeping the list sorted by priority name. */
+export function upsertSlaPolicy(
+  prev: readonly SlaPolicyRow[],
+  row: SlaPolicyRow,
+): SlaPolicyRow[] {
+  const others = prev.filter((p) => p.priority !== row.priority);
+  return [...others, row].sort((a, b) => a.priority.localeCompare(b.priority));
+}
+
+/** Hours shown for a priority: server row, else the built-in default. */
+export function slaHoursForPriority(
+  policies: readonly SlaPolicyRow[],
+  priority: "low" | "normal" | "high" | "urgent",
+): number {
+  const row = policies.find((p) => p.priority === priority);
+  if (row) return row.hours;
+  if (priority === "urgent") return 4;
+  if (priority === "high") return 8;
+  if (priority === "low") return 72;
+  return 24;
 }
 
 /** Whether an SSE/settings refresh may replace the local draft. */

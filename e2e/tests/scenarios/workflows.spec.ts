@@ -87,13 +87,17 @@ test("invitation activate from login screen with manual code entry (no QR, no ha
 });
 test("real queued report reloads then single-flight sync replaces optimistic row", async ({ page }) => {
   await uiLogin(page, USERS.owner); const target = await room(page, "OFFLINE"); await openNav(page, /Повреди|Repairs/);
-  await page.getByLabel(/Стая|Room/, { exact: true }).selectOption(target.id); await page.getByLabel(/Опция|Option/, { exact: true }).selectOption({ index: 0 });
-  const title = `QUEUED-${crypto.randomUUID()}`; await page.getByLabel(/Заглавие|Title/, { exact: true }).fill(title);
+  await page.getByLabel(/Стая|Room/, { exact: true }).selectOption(target.id);
+  await page.getByLabel(/Опция|Option/, { exact: true }).selectOption({ index: 0 });
+  // Repairs is catalog-only — unique marker lives in clarification, not Title.
+  const marker = `QUEUED-${crypto.randomUUID()}`;
+  await page.getByLabel(/Уточнение|Clarification/).fill(marker);
   await page.addInitScript(() => Object.defineProperty(navigator, "onLine", { configurable: true, value: false }));
   await page.evaluate(() => { Object.defineProperty(navigator, "onLine", { configurable: true, value: false }); window.dispatchEvent(new Event("offline")); });
   await page.getByRole("button", { name: /Докладвай|Report/, exact: true }).click(); await expect(page.getByText(/Докладът е в опашката|Report queued for sync/)).toBeVisible();
-  expect((await (await page.request.get(`/api/maintenance/tickets?locationId=${target.id}&status=all`)).json()).filter((r: any) => r.title === title)).toHaveLength(0);
+  expect((await (await page.request.get(`/api/maintenance/tickets?locationId=${target.id}&status=all`)).json()).filter((r: any) => (r.description ?? "").includes(marker))).toHaveLength(0);
   const queued = await page.evaluate(async () => (await import(/* @vite-ignore */ "/src/offline/queueOps.ts")).listQueuedActions()); expect(queued).toHaveLength(1); const commandId = queued[0].commandId;
+  expect(JSON.stringify(queued[0].body)).toContain(marker);
   await page.reload(); await openNav(page, /Повреди|Repairs/);
   expect(await page.evaluate(async () => (await import(/* @vite-ignore */ "/src/offline/queueOps.ts")).listQueuedActions())).toHaveLength(1);
   await page.evaluate(() => { const w = window as any; w.__MERIDIAN_E2E_AFTER_DRAIN_CLAIM__ = () => new Promise<void>(r => { w.claimed = true; w.releaseClaim = r; }); Object.defineProperty(navigator, "onLine", { configurable: true, value: true }); window.dispatchEvent(new Event("online")); });
@@ -101,10 +105,13 @@ test("real queued report reloads then single-flight sync replaces optimistic row
   let sends = 0; page.on("request", req => { if (req.url().includes("/sync/push") && req.postData()?.includes(commandId)) sends++; });
   await page.evaluate(async () => { const m = await import(/* @vite-ignore */ "/src/offline/queueDrain.ts"); await Promise.all([m.drainQueue(), m.drainQueue(), m.drainQueue()]); (window as any).releaseClaim(); });
   await expect.poll(() => page.evaluate(async () => (await import(/* @vite-ignore */ "/src/offline/queueOps.ts")).listQueuedActions())).toEqual([]);
-  await expect(page.locator("tr").filter({ hasText: title })).toHaveCount(1); expect(sends).toBe(1);
-  const tickets = await (await page.request.get(`/api/maintenance/tickets?locationId=${target.id}&status=all`)).json(); expect(tickets.filter((r: any) => r.title === title)).toHaveLength(1); expect(tickets[0].id).not.toMatch(/^local-/);
-  const events = await (await page.request.get(`/api/maintenance/tickets/${tickets[0].id}/events`)).json(); expect(events).toHaveLength(1);
-  await page.reload(); await openNav(page, /Повреди|Repairs/); await expect(page.locator("tr").filter({ hasText: title })).toHaveCount(1);
+  expect(sends).toBe(1);
+  const tickets = await (await page.request.get(`/api/maintenance/tickets?locationId=${target.id}&status=all`)).json();
+  const matched = tickets.filter((r: any) => (r.description ?? "").includes(marker));
+  expect(matched).toHaveLength(1); expect(matched[0].id).not.toMatch(/^local-/);
+  const events = await (await page.request.get(`/api/maintenance/tickets/${matched[0].id}/events`)).json(); expect(events).toHaveLength(1);
+  await page.reload(); await openNav(page, /Повреди|Repairs/);
+  await expect(page.locator("tr").filter({ hasText: matched[0].title })).toHaveCount(1);
 });
 test("card type switches send applicable fields; delayed double click commits one actual card", async ({ page }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Карти|Cards/);
@@ -123,24 +130,65 @@ test("card type switches send applicable fields; delayed double click commits on
   const rows = await (await page.request.get("/api/cards?staffOnly=true")).json(); const list = Array.isArray(rows) ? rows : rows.cards; expect(list.filter((r: any) => r.label === label)).toHaveLength(1);
 });
 test("Rooms uses saved task due hours without changing an existing task", async ({ page }) => {
-  await uiLogin(page, USERS.owner); const settings = await (await page.request.get("/api/settings")).json(); const original = settings.operations.value;
-  const a = await room(page, "DUE-A"); const b = await room(page, "DUE-B");
+  test.setTimeout(90_000);
+  await uiLogin(page, USERS.owner);
+  const settings = await (await page.request.get("/api/settings")).json();
+  const original = settings.operations.value;
+  const a = await room(page, "DUE-A");
+  const b = await room(page, "DUE-B");
+  // Create-task CTA is clearest on dirty rooms without an active task.
+  await mutation(page, "POST", `/rooms/${a.id}/mark-dirty`, {});
+  await mutation(page, "POST", `/rooms/${b.id}/mark-dirty`, {});
+  // Board labels room cells as "<building> <number>", so exact number match misses the row.
+  const createTask = /Създай задача|Create task/;
+  const row = (number: string) => page.locator("tbody tr").filter({ hasText: number });
+  const findRoom = async (number: string) => {
+    await page.getByLabel(/Търсене|Search/).fill(number);
+    await expect(row(number).getByRole("button", { name: createTask })).toBeVisible();
+  };
   try {
-    await patchSetting(page, "operations", { ...original, defaultTaskDueHours: 2 }, "scenario due before"); await page.reload(); await openNav(page, /Стаи|Rooms/);
-    const row = (number: string) => page.locator("tr").filter({ has: page.getByText(number, { exact: true }) });
-    const beforeA = Date.now(); await row(a.number).getByRole("button", { name: "Create task", exact: true }).click();
-    await expect(row(a.number).getByRole("button", { name: "Create task", exact: true })).toHaveCount(0);
-    const taskA = (await (await page.request.get(`/api/cleaning/tasks?hotelDate=${new Intl.DateTimeFormat("en-CA", { timeZone: original.hotelTimezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())}`)).json()).find((t: any) => t.locationId === a.id);
+    await patchSetting(page, "operations", { ...original, defaultTaskDueHours: 2 }, "scenario due before");
+    await page.reload();
+    await openNav(page, /Стаи|Rooms/);
+    await findRoom(a.number);
+    const beforeA = Date.now();
+    await row(a.number).getByRole("button", { name: createTask }).click();
+    await expect(row(a.number).getByRole("button", { name: createTask })).toHaveCount(0);
+    const hotelDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: original.hotelTimezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const taskA = (await (await page.request.get(`/api/cleaning/tasks?hotelDate=${hotelDate}`)).json())
+      .find((t: any) => t.locationId === a.id);
+    expect(taskA, "task A created").toBeTruthy();
     expect(Math.abs(new Date(taskA.dueAt).getTime() - beforeA - 2 * 3600000)).toBeLessThan(10000);
-    await patchSetting(page, "operations", { ...original, defaultTaskDueHours: 7 }, "scenario due after"); await page.reload(); await openNav(page, /Стаи|Rooms/);
-    const beforeB = Date.now(); await row(b.number).getByRole("button", { name: "Create task", exact: true }).click(); await expect(row(b.number).getByRole("button", { name: "Create task", exact: true })).toHaveCount(0);
-    const tasks = await (await page.request.get(`/api/cleaning/tasks?hotelDate=${taskA.hotelDate.slice(0, 10)}`)).json(); const taskB = tasks.find((t: any) => t.locationId === b.id); const old = tasks.find((t: any) => t.id === taskA.id);
-    expect(Math.abs(new Date(taskB.dueAt).getTime() - beforeB - 7 * 3600000)).toBeLessThan(10000); expect(old.dueAt).toBe(taskA.dueAt);
-  } finally { await patchSetting(page, "operations", original, "scenario restore"); }
+    await patchSetting(page, "operations", { ...original, defaultTaskDueHours: 7 }, "scenario due after");
+    await page.reload();
+    await openNav(page, /Стаи|Rooms/);
+    await findRoom(b.number);
+    const beforeB = Date.now();
+    await row(b.number).getByRole("button", { name: createTask }).click();
+    await expect(row(b.number).getByRole("button", { name: createTask })).toHaveCount(0);
+    const tasks = await (await page.request.get(`/api/cleaning/tasks?hotelDate=${taskA.hotelDate.slice(0, 10)}`)).json();
+    const taskB = tasks.find((t: any) => t.locationId === b.id);
+    const old = tasks.find((t: any) => t.id === taskA.id);
+    expect(taskB, "task B created").toBeTruthy();
+    expect(Math.abs(new Date(taskB.dueAt).getTime() - beforeB - 7 * 3600000)).toBeLessThan(10000);
+    expect(old.dueAt).toBe(taskA.dueAt);
+  } finally {
+    try {
+      await patchSetting(page, "operations", original, "scenario restore");
+    } catch (err) {
+      console.warn("operations restore failed", err);
+    }
+  }
 });
 test("rapid report clicks preserve one logical queued report", async ({ page }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Повреди|Repairs/);
-  await page.getByLabel(/Заглавие|Title/, { exact: true }).fill(`DOUBLE-${crypto.randomUUID()}`);
+  await page.getByLabel(/Опция|Option/, { exact: true }).selectOption({ index: 0 });
+  await page.getByLabel(/Уточнение|Clarification/).fill(`DOUBLE-${crypto.randomUUID()}`);
   await page.evaluate(() => { Object.defineProperty(navigator, "onLine", { configurable: true, value: false }); window.dispatchEvent(new Event("offline")); });
   await page.getByRole("button", { name: /Докладвай|Report/, exact: true }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
   await expect(page.getByText(/Докладът е в опашката|Report queued for sync/)).toBeVisible();
@@ -148,10 +196,14 @@ test("rapid report clicks preserve one logical queued report", async ({ page }) 
 });
 test("report UI shows storage quota failure without queued success or optimistic row", async ({ page }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Повреди|Repairs/);
-  const title = `QUOTA-${crypto.randomUUID()}`; await page.getByLabel(/Заглавие|Title/, { exact: true }).fill(title);
+  await page.getByLabel(/Опция|Option/, { exact: true }).selectOption({ index: 0 });
+  const marker = `QUOTA-${crypto.randomUUID()}`;
+  await page.getByLabel(/Уточнение|Clarification/).fill(marker);
   await page.evaluate(() => { Object.defineProperty(navigator, "onLine", { configurable: true, value: false }); window.dispatchEvent(new Event("offline")); IDBObjectStore.prototype.put = function () { throw new DOMException("Storage quota exceeded", "QuotaExceededError"); }; });
   await page.getByRole("button", { name: /Докладвай|Report/, exact: true }).click();
-  await expect(page.getByText(/Storage quota exceeded/)).toBeVisible(); await expect(page.getByText(/Докладът е в опашката|Report queued for sync/)).toHaveCount(0); await expect(page.locator("tr").filter({ hasText: title })).toHaveCount(0);
+  await expect(page.getByText(/Storage quota exceeded/)).toBeVisible();
+  await expect(page.getByText(/Докладът е в опашката|Report queued for sync/)).toHaveCount(0);
+  expect(await page.evaluate(async () => (await import(/* @vite-ignore */ "/src/offline/queueOps.ts")).listQueuedActions())).toHaveLength(0);
 });
 test("disabling current module selects allowed panel and remains hidden after reload", async ({ page }) => {
   await uiLogin(page, USERS.owner); const original = (await (await page.request.get("/api/settings")).json()).modules.value;

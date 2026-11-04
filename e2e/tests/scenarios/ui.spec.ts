@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { ticketListResponse } from "./helpers/ticketListMock";
 let user: any;
 test.beforeEach(async ({ page }) => {
   const login = await page.request.post("/api/auth/login", { data: { email: "owner@meridian.local", password: "demo1234" } }); expect(login.status()).toBe(200); user = (await login.json()).user;
@@ -58,22 +59,74 @@ test("live board marks delayed polls stale then offline and recovers after succe
   await page.clock.fastForward(15000); await expect(page.getByText("Live", { exact: true })).toBeVisible();
 });
 test("attendance filter B cannot be replaced by delayed unfiltered results", async ({ page }) => {
-  const payload = await (await page.request.get("/api/attendance/intervals?limit=1")).json(); expect(payload.intervals.length).toBeGreaterThan(0);
-  let release!: () => void; const gate = new Promise<void>(r => { release = r; }); let captured = false;
-  await page.route("**/api/attendance/intervals?*", async route => {
-    const current = new URL(route.request().url()).searchParams.get("q") === "B";
-    if (!current) { captured = true; await gate; }
-    await route.fulfill({ json: { ...payload, intervals: [{ ...payload.intervals[0], employee: { ...payload.intervals[0].employee, fullName: current ? "CURRENT-FILTER-B" : "STALE-FILTER-A" } }] } });
+  const fetched = await (await page.request.get("/api/attendance/intervals?limit=1")).json();
+  // P1 seed may have zero intervals; the race only needs a DTO shape to mock.
+  const sample = fetched.intervals?.[0] ?? {
+    id: "fixture-interval",
+    hotelDate: "2000-01-01",
+    status: "closed",
+    startedAt: "2000-01-01T08:00:00.000Z",
+    endedAt: "2000-01-01T16:00:00.000Z",
+    breakMinutes: 30,
+    workedMinutes: 450,
+    anomalyFlags: [],
+    adjustments: [],
+    employee: { id: "e1", fullName: "Fixture", employeeNumber: "F1", department: null },
+  };
+  const payload = {
+    total: 1,
+    nextCursor: null,
+    limit: 50,
+    maxClockSkewSeconds: 0,
+    ...fetched,
+    intervals: [sample],
+  };
+  let release!: () => void; const gate = new Promise<void>(r => { release = r; });
+  let captured = false;
+  let aSettled = false;
+  let capturedB = false;
+  await page.route("**/api/attendance/intervals**", async route => {
+    const url = route.request().url();
+    const current = new URL(url).searchParams.get("q") === "B";
+    if (!current) {
+      captured = true;
+      await gate;
+      try {
+        await route.fulfill({
+          json: {
+            ...payload,
+            intervals: [{ ...sample, employee: { ...sample.employee, fullName: "STALE-FILTER-A" } }],
+          },
+        });
+      } catch { /* aborted stale A */ }
+      finally { aSettled = true; }
+      return;
+    }
+    capturedB = true;
+    await route.fulfill({
+      json: {
+        ...payload,
+        intervals: [{ ...sample, employee: { ...sample.employee, fullName: "CURRENT-FILTER-B" } }],
+      },
+    });
   });
-  await mount(page, "attendance"); await expect.poll(() => captured).toBe(true);
-  await page.getByLabel("Търсене").fill("B"); await expect(page.getByText("CURRENT-FILTER-B", { exact: true })).toBeVisible();
-  const oldResponse = page.waitForResponse(r => r.url().includes("/api/attendance/intervals?") && !r.url().includes("q=B")); release(); await oldResponse;
-  await expect(page.getByText("CURRENT-FILTER-B", { exact: true })).toBeVisible(); await expect(page.getByText("STALE-FILTER-A", { exact: true })).toHaveCount(0);
+  await mount(page, "attendance");
+  await expect.poll(() => captured).toBe(true);
+  await expect(page.getByLabel("Търсене")).toBeVisible();
+  await page.getByLabel("Търсене").fill("B");
+  await expect.poll(() => capturedB).toBe(true);
+  await expect(page.getByText("CURRENT-FILTER-B", { exact: true })).toBeVisible();
+  release();
+  await expect.poll(() => aSettled).toBe(true);
+  await expect(page.getByText("CURRENT-FILTER-B", { exact: true })).toBeVisible();
+  await expect(page.getByText("STALE-FILTER-A", { exact: true })).toHaveCount(0);
 });
 test("ticket B keeps its history after delayed A and current filter results remain visible", async ({ page }) => {
   const rows = await (await page.request.get("/api/maintenance/tickets?status=all&limit=2")).json(); expect(rows.length).toBeGreaterThan(1);
   const tickets = rows.slice(0, 2).map((r: any, i: number) => ({ ...r, blocksRoom: false, status: "new", title: `SELECT-TICKET-${i === 0 ? "A" : "B"}` }));
-  await page.route("**/api/maintenance/tickets?*", route => route.fulfill({ json: tickets }));
+  await page.route("**/api/maintenance/tickets?*", route =>
+    route.fulfill({ json: ticketListResponse(route.request().url(), tickets) }),
+  );
   let release!: () => void; const gate = new Promise<void>(r => { release = r; }); let captured = false;
   await page.route("**/api/maintenance/tickets/*/events", async route => { const a = route.request().url().includes(tickets[0].id); if (a) { captured = true; await gate; } await route.fulfill({ json: [{ id: a ? "event-a" : "event-b", toStatus: "assigned", fromStatus: "new", occurredAt: new Date().toISOString(), reason: a ? "HISTORY-A" : "HISTORY-B", actor: { fullName: "Actor" } }] }); });
   await mount(page, "repairs"); await page.getByText("SELECT-TICKET-A", { exact: true }).first().click(); await expect.poll(() => captured).toBe(true);

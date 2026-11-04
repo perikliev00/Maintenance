@@ -202,6 +202,16 @@ export function useLiveBoardController({
     return () => window.clearInterval(tick);
   }, []);
 
+  // Offline is sticky in deriveLiveConnAfterTick; poll again so a later success
+  // can return the badge to Live without waiting for an SSE domain event.
+  useEffect(() => {
+    if (conn !== "offline" || loading) return;
+    const retry = window.setTimeout(() => {
+      void refresh({ silent: true });
+    }, 15_000);
+    return () => window.clearTimeout(retry);
+  }, [conn, loading, refresh]);
+
   useEffect(() => {
     const next = deriveLiveConnAfterTick({
       conn,

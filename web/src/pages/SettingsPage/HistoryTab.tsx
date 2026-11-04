@@ -5,15 +5,18 @@ import type { LabelFn } from "./constants";
 type Props = {
   history: SettingHistoryRow[];
   label: LabelFn;
+  /** Load failure for this tab only (not the settings error banner). */
+  error?: string | null;
 };
 
 /**
  * Read-only settings change timeline. Diff column truncates JSON to 120 chars.
  */
-export function HistoryTab({ history, label }: Props) {
+export function HistoryTab({ history, label, error = null }: Props) {
   // Early / value return.
   return (
     <div className="table-wrap">
+      {error && <p className="error">{error}</p>}
       <table>
         <thead>
           <tr>

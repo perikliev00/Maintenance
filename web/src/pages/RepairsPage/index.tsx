@@ -7,24 +7,16 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import {
   // Permission / capability gate.
   canPerformAction,
-  fetchIssueOptions,
-  fetchMaintenanceCategories,
   fetchPeople,
-  fetchRooms,
   fetchTicketEvents,
   fetchTickets,
   type AuthUser,
-  type IssueOptionRow,
-  type MaintenanceCategoryRow,
-  type MaintenanceTicket,
   type Person,
-  type Room,
 } from "../../api/client";
 import { TicketLifecycleActions } from "../../components/TicketLifecycleActions";
 import { OutboxIssuesPanel } from "../../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import { useTicketLifecycleActions } from "../../hooks/useTicketLifecycleActions";
-import { reportTicketQueued } from "../../offline/mutations";
 import { useOfflineStatus } from "../../hooks/useOfflineStatus";
 import { Detail, type TicketEventRow } from "./detail";
 import { Filters } from "./filters";
@@ -45,6 +37,7 @@ import {
   type RepairsBoardListSession,
   type RepairsBoardListViewState,
 } from "./listSession";
+import { useRepairReportForm } from "./useRepairReportForm";
 
 type Props = {
   user: AuthUser;
@@ -67,9 +60,6 @@ export function RepairsPage({
     loading: true,
   });
   const [people, setPeople] = useState<Person[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [categories, setCategories] = useState<MaintenanceCategoryRow[]>([]);
-  const [options, setOptions] = useState<IssueOptionRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -86,19 +76,7 @@ export function RepairsPage({
   }
   const listSession = sessionRef.current;
 
-  // report form
-  const [locationId, setLocationId] = useState("");
-  const [issueOptionId, setIssueOptionId] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState("normal");
-  const [blocksRoom, setBlocksRoom] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const reportInFlight = useRef(false);
-  const locationRef = useRef(locationId);
-  const optionRef = useRef(issueOptionId);
-  locationRef.current = locationId;
-  optionRef.current = issueOptionId;
+  const report = useRepairReportForm({ user, locale, setError, setMessage });
 
   const {
     tickets,
@@ -156,32 +134,9 @@ export function RepairsPage({
     [buildTicketParams],
   );
 
-  /** Seed report-form catalogs; ticket list uses the paged session. */
-  const loadCatalog = useCallback(async () => {
-    const [roomData, catData, optData] = await Promise.all([
-      fetchRooms(),
-      fetchMaintenanceCategories(),
-      fetchIssueOptions(),
-    ]);
-    setRooms(roomData);
-    setCategories(catData);
-    setOptions(optData);
-    if (!locationRef.current && roomData[0]) {
-      locationRef.current = roomData[0].id;
-      setLocationId(roomData[0].id);
-    }
-    if (!optionRef.current && optData[0]) {
-      optionRef.current = optData[0].id;
-      setIssueOptionId(optData[0].id);
-      setTitle(locale === "en" ? optData[0].nameEn : optData[0].nameBg);
-      if (optData[0].defaultPriority) setPriority(optData[0].defaultPriority);
-      if (optData[0].defaultBlocksRoom != null) {
-        setBlocksRoom(optData[0].defaultBlocksRoom);
-      }
-    }
-  }, [locale]);
+  const { loadCatalog } = report;
 
-  /** Ticket list via paged session + catalog side load. */
+  /** Ticket list via paged session + report-form catalog side load. */
   const refresh = useCallback(async () => {
     setError(null);
     const catalogPromise = loadCatalog().catch((err) => {
@@ -275,7 +230,7 @@ export function RepairsPage({
 
   const liveAt = useLiveRefresh(refresh, {
     enabled: true,
-    busy: busyId !== null || submitting || loadingMore,
+    busy: busyId !== null || report.submitting || loadingMore,
     eventTypes: ["ticket.changed", "location.changed"],
   });
 
@@ -341,106 +296,17 @@ export function RepairsPage({
     [tickets, selectedId],
   );
 
-  /**
-   * Handler `handleReport` for user or form events.
-   */
+  /** Submit the report form, then apply the list effect it asks for. */
   async function handleReport(e: FormEvent) {
-    e.preventDefault();
-    // Branch: conditional gate.
-    if (!locationId || !issueOptionId || reportInFlight.current) return;
-    reportInFlight.current = true;
-    // State transition.
-    setSubmitting(true);
-    // State transition.
-    setError(null);
-    // State transition.
-    setMessage(null);
-    // Try block for fallible work.
-    try {
-      const room = rooms.find((r) => r.id === locationId);
-      const result = await reportTicketQueued({
-        locationId,
-        issueOptionId,
-        // Keep catalog title from option; clarification goes in description.
-        description: description.trim() || undefined,
-        priority,
-        blocksRoom,
-      });
-      // Branch: conditional gate.
-      if (result.queued) {
-        const optimistic: MaintenanceTicket = {
-          id: `local-${crypto.randomUUID()}`,
-          title: title.trim() || "Queued report",
-          description: description.trim() || null,
-          category: "queued",
-          priority,
-          blocksRoom,
-          status: "new",
-          openedAt: new Date().toISOString(),
-          resolvedAt: null,
-          resolutionNotes: null,
-          location: {
-            id: locationId,
-            number: room?.number ?? "?",
-            floor: {
-              number: room?.floor ?? 0,
-              building: {
-                code: room?.buildingCode ?? "?",
-                name: room?.building ?? room?.buildingCode ?? "?",
-              },
-            },
-          },
-          reportedBy: {
-            id: user.employeeId,
-            fullName: user.fullName,
-            employeeNumber: "",
-          },
-          assignee: null,
-          resolvedBy: null,
-          slaBreached: false,
-        };
-        // State transition.
-        setListView((prev) => ({
-          ...prev,
-          tickets: [optimistic, ...prev.tickets],
-          totalCount: (prev.totalCount ?? 0) + 1,
-        }));
-        // State transition.
-        setMessage(
-          t(locale, "Докладът е в опашката", "Report queued for sync"),
-        );
-      } else {
-        // State transition.
-        setMessage(t(locale, "Тикетът е докладван", "Ticket reported"));
-        refreshInBackground();
-      }
-      // State transition.
-      setDescription("");
-    } catch (err) {
-      // State transition.
-      setError(err instanceof Error ? err.message : "Report failed");
-    } finally {
-      // State transition.
-      setSubmitting(false);
-      reportInFlight.current = false;
-    }
-  }
-
-  /**
-   * Handler `handleIssueOptionSelect` for user or form events.
-   */
-  function handleIssueOptionSelect(optionId: string) {
-    const opt = options.find((o) => o.id === optionId);
-    // State transition.
-    setIssueOptionId(optionId);
-    // Branch: conditional gate.
-    if (opt) {
-      // State transition.
-      setTitle(locale === "en" ? opt.nameEn : opt.nameBg);
-      // Branch: conditional gate.
-      if (opt.defaultPriority) setPriority(opt.defaultPriority);
-      // Catalog default wins; otherwise leave room unblocked.
-      setBlocksRoom(opt.defaultBlocksRoom ?? false);
+    const result = await report.submit(e);
+    if (result.status === "queued") {
+      setListView((prev) => ({
+        ...prev,
+        tickets: [result.ticket, ...prev.tickets],
+        totalCount: (prev.totalCount ?? 0) + 1,
+      }));
+    } else if (result.status === "submitted") {
+      refreshInBackground();
     }
   }
 
@@ -671,24 +537,24 @@ export function RepairsPage({
             locale={locale}
             // Permission / capability gate.
             canReport={canReport}
-            locationId={locationId}
-            onLocationIdChange={setLocationId}
-            issueOptionId={issueOptionId}
-            title={title}
-            description={description}
-            onDescriptionChange={setDescription}
-            priority={priority}
-            onPriorityChange={setPriority}
-            blocksRoom={blocksRoom}
-            onBlocksRoomChange={setBlocksRoom}
-            submitting={submitting}
-            rooms={rooms}
-            options={options}
-            categories={categories}
+            locationId={report.locationId}
+            onLocationIdChange={report.setLocationId}
+            issueOptionId={report.issueOptionId}
+            title={report.title}
+            description={report.description}
+            onDescriptionChange={report.setDescription}
+            priority={report.priority}
+            onPriorityChange={report.setPriority}
+            blocksRoom={report.blocksRoom}
+            onBlocksRoomChange={report.setBlocksRoom}
+            submitting={report.submitting}
+            rooms={report.rooms}
+            options={report.options}
+            categories={report.categories}
             selected={selected}
             events={events}
             onReport={handleReport}
-            onIssueOptionSelect={handleIssueOptionSelect}
+            onIssueOptionSelect={report.selectIssueOption}
           />
         </div>
       )}

@@ -8,6 +8,7 @@ import {
   Prisma,
   Role,
 } from "@prisma/client";
+import { z } from "zod/v3";
 import { prisma } from "../db";
 import { AppError } from "../errors";
 import { publish } from "../events/bus";
@@ -27,16 +28,39 @@ export type NotificationPanel =
   | "cleaning"
   | "home";
 
-export type NotificationPayload = {
-  panel?: NotificationPanel;
-  ticketId?: string;
-  taskId?: string;
-  locationId?: string;
-  locationNumber?: string;
-  adjustmentId?: string;
-  sessionId?: string;
-  [key: string]: unknown;
-};
+const notificationPanelSchema = z.enum([
+  "repairs",
+  "mywork",
+  "attendance",
+  "live",
+  "rooms",
+  "common",
+  "cleaning",
+  "home",
+]);
+
+/** Soft decoder for persisted notification JSON (malformed → null, never cast). */
+const storedNotificationPayloadSchema = z
+  .object({
+    panel: notificationPanelSchema.optional(),
+    ticketId: z.string().optional(),
+    taskId: z.string().optional(),
+    locationId: z.string().optional(),
+    locationNumber: z.string().optional(),
+    adjustmentId: z.string().optional(),
+    sessionId: z.string().optional(),
+  })
+  .passthrough();
+
+export type NotificationPayload = z.infer<typeof storedNotificationPayloadSchema>;
+
+export function decodeStoredNotificationPayload(
+  raw: unknown,
+): NotificationPayload | null {
+  if (raw == null) return null;
+  const parsed = storedNotificationPayloadSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
 
 export type CreateNotificationInput = {
   type: string;
@@ -86,7 +110,7 @@ function formatNotification(row: {
     entityType: row.entityType,
     entityId: row.entityId,
     locationId: row.locationId,
-    payload: (row.payload ?? null) as NotificationPayload | null,
+    payload: decodeStoredNotificationPayload(row.payload),
     createdAt: row.createdAt.toISOString(),
     readAt: row.readAt?.toISOString() ?? null,
     dismissedAt: row.dismissedAt?.toISOString() ?? null,

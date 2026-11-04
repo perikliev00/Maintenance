@@ -28,6 +28,16 @@ jobs:
           cache-dependency-path: api/package-lock.json
       - run: npm ci
       - run: npx prisma generate
+      - name: Record mutation scope (SHA and mutated files)
+        run: |
+          {
+            echo "### API targeted mutation scope"
+            echo "- SHA: \`${{ github.sha }}\`"
+            echo "- Config: \`api/stryker.config.mjs\` (targeted; \`thresholds.break\` blocks)"
+            echo "- Node: $(node --version)"
+            echo "- Mutated files:"
+            node -e "import('./stryker.config.mjs').then((m) => m.default.mutate.forEach((f) => console.log('  - ' + f)))"
+          } >> "$GITHUB_STEP_SUMMARY"
       - run: npm run test:mutation
       - name: Upload mutation report
         if: always()
@@ -54,6 +64,16 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - name: Record mutation scope (SHA and mutated files)
+        run: |
+          {
+            echo "### Web targeted mutation scope"
+            echo "- SHA: \`${{ github.sha }}\`"
+            echo "- Config: \`web/stryker.config.mjs\` (targeted; \`thresholds.break\` blocks)"
+            echo "- Node: $(node --version)"
+            echo "- Mutated files:"
+            node -e "import('./stryker.config.mjs').then((m) => m.default.mutate.forEach((f) => console.log('  - ' + f)))"
+          } >> "$GITHUB_STEP_SUMMARY"
       - run: npm run test:mutation
       - name: Upload mutation report
         if: always()

@@ -6,11 +6,16 @@ import {
   classifySaveError,
   formatStatusCount,
   isDraftDirty,
+  isEditableTab,
+  isTabDraftDirty,
   mergePostSaveRefresh,
+  patchDraftChannel,
   resolveSaveFlow,
   SETTINGS_BUNDLE_LIVE_EVENTS,
   shouldReplaceDraftOnRefresh,
+  slaHoursForPriority,
   SYSTEM_STATUS_LIVE_EVENTS,
+  upsertSlaPolicy,
 } from "./settingsDraftLogic";
 
 describe("settingsDraftLogic", () => {
@@ -173,5 +178,89 @@ describe("settingsDraftLogic", () => {
     assert.equal(formatStatusCount(undefined), "—");
     assert.equal(formatStatusCount(0), "0");
     assert.equal(formatStatusCount(12), "12");
+  });
+});
+
+describe("settings tab draft rules", () => {
+  it("only settings-backed tabs are editable", () => {
+    assert.equal(isEditableTab("modules"), true);
+    assert.equal(isEditableTab("notifications"), true);
+    assert.equal(isEditableTab("history"), false);
+    assert.equal(isEditableTab("issues"), false);
+  });
+
+  it("dirty is false for non-editable tabs and for rows not yet loaded", () => {
+    assert.equal(isTabDraftDirty("history", { a: 1 }, { a: 2 }), false);
+    assert.equal(isTabDraftDirty("issues", { a: 1 }, { a: 2 }), false);
+    assert.equal(isTabDraftDirty("modules", { a: 1 }, undefined), false);
+    assert.equal(isTabDraftDirty("modules", { a: 1 }, { a: 1 }), false);
+    assert.equal(isTabDraftDirty("modules", { a: 2 }, { a: 1 }), true);
+  });
+
+  it("patchDraftChannel edits one field without mutating the draft", () => {
+    const draft = { email: { enabled: false, status: "ok" }, other: 1 };
+    const next = patchDraftChannel(draft, "email", "enabled", true);
+    assert.deepEqual(next, {
+      email: { enabled: true, status: "ok" },
+      other: 1,
+    });
+    assert.deepEqual(draft.email, { enabled: false, status: "ok" });
+  });
+
+  it("patchDraftChannel creates a missing channel", () => {
+    assert.deepEqual(patchDraftChannel({}, "sms", "status", "configured"), {
+      sms: { status: "configured" },
+    });
+  });
+
+  it("device_push can never be enabled from the draft", () => {
+    assert.deepEqual(
+      patchDraftChannel({}, "device_push", "enabled", true),
+      { device_push: { enabled: false, status: "not_configured" } },
+    );
+    assert.deepEqual(
+      patchDraftChannel(
+        { device_push: { enabled: false, status: "not_configured" } },
+        "device_push",
+        "status",
+        "configured",
+      ),
+      { device_push: { enabled: false, status: "configured" } },
+    );
+  });
+});
+
+describe("SLA policy helpers", () => {
+  const row = (priority: string, hours: number) => ({
+    id: priority,
+    priority,
+    hours,
+    isActive: true,
+  });
+
+  it("upsert replaces one priority and keeps priority-name order", () => {
+    const next = upsertSlaPolicy(
+      [row("urgent", 4), row("low", 72)],
+      row("high", 6),
+    );
+    assert.deepEqual(
+      next.map((p) => [p.priority, p.hours]),
+      [
+        ["high", 6],
+        ["low", 72],
+        ["urgent", 4],
+      ],
+    );
+    const replaced = upsertSlaPolicy(next, row("low", 48));
+    assert.equal(replaced.length, 3);
+    assert.equal(replaced.find((p) => p.priority === "low")?.hours, 48);
+  });
+
+  it("shows built-in defaults when a priority has no row (e.g. SLA load failed)", () => {
+    assert.equal(slaHoursForPriority([], "urgent"), 4);
+    assert.equal(slaHoursForPriority([], "high"), 8);
+    assert.equal(slaHoursForPriority([], "normal"), 24);
+    assert.equal(slaHoursForPriority([], "low"), 72);
+    assert.equal(slaHoursForPriority([row("high", 6)], "high"), 6);
   });
 });

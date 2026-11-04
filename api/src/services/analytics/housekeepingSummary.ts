@@ -6,6 +6,7 @@ import {
   CatalogStatus,
   InspectionResult,
   LocationKind,
+  Prisma,
   SessionStatus,
   TaskStatus,
 } from "@prisma/client";
@@ -60,6 +61,16 @@ export async function getHousekeepingSummary(
   // Sessions longer than 2× the overdue setting are treated as anomalous outliers.
   const anomalyThresholdMinutes = ops.overdueSessionMinutes * 2;
 
+  // Tasks whose completedAt falls inside the period (scoped).
+  const completedTaskWhere: Prisma.CleaningTaskWhereInput = {
+    // Only finished tasks (completedAt set).
+    status: TaskStatus.completed,
+    // Inclusive period bounds on completion time.
+    completedAt: { gte: period.from, lte: period.to },
+    // Optional sector / assignee data-scope.
+    ...taskW,
+  };
+
   // Fan-out current-period rows and prior-period counts in parallel.
   const [
     completedTasks,
@@ -69,34 +80,22 @@ export async function getHousekeepingSummary(
     prevCompleted,
     prevRejected,
     prevApproved,
+    taskSessions,
+    autoAccepted,
   ] = await Promise.all([
-    // Completed tasks in period with sessions + approved-inspection probe.
+    // Completed tasks in period: only the columns the aggregation reads.
+    // Sessions, approvals and locations are NOT included per task: a nested
+    // include becomes `taskId IN (<every task id>)`, which fails once a window
+    // holds ~32k tasks (bind-variable limit) and hydrates unused rows.
     prisma.cleaningTask.findMany({
-      where: {
-        // Only finished tasks (completedAt set).
-        status: TaskStatus.completed,
-        // Inclusive period bounds on completion time.
-        completedAt: { gte: period.from, lte: period.to },
-        // Optional sector / assignee data-scope.
-        ...taskW,
-      },
-      include: {
-        // Completed sessions for per-task valid-duration totals.
-        sessions: {
-          where: { status: SessionStatus.completed },
-          // Newest finished session first (stable ordering).
-          orderBy: { finishedAt: "desc" },
-        },
-        // Probe: any approved inspection ⇒ not auto-accepted.
-        inspections: {
-          where: { result: InspectionResult.approved },
-          select: { id: true },
-          take: 1,
-        },
-        // Building/floor for risk-room labels if needed later.
-        location: {
-          include: locationWithBuildingInclude,
-        },
+      where: completedTaskWhere,
+      select: {
+        id: true,
+        locationId: true,
+        dueAt: true,
+        completedAt: true,
+        priority: true,
+        serviceType: true,
       },
     }),
     // Rejected inspections (rework events) in the period.
@@ -136,6 +135,7 @@ export async function getHousekeepingSummary(
         finishedAt: { gte: period.from, lte: period.to },
         ...sessionW,
       },
+      select: { startedAt: true, finishedAt: true, anomalyFlags: true },
     }),
     // Prior-period completed task count.
     prisma.cleaningTask.count({
@@ -161,11 +161,28 @@ export async function getHousekeepingSummary(
         ...(Object.keys(taskW).length ? { task: taskW } : {}),
       },
     }),
+    // Completed sessions of the period's completed tasks (per-task valid time),
+    // joined through the task relation rather than an id list.
+    prisma.cleaningSession.findMany({
+      where: { status: SessionStatus.completed, task: completedTaskWhere },
+      select: {
+        taskId: true,
+        startedAt: true,
+        finishedAt: true,
+        anomalyFlags: true,
+      },
+    }),
+    // Completed with no approved inspection counts as auto-accepted (skip inspection).
+    prisma.cleaningTask.count({
+      where: {
+        AND: [
+          completedTaskWhere,
+          { inspections: { none: { result: InspectionResult.approved } } },
+        ],
+      },
+    }),
   ]);
 
-  // Completed with no approved inspection counts as auto-accepted (skip inspection).
-  const autoAccepted = completedTasks.filter((t) => t.inspections.length === 0)
-    .length;
   // Accepted = inspector-approved + auto-accepted (skip-inspection) completes.
   const acceptedTasks = approvedInspections + autoAccepted;
 
@@ -241,6 +258,13 @@ export async function getHousekeepingSummary(
   let tasksWithValidTime = 0;
   let totalValidMsForTasks = 0;
   const distinctRooms = new Set<string>();
+  // Group the period's completed sessions by task for per-task valid time.
+  const sessionsByTask = new Map<string, typeof taskSessions>();
+  for (const s of taskSessions) {
+    const list = sessionsByTask.get(s.taskId);
+    if (list) list.push(s);
+    else sessionsByTask.set(s.taskId, [s]);
+  }
   for (const task of completedTasks) {
     // Unique rooms cleaned in the period (for distinctRooms KPI).
     distinctRooms.add(task.locationId);
@@ -251,7 +275,10 @@ export async function getHousekeepingSummary(
       if (task.completedAt <= task.dueAt) onTime += 1;
     }
     // Sum valid (non-anomalous) session ms for avg minutes/task.
-    const validMs = sumValidSessionMs(task.sessions, anomalyThresholdMinutes);
+    const validMs = sumValidSessionMs(
+      sessionsByTask.get(task.id) ?? [],
+      anomalyThresholdMinutes,
+    );
     // Only tasks with positive valid time enter the average denominator.
     if (validMs > 0) {
       tasksWithValidTime += 1;

@@ -126,6 +126,16 @@ npm test
 - `E2E_START_SERVERS=0` — не стартирай API/web (ползвай вече работещи инстанции)
 - CI job: `E2E` в `.github/workflows/ci.yml`
 
+### Пълен тест от корена на репото
+
+`npm test` в корена пуска последователно (спира при първа грешка): web unit тестове (`web`), всички
+API сюити (`api` `test:all`, вкл. `tests/scenarios`), основния Playwright сюит (`e2e` `npm test`) и
+изолираните браузър сценарии (`e2e` `npm run test:scenarios`, TEST-08). Изисква изолираната DB
+`maintenance_p1_test` ([`docs/testing/P1_ISOLATION_DB.md`](docs/testing/P1_ISOLATION_DB.md)),
+seed-ната работна DB и инсталиран Chromium. По-кратки входни точки: `npm run test:unit`
+(web + API, без браузъри), `npm run test:e2e`, `npm run test:e2e:scenarios`. Coverage и mutation:
+[`docs/testing/COVERAGE.md`](docs/testing/COVERAGE.md), [`docs/testing/MUTATION_TESTING.md`](docs/testing/MUTATION_TESTING.md).
+
 ---
 
 ## Домейн модел

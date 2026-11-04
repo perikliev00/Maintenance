@@ -18,7 +18,7 @@ type Props = Pick<
   | "busyIds"
   | "beginBusy"
   | "endBusy"
-  | "refresh"
+  | "refreshTickets"
   | "setError"
   | "setMessage"
   | "setRefreshWarning"
@@ -41,7 +41,7 @@ export function ControlTicketsSection(props: Props) {
     busyIds,
     beginBusy,
     endBusy,
-    refresh,
+    refreshTickets,
     setError,
     setMessage,
     setRefreshWarning,
@@ -54,13 +54,20 @@ export function ControlTicketsSection(props: Props) {
       () => ({
         beginBusy,
         endBusy,
-        refresh: () => refresh({ silent: true }),
+        refresh: refreshTickets,
         setError,
         setMessage,
         setRefreshWarning,
         locale: "bg" as const,
       }),
-      [beginBusy, endBusy, refresh, setError, setMessage, setRefreshWarning],
+      [
+        beginBusy,
+        endBusy,
+        refreshTickets,
+        setError,
+        setMessage,
+        setRefreshWarning,
+      ],
     ),
   );
 
@@ -177,7 +184,7 @@ export function ControlTicketsSection(props: Props) {
                     onDone={(result) => {
                       setMessage(result.message);
                       setError(null);
-                      void refresh({ silent: true }).catch((err) => {
+                      void refreshTickets().catch((err) => {
                         setRefreshWarning(
                           err instanceof Error
                             ? err.message

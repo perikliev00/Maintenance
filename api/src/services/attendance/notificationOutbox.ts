@@ -10,6 +10,11 @@ import {
   deliverOutboxIntent,
   flushOutbox,
 } from "../notifications/outboxRuntime";
+import {
+  countOutboxBacklog,
+  listEligibleOutboxKeys,
+  recordOutboxFailure,
+} from "../notifications/outboxAdapterHelpers";
 
 /** Snapshot recipients/content now; keyed by the notification dedupeKey. */
 export async function enqueueAttendanceNotice(
@@ -39,7 +44,12 @@ const attendanceAdapters = {
   markDelivered: async (dedupeKey: string) => {
     await prisma.attendanceNotificationOutbox.update({
       where: { dedupeKey },
-      data: { deliveredAt: new Date() },
+      data: {
+        deliveredAt: new Date(),
+        nextAttemptAt: null,
+        failedPermanentlyAt: null,
+        lastError: null,
+      },
     });
   },
 };
@@ -68,15 +78,11 @@ export async function tryDeliverAttendanceNotice(
 /** Bounded background recovery for crash / first-delivery failure. */
 export async function flushAttendanceNotificationOutbox() {
   return flushOutbox({
-    listPendingKeys: async () => {
-      const intents = await prisma.attendanceNotificationOutbox.findMany({
-        where: { deliveredAt: null },
-        orderBy: [{ createdAt: "asc" }, { dedupeKey: "asc" }],
-        take: 100,
-      });
-      return intents.map((i) => i.dedupeKey);
-    },
+    listEligibleKeys: () => listEligibleOutboxKeys(prisma, "attendance"),
     deliver: deliverAttendanceNotice,
+    recordFailure: (key, kind, message) =>
+      recordOutboxFailure(prisma, "attendance", key, kind, message),
+    countBacklog: () => countOutboxBacklog(prisma, "attendance"),
     errorLabel: "Attendance notification delivery failed",
   });
 }

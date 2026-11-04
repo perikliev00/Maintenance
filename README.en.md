@@ -126,6 +126,17 @@ npm test
 - `E2E_START_SERVERS=0` — do not start API/web (use already running instances)
 - CI job: `E2E` in `.github/workflows/ci.yml`
 
+### Full test run from the repository root
+
+`npm test` in the repository root runs, in order and stopping at the first failure: web unit tests
+(`web`), all API suites (`api` `test:all`, including `tests/scenarios`), the main Playwright suite
+(`e2e` `npm test`) and the isolated browser scenarios (`e2e` `npm run test:scenarios`, TEST-08).
+It needs the isolated `maintenance_p1_test` database
+([`docs/testing/P1_ISOLATION_DB.md`](docs/testing/P1_ISOLATION_DB.md)), a seeded working DB and
+installed Chromium. Shorter entry points: `npm run test:unit` (web + API, no browsers),
+`npm run test:e2e`, `npm run test:e2e:scenarios`. Coverage and mutation commands:
+[`docs/testing/COVERAGE.md`](docs/testing/COVERAGE.md), [`docs/testing/MUTATION_TESTING.md`](docs/testing/MUTATION_TESTING.md).
+
 ---
 
 ## Domain model

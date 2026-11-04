@@ -77,7 +77,9 @@ services:
   web:
     image: ${IMAGE_PREFIX:-ghcr.io/perikliev00}/maintenance-web:${RELEASE_SHA:?Set RELEASE_SHA}
     build:
-      context: ./web
+      # Repo root so web can COPY api/src/contracts/permissionsCatalog.ts
+      context: .
+      dockerfile: web/Dockerfile
       target: web
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN to the public DNS name}
