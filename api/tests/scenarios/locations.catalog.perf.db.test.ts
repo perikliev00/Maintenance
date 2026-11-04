@@ -113,9 +113,20 @@ async function assertNumberTrgmIndexPresent(): Promise<void> {
 }
 
 /**
- * Prove the index is usable for the selective ILIKE shape. enable_seqscan=off
- * is only a usability probe — CI heaps of ~10k rows often Seq Scan in ~5ms
- * under default costs, which is not evidence the index is missing.
+ * Prove the GIN trigram index can serve selective number ILIKE.
+ *
+ * enable_seqscan=off is a usability probe only — at ~10k rows the default
+ * planner often Seq Scans the production catalog query in a few ms, which is
+ * not evidence the index is missing.
+ *
+ * Probe shape is number-only (no catalogStatus). The production where clause
+ * also filters catalogStatus, and with enable_seqscan=off PostgreSQL may still
+ * pick Location_kind_catalogStatus_idx (Bitmap Index Scan + ILIKE Filter)
+ * because that index remains legal. A competing btree must not decide whether
+ * gin_trgm_ops is usable. Number-only ILIKE '%…%' with seqscan disabled has no
+ * useful non-trgm plan: btree on number cannot supply an Index Cond for a
+ * leading-wildcard pattern, so a missing/wrong trgm index falls back to Seq
+ * Scan and fails this assertion.
  */
 async function assertNumberTrgmIndexUsable(selectiveQ: string): Promise<void> {
   const probe = new PrismaClient();
@@ -123,19 +134,26 @@ async function assertNumberTrgmIndexUsable(selectiveQ: string): Promise<void> {
     await probe.$connect();
     await probe.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET LOCAL enable_seqscan = off`);
+      // Prefer bitmap paths (GIN's natural access); btree index scans cannot
+      // apply leading-wildcard ILIKE as an Index Cond anyway.
+      await tx.$executeRawUnsafe(`SET LOCAL enable_indexscan = off`);
       const escaped = selectiveQ.replace(/'/g, "''");
       const rows = await tx.$queryRawUnsafe<Array<{ "QUERY PLAN": string }>>(
         `EXPLAIN (FORMAT TEXT)
          SELECT id FROM "Location"
-         WHERE "catalogStatus" = 'active'
-           AND "number" ILIKE '%${escaped}%'
+         WHERE "number" ILIKE '%${escaped}%'
          LIMIT 25`,
       );
       const text = rows.map((r) => r["QUERY PLAN"]).join("\n");
       assert.match(
         text,
         /Location_number_trgm_idx/i,
-        `enable_seqscan=off must select Location_number_trgm_idx\n${text}`,
+        `number-only ILIKE probe (seqscan/indexscan off) must select Location_number_trgm_idx\n${text}`,
+      );
+      assert.match(
+        text,
+        /Index Cond:\s*\(?number ~~\*/i,
+        `trgm usability probe must apply ILIKE via Index Cond, not a post-filter\n${text}`,
       );
     });
   } finally {
