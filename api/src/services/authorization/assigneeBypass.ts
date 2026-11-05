@@ -1,9 +1,10 @@
 import { Role } from "@prisma/client";
 
 /**
- * Roles permitted to progress a cleaning task or maintenance ticket assigned
- * to another employee (SEC-002 / B1). Single source for cleaning + tickets,
- * HTTP + sync.
+ * SEC-002: roles that may progress a cleaning task or maintenance ticket
+ * assigned to another employee. Separate from RoleGrant checks for
+ * cleaning.start / cleaning.complete (and ticket action keys). Single source
+ * for cleaning + tickets, HTTP + sync.
  */
 export function canBypassAssignee(role: Role): boolean {
   return (

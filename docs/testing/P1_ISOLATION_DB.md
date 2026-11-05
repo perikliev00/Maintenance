@@ -3,6 +3,23 @@
 Ticket lifecycle, cleaning concurrency, and scenario suites refuse the working
 seed database. They require a dedicated PostgreSQL database named
 `maintenance_p1_test` and the preload in `api/tests/registerP1TestEnv.mjs`.
+CI keeps that separate DB so mutating suites cannot wipe the job’s working
+`maintenance` seed used by smoke scripts.
+
+## API test commands (api/)
+
+Canonical runners use `runWithP1Isolation.mjs` (preload + `--test-concurrency=1`).
+Aliases below forward extra args after `--`.
+
+| Purpose | Command | Notes |
+|---|---|---|
+| Everyday / CI `unit-src` | `npm test` | `src/**/*.test.ts` only. Despite the CI log label, many of these files need the P1 DB. |
+| Full API package | `npm run test:all` | Both wide globs: `src/**/*.test.ts` and `tests/**/*.test.ts`. |
+| Domain packs | `npm run test:cleaning-lifecycle`, `test:readiness`, `test:tickets-lifecycle`, `test:plan`, `test:sectors`, `test:shifts`, `test:my-work`, `test:attendance`, `test:cards`, `test:people`, `test:scenarios` | Same globs CI Smoke invokes under those suite names. |
+| Isolation aliases | `npm run test:regress-p1-isolated`, `test:attendance:isolated`, `test:cards:isolated` | Compatible aliases for `npm test`, `test:attendance`, `test:cards`. |
+| Inventory / proof | `npm run test:inventory`, `npm run prove:p1-isolation` | Inventory globs must cover every `*.test.ts` under `src/` and `tests/` (incl. `tests/scenarios/*.test.ts`). |
+| Selected DB four | `npm run test:db` | Exactly four files: attendance rebuild, cards filter, roleGrants seed, audit write. |
+| Coverage / mutation | `npm run coverage`, `coverage:all`, `test:mutation*` | Same isolation wrapper / Stryker scope as today; see [COVERAGE.md](./COVERAGE.md) and [MUTATION_TESTING.md](./MUTATION_TESTING.md). |
 
 ## Quick path (recommended)
 

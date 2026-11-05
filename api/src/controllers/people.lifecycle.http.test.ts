@@ -25,7 +25,7 @@ import {
   loginBearer,
   postJson,
 } from "../../tests/httpHarness";
-import { initializeRequiredDefaults } from "../app";
+import { initializeRequiredDefaults } from "../startup/requiredDefaults";
 
 dotenv.config({
   path: path.resolve(__dirname, "../../.env"),

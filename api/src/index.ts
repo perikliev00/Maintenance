@@ -1,8 +1,13 @@
-/** Production entrypoint: validate config, complete bootstrap, then listen. */
+/**
+ * Production entrypoint: validate config, listen for traffic, then run required
+ * DB defaults. Readiness stays 503 until bootstrap succeeds; only then mark
+ * complete and start the job scheduler under current conditions.
+ */
 import "dotenv/config";
 import { createServer } from "node:http";
 import { assertEnv } from "./env";
-import { createApp, initializeRequiredDefaults, setShuttingDown } from "./app";
+import { createApp, setBootstrapComplete, setShuttingDown } from "./app";
+import { initializeRequiredDefaults } from "./startup/requiredDefaults";
 import { stopJobScheduler } from "./services/jobs";
 import { wireJobSchedulerAfterBootstrap } from "./services/jobs/schedulerBoot";
 import { prisma } from "./db";
@@ -19,6 +24,7 @@ async function main() {
     log.info("listening", { port, release: process.env.RELEASE_SHA ?? "unknown" });
     startupTask = initializeRequiredDefaults()
       .then(() => {
+        setBootstrapComplete(true);
         // E2E / local probes set DISABLE_JOB_SCHEDULER=1 so manual POST /jobs/run
         // is not blocked by the boot cycle holding the advisory lock.
         wireJobSchedulerAfterBootstrap(closing);

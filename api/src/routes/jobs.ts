@@ -1,4 +1,4 @@
-/** /jobs — run history (jobs.view) and manual trigger (jobs.run). */
+/** NEW-05: GET /runs needs jobs.view; POST /run needs jobs.run (separate grants). */
 import { Router } from "express";
 import { requireAuth, requireAction } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";

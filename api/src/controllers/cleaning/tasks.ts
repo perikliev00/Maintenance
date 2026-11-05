@@ -88,7 +88,8 @@ export async function create(req: Request, res: Response) {
 }
 
 /**
- * Start a task session. Bypass roles match tickets (SEC-002); 200 on idempotent replay.
+ * Start a task session. Requires cleaning.start; SEC-002 assignee bypass is a
+ * separate role check (same set as tickets). 200 on idempotent replay.
  */
 export async function start(req: Request, res: Response) {
   // Zod schema for request shape.

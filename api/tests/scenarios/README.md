@@ -7,7 +7,8 @@ database or replace `.env`. Migrate and seed a dedicated `maintenance_p1_test`
 database first; run `npm run prove:p1-isolation` before the suites.
 
 Local isolation DB setup (including `P1_TEST_DATABASE_URL` when `:55439` is
-unreachable): see [`docs/testing/P1_ISOLATION_DB.md`](../../docs/testing/P1_ISOLATION_DB.md).
+unreachable) and the API test-command table: see
+[`docs/testing/P1_ISOLATION_DB.md`](../../docs/testing/P1_ISOLATION_DB.md).
 
 From the repository root, `npm test` now runs everything in one go: `web` unit tests,
 `api` `test:all` (which includes these `tests/scenarios/*.test.ts`), the main Playwright suite

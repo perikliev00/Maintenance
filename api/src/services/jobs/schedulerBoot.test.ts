@@ -207,7 +207,10 @@ describe("index.ts job-scheduler wiring contract (AST)", () => {
           forbiddenCallees.push(name);
         }
 
-        // initializeRequiredDefaults().then(() => { wireJobSchedulerAfterBootstrap(closing); })
+        // initializeRequiredDefaults().then(() => {
+        //   setBootstrapComplete(true);
+        //   wireJobSchedulerAfterBootstrap(closing);
+        // })
         if (
           ts.isPropertyAccessExpression(node.expression) &&
           node.expression.name.text === "then" &&
@@ -218,18 +221,27 @@ describe("index.ts job-scheduler wiring contract (AST)", () => {
             ts.isArrowFunction(cb) &&
             cb.body &&
             ts.isBlock(cb.body) &&
-            cb.body.statements.length === 1
+            cb.body.statements.length === 2
           ) {
-            const only = cb.body.statements[0]!;
-            if (
-              ts.isExpressionStatement(only) &&
-              ts.isCallExpression(only.expression) &&
-              calleeName(only.expression.expression) ===
+            const markReady = cb.body.statements[0]!;
+            const wire = cb.body.statements[1]!;
+            const marksComplete =
+              ts.isExpressionStatement(markReady) &&
+              ts.isCallExpression(markReady.expression) &&
+              calleeName(markReady.expression.expression) ===
+                "setBootstrapComplete" &&
+              markReady.expression.arguments.length === 1 &&
+              markReady.expression.arguments[0]!.kind ===
+                ts.SyntaxKind.TrueKeyword;
+            const wiresClosing =
+              ts.isExpressionStatement(wire) &&
+              ts.isCallExpression(wire.expression) &&
+              calleeName(wire.expression.expression) ===
                 "wireJobSchedulerAfterBootstrap" &&
-              only.expression.arguments.length === 1 &&
-              ts.isIdentifier(only.expression.arguments[0]!) &&
-              only.expression.arguments[0].text === "closing"
-            ) {
+              wire.expression.arguments.length === 1 &&
+              ts.isIdentifier(wire.expression.arguments[0]!) &&
+              wire.expression.arguments[0].text === "closing";
+            if (marksComplete && wiresClosing) {
               thenWireLive = true;
             }
           }
@@ -281,7 +293,7 @@ describe("index.ts job-scheduler wiring contract (AST)", () => {
     );
     assert.ok(
       thenWireLive,
-      "wire call must be the sole live statement inside initializeRequiredDefaults().then(() => { ... })",
+      "then-callback must setBootstrapComplete(true) then wireJobSchedulerAfterBootstrap(closing)",
     );
     assert.equal(forbiddenCallees.length, 0, `forbidden: ${forbiddenCallees}`);
     assert.equal(
