@@ -31,18 +31,26 @@ Settings live in `api/.c8rc.json` and `web/.c8rc.json`.
   `node_modules/`. Test helpers under `api/tests/` are outside `src/` and never counted.
   There is currently no generated source under `src/` (the Prisma client lives in `node_modules`).
 
-## Baseline (2026-11-03, Node 24.22.1, c8 12.0.0, branch `chore/tech-debt-test-coverage`)
+## Baseline (2026-11-05, Node 24.22.1, c8 12.0.0, base `3b98d7b` + hardening branch)
 
 | Run | Lines / statements | Branches | Functions | Tests |
 | --- | --- | --- | --- | --- |
-| API `coverage` (`npm test` set) | 58.07 % (18112 / 31188) | 78.06 % | 70.24 % | 476, 3 failing* |
-| API `coverage:all` (`test:all` set) | **89.84 %** (28022 / 31188) | 82.58 % | 91.23 % | 895, 3 failing* |
-| Web `coverage` (Node unit tests) | **24.70 %** (8020 / 32458) | 74.76 % | 51.41 % | 349 passing |
+| API `coverage` (`npm test` set) | **58.27 %** (18275 / 31358) | 78.06 % | 70.31 % | 479 pass / 1 flake* |
+| API `npm test` (same set, no c8) | — | — | — | **480 / 480** |
+| Web `coverage` (Node unit tests) | **24.70 %** (8021 / 32469) | 74.76 % | 51.41 % | 349 / 349 |
+| API `coverage:all` | Re-measure on this branch; do not reuse 2026-11-03 **89.84 %** as current | | | |
 
-\* The failing tests are `src/services/roleGrants/permissions.http.test.ts` (3 cases expect
-`Owner grants cannot be edited` but receive `Unknown or non-matrix role`). They come from the
-uncommitted, in-progress change to `api/src/controllers/permissions.ts` in the working tree and are
-unrelated to coverage tooling; the totals above include their (partial) execution.
+\* Under c8 load, `permissions.http.test.ts` “revoked action…” once saw `mark-dirty → 500`
+(Notification FK). Alone and under plain `npm test` it passes. See
+[`docs/audits/CI_AUTH_CONCURRENCY_HARDENING_REPORT.md`](../audits/CI_AUTH_CONCURRENCY_HARDENING_REPORT.md).
+
+### Historical baseline (2026-11-03, branch `chore/tech-debt-test-coverage`) — archive only
+
+| Run | Lines / statements | Branches | Functions | Tests |
+| --- | --- | --- | --- | --- |
+| API `coverage` | 58.07 % (18112 / 31188) | 78.06 % | 70.24 % | 476, 3 failing |
+| API `coverage:all` | 89.84 % (28022 / 31188) | 82.58 % | 91.23 % | 895, 3 failing |
+| Web `coverage` | 24.70 % (8020 / 32458) | 74.76 % | 51.41 % | 349 passing |
 
 API `coverage:all` by top-level directory (lines):
 

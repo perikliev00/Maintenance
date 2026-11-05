@@ -138,6 +138,7 @@ jobs:
           run_suite attendance npm run test:attendance
           run_suite cards npm run test:cards
           run_suite people npm run test:people
+          run_suite auth npm run test:auth
           exit "$failed"
       - run: npm run db:seed
       - name: Run smoke scripts (collect failures)

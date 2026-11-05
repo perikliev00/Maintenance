@@ -36,6 +36,7 @@
     "test:cards:isolated": "npm run test:cards --",
     "test:scenarios": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/scenarios/*.test.ts\"",
     "test:people": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/people/**/*.test.ts\"",
+    "test:auth": "node ./tests/runWithP1Isolation.mjs --test-concurrency=1 \"tests/auth/**/*.test.ts\"",
     "test:inventory": "node ./scripts/assert-test-inventory.mjs",
     "test:regress-p1-isolated": "npm test --",
     "measure:analytics": "node --expose-gc --import tsx ./scripts/measure-housekeeping-summary.ts",
