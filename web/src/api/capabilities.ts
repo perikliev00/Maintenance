@@ -249,7 +249,8 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
 
 /**
  * Panels the user may open. Server RoleGrant `panels` is authoritative
- * (FEAT-001 / B1 — notifications is a real catalog panel, not client-forced).
+ * (FEAT-001 — notifications comes from the grant matrix / one-shot seed, not
+ * a client-forced panel).
  */
 export function panelsForUser(user: AuthUser): Panel[] {
   // Explicit array (including []) is authoritative; legacy fallback only when missing.

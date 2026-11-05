@@ -141,6 +141,9 @@ installed Chromium. Shorter entry points: `npm run test:unit` (web + API, no bro
 
 ## Domain model
 
+Prisma model groups and SQL constraints outside the schema:
+[`docs/domain/prisma-sql-map.md`](docs/domain/prisma-sql-map.md).
+
 ### Location hierarchy
 
 ```

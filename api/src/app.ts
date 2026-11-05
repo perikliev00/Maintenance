@@ -2,8 +2,9 @@
  * Express application factory: security middleware, CORS, CSRF, rate limits,
  * domain routers, and a terminal AppError-aware error handler.
  *
- * Required defaults run via `initializeRequiredDefaults()` (awaited after listen
- * in `index.ts`). Until it completes, `/health/ready` returns 503; failure is fatal.
+ * Required DB defaults live in `startup/requiredDefaults.ts`. Production
+ * `index.ts` listens first, then awaits them and calls `setBootstrapComplete(true)`.
+ * Until that flag is set, `/health/ready` returns 503; bootstrap failure is fatal.
  */
 import express from "express";
 import cors from "cors";
@@ -35,13 +36,6 @@ import { jobsRouter } from "./routes/jobs";
 import { syncRouter } from "./routes/sync";
 import { notificationsRouter } from "./routes/notifications";
 import { AppError } from "./errors";
-import { ensureDefaultSettings } from "./services/settings";
-import {
-  applyCatalogGrantSeed,
-  ensureDefaultRoleGrants,
-} from "./services/roleGrants";
-import { ensureDefaultSlaPolicies } from "./services/slaPolicies";
-import { GrantKind } from "@prisma/client";
 import {
   configureTrustProxy,
   globalApiLimiter,
@@ -55,43 +49,6 @@ let bootstrapComplete = false;
 let shuttingDown = false;
 export function setBootstrapComplete(value: boolean) { bootstrapComplete = value; }
 export function setShuttingDown(value: boolean) { shuttingDown = value; }
-
-/** Required, idempotent defaults must finish before startup is ready. */
-export async function initializeRequiredDefaults() {
-  await ensureDefaultSettings();
-  await ensureDefaultRoleGrants();
-  await applyCatalogGrantSeed("grants.sectors.transfer_cross.v1", [
-    { role: "manager", kind: GrantKind.action, key: "sectors.transfer_cross" },
-    { role: "admin", kind: GrantKind.action, key: "sectors.transfer_cross" },
-  ]);
-  // FEAT-001 / B1: notifications panel enters RoleGrant catalog (was client-forced).
-  await applyCatalogGrantSeed("grants.panels.notifications.v1", [
-    { role: "housekeeper", kind: GrantKind.panel, key: "notifications" },
-    { role: "technician", kind: GrantKind.panel, key: "notifications" },
-    { role: "reception", kind: GrantKind.panel, key: "notifications" },
-    { role: "supervisor", kind: GrantKind.panel, key: "notifications" },
-    { role: "manager", kind: GrantKind.panel, key: "notifications" },
-    { role: "admin", kind: GrantKind.panel, key: "notifications" },
-  ]);
-  // SEC-002 / B1: managers/admins who may bypass assignee also need start/complete.
-  await applyCatalogGrantSeed("grants.actions.cleaning.start_complete.manager_admin.v1", [
-    { role: "manager", kind: GrantKind.action, key: "cleaning.start" },
-    { role: "manager", kind: GrantKind.action, key: "cleaning.complete" },
-    { role: "admin", kind: GrantKind.action, key: "cleaning.start" },
-    { role: "admin", kind: GrantKind.action, key: "cleaning.complete" },
-  ]);
-  await applyCatalogGrantSeed("grants.actions.people.manage_access.v1", [
-    { role: "manager", kind: GrantKind.action, key: "people.manage_access" },
-    { role: "admin", kind: GrantKind.action, key: "people.manage_access" },
-  ]);
-  // NEW-05: separate manual job trigger from jobs.view (history).
-  await applyCatalogGrantSeed("grants.actions.jobs.run.manager_admin.v1", [
-    { role: "manager", kind: GrantKind.action, key: "jobs.run" },
-    { role: "admin", kind: GrantKind.action, key: "jobs.run" },
-  ]);
-  await ensureDefaultSlaPolicies();
-  setBootstrapComplete(true);
-}
 
 /** Build and return a configured Express app (does not listen). */
 export function createApp(options: { probeDatabase?: () => Promise<unknown> } = {}) {

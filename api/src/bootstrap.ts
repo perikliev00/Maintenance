@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { assertEnv } from "./env";
-import { initializeRequiredDefaults } from "./app";
+import { initializeRequiredDefaults } from "./startup/requiredDefaults";
 import { prisma } from "./db";
 import { log, safeErrorMessage } from "./observability";
 

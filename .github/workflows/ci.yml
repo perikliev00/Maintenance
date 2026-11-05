@@ -97,29 +97,11 @@ jobs:
       - run: npm run db:seed
       # Isolated DB for sectors/shifts/my-work (preload rewrites DATABASE_URL by name).
       - name: Prepare maintenance_p1_test
+        working-directory: .
         env:
           PGPASSWORD: maintenance
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-          set +e
-          OUT=$(psql -h localhost -U maintenance -d postgres -c "CREATE DATABASE maintenance_p1_test OWNER maintenance;" 2>&1)
-          EC=$?
-          set -e
-          if [ $EC -ne 0 ]; then
-            echo "$OUT" | grep -qi "already exists" || { echo "$OUT"; exit 1; }
-          fi
-          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10" \
-            npx prisma migrate deploy
-          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10" \
-            DEMO_SEED_DATABASE_NAME=maintenance_p1_test \
-            npm run db:seed
-          # Write .env.p1_test without heredoc indent leakage (YAML-safe).
-          printf '%s\n' \
-            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
-            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
-            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
-            'WEB_ORIGIN=http://127.0.0.1:5173' \
-            > .env.p1_test
+          API_DIR: api
+        run: bash scripts/ci/prepare-p1-test-db.sh --seed=npm --web-origin=http://127.0.0.1:5173
       - run: npm run prove:p1-isolation
       - run: npm run test:inventory
       # Independent suites: collect exit codes so one failure cannot hide the rest.
@@ -269,28 +251,13 @@ jobs:
           npm run db:seed
 
       - name: Prepare isolated P1 database for Playwright
-        working-directory: api
         env:
           PGPASSWORD: maintenance
+          API_DIR: api
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-          set +e
-          OUT=$(psql -h localhost -U maintenance -d postgres -c "CREATE DATABASE maintenance_p1_test OWNER maintenance;" 2>&1)
-          EC=$?
-          set -e
-          if [ $EC -ne 0 ]; then
-            echo "$OUT" | grep -qi "already exists" || { echo "$OUT"; exit 1; }
-          fi
           # Main Playwright webServer uses registerP1TestEnv → requires .env.p1_test first.
-          printf '%s\n' \
-            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
-            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
-            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
-            'WEB_ORIGIN=http://127.0.0.1:5173' \
-            > .env.p1_test
-          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" npx prisma migrate deploy
-          DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public" DEMO_SEED_DATABASE_NAME=maintenance_p1_test node --import ./tests/registerP1TestEnv.mjs --import tsx prisma/seed.ts
-          npm run prove:p1-isolation
+          bash scripts/ci/prepare-p1-test-db.sh --seed=register --web-origin=http://127.0.0.1:5173 --migrate-plain
+          (cd api && npm run prove:p1-isolation)
 
       - name: Install Web
         working-directory: web
@@ -307,14 +274,10 @@ jobs:
         run: npm test
 
       - name: Point P1 env at scenario web origin
-        working-directory: api
-        run: |
-          printf '%s\n' \
-            'DATABASE_URL="postgresql://maintenance:maintenance@localhost:5432/maintenance_p1_test?schema=public&connection_limit=10"' \
-            'EXPECTED_TEST_DATABASE=maintenance_p1_test' \
-            'JWT_SECRET=ci-test-secret-at-least-32-chars-long!!' \
-            'WEB_ORIGIN=http://127.0.0.1:5185' \
-            > .env.p1_test
+        env:
+          PGPASSWORD: maintenance
+          API_DIR: api
+        run: bash scripts/ci/prepare-p1-test-db.sh --env-only --web-origin=http://127.0.0.1:5185
 
       - name: Run isolated browser integrations and workflows
         working-directory: e2e

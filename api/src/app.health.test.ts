@@ -4,7 +4,12 @@ import { after, before, describe, it } from "node:test";
 import { createApp, setBootstrapComplete, setShuttingDown } from "./app";
 
 describe("health and readiness endpoints", () => {
-  const server = createServer(createApp({ probeDatabase: async () => { throw new Error("database unavailable"); } }));
+  let probeCalls = 0;
+  const failingProbe = async () => {
+    probeCalls += 1;
+    throw new Error("database unavailable");
+  };
+  const server = createServer(createApp({ probeDatabase: failingProbe }));
   let baseUrl = "";
   before(async () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -20,8 +25,10 @@ describe("health and readiness endpoints", () => {
 
   it("reports liveness while required bootstrap has not completed", async () => {
     setBootstrapComplete(false);
+    probeCalls = 0;
     assert.equal((await fetch(`${baseUrl}/health/live`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/health/ready`)).status, 503);
+    assert.equal(probeCalls, 0, "DB probe must be skipped before bootstrap completes");
   });
 
   it("returns 503 while the database is unavailable after bootstrap", async () => {
@@ -38,8 +45,44 @@ describe("health and readiness endpoints", () => {
   it("keeps readiness false and blocks new application traffic during shutdown", async () => {
     setBootstrapComplete(true);
     setShuttingDown(true);
+    probeCalls = 0;
     assert.equal((await fetch(`${baseUrl}/health/ready`)).status, 503);
+    assert.equal(probeCalls, 0, "DB probe must be skipped during shutdown");
     const response = await fetch(`${baseUrl}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     assert.equal(response.status, 503);
+  });
+});
+
+describe("health readiness after successful bootstrap", () => {
+  let probeCalls = 0;
+  const okProbe = async () => {
+    probeCalls += 1;
+  };
+  const server = createServer(createApp({ probeDatabase: okProbe }));
+  let baseUrl = "";
+  before(async () => {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("test server failed to bind");
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+  after(async () => {
+    setBootstrapComplete(false);
+    setShuttingDown(false);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it("returns 200 { ok: true, ready: true } after bootstrap with a successful probe", async () => {
+    setBootstrapComplete(true);
+    setShuttingDown(false);
+    probeCalls = 0;
+    try {
+      const response = await fetch(`${baseUrl}/health/ready`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { ok: true, ready: true });
+      assert.equal(probeCalls, 1);
+    } finally {
+      setBootstrapComplete(false);
+    }
   });
 });

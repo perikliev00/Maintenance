@@ -140,6 +140,9 @@ seed-ната работна DB и инсталиран Chromium. По-крат�
 
 ## Домейн модел
 
+Карта на Prisma групите и SQL ограниченията извън схемата:
+[`docs/domain/prisma-sql-map.md`](docs/domain/prisma-sql-map.md).
+
 ### Йерархия на локации
 
 ```

@@ -16,7 +16,7 @@ import {
   sessionTaskWhere,
 } from "../../services/dataScope";
 
-/** Complete a session; bypass roles match tickets (SEC-002). */
+/** Complete a session; requires cleaning.complete. SEC-002 bypass is separate from that grant. */
 export async function complete(req: Request, res: Response) {
   // commandId required for idempotent complete; notes/version optional.
   const schema = z.object({
