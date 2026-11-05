@@ -111,6 +111,12 @@ Exclusions: see `api/.c8rc.json` / `web/.c8rc.json` (`*.test.ts`, fixtures, gene
 
 **Do not claim CI green** until the PR’s Actions run completes.
 
+### Delivery status
+
+- Branch pushed: `harden/ci-auth-concurrency-20261105` → `origin` (tip `daef3ab`).
+- PR creation via `gh` / GitKraken PR API was **not possible** (no GitHub CLI / GK auth token in this environment).
+- Open compare/PR manually: https://github.com/perikliev00/Maintenance/compare/main...harden/ci-auth-concurrency-20261105?expand=1
+
 ### Branch protection
 
 Could not read or change rulesets/branch protection (no GitHub token with admin scope in this environment). Owner should ensure `main` requires at least:
@@ -121,6 +127,8 @@ Could not read or change rulesets/branch protection (no GitHub token with admin 
 - (existing) other stable required checks already configured
 
 and blocks direct pushes if that matches team policy, while retaining admin bypass for recovery.
+
+Suggested GitHub UI path: **Settings → Rules → Rulesets** (or Branch protection rules) for `main` → enable “Require status checks to pass” with the exact check names from a green Actions run on this PR, and “Restrict direct pushes” / require PR as appropriate.
 
 ---
 
