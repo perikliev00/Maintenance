@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { PrismaClient, Role, type Prisma } from "@prisma/client";
 import { assertTestDatabase } from "../assertTestDatabase";
+import { waitForBlockedBehind } from "../dbBarrier";
 import { createCleaningWorld, cleanupCleaningWorld, resetCleaningWork, hotelTodayYmd, createOpenMaintenanceTicket, type CleaningWorld } from "./fixtures";
 import { createCleaningTask, reassignCleaningTask, startCleaningTask } from "../../src/services/cleaning";
 import { assignMaintenanceTicket, startMaintenanceTicket } from "../../src/services/maintenance";
@@ -12,19 +13,6 @@ import { linkOrCreateDepartureTask } from "../../src/services/dailyPlanEffects/t
 
 const prisma = new PrismaClient();
 let world: CleaningWorld;
-
-async function waitForBlockedBy(blockerPid: number, count = 1): Promise<number> {
-  const deadline = Date.now() + 4000;
-  while (Date.now() < deadline) {
-    const rows = await prisma.$queryRaw<{ pid: number }[]>`
-      SELECT pid FROM pg_stat_activity
-      WHERE datname = current_database() AND ${blockerPid} = ANY(pg_blocking_pids(pid))
-    `;
-    if (rows.length >= count) return rows[0]!.pid;
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
-  assert.fail(`No PostgreSQL waiter blocked by backend ${blockerPid}`);
-}
 
 // Pause the actual assignment write after the final eligibility SELECT. Unlike
 // pausing at a domain lock, this reproduces the original uncovered TOCTOU gap.
@@ -46,19 +34,19 @@ async function withLateAssignmentBarrier(
     const [row] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
     held(row!.pid);
     await gate;
-  }, { timeout: 15000 });
+  }, { timeout: 20000 });
   let assignment: Promise<unknown> | undefined;
   let mutation: Promise<unknown> | undefined;
   try {
     const holderPid = await acquired;
     assignment = assign();
     assignment.catch(() => undefined);
-    const assignmentPid = await waitForBlockedBy(holderPid, assignmentCount);
+    const assignmentPids = await waitForBlockedBehind(prisma, holderPid, assignmentCount);
     mutation = mutate();
     mutation.catch(() => undefined);
-    // The User UPDATE must wait for the exact assignment transaction, not just
-    // any unrelated lock. Without FOR SHARE it commits here and this fails.
-    await waitForBlockedBy(assignmentPid);
+    // The User UPDATE must wait for an assignment transaction that already
+    // passed eligibility under FOR SHARE, not just any unrelated lock.
+    await waitForBlockedBehind(prisma, assignmentPids[0]!);
     release();
     await holder;
     await assignment;
@@ -66,8 +54,8 @@ async function withLateAssignmentBarrier(
   } finally {
     release();
     await Promise.allSettled([holder, assignment, mutation]);
-    await prisma.$executeRawUnsafe(`DROP TRIGGER assignment_late_barrier ON "${table}"`);
-    await prisma.$executeRawUnsafe("DROP FUNCTION assignment_late_barrier()");
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS assignment_late_barrier ON "${table}"`);
+    await prisma.$executeRawUnsafe("DROP FUNCTION IF EXISTS assignment_late_barrier()");
   }
 }
 
