@@ -242,41 +242,103 @@ export async function rebuildIntervalsForEmployee(
     }),
   ]);
 
-  // Snapshot adjustments to rematch onto new intervals by startEventId.
-  const adjustmentsToRematch = replaceable.flatMap((iv) =>
-    iv.adjustments
-      .filter((a) => iv.startEventId)
-      .map((a) => ({
-        startEventId: iv.startEventId!,
-        requestedById: a.requestedById,
-        reviewedById: a.reviewedById,
-        reason: a.reason,
-        proposedStartedAt: a.proposedStartedAt,
-        proposedEndedAt: a.proposedEndedAt,
-        proposedBreakMinutes: a.proposedBreakMinutes,
-        status: a.status,
-        createdAt: a.createdAt,
-        reviewedAt: a.reviewedAt,
-      })),
-  );
-
   // Delete replaceable intervals (and their adjustments) before recreating.
+  // Re-check after the snapshot: a concurrent approve may have frozen a row that
+  // was still replaceable when we read it. Never delete adjusted intervals or
+  // their approved corrections from a stale id list.
   const replaceIds = replaceable.map((r) => r.id);
-  // Guard / branch on preconditions.
+  let stillReplaceIds = replaceIds;
+  let frozenRows = frozen;
   if (replaceIds.length) {
-    // Await async persistence or side effect.
+    const [stillReplaceable, newlyFrozen] = await Promise.all([
+      db.attendanceInterval.findMany({
+        where: {
+          id: { in: replaceIds },
+          status: { not: AttendanceIntervalStatus.adjusted },
+        },
+        select: { id: true },
+      }),
+      db.attendanceInterval.findMany({
+        where: {
+          id: { in: replaceIds },
+          status: AttendanceIntervalStatus.adjusted,
+        },
+        select: { id: true, startedAt: true, endedAt: true },
+      }),
+    ]);
+    stillReplaceIds = stillReplaceable.map((r) => r.id);
+    if (newlyFrozen.length) {
+      frozenRows = [...frozen, ...newlyFrozen];
+    }
+  }
+
+  if (stillReplaceIds.length) {
+    // Pending/rejected history rides with replaceable intervals only.
     await db.attendanceAdjustment.deleteMany({
-      where: { intervalId: { in: replaceIds } },
+      where: {
+        intervalId: { in: stillReplaceIds },
+        status: {
+          in: [
+            AttendanceAdjustmentStatus.pending,
+            AttendanceAdjustmentStatus.rejected,
+          ],
+        },
+      },
     });
-    // Await async persistence or side effect.
     await db.attendanceInterval.deleteMany({
-      where: { id: { in: replaceIds } },
+      where: {
+        id: { in: stillReplaceIds },
+        status: { not: AttendanceIntervalStatus.adjusted },
+      },
     });
   }
 
+  // Rematch only for intervals that were actually removed. A concurrent approve
+  // can make a candidate survive the conditional delete above.
+  const survived = stillReplaceIds.length
+    ? await db.attendanceInterval.findMany({
+        where: { id: { in: stillReplaceIds } },
+        select: { id: true },
+      })
+    : [];
+  const deletedReplaceSet = new Set(stillReplaceIds);
+  for (const row of survived) deletedReplaceSet.delete(row.id);
+  const adjustmentsToRematch = replaceable
+    .filter((iv) => deletedReplaceSet.has(iv.id))
+    .flatMap((iv) =>
+      iv.adjustments
+        .filter((a) => iv.startEventId)
+        .map((a) => ({
+          startEventId: iv.startEventId!,
+          requestedById: a.requestedById,
+          reviewedById: a.reviewedById,
+          reason: a.reason,
+          proposedStartedAt: a.proposedStartedAt,
+          proposedEndedAt: a.proposedEndedAt,
+          proposedBreakMinutes: a.proposedBreakMinutes,
+          status: a.status,
+          createdAt: a.createdAt,
+          reviewedAt: a.reviewedAt,
+        })),
+    );
+
+  // Reload adjusted rows immediately before pairing so an approve that landed
+  // after the re-check still freezes punches (no duplicate rebuilt interval).
+  const frozenForPairing =
+    replaceIds.length || frozenRows.length
+      ? await db.attendanceInterval.findMany({
+          where: {
+            employeeId,
+            hotelDate: { in: replaceKeys },
+            status: AttendanceIntervalStatus.adjusted,
+          },
+          select: { id: true, startedAt: true, endedAt: true },
+        })
+      : frozenRows;
+
   // Still-open adjusted rows get a 36h synthetic end so events inside stay frozen.
   // Convert adjusted intervals into ms ranges skipped by pairing.
-  const frozenRanges: FrozenRange[] = frozen.map((f) => ({
+  const frozenRanges: FrozenRange[] = frozenForPairing.map((f) => ({
     startMs: f.startedAt.getTime(),
     // Open adjusted rows use synthetic 36h end so in-range punches stay frozen.
     endMs: (f.endedAt ?? new Date(f.startedAt.getTime() + 36 * 3600_000)).getTime(),
