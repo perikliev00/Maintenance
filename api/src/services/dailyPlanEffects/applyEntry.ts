@@ -27,6 +27,20 @@ import {
 import type { LocationRow, PlanEffects, TaskEffect, Tx } from "./types";
 
 /**
+ * Lock and reload the active task so assignee/priority decisions are not based
+ * on a stale snapshot under concurrent reassign or sibling plan writes.
+ */
+async function lockActiveTask(
+  tx: Tx,
+  task: { id: string },
+) {
+  await tx.$queryRaw`
+    SELECT id FROM "CleaningTask" WHERE id = ${task.id} FOR UPDATE
+  `;
+  return tx.cleaningTask.findUniqueOrThrow({ where: { id: task.id } });
+}
+
+/**
  * Mutate location/task state for a new plan entry inside `tx`.
  * Returns what changed so the entry can store `cleaningTaskId` /
  * `roomEffectsAppliedAt`.
@@ -53,13 +67,16 @@ export async function applyPlanEntryEffects(
   let roomEffectsApplied = false;
 
   // Any active task for this room/date (reuse instead of creating a duplicate).
-  const activeTask = await tx.cleaningTask.findFirst({
+  let activeTask = await tx.cleaningTask.findFirst({
     where: {
       locationId: location.id,
       hotelDate,
       status: { in: [...ACTIVE_TASK_STATUSES] },
     },
   });
+  if (activeTask) {
+    activeTask = await lockActiveTask(tx, activeTask);
+  }
 
   if (category === DailyPlanCategory.departure) {
     // Prefer caller-supplied todayYmd (import batch) to avoid N+1 settings reads.

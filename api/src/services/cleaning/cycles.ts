@@ -142,6 +142,19 @@ export async function bumpDirtyAndRebindWork(
   locationId: string,
   extra?: Prisma.LocationUpdateInput,
 ): Promise<number> {
+  // Lock rebindable tasks before Location. startCleaningTask holds Task then
+  // Location; acquiring Location first here deadlocks against that path.
+  await tx.$queryRaw`
+    SELECT id FROM "CleaningTask"
+    WHERE "locationId" = ${locationId}
+      AND status IN (
+        'assigned'::"TaskStatus",
+        'in_progress'::"TaskStatus",
+        'rework'::"TaskStatus"
+      )
+    ORDER BY id
+    FOR UPDATE
+  `;
   // New cycle + force dirty; `extra` may also set occupancy (departure path).
   const next = await allocateCleaningCycle(tx, locationId, {
     forceDirty: true,

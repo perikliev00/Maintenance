@@ -1,0 +1,98 @@
+name: Audit concurrency 2026-11-05
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [audit/concurrency-verify-20261105]
+
+concurrency:
+  group: audit-concurrency-20261105-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Concurrency audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: maintenance
+          POSTGRES_PASSWORD: maintenance
+          POSTGRES_DB: maintenance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maintenance -d maintenance"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://maintenance:maintenance@localhost:5432/maintenance?schema=public
+      JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
+      ALLOW_DEMO_SEED: "true"
+      DEMO_SEED_DATABASE_NAME: maintenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - name: Prepare maintenance_p1_test
+        working-directory: .
+        env:
+          PGPASSWORD: maintenance
+          API_DIR: api
+        run: bash scripts/ci/prepare-p1-test-db.sh --seed=npm --web-origin=http://127.0.0.1:5173
+      - run: npm run prove:p1-isolation
+      - run: npm run typecheck:tests
+      - name: Independent audit concurrency tests
+        env:
+          EXPECTED_TEST_DATABASE: maintenance_p1_test
+        run: >
+          node ./tests/runWithP1Isolation.mjs --test-concurrency=1
+          tests/cleaning/independent.audit.20261105.test.ts
+      - name: Related regression suites
+        env:
+          EXPECTED_TEST_DATABASE: maintenance_p1_test
+        run: |
+          set +e
+          failed=0
+          run_suite() {
+            local name="$1"
+            shift
+            echo "::group::${name}"
+            "$@"
+            local ec=$?
+            echo "::endgroup::"
+            if [ "$ec" -ne 0 ]; then
+              echo "::error::suite '${name}' failed with exit ${ec}"
+              failed=1
+            else
+              echo "suite '${name}' passed"
+            fi
+          }
+          run_suite cleaning npm run test:cleaning-lifecycle
+          run_suite plan npm run test:plan
+          run_suite attendance npm run test:attendance
+          run_suite shifts npm run test:shifts
+          exit "$failed"
+      - name: Upload TAP logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-concurrency-20261105-logs
+          path: api/**/*.log
+          if-no-files-found: ignore
