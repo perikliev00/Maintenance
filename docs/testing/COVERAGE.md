@@ -38,7 +38,7 @@ Settings live in `api/.c8rc.json` and `web/.c8rc.json`.
 | API `coverage` (`npm test` set) | **58.27 %** (18275 / 31358) | 78.06 % | 70.31 % | 479 pass / 1 flake* |
 | API `npm test` (same set, no c8) | — | — | — | **480 / 480** |
 | Web `coverage` (Node unit tests) | **24.70 %** (8021 / 32469) | 74.76 % | 51.41 % | 349 / 349 |
-| API `coverage:all` | Re-measure on this branch; do not reuse 2026-11-03 **89.84 %** as current | | | |
+| API `coverage:all` (`test:all` set) | **89.98 %** (28213 / 31353) | 82.68 % | 91.23 % | see hardening report |
 
 \* Under c8 load, `permissions.http.test.ts` “revoked action…” once saw `mark-dirty → 500`
 (Notification FK). Alone and under plain `npm test` it passes. See

@@ -84,7 +84,7 @@ Documented in [`docs/security/AUTHORIZATION_GUARANTEES.md`](../security/AUTHORIZ
 | Node | `v24.22.1` |
 | API `npm run coverage` (src unit set) | **58.27%** lines/statements (18275/31358); branches 78.06%; functions 70.31%; **479 pass / 1 fail*** |
 | Web `npm run coverage` | **24.70%** lines (8021/32469); branches 74.76%; functions 51.41%; **349/349 pass** |
-| API `coverage:all` | Re-measurement started in this session; see job output / update below if completed. Historical 2026-11-03 figure (89.84%) is **not** claimed as current. |
+| API `coverage:all` (`test:all` set) | **89.98%** lines/statements (28213/31353); branches 82.68%; functions 91.23% (measured this session on the hardening branch). |
 | Playwright E2E | Classified separately: **not** in c8 denominator (browser flows). Not re-executed end-to-end in this session. |
 | Mutation | Targeted Stryker scope does **not** include `roleGrants/cache.ts`. Prior targeted baseline (2026-11-03): API 98.66% / web 91.88% on listed modules only — **not** re-run here; **not** a system-wide mutation score. Cross-instance HTTP test is the regression proof for the cache fix. |
 
