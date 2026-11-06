@@ -11,6 +11,7 @@ import {
   type AuditEventRow,
   type JobRunRow,
 } from "../api/client";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import {
   AUDIT_ACTION_FILTERS,
@@ -242,7 +243,7 @@ export function AuditPage({ user, locale = "bg" }: Props) {
 
       {/* Loading gate vs events (+ optional jobs) panels. */}
       {loading ? (
-        <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
+        <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
       ) : (
         <>
           <section className="panel">

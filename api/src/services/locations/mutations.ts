@@ -10,7 +10,6 @@ import { prisma } from "../../db";
 import { AppError } from "../../errors";
 import { publish } from "../../events/bus";
 import { recordAudit } from "../audit";
-import { findLocationById } from "./crud";
 import { locationInclude } from "./types";
 
 type LocationRow = Prisma.LocationGetPayload<{ include: typeof locationInclude }>;
@@ -32,24 +31,32 @@ export type ApplyLocationChangeOpts = {
 
 /**
  * Apply one audited location field change with idempotent no-op short-circuit.
+ * Guard / noop / before are evaluated on the row locked inside the transaction
+ * so concurrent identical transitions produce a single audit + afterCommit.
  */
 export async function applyLocationChange(opts: ApplyLocationChangeOpts) {
-  const existing = await prisma.location.findUnique({ where: { id: opts.id } });
-  if (!existing) {
-    throw new AppError(404, "not_found", "Location not found");
-  }
-  opts.guard?.(existing);
-  if (opts.isNoop(existing)) {
-    const full = await findLocationById(opts.id);
-    return full!;
-  }
+  const outcome = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`
+      SELECT id FROM "Location" WHERE id = ${opts.id} FOR UPDATE
+    `;
+    const existing = await tx.location.findUnique({ where: { id: opts.id } });
+    if (!existing) {
+      throw new AppError(404, "not_found", "Location not found");
+    }
+    opts.guard?.(existing);
+    if (opts.isNoop(existing)) {
+      const full = await tx.location.findUniqueOrThrow({
+        where: { id: opts.id },
+        include: locationInclude,
+      });
+      return { updated: full, changed: false as const };
+    }
 
-  const beforeVal =
-    opts.beforeValue?.(existing) ??
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic audit field key
-    (existing as any)[opts.field];
+    const beforeVal =
+      opts.beforeValue?.(existing) ??
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic audit field key
+      (existing as any)[opts.field];
 
-  const updated = await prisma.$transaction(async (tx) => {
     const row = await tx.location.update({
       where: { id: opts.id },
       data: opts.data,
@@ -68,11 +75,14 @@ export async function applyLocationChange(opts: ApplyLocationChangeOpts) {
       },
       tx,
     );
-    return row;
+    return { updated: row, changed: true as const };
   });
-  publish("location.changed", { locationId: updated.id });
-  await opts.afterCommit?.(updated);
-  return updated;
+
+  if (outcome.changed) {
+    publish("location.changed", { locationId: outcome.updated.id });
+    await opts.afterCommit?.(outcome.updated);
+  }
+  return outcome.updated;
 }
 
 /** Soft-archive a location and audit. */

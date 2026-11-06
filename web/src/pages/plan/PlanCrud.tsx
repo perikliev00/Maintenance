@@ -13,6 +13,7 @@ import {
   type Room,
   type ShiftRow,
 } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { CATEGORY_LABELS, SOURCE_LABELS, TASK_STATUS_BG } from "./constants";
 
 type HousekeeperOption = {
@@ -353,7 +354,7 @@ export function PlanCrud({
       {children}
 
       {loading || !plan ? (
-        <p className="muted">Зареждане на плана…</p>
+        <LoadingIndicator label="Зареждане на плана…" />
       ) : (
         <div className="control-grid">
           <PlanSection

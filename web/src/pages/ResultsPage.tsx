@@ -7,6 +7,7 @@ import {
   type CleaningResultsResponse,
   type CleaningServiceType,
 } from "../api/client";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 
 const SERVICE_TYPE_OPTIONS: Array<{
   value: CleaningServiceType;
@@ -227,7 +228,7 @@ export function ResultsPage() {
       </div>
 
       {error && <p className="err-text">{error}</p>}
-      {loading && !data && <p className="muted">Зареждане…</p>}
+      {loading && !data && <LoadingIndicator label="Зареждане…" />}
 
       {data && (
         <>

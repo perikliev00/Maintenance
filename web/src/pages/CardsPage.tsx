@@ -8,6 +8,7 @@ import {
   type AuthUser,
   type CardStatus,
 } from "../api/client";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 import { formatWhen, t } from "../i18n";
 import { CARD_TYPES, labelForType, toIsoLocal } from "./cards/cardLabels";
 import { useCardIssueWizard } from "./cards/useCardIssueWizard";
@@ -365,7 +366,7 @@ export function CardsPage({ user, locale: localeProp }: Props) {
           </div>
 
           {staff.loading && staff.staffCards.length === 0 ? (
-            <p className="muted">Зареждане…</p>
+            <LoadingIndicator label="Зареждане…" />
           ) : staff.staffCards.length === 0 ? (
             <p className="muted">Няма служителски карти</p>
           ) : (

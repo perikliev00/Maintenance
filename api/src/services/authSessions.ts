@@ -209,13 +209,63 @@ export async function rotateRefresh(
   return issueTokensForSession(newSession.id, existing.user, newRefresh);
 }
 
-/** Soft-revoke a single session if still active (idempotent). */
+/**
+ * Soft-revoke a logical session if still active (idempotent).
+ * Follows `replacedById` under the same User lock as rotateRefresh so logout
+ * after a concurrent refresh still ends the live replacement.
+ */
 export async function revokeSession(sessionId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    const session = await tx.authSession.findUnique({ where: { id: sessionId }, select: { userId: true } });
-    if (!session) return;
-    await lockUsersForLiveAccess(tx, [session.userId]);
-    await tx.authSession.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date() } });
+    const seed = await tx.authSession.findUnique({
+      where: { id: sessionId },
+      select: { userId: true },
+    });
+    if (!seed) return;
+    await lockUsersForLiveAccess(tx, [seed.userId]);
+
+    type SessionLink = {
+      id: string;
+      userId: string;
+      replacedById: string | null;
+    };
+
+    // Re-read after the User lock; walk the replacement chain for this user only.
+    const initial = await tx.authSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        userId: true,
+        replacedById: true,
+      },
+    });
+    if (!initial || initial.userId !== seed.userId) return;
+
+    let current: SessionLink = initial;
+    const seen = new Set<string>();
+    while (current.replacedById) {
+      if (seen.has(current.id)) break;
+      seen.add(current.id);
+      const next: SessionLink | null = await tx.authSession.findUnique({
+        where: { id: current.replacedById },
+        select: {
+          id: true,
+          userId: true,
+          replacedById: true,
+        },
+      });
+      // Broken / cross-user link: stop at the last trusted row in this chain.
+      if (!next || next.userId !== seed.userId) break;
+      current = next;
+    }
+
+    await tx.authSession.updateMany({
+      where: {
+        id: current.id,
+        userId: seed.userId,
+        revokedAt: null,
+      },
+      data: { revokedAt: new Date() },
+    });
   });
 }
 

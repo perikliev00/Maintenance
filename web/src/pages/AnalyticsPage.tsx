@@ -14,6 +14,7 @@ import {
   AnalyticsBarChart,
   AnalyticsTrendChart,
 } from "../components/AnalyticsCharts";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 import { t, type AppLocale } from "../i18n";
 
 // FE-02 backlog: KPI labels, risk-factor strings, chart titles, and
@@ -393,9 +394,9 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
       {/* Initial load only — keep prior KPIs visible while refreshing. */}
       {loading && !data && (
         <section className="panel">
-          <p className="muted">
-            {t(locale, "Зареждане на аналитиката…", "Loading analytics…")}
-          </p>
+          <LoadingIndicator
+            label={t(locale, "Зареждане на аналитиката…", "Loading analytics…")}
+          />
         </section>
       )}
 

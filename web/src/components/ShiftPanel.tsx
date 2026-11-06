@@ -3,6 +3,7 @@
  */
 import type { Person, ShiftRow } from "../api/client";
 import type { useShiftEditor } from "../pages/housekeeping/useShiftEditor";
+import { canSaveRosterDraft } from "../pages/housekeeping/shiftRosterLoadLogic";
 import { FormModal } from "./FormModal";
 
 type ShiftEditor = ReturnType<typeof useShiftEditor>;
@@ -41,6 +42,7 @@ export function ShiftPanel({
     rosterDate,
     rosterEntries,
     rosterDraft,
+    rosterLoadedDate,
     setShiftCode,
     setShiftNameBg,
     setShiftNameEn,
@@ -238,6 +240,9 @@ export function ShiftPanel({
                     <td>
                       <select
                         value={rosterDraft[hk.id] ?? ""}
+                        disabled={
+                          busy || rosterLoadedDate !== rosterDate
+                        }
                         onChange={(e) =>
                           onRosterDraftChange(hk.id, e.target.value)
                         }
@@ -267,7 +272,17 @@ export function ShiftPanel({
               </tbody>
             </table>
           </div>
-          <button type="button" disabled={busy} onClick={onSaveRoster}>
+          <button
+            type="button"
+            disabled={
+              !canSaveRosterDraft({
+                activeDate: rosterDate,
+                loadedDate: rosterLoadedDate,
+                busy,
+              })
+            }
+            onClick={onSaveRoster}
+          >
             {busy
               ? label("Запис…", "Saving…")
               : label("Запази ростер", "Save roster")}

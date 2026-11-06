@@ -18,6 +18,7 @@ import {
   type Room,
 } from "../api/client";
 import { IssueReportForm } from "../components/IssueReportForm";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 import { TicketLifecycleActions } from "../components/TicketLifecycleActions";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { formatWhen, t } from "../i18n";
@@ -280,7 +281,7 @@ export function HomePage({ user, locale: localeProp }: Props) {
         </div>
       )}
       {loading ? (
-        <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
+        <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
       ) : (
         <div className="home-grid">
           <section className="panel home-feed">

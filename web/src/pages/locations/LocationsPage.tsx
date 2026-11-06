@@ -3,6 +3,7 @@
  * Data and form ownership live in useLocationsBoard / useLocationIssueForm.
  */
 import { useCallback, useRef } from "react";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { ScopeHint } from "../../components/ScopeHint";
 import { LocationDetailPanel } from "./audit";
 import { EMPTY_ROOM_FILTERS } from "./filters";
@@ -376,9 +377,9 @@ export function LocationsPage({
       )}
 
       {board.loading ? (
-        <p className="muted">
-          {boardT(locale, "Зареждане…", "Loading…")}
-        </p>
+        <LoadingIndicator
+          label={boardT(locale, "Зареждане…", "Loading…")}
+        />
       ) : (
         <div className="table-wrap">
           <p className="muted">

@@ -12,7 +12,10 @@ import {
 } from "@prisma/client";
 import { ACTIVE_TASK_STATUSES } from "../../constants";
 import { assertActiveCleaningAssignee } from "../assignees";
-import { bumpDirtyAndRebindWork } from "../cleaning";
+import {
+  bumpDirtyAndRebindWork,
+  lockRebindableTasksAndLocation,
+} from "../cleaning";
 import { todayHotelDateYmd } from "../hotelTime";
 import {
   classifyDepartureRoomEffects,
@@ -87,12 +90,14 @@ export async function applyPlanEntryEffects(
     // and no bound task that would bump cleaningCycle).
     let skipRoomAndBoundTask = false;
     if (planYmd <= today) {
-      // Fresh occupancy inside the transaction (may have changed since create).
+      // Same lock order as departure apply: tasks → location, then decide.
+      await lockRebindableTasksAndLocation(tx, location.id);
+      // Fresh occupancy under the location lock (may have changed since create).
       const live = await tx.location.findUniqueOrThrow({
         where: { id: location.id },
         select: { occupancy: true },
       });
-      // Audit-based proof of a newer stay after the plan day.
+      // Audit-based proof of a newer stay after the plan day (same tx).
       const newerStayLocations = await locationsWithNewerStayEvidence(
         tx,
         [location.id],
@@ -107,10 +112,13 @@ export async function applyPlanEntryEffects(
         confirmed: false,
       });
       if (decision === "apply") {
-        // Vacate + dirty and rebind any active cleaning work to the new cycle.
-        await bumpDirtyAndRebindWork(tx, location.id, {
-          occupancy: Occupancy.vacant,
-        });
+        // Vacate + dirty; locks already held for this location.
+        await bumpDirtyAndRebindWork(
+          tx,
+          location.id,
+          { occupancy: Occupancy.vacant },
+          { alreadyLocked: true },
+        );
         occupancyEffect = "vacant";
         dirtyEffect = true;
         roomEffectsApplied = true;

@@ -7,6 +7,7 @@ import {
   type Person,
   type Role,
 } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { t } from "./labels";
 import type { PeopleListViewState } from "./peopleListSession";
 
@@ -195,9 +196,15 @@ export function TeamOnboardingPanel({
                   disabled={candidatesLoadMoreBlocked}
                   onClick={() => void onLoadMoreCandidates()}
                 >
-                  {candidatesState.loadingMore
-                    ? t(locale, "Зареждане…", "Loading…")
-                    : t(locale, "Още кандидати", "Load more candidates")}
+                  {candidatesState.loadingMore ? (
+                    <LoadingIndicator
+                      variant="inline"
+                      delayMs={0}
+                      label={t(locale, "Зареждане…", "Loading…")}
+                    />
+                  ) : (
+                    t(locale, "Още кандидати", "Load more candidates")
+                  )}
                 </button>
               )}
               {selectedExisting && !selectedExisting.userId && (

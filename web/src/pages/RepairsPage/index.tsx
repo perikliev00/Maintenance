@@ -13,6 +13,7 @@ import {
   type AuthUser,
   type Person,
 } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { TicketLifecycleActions } from "../../components/TicketLifecycleActions";
 import { OutboxIssuesPanel } from "../../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
@@ -361,7 +362,7 @@ export function RepairsPage({
       />
 
       {loading ? (
-        <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
+        <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
       ) : (
         <div className="repairs-grid">
           <section className="panel">
@@ -525,9 +526,15 @@ export function RepairsPage({
                   disabled={loadingMore}
                   onClick={() => void loadMore()}
                 >
-                  {loadingMore
-                    ? t(locale, "Зареждане…", "Loading…")
-                    : t(locale, "Зареди още", "Load more")}
+                  {loadingMore ? (
+                    <LoadingIndicator
+                      variant="inline"
+                      delayMs={0}
+                      label={t(locale, "Зареждане…", "Loading…")}
+                    />
+                  ) : (
+                    t(locale, "Зареди още", "Load more")
+                  )}
                 </button>
               </div>
             ) : null}
