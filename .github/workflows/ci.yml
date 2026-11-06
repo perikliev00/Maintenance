@@ -21,7 +21,7 @@ jobs:
       run:
         working-directory: api
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -42,7 +42,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -82,7 +82,7 @@ jobs:
       ALLOW_DEMO_SEED: "true"
       DEMO_SEED_DATABASE_NAME: maintenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -193,7 +193,7 @@ jobs:
       DATABASE_URL: postgresql://maintenance:maintenance@localhost:5432/maintenance?schema=public
       JWT_SECRET: ci-test-secret-at-least-32-chars-long!!
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -232,7 +232,7 @@ jobs:
       ALLOW_DEMO_SEED: "true"
       DEMO_SEED_DATABASE_NAME: maintenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -302,7 +302,7 @@ jobs:
     timeout-minutes: 45
     needs: [api, web]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - name: Validate production Compose
         run: docker compose --env-file .env.production.example -f compose.prod.yml config --quiet
@@ -415,7 +415,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v3
