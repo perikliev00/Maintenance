@@ -91,7 +91,7 @@ jobs:
           exit "$failed"
       - name: Upload TAP logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: audit-concurrency-20261105-logs
           path: api/**/*.log

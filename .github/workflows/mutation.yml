@@ -41,7 +41,7 @@ jobs:
       - run: npm run test:mutation
       - name: Upload mutation report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: api-mutation-report
           path: |
@@ -77,7 +77,7 @@ jobs:
       - run: npm run test:mutation
       - name: Upload mutation report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-mutation-report
           path: |
