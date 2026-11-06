@@ -16,25 +16,65 @@ type LockDiag = {
   }>;
 };
 
+/**
+ * Backends whose blocking chain reaches `blockerPid`, including soft blockers
+ * queued behind an earlier waiter on the same lock. Direct `pg_blocking_pids`
+ * alone under-counts parallel advisory waiters.
+ */
+export async function listBlockedBehind(
+  db: PrismaClient,
+  blockerPid: number,
+): Promise<number[]> {
+  const rows = await db.$queryRaw<{ pid: number }[]>`
+    WITH RECURSIVE blocked AS (
+      SELECT pid
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND pid <> ${blockerPid}
+        AND ${blockerPid} = ANY (pg_blocking_pids(pid))
+      UNION
+      SELECT a.pid
+      FROM pg_stat_activity a
+      INNER JOIN blocked b ON b.pid = ANY (pg_blocking_pids(a.pid))
+      WHERE a.datname = current_database()
+        AND a.pid <> ${blockerPid}
+    )
+    SELECT DISTINCT pid::int AS pid
+    FROM blocked
+    WHERE EXISTS (
+      SELECT 1
+      FROM pg_stat_activity s
+      WHERE s.pid = blocked.pid
+        AND s.wait_event_type = 'Lock'
+    )
+  `;
+  return rows.map((r) => r.pid);
+}
+
 /** Count sessions whose blocking chain reaches the barrier holder pid. */
 async function countBlockedBehind(
   db: PrismaClient,
   barrierPid: number,
 ): Promise<number> {
-  const [row] = await db.$queryRaw<{ count: number }[]>`
-    WITH RECURSIVE blocked(pid) AS (
-      SELECT pid FROM pg_stat_activity
-      WHERE datname = current_database()
-        AND ${barrierPid} = ANY (pg_blocking_pids(pid))
-      UNION
-      SELECT a.pid
-      FROM pg_stat_activity a
-      JOIN blocked b ON b.pid = ANY (pg_blocking_pids(a.pid))
-      WHERE a.datname = current_database()
-    )
-    SELECT count(*)::int AS count FROM blocked
-  `;
-  return row?.count ?? 0;
+  return (await listBlockedBehind(db, barrierPid)).length;
+}
+
+/** Poll until at least `count` Lock waiters sit behind `blockerPid`. */
+export async function waitForBlockedBehind(
+  db: PrismaClient,
+  blockerPid: number,
+  count = 1,
+  timeoutMs = 15_000,
+): Promise<number[]> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const pids = await listBlockedBehind(db, blockerPid);
+    if (pids.length >= count) return pids;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(
+    `No PostgreSQL waiter blocked by backend ${blockerPid} (need ≥${count}, transitive queue)`,
+  );
 }
 
 async function lockDiagnostics(

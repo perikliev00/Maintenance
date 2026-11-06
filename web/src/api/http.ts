@@ -412,6 +412,10 @@ export async function login(email: string, password: string) {
     }>(res);
     // Non-secret UI cache; real session lives in HttpOnly cookies.
     localStorage.setItem("user", JSON.stringify(data.user));
+    // Retire in-flight fetchMe calls that started during this login under the
+    // same revision. Otherwise a stale /me body (prior cookie) can land after
+    // pending drops to 0 and overwrite the new cache while cookies are already B.
+    sessionRevision++;
     return data;
   });
 }

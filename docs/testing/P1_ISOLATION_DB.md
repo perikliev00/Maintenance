@@ -15,7 +15,7 @@ Aliases below forward extra args after `--`.
 |---|---|---|
 | Everyday / CI `unit-src` | `npm test` | `src/**/*.test.ts` only. Despite the CI log label, many of these files need the P1 DB. |
 | Full API package | `npm run test:all` | Both wide globs: `src/**/*.test.ts` and `tests/**/*.test.ts`. |
-| Domain packs | `npm run test:cleaning-lifecycle`, `test:readiness`, `test:tickets-lifecycle`, `test:plan`, `test:sectors`, `test:shifts`, `test:my-work`, `test:attendance`, `test:cards`, `test:people`, `test:scenarios` | Same globs CI Smoke invokes under those suite names. |
+| Domain packs | `npm run test:cleaning-lifecycle`, `test:readiness`, `test:tickets-lifecycle`, `test:plan`, `test:sectors`, `test:shifts`, `test:my-work`, `test:attendance`, `test:cards`, `test:people`, `test:auth`, `test:scenarios` | Same globs CI Smoke invokes under those suite names. |
 | Isolation aliases | `npm run test:regress-p1-isolated`, `test:attendance:isolated`, `test:cards:isolated` | Compatible aliases for `npm test`, `test:attendance`, `test:cards`. |
 | Inventory / proof | `npm run test:inventory`, `npm run prove:p1-isolation` | Inventory globs must cover every `*.test.ts` under `src/` and `tests/` (incl. `tests/scenarios/*.test.ts`). |
 | Selected DB four | `npm run test:db` | Exactly four files: attendance rebuild, cards filter, roleGrants seed, audit write. |

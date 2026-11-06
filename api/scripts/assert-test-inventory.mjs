@@ -24,6 +24,7 @@ const MANDATORY_RUNNER_GLOBS = [
   "tests/attendance/**/*.test.ts",
   "tests/cards/**/*.test.ts",
   "tests/people/**/*.test.ts",
+  "tests/auth/**/*.test.ts",
 ];
 
 function walk(dir, out = []) {

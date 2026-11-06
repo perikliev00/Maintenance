@@ -190,15 +190,25 @@ export async function restoreRoleGrants(
   roles: Role[],
   snapshot: RoleGrantSnapshotRow[],
 ): Promise<void> {
-  await prisma.roleGrant.deleteMany({ where: { role: { in: roles } } });
-  if (snapshot.length) {
-    await prisma.roleGrant.createMany({
-      data: snapshot.map((r) => ({
-        role: r.role,
-        kind: r.kind,
-        key: r.key,
-      })),
-    });
-  }
+  // Bump RoleGrantRevision in the same transaction so other API processes'
+  // stamp-gated caches reload instead of serving pre-restore rows for up to TTL.
+  await prisma.$transaction(async (tx) => {
+    await tx.roleGrant.deleteMany({ where: { role: { in: roles } } });
+    if (snapshot.length) {
+      await tx.roleGrant.createMany({
+        data: snapshot.map((r) => ({
+          role: r.role,
+          kind: r.kind,
+          key: r.key,
+        })),
+      });
+    }
+    if (roles.length) {
+      await tx.roleGrantRevision.updateMany({
+        where: { role: { in: roles } },
+        data: { version: { increment: 1 } },
+      });
+    }
+  });
   invalidateGrantCache();
 }
