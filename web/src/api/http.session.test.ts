@@ -90,3 +90,34 @@ it("delayed profile A cannot replace the cached profile after login B", async ()
   await rejected;
   assert.deepEqual(JSON.parse(values.get("user")!), { id: "B" });
 });
+
+it("fetchMe started during login cannot restore prior account after cookies switch", async () => {
+  const values = new Map<string, string>([["user", JSON.stringify({ id: "A" })]]);
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  } });
+  let releaseLogin!: (response: Response) => void;
+  let releaseMe!: (response: Response) => void;
+  const pendingLogin = new Promise<Response>(resolve => { releaseLogin = resolve; });
+  const pendingMe = new Promise<Response>(resolve => { releaseMe = resolve; });
+  globalThis.fetch = async input => {
+    const url = String(input);
+    if (url.endsWith("/auth/login")) return pendingLogin;
+    if (url.endsWith("/auth/me")) return pendingMe;
+    return new Response("{}", { status: 200 });
+  };
+  const nextLogin = login("B@example.test", "password");
+  await Promise.resolve();
+  await Promise.resolve();
+  // Same sessionRevision as the in-flight login (after beginSessionChange).
+  const staleProfile = fetchMe();
+  const rejected = assert.rejects(staleProfile, /Account changed/);
+  releaseLogin(new Response(JSON.stringify({ user: { id: "B" } }), { status: 200 }));
+  await nextLogin;
+  assert.deepEqual(JSON.parse(values.get("user")!), { id: "B" });
+  releaseMe(new Response(JSON.stringify({ id: "A" }), { status: 200 }));
+  await rejected;
+  assert.deepEqual(JSON.parse(values.get("user")!), { id: "B" });
+});
