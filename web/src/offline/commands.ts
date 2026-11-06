@@ -33,12 +33,15 @@ export function completeCleaningQueued(
   notes: string | undefined,
   expectedVersion: number | undefined,
   run: RunOrEnqueue,
+  taskId?: string,
 ): Promise<QueuedResult> {
   return run(
     "cleaning.complete",
     `${API_BASE}/cleaning/sessions/${sessionId}/complete`,
     {
       commandId: crypto.randomUUID(),
+      // taskId is for outbox→pendingSync mapping; API ignores unknown fields.
+      ...(taskId ? { taskId } : {}),
       ...(notes?.trim() ? { notes: notes.trim() } : {}),
       ...(expectedVersion !== undefined ? { expectedVersion } : {}),
     },

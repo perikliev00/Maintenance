@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -16,6 +17,11 @@ import {
   type ShiftRow,
 } from "../../api/client";
 import type { BusyMutationResult } from "../../hooks/useBusyMutation";
+import {
+  canSaveRosterDraft,
+  shouldApplyRosterLoad,
+  shouldApplyRosterSaveResult,
+} from "./shiftRosterLoadLogic";
 
 export type ShiftFormMode = "closed" | "create" | "edit";
 
@@ -59,20 +65,59 @@ export function useShiftEditor(options: UseShiftEditorOptions) {
   const [shiftFormError, setShiftFormError] = useState<string | null>(null);
   const [shiftBaseline, setShiftBaseline] = useState("");
 
-  const [rosterDate, setRosterDate] = useState(todayHotelDate());
+  const [rosterDate, setRosterDateState] = useState(todayHotelDate());
   const [rosterEntries, setRosterEntries] = useState<ShiftRosterEntry[]>([]);
   const [rosterDraft, setRosterDraft] = useState<Record<string, string>>({});
+  const [rosterLoadedDate, setRosterLoadedDate] = useState<string | null>(null);
+  const rosterDateRef = useRef(rosterDate);
+  rosterDateRef.current = rosterDate;
+  const rosterLoadGen = useRef(0);
+  const rosterSaveGen = useRef(0);
+
+  const setRosterDate = useCallback((date: string) => {
+    // Invalidate in-flight GETs/PUTs for the previous day (incl. A→B→A).
+    rosterLoadGen.current += 1;
+    setRosterLoadedDate(null);
+    setRosterDateState(date);
+  }, []);
 
   const refreshRoster = useCallback(
     async (date: string) => {
       if (!canManageShifts) return;
-      const roster = await fetchShiftRoster(date);
-      setRosterEntries(roster.entries);
-      const draft: Record<string, string> = {};
-      for (const e of roster.entries) {
-        draft[e.employee.id] = e.shift.id;
+      const requestId = ++rosterLoadGen.current;
+      try {
+        const roster = await fetchShiftRoster(date);
+        if (
+          !shouldApplyRosterLoad({
+            requestDate: date,
+            activeDate: rosterDateRef.current,
+            requestId,
+            latestRequestId: rosterLoadGen.current,
+          })
+        ) {
+          return;
+        }
+        setRosterEntries(roster.entries);
+        const draft: Record<string, string> = {};
+        for (const e of roster.entries) {
+          draft[e.employee.id] = e.shift.id;
+        }
+        setRosterDraft(draft);
+        setRosterLoadedDate(date);
+      } catch (err) {
+        if (
+          !shouldApplyRosterLoad({
+            requestDate: date,
+            activeDate: rosterDateRef.current,
+            requestId,
+            latestRequestId: rosterLoadGen.current,
+          })
+        ) {
+          return;
+        }
+        setRosterLoadedDate(null);
+        throw err;
       }
-      setRosterDraft(draft);
     },
     [canManageShifts],
   );
@@ -266,21 +311,42 @@ export function useShiftEditor(options: UseShiftEditorOptions) {
   );
 
   const onSaveRoster = useCallback(async () => {
-    if (busyRef.current) return;
+    if (
+      !canSaveRosterDraft({
+        activeDate: rosterDate,
+        loadedDate: rosterLoadedDate,
+        busy: busyRef.current,
+      })
+    ) {
+      return;
+    }
     setShiftsError(null);
     setMessage(null);
+    const savedDate = rosterDate;
+    const draftSnapshot = { ...rosterDraft };
+    const saveRequestId = ++rosterSaveGen.current;
     const result = await runMutationWithRefresh(async () => {
-      const entries = Object.entries(rosterDraft)
+      const entries = Object.entries(draftSnapshot)
         .filter(([, sid]) => sid)
         .map(([employeeId, sid]) => ({
           employeeId,
           shiftId: sid,
         }));
       const saved = await saveShiftRoster({
-        hotelDate: rosterDate,
+        hotelDate: savedDate,
         entries,
       });
-      setRosterEntries(saved.entries);
+      if (
+        shouldApplyRosterSaveResult({
+          savedDate,
+          activeDate: rosterDateRef.current,
+          saveRequestId,
+          latestSaveRequestId: rosterSaveGen.current,
+        })
+      ) {
+        setRosterEntries(saved.entries);
+        setRosterLoadedDate(savedDate);
+      }
       return saved;
     });
     if (!result.ok) {
@@ -289,16 +355,27 @@ export function useShiftEditor(options: UseShiftEditorOptions) {
       }
       return;
     }
+    if (
+      !shouldApplyRosterSaveResult({
+        savedDate,
+        activeDate: rosterDateRef.current,
+        saveRequestId,
+        latestSaveRequestId: rosterSaveGen.current,
+      })
+    ) {
+      return;
+    }
     setMessage(
       label(
-        `Ростерът за ${rosterDate} е записан (${result.value.entries.length})`,
-        `Roster for ${rosterDate} saved (${result.value.entries.length})`,
+        `Ростерът за ${savedDate} е записан (${result.value.entries.length})`,
+        `Roster for ${savedDate} saved (${result.value.entries.length})`,
       ),
     );
   }, [
     busyRef,
     rosterDraft,
     rosterDate,
+    rosterLoadedDate,
     runMutationWithRefresh,
     setShiftsError,
     setMessage,
@@ -327,6 +404,7 @@ export function useShiftEditor(options: UseShiftEditorOptions) {
     rosterDate,
     rosterEntries,
     rosterDraft,
+    rosterLoadedDate,
     setShiftCode,
     setShiftNameBg,
     setShiftNameEn,

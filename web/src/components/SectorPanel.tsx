@@ -7,6 +7,7 @@ import { type Person, type SectorRow } from "../api/client";
 import { useLocationCatalogPicker } from "../hooks/useLocationCatalogPicker";
 import type { useSectorEditor } from "../pages/housekeeping/useSectorEditor";
 import { FormModal } from "./FormModal";
+import { LoadingIndicator } from "./LoadingIndicator";
 
 type SectorEditor = ReturnType<typeof useSectorEditor>;
 
@@ -271,7 +272,7 @@ export function SectorPanel({
             />
             {pickerError && <p className="error-banner">{pickerError}</p>}
             {pickerLoading && (
-              <p className="muted">{label("Зареждане…", "Loading…")}</p>
+              <LoadingIndicator label={label("Зареждане…", "Loading…")} />
             )}
             <div
               className="table-wrap"

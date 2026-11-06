@@ -15,6 +15,7 @@ import {
   type SectorRow,
   type ShiftRow,
 } from "../api/client";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 import { LocationCatalogPanel } from "../components/LocationCatalogPanel";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { SectorAdminTab } from "./housekeeping/SectorAdminTab";
@@ -326,9 +327,11 @@ export function HousekeepingPage({ user }: Props) {
       )}
       {message && <p className="ok-banner">{message}</p>}
       {peopleLoading && tab === "sectors" && (
-        <p className="muted small">
-          {label("Зареждане на служители…", "Loading people…")}
-        </p>
+        <LoadingIndicator
+          className="muted small"
+          variant="inline"
+          label={label("Зареждане на служители…", "Loading people…")}
+        />
       )}
 
       {tab === "catalog" && canManageLocations && (

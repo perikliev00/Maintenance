@@ -11,6 +11,7 @@ import {
   type AppNotification,
   type Panel,
 } from "../api/client";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { t } from "../i18n";
 
@@ -234,7 +235,7 @@ export function NotificationsPage({ locale = "bg", onNavigate }: Props) {
 
       {/* Loading gate vs populated inbox panel. */}
       {loading ? (
-        <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
+        <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
       ) : (
         <section className="panel">
           <div className="panel-header">
@@ -298,9 +299,15 @@ export function NotificationsPage({ locale = "bg", onNavigate }: Props) {
                     disabled={loadingMore}
                     onClick={() => void loadMore()}
                   >
-                    {loadingMore
-                      ? t(locale, "Зареждане…", "Loading…")
-                      : t(locale, "Зареди още", "Load more")}
+                    {loadingMore ? (
+                      <LoadingIndicator
+                        variant="inline"
+                        delayMs={0}
+                        label={t(locale, "Зареждане…", "Loading…")}
+                      />
+                    ) : (
+                      t(locale, "Зареди още", "Load more")
+                    )}
                   </button>
                 </div>
               )}

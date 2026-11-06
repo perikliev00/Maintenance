@@ -15,6 +15,7 @@ import {
   type AttendanceScope,
   type AuthUser,
 } from "../api/client";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 
 type Props = { user: AuthUser };
 
@@ -326,7 +327,7 @@ export function AttendancePage({ user }: Props) {
 
       {/* Loading vs empty vs interval table. */}
       {loading ? (
-        <p className="muted">Зареждане…</p>
+        <LoadingIndicator label="Зареждане…" />
       ) : intervals.length === 0 ? (
         <p className="muted">Няма записи за избрания филтър.</p>
       ) : (
@@ -446,7 +447,15 @@ export function AttendancePage({ user }: Props) {
               disabled={loadingMore}
               onClick={() => void loadMore()}
             >
-              {loadingMore ? "Зареждане…" : "Зареди още"}
+              {loadingMore ? (
+                <LoadingIndicator
+                  variant="inline"
+                  delayMs={0}
+                  label="Зареждане…"
+                />
+              ) : (
+                "Зареди още"
+              )}
             </button>
           </div>
         )}

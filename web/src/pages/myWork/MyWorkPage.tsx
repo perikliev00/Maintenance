@@ -12,6 +12,7 @@ import {
   type CleaningTaskRow,
   type MaintenanceTicket,
 } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { OutboxIssuesPanel } from "../../components/OutboxIssuesPanel";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import {
@@ -27,6 +28,7 @@ import {
   CurrentTaskSection,
 } from "./tasks";
 import { TicketsSection } from "./tickets";
+import { listPendingSyncTaskIdsFromOutbox } from "./pendingSyncFromOutbox";
 
 type Props = {
   user: AuthUser;
@@ -79,9 +81,11 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
     setTasks(taskData);
     setTickets(ticketData);
     setTicketCursor(data.ticketNextCursor ?? null);
-    // Fresh network data — clear cache/pending markers.
+    // Fresh network data — clear cache marker, but keep pendingSync aligned
+    // with the active user's outbox so a successful GET cannot re-enable start
+    // while cleaning.start is still queued.
     setFromCache(false);
-    setPendingSyncTaskIds([]);
+    setPendingSyncTaskIds(await listPendingSyncTaskIdsFromOutbox());
     // Write-through cache so offline reopen still has today's work.
     await saveMyWorkCache({
       tasks: taskData,
@@ -240,7 +244,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
 
       {/* Loading gate vs work sections. */}
       {loading ? (
-        <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
+        <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
       ) : (
         <>
           {/* Highlighted current running session, if any. */}
@@ -262,6 +266,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                     running.id,
                     notes,
                     currentTask.version,
+                    currentTask.id,
                   );
                   // Optimistic local status update.
                   setTasks((prev) =>
@@ -279,6 +284,13 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                         : task,
                     ),
                   );
+                  if (result.queued) {
+                    setPendingSyncTaskIds((ids) =>
+                      ids.includes(currentTask.id)
+                        ? ids
+                        : [...ids, currentTask.id],
+                    );
+                  }
                   setMessage(
                     result.queued
                       ? t(locale, "Приключване в опашката", "Complete queued")
@@ -337,6 +349,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                     running.id,
                     notes,
                     task.version,
+                    task.id,
                   );
                   // Optimistic complete of the running session locally.
                   setTasks((prev) =>
@@ -357,6 +370,11 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
                         : row,
                     ),
                   );
+                  if (result.queued) {
+                    setPendingSyncTaskIds((ids) =>
+                      ids.includes(task.id) ? ids : [...ids, task.id],
+                    );
+                  }
                   setMessage(
                     result.queued
                       ? t(locale, "Приключване в опашката", "Complete queued")
@@ -397,9 +415,15 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
             {ticketCursor && !fromCache && (
               <button type="button" className="btn" disabled={loadingTickets || busyId !== null}
                 onClick={() => void loadMoreTickets()}>
-                {loadingTickets
-                  ? t(locale, "Зареждане…", "Loading…")
-                  : t(locale, "Още ремонти", "Load more repairs")}
+                {loadingTickets ? (
+                  <LoadingIndicator
+                    variant="inline"
+                    delayMs={0}
+                    label={t(locale, "Зареждане…", "Loading…")}
+                  />
+                ) : (
+                  t(locale, "Още ремонти", "Load more repairs")
+                )}
               </button>
             )}
             </>

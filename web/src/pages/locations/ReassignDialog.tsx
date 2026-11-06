@@ -11,6 +11,7 @@ import {
   type HousekeeperAvailabilityStatus,
   type Room,
 } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { useModalLifecycle } from "../../hooks/useModalLifecycle";
 import { t } from "../../i18n";
 
@@ -232,7 +233,7 @@ export function ReassignDialog({
         </label>
 
         {loading ? (
-          <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
+          <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
         ) : loadError ? (
           <p className="error">{loadError}</p>
         ) : filtered.length === 0 ? (

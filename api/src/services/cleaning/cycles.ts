@@ -133,15 +133,14 @@ export async function allocateCleaningCycle(
 }
 
 /**
- * Mark dirty with a new cycle. Re-binds assigned/in_progress/rework tasks so
- * ongoing work can still update status; leaves awaiting_inspection on the old
- * cycle so a stale approve cannot restore verified_clean.
+ * Acquire rebindable CleaningTask rows then Location (same order as
+ * {@link bumpDirtyAndRebindWork} / startCleaningTask) so callers can decide
+ * under those locks before mutating.
  */
-export async function bumpDirtyAndRebindWork(
+export async function lockRebindableTasksAndLocation(
   tx: Tx,
   locationId: string,
-  extra?: Prisma.LocationUpdateInput,
-): Promise<number> {
+): Promise<void> {
   // Lock rebindable tasks before Location. startCleaningTask holds Task then
   // Location; acquiring Location first here deadlocks against that path.
   await tx.$queryRaw`
@@ -155,7 +154,28 @@ export async function bumpDirtyAndRebindWork(
     ORDER BY id
     FOR UPDATE
   `;
+  await lockLocation(tx, locationId);
+}
+
+/**
+ * Mark dirty with a new cycle. Re-binds assigned/in_progress/rework tasks so
+ * ongoing work can still update status; leaves awaiting_inspection on the old
+ * cycle so a stale approve cannot restore verified_clean.
+ *
+ * Pass `alreadyLocked: true` when the caller already held
+ * {@link lockRebindableTasksAndLocation} for this location in `tx`.
+ */
+export async function bumpDirtyAndRebindWork(
+  tx: Tx,
+  locationId: string,
+  extra?: Prisma.LocationUpdateInput,
+  opts?: { alreadyLocked?: boolean },
+): Promise<number> {
+  if (!opts?.alreadyLocked) {
+    await lockRebindableTasksAndLocation(tx, locationId);
+  }
   // New cycle + force dirty; `extra` may also set occupancy (departure path).
+  // allocateCleaningCycle re-takes Location FOR UPDATE (safe when already held).
   const next = await allocateCleaningCycle(tx, locationId, {
     forceDirty: true,
     extra,

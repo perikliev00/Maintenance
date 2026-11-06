@@ -1,4 +1,5 @@
 import type { Person, SectorRow } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { SectorPanel } from "../../components/SectorPanel";
 import type { useSectorEditor } from "./useSectorEditor";
 
@@ -30,7 +31,7 @@ export function SectorAdminTab({
   editor,
 }: Props) {
   if (sectorsLoading) {
-    return <p className="muted">{label("Зареждане…", "Loading…")}</p>;
+    return <LoadingIndicator label={label("Зареждане…", "Loading…")} />;
   }
 
   return (

@@ -4,7 +4,10 @@
  */
 import { DailyPlanCategory, Occupancy, Prisma } from "@prisma/client";
 import { prisma } from "../../db";
-import { bumpDirtyAndRebindWork } from "../cleaning";
+import {
+  bumpDirtyAndRebindWork,
+  lockRebindableTasksAndLocation,
+} from "../cleaning";
 import { todayHotelDateYmd, zonedDayStartUtc } from "../hotelTime";
 import { getOperations } from "../settings";
 import { addDaysYmd, formatHotelDate, parseHotelDate } from "./hotelDate";
@@ -166,16 +169,8 @@ export async function ensureDepartureRoomEffects(
     return empty;
   }
 
-  // Unique locations for the evidence query (one room may appear once per category).
-  const locationIds = [...new Set(pending.map((e) => e.locationId))];
   // Explicit confirm list from ops UI / API (ambiguous past occupied rooms).
   const confirmSet = new Set(options?.confirmEntryIds ?? []);
-  // Locations that must be protected (newer stay proven via audit).
-  const newerStayLocations = await locationsWithNewerStayEvidence(
-    prisma,
-    locationIds,
-    planYmd,
-  );
 
   // Single timestamp stamped onto all claimed rows in this run.
   const now = new Date();
@@ -184,14 +179,22 @@ export async function ensureDepartureRoomEffects(
   const deferredEntryIds: string[] = [];
 
   // Atomic per-entry claim + room mutation so concurrent runs do not double-apply.
+  // Occupancy + newer-stay evidence are read only after task→location locks so a
+  // concurrent check-in that already committed is visible before apply/protect.
   await prisma.$transaction(async (tx) => {
     for (const entry of pending) {
-      // Fresh occupancy/kind inside the transaction (may have changed since the list query).
+      await lockRebindableTasksAndLocation(tx, entry.locationId);
+
+      // Fresh occupancy/kind under the location lock.
       const location = await tx.location.findUniqueOrThrow({
         where: { id: entry.locationId },
         select: { occupancy: true, kind: true },
       });
-
+      const newerStayLocations = await locationsWithNewerStayEvidence(
+        tx,
+        [entry.locationId],
+        planYmd,
+      );
       const hasNewerStayEvidence = newerStayLocations.has(entry.locationId);
 
       // Decide apply / protect / defer from occupancy + evidence + confirm flag.
@@ -227,10 +230,13 @@ export async function ensureDepartureRoomEffects(
         continue;
       }
 
-      // Apply vacant + dirty and rebind any active cleaning work to the new cycle.
-      await bumpDirtyAndRebindWork(tx, entry.locationId, {
-        occupancy: Occupancy.vacant,
-      });
+      // Apply vacant + dirty; locks already held for this location.
+      await bumpDirtyAndRebindWork(
+        tx,
+        entry.locationId,
+        { occupancy: Occupancy.vacant },
+        { alreadyLocked: true },
+      );
 
       // Ensure a departure cleaning task exists / is linked for housekeeping.
       const cleaningTaskId = await linkOrCreateDepartureTask(tx, {

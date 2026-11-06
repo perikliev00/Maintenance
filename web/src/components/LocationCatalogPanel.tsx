@@ -5,6 +5,7 @@
 import { archiveLocation, restoreLocation, type LocationKind } from "../api/client";
 import { useLocationCatalog } from "../hooks/useLocationCatalog";
 import { FormModal } from "./FormModal";
+import { LoadingIndicator } from "./LoadingIndicator";
 
 type Props = {
   locale: "bg" | "en";
@@ -124,7 +125,7 @@ export function LocationCatalogPanel({ locale, onCatalogChanged }: Props) {
       </div>
 
       {loading ? (
-        <p className="muted">{label("Зареждане…", "Loading…")}</p>
+        <LoadingIndicator label={label("Зареждане…", "Loading…")} />
       ) : (
         <>
           <div className="table-wrap">

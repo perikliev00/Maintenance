@@ -16,6 +16,7 @@ import { canPerformAction, type AuthUser } from "../../api/client";
 import { useBusyMutation } from "../../hooks/useBusyMutation";
 import { useLiveRefresh } from "../../hooks/useLiveRefresh";
 import { IssueCatalogPanel } from "../../components/IssueCatalogPanel";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { TABS, type Tab } from "./constants";
 import {
   SystemStatusSection,
@@ -139,7 +140,7 @@ export function SettingsPage({ user }: Props) {
   if (loading && !server.bundle) {
     return (
       <main className="content">
-        <p className="muted">{label("Зареждане…", "Loading…")}</p>
+        <LoadingIndicator label={label("Зареждане…", "Loading…")} />
       </main>
     );
   }

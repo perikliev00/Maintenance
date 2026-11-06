@@ -5,6 +5,7 @@
  */
 import type { AuditEventRow } from "../api/client";
 import { auditHeadline } from "../audit/labels";
+import { LoadingIndicator } from "./LoadingIndicator";
 
 type Props = {
   events: AuditEventRow[];
@@ -29,7 +30,7 @@ export function AuditTimeline({
 }: Props) {
   // Ordered empty states: loading → permission → error → empty list.
   if (loading) {
-    return <p className="muted">Зареждане…</p>;
+    return <LoadingIndicator label="Зареждане…" />;
   }
   if (accessDenied) {
     return <p className="muted">Нямате достъп до тази хронология.</p>;

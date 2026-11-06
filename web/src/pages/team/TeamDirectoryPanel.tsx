@@ -1,4 +1,5 @@
 import { ALL_ROLES, ROLE_LABELS, type AuthUser, type Person, type Role } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { t } from "./labels";
 import {
   lifecycleActionsForPerson,
@@ -129,9 +130,9 @@ export function TeamDirectoryPanel({
       </div>
 
       {loading ? (
-        <p className="muted">
-          {t(locale, "Зареждане на хора…", "Loading people…")}
-        </p>
+        <LoadingIndicator
+          label={t(locale, "Зареждане на хора…", "Loading people…")}
+        />
       ) : (
         <>
           {refreshing && (
@@ -346,9 +347,15 @@ export function TeamDirectoryPanel({
                 disabled={loadMoreBlocked}
                 onClick={() => void onLoadMoreDirectory()}
               >
-                {loadingMore
-                  ? t(locale, "Зареждане…", "Loading…")
-                  : t(locale, "Още", "Load more")}
+                {loadingMore ? (
+                  <LoadingIndicator
+                    variant="inline"
+                    delayMs={0}
+                    label={t(locale, "Зареждане…", "Loading…")}
+                  />
+                ) : (
+                  t(locale, "Още", "Load more")
+                )}
               </button>
             </div>
           )}

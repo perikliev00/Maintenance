@@ -111,7 +111,10 @@ test("real queued report reloads then single-flight sync replaces optimistic row
   expect(matched).toHaveLength(1); expect(matched[0].id).not.toMatch(/^local-/);
   const events = await (await page.request.get(`/api/maintenance/tickets/${matched[0].id}/events`)).json(); expect(events).toHaveLength(1);
   await page.reload(); await openNav(page, /Повреди|Repairs/);
-  await expect(page.locator("tr").filter({ hasText: matched[0].title })).toHaveCount(1);
+  // Room number is unique per run; catalog titles collide across prior SC-OFFLINE-* tickets.
+  await expect(
+    page.locator("tr").filter({ hasText: target.number }).filter({ hasText: matched[0].title }),
+  ).toHaveCount(1);
 });
 test("card type switches send applicable fields; delayed double click commits one actual card", async ({ page }) => {
   await uiLogin(page, USERS.owner); await openNav(page, /Карти|Cards/);

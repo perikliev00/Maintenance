@@ -1,4 +1,5 @@
 import type { Person, ShiftRow } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { ShiftPanel } from "../../components/ShiftPanel";
 import type { useShiftEditor } from "./useShiftEditor";
 
@@ -26,7 +27,7 @@ export function ShiftAdminTab({
   editor,
 }: Props) {
   if (shiftsLoading) {
-    return <p className="muted">{label("Зареждане…", "Loading…")}</p>;
+    return <LoadingIndicator label={label("Зареждане…", "Loading…")} />;
   }
 
   return (

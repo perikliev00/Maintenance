@@ -11,6 +11,7 @@ import {
   type Person,
   type RegisteredDevice,
 } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { useModalLifecycle } from "../../hooks/useModalLifecycle";
 import { t } from "./labels";
 
@@ -130,7 +131,7 @@ export function TeamPersonDevicesDialog({
         </p>
         {error && <div className="error banner">{error}</div>}
         {loading ? (
-          <p className="muted">{t(locale, "Зареждане…", "Loading…")}</p>
+          <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
         ) : devices.length === 0 ? (
           <p className="muted">
             {t(

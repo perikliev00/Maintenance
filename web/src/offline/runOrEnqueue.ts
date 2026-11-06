@@ -114,8 +114,15 @@ export async function completeCleaningQueued(
   sessionId: string,
   notes?: string,
   expectedVersion?: number,
+  taskId?: string,
 ): Promise<QueuedResult> {
-  return completeCleaningCommand(sessionId, notes, expectedVersion, runOrEnqueue);
+  return completeCleaningCommand(
+    sessionId,
+    notes,
+    expectedVersion,
+    runOrEnqueue,
+    taskId,
+  );
 }
 
 /** Move a ticket into in-progress (online or queued). */

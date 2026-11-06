@@ -13,6 +13,7 @@ import {
   panelForLocationKind,
   type NavigateToFocus,
 } from "../app/boardFocus";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 import { ScopeHint } from "../components/ScopeHint";
 import { priorityLabel } from "./locations/labels";
 import { needTitle, sessionCategory } from "./liveBoardLogic";
@@ -182,7 +183,7 @@ export function LiveBoardPage({
       {message && <div className="ok banner">{message}</div>}
 
       {loading && !data ? (
-        <p className="muted">{t("Зареждане…", "Loading…")}</p>
+        <LoadingIndicator label={t("Зареждане…", "Loading…")} />
       ) : data ? (
         <>
           <section className="live-counts" aria-label={t("Обобщение", "Summary")}>

@@ -16,6 +16,7 @@ import {
   type PermissionMatrix,
   type Role,
 } from "../api/client";
+import { LoadingIndicator } from "../components/LoadingIndicator";
 import {
   applySavedRoleToDraft,
   historyStatusFromResult,
@@ -290,7 +291,7 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
   if (loading && !matrix) {
     return (
       <main className="content">
-        <p className="muted">Зареждане на матрицата…</p>
+        <LoadingIndicator label="Зареждане на матрицата…" />
       </main>
     );
   }
@@ -501,8 +502,12 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
               <tbody>
                 {historyStatus === "loading" && (
                   <tr>
-                    <td colSpan={7} className="muted">
-                      Зареждане…
+                    <td colSpan={7}>
+                      <LoadingIndicator
+                        variant="inline"
+                        label="Зареждане…"
+                        delayMs={0}
+                      />
                     </td>
                   </tr>
                 )}

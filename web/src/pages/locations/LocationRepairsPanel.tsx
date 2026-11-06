@@ -9,6 +9,7 @@ import {
   fetchTickets,
   type MaintenanceTicket,
 } from "../../api/client";
+import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { TicketLifecycleActions } from "../../components/TicketLifecycleActions";
 import {
   priorityLabel as repairPriorityLabel,
@@ -130,7 +131,9 @@ export function LocationRepairsPanel({
         </button>
       </header>
       {loading && (
-        <p className="muted">{boardT(locale, "Зареждане…", "Loading…")}</p>
+        <LoadingIndicator
+          label={boardT(locale, "Зареждане…", "Loading…")}
+        />
       )}
       {loadError && (
         <div className="error banner" role="alert">
@@ -208,9 +211,15 @@ export function LocationRepairsPanel({
                 disabled={loadingMore || loading}
                 onClick={() => void loadMore()}
               >
-                {loadingMore
-                  ? boardT(locale, "Зареждане…", "Loading…")
-                  : boardT(locale, "Зареди още", "Load more")}
+                {loadingMore ? (
+                  <LoadingIndicator
+                    variant="inline"
+                    delayMs={0}
+                    label={boardT(locale, "Зареждане…", "Loading…")}
+                  />
+                ) : (
+                  boardT(locale, "Зареди още", "Load more")
+                )}
               </button>
             </div>
           )}

@@ -10,6 +10,7 @@ import {
   updateMaintenanceCategory,
 } from "../api/client";
 import { useIssueCatalog } from "../hooks/useIssueCatalog";
+import { LoadingIndicator } from "./LoadingIndicator";
 
 type Props = {
   locale: "bg" | "en";
@@ -68,7 +69,7 @@ export function IssueCatalogPanel({ locale }: Props) {
   } = useIssueCatalog({ locale });
 
   if (loading) {
-    return <p className="muted">{label("Зареждане…", "Loading…")}</p>;
+    return <LoadingIndicator label={label("Зареждане…", "Loading…")} />;
   }
 
   return (

@@ -13,6 +13,7 @@ export {
   isFutureHotelDate,
   resolveCycleForNewTask,
   allocateCleaningCycle,
+  lockRebindableTasksAndLocation,
   bumpDirtyAndRebindWork,
 } from "./cycles";
 
