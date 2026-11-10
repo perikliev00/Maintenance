@@ -7,8 +7,9 @@ function row(
   partial: Partial<QueuedAction> &
     Pick<QueuedAction, "type" | "url" | "status">,
 ): QueuedAction {
+  const id = partial.id ?? "q1";
   return {
-    id: partial.id ?? "q1",
+    id,
     userId: "u1",
     createdAt: 1,
     updatedAt: 1,
@@ -20,6 +21,8 @@ function row(
     conflictDetails: null,
     retries: 0,
     ...partial,
+    // commandId is required on QueuedAction; Partial<> would leave it optional.
+    commandId: partial.commandId ?? `cmd-${id}`,
   };
 }
 
