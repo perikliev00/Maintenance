@@ -30,14 +30,15 @@ FROM caddy:2.11.7-builder-alpine@sha256:ef9b65adf9a224770c6d5f6d1ae1bf99bc3caaa7
 COPY --from=gojose-v3-patch /src/go-jose-v3 /src/go-jose-v3
 RUN mkdir -p /out \
  && GOTOOLCHAIN=local xcaddy build v2.11.7 \
-      --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
+      --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
       --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.8 \
       --replace github.com/go-jose/go-jose/v3=/src/go-jose-v3 \
       --output /out/caddy \
  && /out/caddy version \
  && go version -m /out/caddy | grep -E 'go-jose|golang.org/x/net' || true \
  && grep -aF 'go-jose/go-jose: invalid RSA key, modulus too large' /out/caddy \
- && go version -m /out/caddy | grep -F 'github.com/go-jose/go-jose/v4' | grep -F 'v4.1.8'
+ && go version -m /out/caddy | grep -F 'github.com/go-jose/go-jose/v4' | grep -F 'v4.1.8' \
+ && go version -m /out/caddy | grep -F 'golang.org/x/net' | grep -F 'v0.62.0'
 
 FROM caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f AS web
 COPY --from=caddy-build /out/caddy /usr/bin/caddy
