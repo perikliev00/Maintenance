@@ -4,7 +4,6 @@
  * operations.view_live when filtering to a single locationId, then applies DataScope.
  */
 import type { Request, Response } from "express";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Import local module ../services/roleGrants.
 import { canPerform } from "../services/roleGrants";
@@ -87,9 +86,7 @@ export async function list(req: Request, res: Response) {
       .json({ error: "validation", details: parsed.error.flatten() });
   }
 
-  // Bind role for use in the handler below.
   const role = req.user!.role;
-  // Bind locationId for use in the handler below.
   const locationId = parsed.data.locationId;
 
   // Location-filtered: need location audit permission; else need full audit.
@@ -98,9 +95,7 @@ export async function list(req: Request, res: Response) {
     if (!(await canViewLocationAudit(role))) {
       // Forbidden when the caller lacks access.
       return res.status(403).json({
-        // Provide error for the object/call below.
         error: "forbidden",
-        // Provide message for the object/call below.
         message: "Insufficient permissions",
       });
     }
@@ -108,9 +103,7 @@ export async function list(req: Request, res: Response) {
   } else if (!(await canViewFullAudit(role))) {
     // Forbidden when the caller lacks access.
     return res.status(403).json({
-      // Provide error for the object/call below.
       error: "forbidden",
-      // Provide message for the object/call below.
       message: "Insufficient permissions",
     });
   }
@@ -125,27 +118,18 @@ export async function list(req: Request, res: Response) {
 
   // Build Prisma scope args (location id set or hotel-wide).
   const scopedLocationIds = await scopedLocationIdsFor(scope);
-  // Bind scopeArgs for use in the handler below.
   const scopeArgs = auditScopeArgsFor(scope, scopedLocationIds);
-  // Await async work into rows.
   const rows = await listAuditEvents({
-    // Provide from for the object/call below.
     from: parsed.data.from ? new Date(parsed.data.from) : undefined,
-    // Provide to for the object/call below.
     to: parsed.data.to ? new Date(parsed.data.to) : undefined,
     // actorId is an alias for actorEmployeeId for older clients.
     actorEmployeeId:
       // Continue the controller logic.
       parsed.data.actorEmployeeId ?? parsed.data.actorId,
-    // Provide entityType for the object/call below.
     entityType: parsed.data.entityType,
-    // Provide entityId for the object/call below.
     entityId: parsed.data.entityId,
-    // Pass locationId through.
     locationId,
-    // Provide action for the object/call below.
     action: parsed.data.action,
-    // Provide limit for the object/call below.
     limit: parsed.data.limit,
     // Continue the controller logic.
     ...scopeArgs,

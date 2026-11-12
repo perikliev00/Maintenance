@@ -1,4 +1,3 @@
-// Prisma client enums and input types.
 import { Role } from "@prisma/client";
 
 /**
@@ -8,17 +7,11 @@ import { Role } from "@prisma/client";
  * for cleaning + tickets, HTTP + sync.
  */
 export function canBypassAssignee(role: Role): boolean {
-  // Return computed result.
   return (
-    // Allow owner to match this privilege check.
     role === Role.owner ||
-    // Allow supervisor to match this privilege check.
     role === Role.supervisor ||
-    // Allow manager to match this privilege check.
     role === Role.manager ||
-    // Allow admin to match this privilege check.
     role === Role.admin ||
-    // Final allowed role: reception.
     role === Role.reception
   );
 }

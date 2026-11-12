@@ -1,0 +1,207 @@
+{
+  "files": 772,
+  "totalLines": 140164,
+  "fullLineComments": 5043,
+  "top": [
+    [
+      "Execute the next setup or assertion step for this scenario.",
+      209
+    ],
+    [
+      "Support the surrounding logic for this step.",
+      92
+    ],
+    [
+      "Assert response/page reached the expected status.",
+      53
+    ],
+    [
+      "Shared Prisma client bound to the isolated test database.",
+      49
+    ],
+    [
+      "Guard that mutating suites only run against the isolated test database.",
+      48
+    ],
+    [
+      "Refuse to mutate unless connected to the isolated test database.",
+      45
+    ],
+    [
+      "Open multi-line construct.",
+      44
+    ],
+    [
+      "Pagination step for list/contract coverage.",
+      42
+    ],
+    [
+      "task: seeded entity required before the mutation under test.",
+      42
+    ],
+    [
+      "Import type-only dependency for typing without runtime cost.",
+      38
+    ],
+    [
+      "Branch: conditional gate.",
+      38
+    ],
+    [
+      "Iterate a collection or counted range.",
+      37
+    ],
+    [
+      "Bilingual label for action/entity key bg.",
+      37
+    ],
+    [
+      "Bilingual label for action/entity key en.",
+      37
+    ],
+    [
+      "Prisma client types/runtime for DB setup and assertions.",
+      36
+    ],
+    [
+      "Delivery/replay step for async notification paths.",
+      36
+    ],
+    [
+      "Override env for isolation, rate-limit disable, or scheduler quieting.",
+      34
+    ],
+    [
+      "Continue the call chain for setup or assertion detail.",
+      32
+    ],
+    [
+      "Spread prior fields/items so overrides can layer cleanly.",
+      30
+    ],
+    [
+      "Hold a mutable ref that persists across renders without re-render.",
+      30
+    ],
+    [
+      "Return the JSX/UI tree for this render path.",
+      29
+    ],
+    [
+      "Import bindings from ../../src/db.",
+      27
+    ],
+    [
+      "Group related unit tests.",
+      27
+    ],
+    [
+      "Import module node:test for this service.",
+      26
+    ],
+    [
+      "Import bindings from node:path.",
+      26
+    ],
+    [
+      "Import bindings from dotenv.",
+      26
+    ],
+    [
+      "Continue a chained call building on the previous expression.",
+      24
+    ],
+    [
+      "Repeat/poll to widen the race window or wait for lock waiters.",
+      24
+    ],
+    [
+      "Create a Set/Map for efficient membership or keyed lookup.",
+      24
+    ],
+    [
+      "Shared test fixtures for seeding users, locations, and domain entities.",
+      23
+    ],
+    [
+      "Run actors together to expose races and serialization bugs.",
+      23
+    ],
+    [
+      "Import bindings from node:crypto.",
+      23
+    ],
+    [
+      "Guard optional cleanup or alternate assertion paths.",
+      22
+    ],
+    [
+      "Run side effects after render when dependencies change.",
+      22
+    ],
+    [
+      "Run next step: } finally {",
+      21
+    ],
+    [
+      "Import module node:assert/strict for this service.",
+      20
+    ],
+    [
+      "Complete the ternary or optional chain started above.",
+      20
+    ],
+    [
+      "Union/intersection type member.",
+      20
+    ],
+    [
+      "Spread remaining fields/props.",
+      20
+    ],
+    [
+      "Memoize derived value to avoid recomputing every render.",
+      20
+    ],
+    [
+      "Abort this path by throwing an error to callers.",
+      19
+    ],
+    [
+      "Import bindings from crypto.",
+      19
+    ],
+    [
+      "Re-export public API surface.",
+      19
+    ],
+    [
+      "Import bindings from ./helpers/auth.",
+      19
+    ],
+    [
+      "Execute: assert.equal(",
+      18
+    ],
+    [
+      "Mutable local binding.",
+      18
+    ],
+    [
+      "Lazy-load this panel chunk so Vite can code-split pages.",
+      18
+    ],
+    [
+      "Shape CleaningWorld documents the fixture/response fields this suite touches.",
+      17
+    ],
+    [
+      "Provide headers field used by this structure.",
+      16
+    ],
+    [
+      "Brief yield so lock waiters/UI can settle before asserting.",
+      16
+    ]
+  ]
+}

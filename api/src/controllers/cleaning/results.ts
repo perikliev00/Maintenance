@@ -1,6 +1,5 @@
 /** Paginated cleaning results report for a hotel-date range (DataScope-filtered). */
 import type { Request, Response } from "express";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Import local module ../../services/cleaningResults.
 import { getCleaningResults } from "../../services/cleaningResults";
@@ -33,7 +32,6 @@ export async function get(req: Request, res: Response) {
   ]);
   // Zod schema for request shape.
   const schema = z.object({
-    // Provide from for the object/call below.
     from: z
       // Require a string value in the schema.
       .string()
@@ -43,7 +41,6 @@ export async function get(req: Request, res: Response) {
       .optional()
       // Supply a default when the field is missing.
       .default(today),
-    // Provide to for the object/call below.
     to: z
       // Require a string value in the schema.
       .string()
@@ -57,11 +54,9 @@ export async function get(req: Request, res: Response) {
     page: z.coerce.number().int().min(1).optional().default(1),
     // Validate field pageSize.
     pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
-    // Provide serviceType for the object/call below.
     serviceType: z
       // Continue the fluent chain.
       .union([
-        // Pass serviceTypeEnum through.
         serviceTypeEnum,
         // Continue the controller logic.
         z.string().transform((s) => s.split(",").map((x) => x.trim())),
@@ -75,9 +70,7 @@ export async function get(req: Request, res: Response) {
   if (!parsed.success) {
     // Validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide details for the object/call below.
       details: parsed.error.flatten(),
     });
   }
@@ -85,9 +78,7 @@ export async function get(req: Request, res: Response) {
   if (parsed.data.from > parsed.data.to) {
     // Validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide message for the object/call below.
       message: "`from` must be on or before `to`",
     });
   }
@@ -100,19 +91,14 @@ export async function get(req: Request, res: Response) {
     "stayover" | "departure" | "arrival" | "common_area"
   // Continue the controller logic.
   > | undefined;
-  // Branch: conditional gate.
   if (rawTypes !== undefined) {
-    // Bind list for use in the handler below.
     const list = Array.isArray(rawTypes) ? rawTypes : [rawTypes];
     // Zod field / transform.
     const checked = z.array(serviceTypeEnum).safeParse(list);
-    // Branch: conditional gate.
     if (!checked.success) {
       // Validation error response.
       return res.status(400).json({
-        // Provide error for the object/call below.
         error: "validation",
-        // Provide details for the object/call below.
         details: checked.error.flatten(),
       });
     }
@@ -124,19 +110,12 @@ export async function get(req: Request, res: Response) {
   const scope = await resolveDataScope(req.user!);
   // Capture service / command result.
   const result = await getCleaningResults({
-    // Provide from for the object/call below.
     from: parsed.data.from,
-    // Provide to for the object/call below.
     to: parsed.data.to,
-    // Provide page for the object/call below.
     page: parsed.data.page,
-    // Provide pageSize for the object/call below.
     pageSize: parsed.data.pageSize,
-    // Pass serviceTypes through.
     serviceTypes,
-    // Provide sessionWhere for the object/call below.
     sessionWhere: sessionTaskWhere(scope),
-    // Provide taskWhere for the object/call below.
     taskWhere: taskWhere(scope),
   });
   // JSON success response.

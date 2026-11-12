@@ -25,6 +25,5 @@ export function parseHotelDate(hotelDate: string): Date {
     // Abort with an HTTP-mapped AppError or rethrow.
     throw new AppError(400, "validation", "hotelDate must be a valid calendar date");
   }
-  // Return the computed result to the caller.
   return parsed;
 }

@@ -2,15 +2,10 @@
  * Cleaning-task helpers used when plan entries create or link work.
  */
 import {
-  // Carry this field through the payload or query.
   DailyPlanCategory,
-  // Carry this field through the payload or query.
   LocationKind,
-  // Carry this field through the payload or query.
   Priority,
-  // Carry this field through the payload or query.
   Prisma,
-  // Carry this field through the payload or query.
   TaskStatus,
 // Execute: } from "@prisma/client";
 } from "@prisma/client";
@@ -20,9 +15,7 @@ import { ACTIVE_TASK_STATUSES } from "../../constants";
 import { assertActiveCleaningAssignee } from "../assignees";
 // Side-effect or default import required by this module.
 import {
-  // Carry this field through the payload or query.
   deriveCleaningServiceType,
-  // Carry this field through the payload or query.
   resolveCycleForNewTask,
 // Execute: } from "../cleaning";
 } from "../cleaning";
@@ -30,18 +23,13 @@ import {
 import { isP2002 } from "../db/prismaErrors";
 // Import ../dataScope for dailyPlanEffects/tasks.ts.
 import { sectorSnapshotForLocation } from "../dataScope";
-// Type-only import from ./types used by dailyPlanEffects/tasks.ts.
 import type { Tx } from "./types";
 
 /** Numeric order so plan effects only bump priority upward. */
 export const PRIORITY_RANK: Record<Priority, number> = {
-  // Field value required by this payload or query.
   low: 0,
-  // Field value required by this payload or query.
   normal: 1,
-  // Field value required by this payload or query.
   high: 2,
-  // Field value required by this payload or query.
   urgent: 3,
 };
 
@@ -52,13 +40,11 @@ export const PRIORITY_RANK: Record<Priority, number> = {
 export function connectAssigneeAndShift(
   // Fields written by this create/update.
   data: Prisma.CleaningTaskUpdateInput,
-  // Field value required by this payload or query.
   task: { assignedEmployeeId: string | null; shiftId: string | null },
   // Parameter/field in the surrounding signature or type.
   assignedEmployeeId?: string,
   // Parameter/field in the surrounding signature or type.
   shiftId?: string | null,
-// Begin block/object for the following statements.
 ) {
   // Fill assignee only if the task is currently unassigned.
   if (assignedEmployeeId && !task.assignedEmployeeId) {
@@ -77,39 +63,29 @@ export function connectAssigneeAndShift(
  * On unique race, return the existing active task for the room/date.
  */
 export async function createTaskWithSectorSnapshot(
-  // Carry this field through the payload or query.
   tx: Tx,
   // Fields written by this create/update.
   data: {
-    // Carry this field through the payload or query.
     locationId: string;
-    // Carry this field through the payload or query.
     hotelDate: Date;
-    // Carry this field through the payload or query.
     priority: Priority;
     // Parameter/field in the surrounding signature or type.
     assignedEmployeeId?: string;
     // Parameter/field in the surrounding signature or type.
     shiftId?: string | null;
-    // Carry this field through the payload or query.
     locationKind: LocationKind;
-    // Carry this field through the payload or query.
     planCategory: DailyPlanCategory;
   },
-// Begin block/object for the following statements.
 ) {
   // Analytics/work-type from room kind + plan category (departure vs stayover, etc.).
   const serviceType = deriveCleaningServiceType({
-    // Carry this field through the payload or query.
     locationKind: data.locationKind,
-    // Carry this field through the payload or query.
     planCategory: data.planCategory,
   });
   // Bind task to the location's current cleaning cycle generation.
   // resolveCycleForNewTask locks Location — re-check active task under that lock
   // so a concurrent winner that already committed is visible before we insert.
   const cleaningCycle = await resolveCycleForNewTask(
-    // Carry this field through the payload or query.
     tx,
     // Execute: data.locationId,
     data.locationId,
@@ -122,17 +98,13 @@ export async function createTaskWithSectorSnapshot(
   const preexisting = await tx.cleaningTask.findFirst({
     // Restrict the query to the relevant rows only.
     where: {
-      // Carry this field through the payload or query.
       locationId: data.locationId,
-      // Carry this field through the payload or query.
       hotelDate: data.hotelDate,
-      // Carry this field through the payload or query.
       status: { in: [...ACTIVE_TASK_STATUSES] },
     },
   });
   // Branch when this condition holds for the domain rule.
   if (preexisting) {
-    // Return the computed result to the caller.
     return preexisting;
   }
   // Isolate fallible work so conflicts can be mapped cleanly.
@@ -141,29 +113,18 @@ export async function createTaskWithSectorSnapshot(
     return await tx.cleaningTask.create({
       // Fields written by this create/update.
       data: {
-        // Carry this field through the payload or query.
         locationId: data.locationId,
-        // Carry this field through the payload or query.
         hotelDate: data.hotelDate,
-        // Carry this field through the payload or query.
         priority: data.priority,
-        // Carry this field through the payload or query.
         assignedEmployeeId: data.assignedEmployeeId,
-        // Field value required by this payload or query.
         shiftId: data.shiftId ?? null,
-        // Carry this field through the payload or query.
         status: TaskStatus.assigned,
-        // Carry this field through the payload or query.
         serviceType,
-        // Carry this field through the payload or query.
         sectorId: snap.sectorId,
-        // Carry this field through the payload or query.
         sectorSupervisorEmployeeId: snap.sectorSupervisorEmployeeId,
-        // Carry this field through the payload or query.
         cleaningCycle,
       },
     });
-  // Begin block/object for the following statements.
   } catch (err) {
     // Concurrent create hit the partial unique (one active task per room/date).
     // Prefer the under-lock re-check above; this path is belt-and-suspenders when
@@ -173,17 +134,13 @@ export async function createTaskWithSectorSnapshot(
       const existing = await tx.cleaningTask.findFirst({
         // Restrict the query to the relevant rows only.
         where: {
-          // Carry this field through the payload or query.
           locationId: data.locationId,
-          // Carry this field through the payload or query.
           hotelDate: data.hotelDate,
-          // Carry this field through the payload or query.
           status: { in: [...ACTIVE_TASK_STATUSES] },
         },
       });
       // Branch when this condition holds for the domain rule.
       if (existing) {
-        // Return the computed result to the caller.
         return existing;
       }
     }
@@ -197,15 +154,11 @@ export async function createTaskWithSectorSnapshot(
  * reusing assignee/shift when the task is unbound.
  */
 export async function linkOrCreateDepartureTask(
-  // Carry this field through the payload or query.
   tx: Tx,
   // Open nested structure for the next related fields.
   input: {
-    // Carry this field through the payload or query.
     locationId: string;
-    // Carry this field through the payload or query.
     locationKind: LocationKind;
-    // Carry this field through the payload or query.
     hotelDate: Date;
     // Parameter/field in the surrounding signature or type.
     assignedEmployeeId?: string;
@@ -214,16 +167,12 @@ export async function linkOrCreateDepartureTask(
     // Parameter/field in the surrounding signature or type.
     existingCleaningTaskId?: string | null;
   },
-// Begin block/object for the following statements.
 ): Promise<string | null> {
-  // Capture assignedEmployeeId for subsequent checks or writes.
   const assignedEmployeeId = input.assignedEmployeeId;
   // A deferred departure can outlive the assignee's eligibility.
   if (assignedEmployeeId) {
-    // Await side effect or helper before continuing.
     await assertActiveCleaningAssignee(assignedEmployeeId, tx);
   }
-  // Capture shiftId for subsequent checks or writes.
   const shiftId = input.shiftId;
 
   // Prefer the task already linked on the plan entry, if still active.
@@ -232,9 +181,7 @@ export async function linkOrCreateDepartureTask(
     const existing = await tx.cleaningTask.findFirst({
       // Restrict the query to the relevant rows only.
       where: {
-        // Carry this field through the payload or query.
         id: input.existingCleaningTaskId,
-        // Carry this field through the payload or query.
         status: { in: [...ACTIVE_TASK_STATUSES] },
       },
     });
@@ -254,7 +201,6 @@ export async function linkOrCreateDepartureTask(
         // Persist the mutation inside the current transaction/context.
         await tx.cleaningTask.update({ where: { id: existing.id }, data });
       }
-      // Return the computed result to the caller.
       return existing.id;
     }
   }
@@ -263,11 +209,8 @@ export async function linkOrCreateDepartureTask(
   const activeTask = await tx.cleaningTask.findFirst({
     // Restrict the query to the relevant rows only.
     where: {
-      // Carry this field through the payload or query.
       locationId: input.locationId,
-      // Carry this field through the payload or query.
       hotelDate: input.hotelDate,
-      // Carry this field through the payload or query.
       status: { in: [...ACTIVE_TASK_STATUSES] },
     },
   });
@@ -288,27 +231,18 @@ export async function linkOrCreateDepartureTask(
       // Persist the mutation inside the current transaction/context.
       await tx.cleaningTask.update({ where: { id: activeTask.id }, data });
     }
-    // Return the computed result to the caller.
     return activeTask.id;
   }
 
   // No active task — create a high-priority departure task with sector snapshot.
   const created = await createTaskWithSectorSnapshot(tx, {
-    // Carry this field through the payload or query.
     locationId: input.locationId,
-    // Carry this field through the payload or query.
     hotelDate: input.hotelDate,
-    // Carry this field through the payload or query.
     priority: Priority.high,
-    // Carry this field through the payload or query.
     assignedEmployeeId,
-    // Carry this field through the payload or query.
     shiftId,
-    // Carry this field through the payload or query.
     locationKind: input.locationKind,
-    // Carry this field through the payload or query.
     planCategory: DailyPlanCategory.departure,
   });
-  // Return the computed result to the caller.
   return created.id;
 }

@@ -4,15 +4,10 @@
  */
 // Task/session enums and unchecked update input types.
 import {
-  // Carry this field through the payload or query.
   CleaningServiceType,
-  // Carry this field through the payload or query.
   Prisma,
-  // Carry this field through the payload or query.
   Role,
-  // Carry this field through the payload or query.
   SessionStatus,
-  // Carry this field through the payload or query.
   TaskStatus,
 // Execute: } from "@prisma/client";
 } from "@prisma/client";
@@ -34,9 +29,7 @@ import { createNotifications } from "../notifications";
 import { assertActiveCleaningAssignee } from "../assignees";
 // Side-effect or default import required by this module.
 import {
-  // Carry this field through the payload or query.
   assertReassignAvailability,
-  // Carry this field through the payload or query.
   evaluateEmployeeAvailability,
 // Execute: } from "../housekeepers";
 } from "../housekeepers";
@@ -64,7 +57,6 @@ import { lockEmployeesForLiveAccess } from "../liveAccessLocks";
  * Enforces one active task per room/date; future hotel dates stay unbound (cycle 0).
  */
 export async function createCleaningTask(input: {
-  // Carry this field through the payload or query.
   locationId: string;
   /** Hotel calendar day (YYYY-MM-DD) for one-active-task-per-room/date. */
   hotelDate: string;
@@ -80,7 +72,6 @@ export async function createCleaningTask(input: {
   serviceType?: CleaningServiceType;
   // Parameter/field in the surrounding signature or type.
   actorEmployeeId?: string;
-// Begin block/object for the following statements.
 }) {
   // Parse YYYY-MM-DD as UTC midnight for the hotelDate column.
   const hotelDate = parseHotelDate(input.hotelDate);
@@ -123,11 +114,8 @@ export async function createCleaningTask(input: {
       const existing = await tx.cleaningTask.findFirst({
         // Restrict the query to the relevant rows only.
         where: {
-          // Carry this field through the payload or query.
           locationId: input.locationId,
-          // Carry this field through the payload or query.
           hotelDate,
-          // Carry this field through the payload or query.
           status: { in: [...ACTIVE_TASK_STATUSES] },
         },
       });
@@ -146,25 +134,20 @@ export async function createCleaningTask(input: {
 
       // Re-check after location lock so a concurrent block/role change cannot slip in.
       if (input.assignedEmployeeId) {
-        // Await side effect or helper before continuing.
         await assertActiveCleaningAssignee(input.assignedEmployeeId, tx);
       }
 
       // Current cycle for today; future hotel dates stay unbound (cycle 0).
       const cleaningCycle = await resolveCycleForNewTask(
-        // Carry this field through the payload or query.
         tx,
         // Execute: location.id,
         location.id,
-        // Carry this field through the payload or query.
         hotelDate,
       );
 
       // Derive stayover/checkout/etc. from location kind + optional override.
       const serviceType = deriveCleaningServiceType({
-        // Carry this field through the payload or query.
         locationKind: location.kind,
-        // Carry this field through the payload or query.
         serviceType: input.serviceType,
       });
 
@@ -172,25 +155,16 @@ export async function createCleaningTask(input: {
       const created = await tx.cleaningTask.create({
         // Fields written by this create/update.
         data: {
-          // Carry this field through the payload or query.
           locationId: input.locationId,
           // Historical data-scope snapshot at create time.
           sectorId: sectorSnap.sectorId,
-          // Carry this field through the payload or query.
           sectorSupervisorEmployeeId: sectorSnap.sectorSupervisorEmployeeId,
-          // Carry this field through the payload or query.
           hotelDate,
-          // Carry this field through the payload or query.
           serviceType,
-          // Field value required by this payload or query.
           priority: input.priority ?? "normal",
-          // Carry this field through the payload or query.
           assignedEmployeeId: input.assignedEmployeeId,
-          // Field value required by this payload or query.
           shiftId: shiftId ?? null,
-          // Field value required by this payload or query.
           dueAt: input.dueAt ? new Date(input.dueAt) : null,
-          // Carry this field through the payload or query.
           status: TaskStatus.assigned,
           // Cycle 0 for future hotel dates; current cycle for today.
           cleaningCycle,
@@ -201,32 +175,20 @@ export async function createCleaningTask(input: {
 
       // Audit create with key assignment fields.
       await recordAudit({
-        // Carry this field through the payload or query.
         actorEmployeeId: input.actorEmployeeId,
-        // Field value required by this payload or query.
         action: "cleaning.task.create",
-        // Field value required by this payload or query.
         entityType: "cleaning_task",
-        // Carry this field through the payload or query.
         entityId: created.id,
-        // Carry this field through the payload or query.
         locationId: created.locationId,
         // Open nested structure for the next related fields.
         after: {
-          // Carry this field through the payload or query.
           status: created.status,
-          // Carry this field through the payload or query.
           serviceType: created.serviceType,
-          // Carry this field through the payload or query.
           priority: created.priority,
-          // Carry this field through the payload or query.
           assignedEmployeeId: created.assignedEmployeeId,
-          // Carry this field through the payload or query.
           shiftId: created.shiftId,
-          // Carry this field through the payload or query.
           hotelDate: input.hotelDate,
         },
-        // Field value required by this payload or query.
         summary: `Created cleaning task for ${created.location.number}`,
       // Execute: }, tx);
       }, tx);
@@ -237,49 +199,33 @@ export async function createCleaningTask(input: {
 
     // Notify live boards of the new task.
     publish("cleaning.changed", {
-      // Carry this field through the payload or query.
       locationId: task.locationId,
-      // Carry this field through the payload or query.
       taskId: task.id,
     });
     // Notify the assignee when one was set at create time.
     if (task.assignedEmployeeId) {
       // Await async persistence or side effect.
       await createNotifications({
-        // Field value required by this payload or query.
         type: "cleaning.assigned",
-        // Field value required by this payload or query.
         title: "Cleaning task assigned",
-        // Field value required by this payload or query.
         body: `Room ${task.location.number} assigned to you`,
-        // Field value required by this payload or query.
         entityType: "cleaning_task",
-        // Carry this field through the payload or query.
         entityId: task.id,
-        // Carry this field through the payload or query.
         locationId: task.locationId,
-        // Field value required by this payload or query.
         actorEmployeeId: input.actorEmployeeId ?? null,
-        // Carry this field through the payload or query.
         recipientEmployeeIds: [task.assignedEmployeeId],
-        // Field value required by this payload or query.
         dedupeKey: `cleaning.assigned:${task.id}:${task.assignedEmployeeId}`,
         // Open nested structure for the next related fields.
         payload: {
-          // Field value required by this payload or query.
           panel: "mywork",
-          // Carry this field through the payload or query.
           taskId: task.id,
-          // Carry this field through the payload or query.
           locationId: task.locationId,
-          // Carry this field through the payload or query.
           locationNumber: task.location.number,
         },
       });
     }
     // Return result to caller.
     return task;
-  // Begin block/object for the following statements.
   } catch (err) {
     // Map unique conflicts (active room/date) to AppError.
     if (isP2002(err)) {
@@ -296,9 +242,7 @@ export async function createCleaningTask(input: {
  * reason. Blocked while a session is running; bumps version via claimTaskStatus.
  */
 export async function reassignCleaningTask(input: {
-  // Carry this field through the payload or query.
   taskId: string;
-  // Carry this field through the payload or query.
   assignedEmployeeId: string;
   /** Required audit note — stored on task.reassignReason. */
   reason: string;
@@ -312,7 +256,6 @@ export async function reassignCleaningTask(input: {
   actorRole?: Role;
   /** Explicit override when replacement is not currently available. */
   forceDespiteAvailability?: boolean;
-// Begin block/object for the following statements.
 }) {
   // Reason is required for audit / accountability.
   if (!input.reason.trim()) {
@@ -340,14 +283,12 @@ export async function reassignCleaningTask(input: {
       // Abort with an HTTP-mapped AppError or rethrow.
       throw new AppError(404, "not_found", "Task not found");
     }
-    // Await side effect or helper before continuing.
     await lockEmployeesForLiveAccess(tx, [
       // Execute: preview.assignedEmployeeId,
       preview.assignedEmployeeId,
       // Execute: input.assignedEmployeeId,
       input.assignedEmployeeId,
     ]);
-    // Await side effect or helper before continuing.
     await lockTask(tx, input.taskId);
 
     // Load task after lock for status/version checks.
@@ -368,7 +309,6 @@ export async function reassignCleaningTask(input: {
       task.assignedEmployeeId !== preview.assignedEmployeeId &&
       // Execute: task.assignedEmployeeId !== input.assignedEmployeeId
       task.assignedEmployeeId !== input.assignedEmployeeId
-    // Begin block/object for the following statements.
     ) {
       // Abort with an HTTP-mapped AppError or rethrow.
       throw new AppError(
@@ -388,7 +328,6 @@ export async function reassignCleaningTask(input: {
       task.status !== TaskStatus.rework &&
       // Execute: task.status !== TaskStatus.awaiting_inspection
       task.status !== TaskStatus.awaiting_inspection
-    // Begin block/object for the following statements.
     ) {
       // Fail closed with structured AppError.
       throw new AppError(
@@ -431,19 +370,14 @@ export async function reassignCleaningTask(input: {
       // Execute: { db: tx },
       { db: tx },
     );
-    // Begin block/object for the following statements.
     assertReassignAvailability({
-      // Carry this field through the payload or query.
       availability,
-      // Field value required by this payload or query.
       forceDespiteAvailability: input.forceDespiteAvailability === true,
-      // Carry this field through the payload or query.
       actorRole: input.actorRole,
     });
 
     // Build the claim payload: new assignee + trimmed reason.
     const data: Prisma.CleaningTaskUncheckedUpdateManyInput = {
-      // Carry this field through the payload or query.
       assignedEmployeeId: input.assignedEmployeeId,
       // Persist trimmed reason on the task row for UI/history.
       reassignReason: input.reason.trim(),
@@ -460,7 +394,6 @@ export async function reassignCleaningTask(input: {
 
     // Conditional claim bumps version and applies assignee/shift/reason.
     await claimTaskStatus(
-      // Carry this field through the payload or query.
       tx,
       // Execute: task.id,
       task.id,
@@ -473,7 +406,6 @@ export async function reassignCleaningTask(input: {
         // Supervisors may reassign while awaiting inspection.
         TaskStatus.awaiting_inspection,
       ],
-      // Carry this field through the payload or query.
       data,
       // Execute: input.expectedVersion,
       input.expectedVersion,
@@ -487,7 +419,6 @@ export async function reassignCleaningTask(input: {
       include: taskInclude,
     });
 
-    // Capture forced for subsequent checks or writes.
     const forced =
       // Execute: input.forceDespiteAvailability === true &&
       input.forceDespiteAvailability === true &&
@@ -498,46 +429,31 @@ export async function reassignCleaningTask(input: {
 
     // Audit before/after assignee and shift.
     await recordAudit({
-      // Carry this field through the payload or query.
       actorEmployeeId: input.actorEmployeeId,
-      // Field value required by this payload or query.
       action: "cleaning.task.reassign",
-      // Field value required by this payload or query.
       entityType: "cleaning_task",
-      // Carry this field through the payload or query.
       entityId: result.id,
-      // Carry this field through the payload or query.
       locationId: result.locationId,
-      // Carry this field through the payload or query.
       reason: input.reason,
       // Open nested structure for the next related fields.
       before: {
-        // Carry this field through the payload or query.
         assignedEmployeeId: task.assignedEmployeeId,
-        // Carry this field through the payload or query.
         shiftId: task.shiftId,
       },
       // Open nested structure for the next related fields.
       after: {
-        // Carry this field through the payload or query.
         assignedEmployeeId: input.assignedEmployeeId,
-        // Carry this field through the payload or query.
         shiftId: result.shiftId,
         // Continue the previous expression with this clause.
         ...(forced
-          // Begin block/object for the following statements.
           ? {
-              // Field value required by this payload or query.
               availabilityOverride: true,
-              // Carry this field through the payload or query.
               availabilityStatus: availability.availabilityStatus,
-              // Carry this field through the payload or query.
               availabilityReasons: availability.availabilityReasons,
             }
           // Continue the previous expression with this clause.
           : {}),
       },
-      // Carry this field through the payload or query.
       summary: forced
         // Continue the previous expression with this clause.
         ? `Reassigned cleaning ${result.location.number} (availability override)`
@@ -552,40 +468,25 @@ export async function reassignCleaningTask(input: {
 
   // Notify live boards of the reassignment.
   publish("cleaning.changed", {
-    // Carry this field through the payload or query.
     locationId: updated.locationId,
-    // Carry this field through the payload or query.
     taskId: updated.id,
   });
   // Notify the new assignee (dedupe includes updatedAt for repeat reassigns).
   await createNotifications({
-    // Field value required by this payload or query.
     type: "cleaning.assigned",
-    // Field value required by this payload or query.
     title: "Cleaning task reassigned",
-    // Field value required by this payload or query.
     body: `Room ${updated.location.number} assigned to you`,
-    // Field value required by this payload or query.
     entityType: "cleaning_task",
-    // Carry this field through the payload or query.
     entityId: updated.id,
-    // Carry this field through the payload or query.
     locationId: updated.locationId,
-    // Field value required by this payload or query.
     actorEmployeeId: input.actorEmployeeId ?? null,
-    // Carry this field through the payload or query.
     recipientEmployeeIds: [input.assignedEmployeeId],
-    // Field value required by this payload or query.
     dedupeKey: `cleaning.reassigned:${updated.id}:${input.assignedEmployeeId}:${updated.updatedAt.toISOString()}`,
     // Open nested structure for the next related fields.
     payload: {
-      // Field value required by this payload or query.
       panel: "mywork",
-      // Carry this field through the payload or query.
       taskId: updated.id,
-      // Carry this field through the payload or query.
       locationId: updated.locationId,
-      // Carry this field through the payload or query.
       locationNumber: updated.location.number,
     },
   });

@@ -19,9 +19,7 @@ import { createNotifications } from "../notifications";
 import { taskInclude } from "../cleaningTasksQuery";
 // Side-effect or default import required by this module.
 import {
-  // Carry this field through the payload or query.
   assertTaskVersion,
-  // Carry this field through the payload or query.
   claimTaskStatus,
 // Execute: } from "./claims";
 } from "./claims";
@@ -35,16 +33,12 @@ import { lockTask } from "./locks";
 import { healOrphanIfTaskCycleCurrent } from "../locations/reconcileCleaningStatus";
 // Same commandId with different task/inspector/decision → conflict (P1-26).
 import {
-  // Carry this field through the payload or query.
   loadCleaningCommandInTx,
-  // Carry this field through the payload or query.
   loadCleaningCommandPreTx,
-  // Field value required by this payload or query.
   replayCleaningCommandOnP2002,
 // Execute: } from "./commandReplay";
 } from "./commandReplay";
 
-// Capture inspectionInclude for subsequent checks or writes.
 const inspectionInclude = { task: { include: taskInclude } } as const;
 
 /**
@@ -52,19 +46,14 @@ const inspectionInclude = { task: { include: taskInclude } } as const;
  * only apply when the task still owns the location's cleaning cycle.
  */
 export async function inspectCleaningTask(input: {
-  // Carry this field through the payload or query.
   taskId: string;
-  // Carry this field through the payload or query.
   inspectorEmployeeId: string;
-  // Carry this field through the payload or query.
   commandId: string;
-  // Field value required by this payload or query.
   result: "approved" | "rejected";
   // Parameter/field in the surrounding signature or type.
   findings?: string;
   // Parameter/field in the surrounding signature or type.
   expectedVersion?: number;
-// Begin block/object for the following statements.
 }) {
   // Map API union to persisted enum for replay payload checks.
   const expectedResult =
@@ -75,13 +64,9 @@ export async function inspectCleaningTask(input: {
       // Continue the previous expression with this clause.
       : InspectionResult.rejected;
 
-  // Capture inspectionPayloadMatches for subsequent checks or writes.
   const inspectionPayloadMatches = (row: {
-    // Carry this field through the payload or query.
     taskId: string;
-    // Carry this field through the payload or query.
     inspectorEmployeeId: string;
-    // Carry this field through the payload or query.
     result: InspectionResult;
   // Execute: }) =>
   }) =>
@@ -96,14 +81,12 @@ export async function inspectCleaningTask(input: {
   const existing = await loadCleaningCommandPreTx(
     // Execute: () =>
     () =>
-      // Begin block/object for the following statements.
       prisma.inspection.findUnique({
         // Restrict the query to the relevant rows only.
         where: { commandId: input.commandId },
         // Eager-load relations needed by the API response shape.
         include: inspectionInclude,
       }),
-    // Carry this field through the payload or query.
     inspectionPayloadMatches,
   );
   // Branch when this condition holds for the domain rule.
@@ -127,18 +110,15 @@ export async function inspectCleaningTask(input: {
 
       // Load replay needed for the next decision or write.
       const replay = await loadCleaningCommandInTx(
-        // Carry this field through the payload or query.
         tx,
         // Execute: (t) =>
         (t) =>
-          // Begin block/object for the following statements.
           t.inspection.findUnique({
             // Restrict the query to the relevant rows only.
             where: { commandId: input.commandId },
             // Eager-load relations needed by the API response shape.
             include: inspectionInclude,
           }),
-        // Carry this field through the payload or query.
         inspectionPayloadMatches,
       );
       // Branch when this condition holds for the domain rule.
@@ -175,9 +155,7 @@ export async function inspectCleaningTask(input: {
       // Reject of a non-current cycle would leave task=rework while location
       // stays pending_inspection. Fail closed instead of creating that split.
       if (input.result === "rejected") {
-        // Await side effect or helper before continuing.
         await assertTaskOwnsCleaningCycle(
-          // Carry this field through the payload or query.
           tx,
           // Execute: task.locationId,
           task.locationId,
@@ -213,11 +191,9 @@ export async function inspectCleaningTask(input: {
 
       // Approve path: complete task + verified_clean when cycle is current.
       if (input.result === "approved") {
-        // Capture completedAt for subsequent checks or writes.
         const completedAt = inspection.inspectedAt;
         // Claim awaiting_inspection → completed with completedAt stamp.
         await claimTaskStatus(
-          // Carry this field through the payload or query.
           tx,
           // Execute: task.id,
           task.id,
@@ -237,7 +213,6 @@ export async function inspectCleaningTask(input: {
         });
         // Soft cycle guard: never overwrite a newer location cycle.
         let locationUpdated = await applyLocationCleaningStatusIfCurrent(
-          // Carry this field through the payload or query.
           tx,
           // Execute: task.locationId,
           task.locationId,
@@ -250,7 +225,6 @@ export async function inspectCleaningTask(input: {
         if (!locationUpdated) {
           // Load healed needed for the next decision or write.
           const healed = await healOrphanIfTaskCycleCurrent(
-            // Carry this field through the payload or query.
             tx,
             // Execute: task.locationId,
             task.locationId,
@@ -262,29 +236,18 @@ export async function inspectCleaningTask(input: {
         }
         // Audit note when location was left unchanged due to stale cycle.
         await recordAudit({
-          // Carry this field through the payload or query.
           actorEmployeeId: input.inspectorEmployeeId,
-          // Field value required by this payload or query.
           action: "cleaning.inspect",
-          // Field value required by this payload or query.
           entityType: "inspection",
-          // Carry this field through the payload or query.
           entityId: inspection.id,
-          // Carry this field through the payload or query.
           locationId: task.locationId,
-          // Carry this field through the payload or query.
           reason: input.findings,
           // Open nested structure for the next related fields.
           after: {
-            // Field value required by this payload or query.
             result: "approved",
-            // Carry this field through the payload or query.
             taskId: task.id,
-            // Carry this field through the payload or query.
             completedAt: completedAt.toISOString(),
-            // Carry this field through the payload or query.
             locationUpdated,
-            // Carry this field through the payload or query.
             cleaningCycle: task.cleaningCycle,
           },
           // Human summary reflects whether location cycle was still current.
@@ -301,7 +264,6 @@ export async function inspectCleaningTask(input: {
 
       // Reject path: rework + dirty when cycle is current.
       await claimTaskStatus(
-        // Carry this field through the payload or query.
         tx,
         // Execute: task.id,
         task.id,
@@ -321,7 +283,6 @@ export async function inspectCleaningTask(input: {
       });
       // Soft cycle guard: never overwrite a newer location cycle.
       let locationUpdated = await applyLocationCleaningStatusIfCurrent(
-        // Carry this field through the payload or query.
         tx,
         // Execute: task.locationId,
         task.locationId,
@@ -334,7 +295,6 @@ export async function inspectCleaningTask(input: {
       if (!locationUpdated) {
         // Load healed needed for the next decision or write.
         const healed = await healOrphanIfTaskCycleCurrent(
-          // Carry this field through the payload or query.
           tx,
           // Execute: task.locationId,
           task.locationId,
@@ -346,36 +306,23 @@ export async function inspectCleaningTask(input: {
       }
       // Audit includes findings in the summary when present.
       await recordAudit({
-        // Carry this field through the payload or query.
         actorEmployeeId: input.inspectorEmployeeId,
-        // Field value required by this payload or query.
         action: "cleaning.inspect",
-        // Field value required by this payload or query.
         entityType: "inspection",
-        // Carry this field through the payload or query.
         entityId: inspection.id,
-        // Carry this field through the payload or query.
         locationId: task.locationId,
-        // Carry this field through the payload or query.
         reason: input.findings,
         // Open nested structure for the next related fields.
         after: {
-          // Field value required by this payload or query.
           result: "rejected",
-          // Carry this field through the payload or query.
           taskId: task.id,
-          // Carry this field through the payload or query.
           locationUpdated,
-          // Carry this field through the payload or query.
           cleaningCycle: task.cleaningCycle,
         },
-        // Carry this field through the payload or query.
         summary: locationUpdated
-          // Begin block/object for the following statements.
           ? `Rejected cleaning ${updatedTask.location.number}${
               input.findings?.trim() ? ` — ${input.findings.trim()}` : ""
             }`
-          // Begin block/object for the following statements.
           : `Rejected cleaning ${updatedTask.location.number} (stale cycle; location unchanged)${
               input.findings?.trim() ? ` — ${input.findings.trim()}` : ""
             }`,
@@ -388,9 +335,7 @@ export async function inspectCleaningTask(input: {
     if (!result.idempotent) {
       // Room board refresh after status/location change.
       publish("cleaning.changed", {
-        // Carry this field through the payload or query.
         locationId: result.task.locationId,
-        // Carry this field through the payload or query.
         taskId: result.task.id,
       });
       // Only the current assignee (if any) gets the inspect outcome.
@@ -400,9 +345,7 @@ export async function inspectCleaningTask(input: {
         // Execute: recipients.push(result.task.assignedEmployeeId);
         recipients.push(result.task.assignedEmployeeId);
       }
-      // Await side effect or helper before continuing.
       await createNotifications({
-        // Field value required by this payload or query.
         type: "cleaning.inspected",
         // Title reflects approve vs reject for inbox skimming.
         title:
@@ -412,51 +355,36 @@ export async function inspectCleaningTask(input: {
             ? "Cleaning approved"
             // Continue the previous expression with this clause.
             : "Cleaning rejected — rework",
-        // Field value required by this payload or query.
         body: `Room ${result.task.location.number}: ${input.result}`,
-        // Field value required by this payload or query.
         entityType: "cleaning_task",
-        // Carry this field through the payload or query.
         entityId: result.task.id,
-        // Carry this field through the payload or query.
         locationId: result.task.locationId,
-        // Carry this field through the payload or query.
         actorEmployeeId: input.inspectorEmployeeId,
-        // Carry this field through the payload or query.
         recipientEmployeeIds: recipients,
-        // Field value required by this payload or query.
         dedupeKey: `cleaning.inspected:${result.inspection.id}`,
         // Open nested structure for the next related fields.
         payload: {
-          // Field value required by this payload or query.
           panel: "mywork",
-          // Carry this field through the payload or query.
           taskId: result.task.id,
-          // Carry this field through the payload or query.
           locationId: result.task.locationId,
-          // Carry this field through the payload or query.
           locationNumber: result.task.location.number,
         },
       });
     }
     // Return txn result (idempotent or fresh).
     return result;
-  // Begin block/object for the following statements.
   } catch (err) {
     // Load again needed for the next decision or write.
     const again = await replayCleaningCommandOnP2002(
-      // Carry this field through the payload or query.
       err,
       // Execute: () =>
       () =>
-        // Begin block/object for the following statements.
         prisma.inspection.findUnique({
           // Restrict the query to the relevant rows only.
           where: { commandId: input.commandId },
           // Eager-load relations needed by the API response shape.
           include: inspectionInclude,
         }),
-      // Carry this field through the payload or query.
       inspectionPayloadMatches,
     );
     // Branch when this condition holds for the domain rule.

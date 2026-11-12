@@ -21,6 +21,21 @@ Aliases below forward extra args after `--`.
 | Selected DB four | `npm run test:db` | Exactly four files: attendance rebuild, cards filter, roleGrants seed, audit write. |
 | Coverage / mutation | `npm run coverage`, `coverage:all`, `test:mutation*` | Same isolation wrapper / Stryker scope as today; see [COVERAGE.md](./COVERAGE.md) and [MUTATION_TESTING.md](./MUTATION_TESTING.md). |
 
+
+## Local CI gate
+
+For the full push-gate that prepares both the working DB and `maintenance_p1_test`, then runs
+the same mandatory suites as GitHub Actions, use `npm run ci:local` from the repo root
+([LOCAL_CI.md](./LOCAL_CI.md)). Concurrent `ci:local` runs are refused so they cannot mutate
+shared PostgreSQL state at the same time.
+
+Cross-platform prepare (no host `psql`):
+
+```bash
+PGPASSWORD=maintenance PGHOST=127.0.0.1 PGPORT=5433 \
+  node scripts/ci/prepare-p1-test-db.mjs --seed=npm --web-origin=http://127.0.0.1:5173
+```
+
 ## Quick path (recommended)
 
 1. Ensure Postgres is reachable (Compose often maps host **5433** → container 5432).

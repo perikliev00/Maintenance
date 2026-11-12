@@ -3,9 +3,7 @@
  * Mutating handlers assert task/location scope; start/inspect use commandId for idempotency.
  */
 import type { NextFunction, Request, Response } from "express";
-// Import dependency @prisma/client.
 import { Role } from "@prisma/client";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Import local module ../../services/assignees.
 import { listActiveHousekeepers } from "../../services/assignees";
@@ -44,11 +42,9 @@ import { getFlags } from "../../services/settings";
 export async function list(req: Request, res: Response) {
   // Build data-scope filter.
   const scope = await resolveDataScope(req.user!);
-  // Bind hotelDate for use in the handler below.
   const hotelDate =
     // Narrow the runtime type before using the value.
     typeof req.query.hotelDate === "string" ? req.query.hotelDate : undefined;
-  // Bind statusParam for use in the handler below.
   const statusParam =
     // Narrow the runtime type before using the value.
     typeof req.query.status === "string" ? req.query.status : undefined;
@@ -64,7 +60,6 @@ export async function list(req: Request, res: Response) {
         .filter(Boolean)
     // Continue the conditional expression.
     : undefined;
-  // Bind where for use in the handler below.
   const where = {
     // Continue the controller logic.
     ...taskWhere(scope),
@@ -78,7 +73,6 @@ export async function list(req: Request, res: Response) {
     ...(statuses?.length ? { status: { in: statuses as never[] } } : {}),
   };
 
-  // Await async work into tasks.
   const tasks = await listCleaningTasks(where);
 
   // JSON success response.
@@ -101,7 +95,6 @@ export async function create(req: Request, res: Response) {
     shiftId: z.string().min(1).nullable().optional(),
     // Validate field dueAt.
     dueAt: z.string().datetime().optional(),
-    // Provide serviceType for the object/call below.
     serviceType: z
       // Restrict to an allowed enum set.
       .enum(["stayover", "departure", "arrival", "common_area"])
@@ -121,14 +114,11 @@ export async function create(req: Request, res: Response) {
   // Assert access / permission.
   await assertCanAccessLocation(scope, parsed.data.locationId);
 
-  // Await async work into task.
   const task = await createCleaningTask({
     // Continue the controller logic.
     ...parsed.data,
-    // Provide actorEmployeeId for the object/call below.
     actorEmployeeId: req.user!.employeeId,
   });
-  // Return value / early exit.
   return res.status(201).json(task);
 }
 
@@ -159,13 +149,9 @@ export async function start(req: Request, res: Response) {
 
   // Capture service / command result.
   const result = await startCleaningTask({
-    // Provide taskId for the object/call below.
     taskId: req.params.id,
-    // Provide employeeId for the object/call below.
     employeeId: req.user!.employeeId,
-    // Provide commandId for the object/call below.
     commandId: parsed.data.commandId,
-    // Provide expectedVersion for the object/call below.
     expectedVersion: parsed.data.expectedVersion,
     // Same bypass set as tickets (owner/supervisor/manager/admin/reception).
     bypassAssigneeCheck: canBypassCleaningAssignee(req.user!.role),
@@ -203,21 +189,14 @@ export async function inspect(req: Request, res: Response) {
 
   // Capture service / command result.
   const result = await inspectCleaningTask({
-    // Provide taskId for the object/call below.
     taskId: req.params.id,
-    // Provide inspectorEmployeeId for the object/call below.
     inspectorEmployeeId: req.user!.employeeId,
-    // Provide commandId for the object/call below.
     commandId: parsed.data.commandId,
-    // Provide result for the object/call below.
     result: parsed.data.result,
-    // Provide findings for the object/call below.
     findings: parsed.data.findings,
-    // Provide expectedVersion for the object/call below.
     expectedVersion: parsed.data.expectedVersion,
   });
 
-  // Return value / early exit.
   return res.status(result.idempotent ? 200 : 201).json(result);
 }
 
@@ -227,15 +206,10 @@ export async function inspect(req: Request, res: Response) {
 export async function reassign(req: Request, res: Response) {
   // Reception reassign is feature-flagged in settings.
   if (req.user!.role === Role.reception) {
-    // Await async work into flags.
     const flags = await getFlags();
-    // Branch: conditional gate.
     if (!flags.allow_reception_reassign) {
-      // Return value / early exit.
       return res.status(403).json({
-        // Provide error for the object/call below.
         error: "forbidden",
-        // Provide message for the object/call below.
         message: "Reception reassign is disabled in settings",
       });
     }
@@ -267,23 +241,14 @@ export async function reassign(req: Request, res: Response) {
   // Assert access / permission.
   await assertCanAccessTask(scope, req.params.id);
 
-  // Await async work into task.
   const task = await reassignCleaningTask({
-    // Provide taskId for the object/call below.
     taskId: req.params.id,
-    // Provide assignedEmployeeId for the object/call below.
     assignedEmployeeId: parsed.data.assignedEmployeeId,
-    // Provide reason for the object/call below.
     reason: parsed.data.reason,
-    // Provide shiftId for the object/call below.
     shiftId: parsed.data.shiftId,
-    // Provide expectedVersion for the object/call below.
     expectedVersion: parsed.data.expectedVersion,
-    // Provide actorEmployeeId for the object/call below.
     actorEmployeeId: req.user!.employeeId,
-    // Provide actorRole for the object/call below.
     actorRole: req.user!.role,
-    // Provide forceDespiteAvailability for the object/call below.
     forceDespiteAvailability: parsed.data.forceDespiteAvailability === true,
   });
 
@@ -293,15 +258,11 @@ export async function reassign(req: Request, res: Response) {
 
 /** GET /employees/housekeepers — active housekeepers for the reassign picker. */
 export async function listHousekeepers(
-  // Provide _req for the object/call below.
   _req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
-  // Await async work into employees.
   const employees = await listActiveHousekeepers();
   // JSON success response.
   return res.json(employees);
@@ -312,15 +273,11 @@ export async function listHousekeepers(
  * Real-time availability for the room-specific reassignment modal.
  */
 export async function listAvailableHousekeepers(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
-  // Bind locationId for use in the handler below.
   const locationId =
     // Narrow the runtime type before using the value.
     typeof req.query.locationId === "string" ? req.query.locationId : "";
@@ -328,13 +285,10 @@ export async function listAvailableHousekeepers(
   if (!locationId) {
     // Bad-request validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide message for the object/call below.
       message: "locationId is required",
     });
   }
-  // Bind taskId for use in the handler below.
   const taskId =
     // Narrow the runtime type before using the value.
     typeof req.query.taskId === "string" && req.query.taskId.length > 0
@@ -355,9 +309,7 @@ export async function listAvailableHousekeepers(
 
   // Invoke service and capture the result payload.
   const result = await listAvailableHousekeepersService({
-    // Pass locationId through.
     locationId,
-    // Pass taskId through.
     taskId,
   });
   // JSON success response with the payload.

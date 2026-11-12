@@ -1,13 +1,9 @@
-// Import type-only dependency for typing without runtime cost.
 import type { SectionLoadResult } from "../controlPageState";
 
 /** Page-level banners shared by every Control section. */
 export type ControlFeedback = {
-  // Provide setError field used by this structure.
   setError: (message: string | null) => void;
-  // Provide setMessage field used by this structure.
   setMessage: (message: string | null) => void;
-  // Provide setRefreshWarning field used by this structure.
   setRefreshWarning: (message: string | null) => void;
 };
 

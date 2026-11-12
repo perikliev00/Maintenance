@@ -19,21 +19,14 @@ export function pauseFieldsOnWait(now = new Date()) {
  * Idempotent when already unpaused (`slaPausedAt` is null).
  */
 export function unpauseFields(
-  // Set ticket on the structure being built.
   ticket: { dueAt: Date | null; slaPausedAt: Date | null; slaPausedMsTotal: number },
-  // Update now as control flow progresses.
   now = new Date(),
-// Run next step: ) {
 ) {
   // Already unpaused — return fields unchanged (idempotent resume).
   if (!ticket.slaPausedAt) {
-    // Return the computed result to the caller.
     return {
-      // Set slaPausedAt on the structure being built.
       slaPausedAt: null,
-      // Set slaPausedMsTotal on the structure being built.
       slaPausedMsTotal: ticket.slaPausedMsTotal,
-      // Set dueAt on the structure being built.
       dueAt: ticket.dueAt,
     };
   }
@@ -41,7 +34,6 @@ export function unpauseFields(
   const pausedMs = Math.max(0, now.getTime() - ticket.slaPausedAt.getTime());
   // Slide dueAt forward so waiting does not burn SLA time.
   const dueAt =
-    // Run next step: ticket.dueAt != null
     ticket.dueAt != null
       // Complete the ternary or optional chain started above.
       ? new Date(ticket.dueAt.getTime() + pausedMs)
@@ -49,11 +41,8 @@ export function unpauseFields(
       : ticket.dueAt;
   // Clear pause stamp and accumulate total paused ms for reporting.
   return {
-    // Set slaPausedAt on the structure being built.
     slaPausedAt: null,
-    // Set slaPausedMsTotal on the structure being built.
     slaPausedMsTotal: ticket.slaPausedMsTotal + pausedMs,
-    // Run next step: dueAt,
     dueAt,
   };
 }

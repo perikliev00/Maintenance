@@ -25,7 +25,6 @@ function readCodeFromHash(): string {
   // No query segment → empty code (user types it).
   if (qIndex < 0) return "";
   const params = new URLSearchParams(hash.slice(qIndex + 1));
-  // Return value / early exit.
   return (params.get("code") ?? "").trim();
 }
 
@@ -48,9 +47,7 @@ export function ActivatePage({
   const [deviceLabel, setDeviceLabel] = useState(() => {
     // Coarse device label for the invitations devices table.
     const ua = navigator.userAgent;
-    // Branch: conditional gate.
     if (/Mobile|Android|iPhone/i.test(ua)) return "Phone";
-    // Return value / early exit.
     return "Browser";
   });
   // Local React state.
@@ -61,21 +58,16 @@ export function ActivatePage({
   /** Validate password rules, redeem invite, then hand user to the shell. */
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    // State transition.
     setError(null);
     // Optional password — when set, enforce length + confirm match.
     if (password && password.length < 8) {
-      // State transition.
       setError("Password must be at least 8 characters");
       return;
     }
-    // Branch: conditional gate.
     if (password && password !== confirm) {
-      // State transition.
       setError("Passwords do not match");
       return;
     }
-    // State transition.
     setLoading(true);
     // Try block for fallible work.
     try {
@@ -89,15 +81,12 @@ export function ActivatePage({
       window.location.hash = "";
       onActivated(data.user);
     } catch (err) {
-      // State transition.
       setError(err instanceof Error ? err.message : "Activation failed");
     } finally {
-      // State transition.
       setLoading(false);
     }
   }
 
-  // Return value / early exit.
   return (
     <div className="login-page">
       <button

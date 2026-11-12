@@ -9,7 +9,6 @@ import { parseHotelDate } from "./hotelDate";
 
 // Local helper isValidation keeps the main flow readable.
 function isValidation(err: unknown, messageIncludes?: string): boolean {
-  // Return the computed result to the caller.
   return (
     // Surface a structured AppError for this failure mode.
     err instanceof AppError &&
@@ -22,9 +21,7 @@ function isValidation(err: unknown, messageIncludes?: string): boolean {
   );
 }
 
-// Begin block/object for the following statements.
 describe("parseHotelDate", () => {
-  // Begin block/object for the following statements.
   it("parses valid YYYY-MM-DD as UTC midnight", () => {
     // Execute: assert.deepEqual(
     assert.deepEqual(
@@ -35,7 +32,6 @@ describe("parseHotelDate", () => {
     );
   });
 
-  // Begin block/object for the following statements.
   it("rejects bad format", () => {
     // Iterate items to apply the same rule to each.
     for (const bad of ["", "2026-10", "12-10-2026", "2026/10/12", "not-a-date"]) {
@@ -49,7 +45,6 @@ describe("parseHotelDate", () => {
     }
   });
 
-  // Begin block/object for the following statements.
   it("rejects impossible calendar dates", () => {
     // Iterate items to apply the same rule to each.
     for (const bad of ["2026-02-31", "2026-13-01", "2026-00-10", "2026-04-31"]) {

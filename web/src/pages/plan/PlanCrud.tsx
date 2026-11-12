@@ -193,13 +193,9 @@ export function PlanCrud({
   /** Create a plan entry and surface the linked task effect in the banner. */
   async function onAdd(e: FormEvent) {
     e.preventDefault();
-    // Branch: conditional gate.
     if (!locationId) return;
-    // State transition.
     setSaving(true);
-    // State transition.
     setError(null);
-    // State transition.
     setMessage(null);
     // Try block for fallible work.
     try {
@@ -213,7 +209,6 @@ export function PlanCrud({
       });
       // effects.task tells whether a cleaning task was created/bumped/linked.
       const taskEffect = String(result.effects?.task ?? "");
-      // State transition.
       setMessage(
         taskEffect === "created"
           ? "Добавено — създадена задача за почистване"
@@ -223,40 +218,31 @@ export function PlanCrud({
               ? "Добавено — свързано със съществуваща задача"
               : "Добавено в дневния план",
       );
-      // State transition.
       setNotes("");
       // Await async step.
       await refresh();
     } catch (err) {
-      // State transition.
       setError(err instanceof Error ? err.message : "Failed to add entry");
     } finally {
-      // State transition.
       setSaving(false);
     }
   }
 
   /** Delete a plan entry (does not reverse room/task side effects). */
   async function onRemove(id: string) {
-    // State transition.
     setRemovingId(id);
-    // State transition.
     setError(null);
-    // State transition.
     setMessage(null);
     // Try block for fallible work.
     try {
       // Await async step.
       await deleteDailyPlanEntry(id);
-      // State transition.
       setMessage("Записът е премахнат (стаята/задачата не се връщат назад)");
       // Await async step.
       await refresh();
     } catch (err) {
-      // State transition.
       setError(err instanceof Error ? err.message : "Failed to remove");
     } finally {
-      // State transition.
       setRemovingId(null);
     }
   }
@@ -288,7 +274,6 @@ export function PlanCrud({
               <select
                 value={category}
                 onChange={(e) =>
-                  // State transition.
                   setCategory(e.target.value as DailyPlanCategory)
                 }
               >

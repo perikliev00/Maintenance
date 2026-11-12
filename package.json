@@ -9,6 +9,8 @@
     "test:api:all": "npm run test:all --prefix api",
     "test:e2e": "npm run test --prefix e2e",
     "test:e2e:scenarios": "npm run test:scenarios --prefix e2e",
-    "test:unit": "npm run test --prefix web && npm run test:all --prefix api"
+    "test:unit": "npm run test --prefix web && npm run test:all --prefix api",
+    "ci:local": "node ./scripts/ci/local.mjs",
+    "hooks:install": "node ./scripts/ci/install-hooks.mjs"
   }
 }

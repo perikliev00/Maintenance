@@ -5,9 +5,7 @@ import { describe, it } from "node:test";
 // Import ./periodBounds for cleaningResults/periodBounds.test.ts.
 import { dayEndExclusiveUtc, dayStartUtc } from "./periodBounds";
 
-// Begin block/object for the following statements.
 describe("cleaning results periodBounds", () => {
-  // Begin block/object for the following statements.
   it("dayStartUtc is UTC midnight of the given date", () => {
     // Execute: assert.equal(
     assert.equal(
@@ -18,7 +16,6 @@ describe("cleaning results periodBounds", () => {
     );
   });
 
-  // Begin block/object for the following statements.
   it("dayEndExclusiveUtc is the next UTC midnight (half-open end)", () => {
     // Execute: assert.equal(
     assert.equal(
@@ -29,7 +26,6 @@ describe("cleaning results periodBounds", () => {
     );
   });
 
-  // Begin block/object for the following statements.
   it("handles month and year boundaries", () => {
     // Execute: assert.equal(
     assert.equal(

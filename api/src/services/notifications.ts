@@ -24,7 +24,7 @@ import { publish } from "../events/bus";
 // Import type(s) Action for typing without runtime cost.
 import type { Action } from "../permissions";
 // Import module ./db/prismaErrors for this service.
-import { isP2002 } from "./db/prismaErrors";
+import { isP2002, isP2003 } from "./db/prismaErrors";
 // Import module ./dataScope for this service.
 import { sectorSnapshotForLocation } from "./dataScope";
 // Import module ./roleGrants for this service.
@@ -322,10 +322,13 @@ export async function recipientsForLocationOps(
   if (locationId) {
     // Load snap asynchronously for the next steps.
     const snap = await sectorSnapshotForLocation(locationId);
-    // Only add when a primary supervisor is configured.
+    // Only add when a primary supervisor is configured and still present.
     if (snap.sectorSupervisorEmployeeId) {
-      // Run next step: ids.add(snap.sectorSupervisorEmployeeId);
-      ids.add(snap.sectorSupervisorEmployeeId);
+      const supervisor = await prisma.employee.findUnique({
+        where: { id: snap.sectorSupervisorEmployeeId },
+        select: { id: true },
+      });
+      if (supervisor) ids.add(supervisor.id);
     }
   }
   // Union with everyone whose role grant allows the action (scoped).
@@ -469,11 +472,10 @@ export async function createNotifications(
       notifiedRecipients.push(row.recipientEmployeeId);
     // Run next step: } catch (err) {
     } catch (err) {
-      // Duplicate dedupeKey for this recipient — count as skipped, continue.
-      if (isP2002(err)) {
-        // Run next step: skipped += 1;
+      // Duplicate dedupeKey, or recipient/actor FK race after resolution —
+      // count as skipped so mark-dirty / ops alerts never 500 the mutation.
+      if (isP2002(err) || isP2003(err)) {
         skipped += 1;
-        // Skip to the next loop iteration.
         continue;
       }
       // Non-unique errors propagate to the caller.

@@ -9,6 +9,5 @@ import { canBypassAssignee } from "../authorization/assigneeBypass";
  * for HTTP + sync.
  */
 export function canBypassCleaningAssignee(role: Role): boolean {
-  // Return the computed result to the caller.
   return canBypassAssignee(role);
 }

@@ -1,4 +1,3 @@
-// Import module dependency from ../../hooks/useBusyMutation.
 import { useBusyMutation } from "../../hooks/useBusyMutation";
 
 /**
@@ -7,6 +6,5 @@ import { useBusyMutation } from "../../hooks/useBusyMutation";
  * with location/issue catalogs.
  */
 export function useHousekeepingBusy() {
-  // Return early result or rendered output from this path.
   return useBusyMutation();
 }

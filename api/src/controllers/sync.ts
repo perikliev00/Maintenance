@@ -3,7 +3,6 @@
  * server deltas since a cursor. Authorization of each command is inside pushSync.
  */
 import type { Request, Response } from "express";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Import local module ../services/sync.
 import { pullSync, pushSync } from "../services/sync";
@@ -14,7 +13,6 @@ export async function push(req: Request, res: Response) {
   const schema = z.object({
     // Validate field deviceId.
     deviceId: z.string().optional(),
-    // Provide commands for the object/call below.
     commands: z
       // Expect an array of elements.
       .array(
@@ -46,11 +44,8 @@ export async function push(req: Request, res: Response) {
   }
   // Service authorizes and applies each command; returns per-command results.
   const result = await pushSync({
-    // Provide user for the object/call below.
     user: req.user!,
-    // Provide commands for the object/call below.
     commands: parsed.data.commands,
-    // Provide deviceId for the object/call below.
     deviceId: parsed.data.deviceId,
   });
   // JSON success response with the payload.
@@ -63,15 +58,12 @@ export async function pull(req: Request, res: Response) {
   const sinceRaw =
     // Narrow the runtime type before using the value.
     typeof req.query.since === "string" ? req.query.since : undefined;
-  // Bind hotelDate for use in the handler below.
   const hotelDate =
     // Narrow the runtime type before using the value.
     typeof req.query.hotelDate === "string" ? req.query.hotelDate : undefined;
-  // Bind deviceId for use in the handler below.
   const deviceId =
     // Narrow the runtime type before using the value.
     typeof req.query.deviceId === "string" ? req.query.deviceId : undefined;
-  // Bind since for use in the handler below.
   const since = sinceRaw ? new Date(sinceRaw) : undefined;
   // Invalid since must not silently become epoch or NaN.
   if (sinceRaw && Number.isNaN(since?.getTime())) {
@@ -80,13 +72,9 @@ export async function pull(req: Request, res: Response) {
   }
   // Invoke service and capture the result payload.
   const result = await pullSync({
-    // Provide user for the object/call below.
     user: req.user!,
-    // Pass since through.
     since,
-    // Pass hotelDate through.
     hotelDate,
-    // Pass deviceId through.
     deviceId,
   });
   // JSON success response with the payload.

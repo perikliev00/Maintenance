@@ -18,16 +18,13 @@ import { assertActiveShiftId } from "../shifts";
 import { mapEntry } from "./format";
 // Side-effect or default import required by this module.
 import {
-  // Carry this field through the payload or query.
   isDailyPlanEntryDateLocCategoryConflict,
-  // Field value required by this payload or query.
   isP2002,
 // Execute: } from "./prismaConflicts";
 } from "./prismaConflicts";
 // Import ./types for dailyPlan/create.ts.
 import { entryInclude } from "./types";
 
-// Capture PLAN_ENTRY_EXISTS for subsequent checks or writes.
 const PLAN_ENTRY_EXISTS =
   // Execute: "Plan entry already exists for this room/date/category";
   "Plan entry already exists for this room/date/category";
@@ -37,11 +34,8 @@ const PLAN_ENTRY_EXISTS =
  * Runs {@link applyPlanEntryEffects} inside the same transaction.
  */
 export async function createDailyPlanEntry(input: {
-  // Carry this field through the payload or query.
   hotelDate: string;
-  // Carry this field through the payload or query.
   locationId: string;
-  // Carry this field through the payload or query.
   category: DailyPlanCategory;
   // Parameter/field in the surrounding signature or type.
   notes?: string;
@@ -49,9 +43,7 @@ export async function createDailyPlanEntry(input: {
   assignedEmployeeId?: string;
   // Parameter/field in the surrounding signature or type.
   shiftId?: string | null;
-  // Carry this field through the payload or query.
   createdByEmployeeId: string;
-// Begin block/object for the following statements.
 }) {
   // Normalize YYYY-MM-DD into the Date used as DailyPlanEntry.hotelDate.
   const hotelDate = parseHotelDate(input.hotelDate);
@@ -85,11 +77,8 @@ export async function createDailyPlanEntry(input: {
     where: {
       // Open nested structure for the next related fields.
       hotelDate_locationId_category: {
-        // Carry this field through the payload or query.
         hotelDate,
-        // Carry this field through the payload or query.
         locationId: input.locationId,
-        // Carry this field through the payload or query.
         category: input.category,
       },
     },
@@ -102,7 +91,6 @@ export async function createDailyPlanEntry(input: {
 
   // Optional assignee must be an active housekeeper.
   if (input.assignedEmployeeId) {
-    // Await side effect or helper before continuing.
     await assertActiveCleaningAssignee(input.assignedEmployeeId);
   }
 
@@ -114,11 +102,8 @@ export async function createDailyPlanEntry(input: {
       const todayYmd = await todayHotelDateYmd();
       // Category-specific occupancy/dirty/task side effects.
       const effects = await applyPlanEntryEffects(
-        // Carry this field through the payload or query.
         tx,
-        // Carry this field through the payload or query.
         location,
-        // Carry this field through the payload or query.
         hotelDate,
         // Execute: input.category,
         input.category,
@@ -126,7 +111,6 @@ export async function createDailyPlanEntry(input: {
         input.assignedEmployeeId,
         // Execute: shiftId ?? undefined,
         shiftId ?? undefined,
-        // Carry this field through the payload or query.
         todayYmd,
       );
 
@@ -134,25 +118,16 @@ export async function createDailyPlanEntry(input: {
       const entry = await tx.dailyPlanEntry.create({
         // Fields written by this create/update.
         data: {
-          // Carry this field through the payload or query.
           hotelDate,
-          // Carry this field through the payload or query.
           locationId: location.id,
-          // Carry this field through the payload or query.
           category: input.category,
-          // Field value required by this payload or query.
           notes: input.notes ?? null,
-          // Carry this field through the payload or query.
           source: DailyPlanSource.manual,
-          // Carry this field through the payload or query.
           cleaningTaskId: effects.cleaningTaskId,
           // Preserve for deferred departure confirm (even when task was skipped).
           assignedEmployeeId: input.assignedEmployeeId ?? null,
-          // Field value required by this payload or query.
           shiftId: shiftId ?? null,
-          // Field value required by this payload or query.
           roomEffectsAppliedAt: effects.roomEffectsApplied ? new Date() : null,
-          // Carry this field through the payload or query.
           createdByEmployeeId: input.createdByEmployeeId,
         },
         // Eager-load relations needed by the API response shape.
@@ -161,25 +136,18 @@ export async function createDailyPlanEntry(input: {
 
       // API payload: mapped entry + effect summary for the UI toast.
       return {
-        // Carry this field through the payload or query.
         entry: mapEntry(entry),
         // Open nested structure for the next related fields.
         effects: {
-          // Carry this field through the payload or query.
           occupancy: effects.occupancy,
-          // Carry this field through the payload or query.
           dirty: effects.dirty,
-          // Carry this field through the payload or query.
           task: effects.task,
-          // Carry this field through the payload or query.
           cleaningTaskId: effects.cleaningTaskId,
         },
       };
     });
 
-    // Return the computed result to the caller.
     return result;
-  // Begin block/object for the following statements.
   } catch (err) {
     // Concurrent create/import: map only DailyPlanEntry (date,loc,cat) unique.
     // CleaningTask P2002 must not become "plan entry exists".
@@ -195,11 +163,8 @@ export async function createDailyPlanEntry(input: {
         where: {
           // Open nested structure for the next related fields.
           hotelDate_locationId_category: {
-            // Carry this field through the payload or query.
             hotelDate,
-            // Carry this field through the payload or query.
             locationId: input.locationId,
-            // Carry this field through the payload or query.
             category: input.category,
           },
         },

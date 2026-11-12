@@ -3,9 +3,7 @@
  * Reads/writes are limited by locationWhere / assertCanAccessLocation.
  */
 import type { NextFunction, Request, Response } from "express";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
-// Import dependency @prisma/client.
 import { DailyPlanCategory } from "@prisma/client";
 // Import local module ../services/hotelTime.
 import { todayHotelDateYmd } from "../services/hotelTime";
@@ -37,7 +35,6 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 /** Body for apply-departure-effects (optional confirm list for deferred rows). */
 const hotelDateBodySchema = z.object({
-  // Provide hotelDate for the object/call below.
   hotelDate: dateSchema,
   // Validate field confirmEntryIds.
   confirmEntryIds: z.array(z.string().min(1)).max(500).optional(),
@@ -45,11 +42,9 @@ const hotelDateBodySchema = z.object({
 
 /** Bulk import payload: building/room rows for one hotel date. */
 const importSchema = z.object({
-  // Provide hotelDate for the object/call below.
   hotelDate: dateSchema,
   // Validate field sourceLabel.
   sourceLabel: z.string().min(1).max(100).default("clock"),
-  // Provide entries for the object/call below.
   entries: z
     // Expect an array of elements.
     .array(
@@ -87,15 +82,12 @@ export async function list(req: Request, res: Response) {
   if (!parsed.success) {
     // Validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide message for the object/call below.
       message: "hotelDate must be YYYY-MM-DD",
     });
   }
   // Scope filter so sector-limited users only see their locations.
   const scope = await resolveDataScope(req.user!);
-  // Await async work into plan.
   const plan = await getDailyPlan(parsed.data, locationWhere(scope));
   // JSON success response.
   return res.json(plan);
@@ -103,11 +95,8 @@ export async function list(req: Request, res: Response) {
 
 /** POST /apply-departure-effects — apply/confirm deferred vacant+dirty. */
 export async function applyDepartureEffects(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
@@ -115,7 +104,6 @@ export async function applyDepartureEffects(
   const parsed = hotelDateBodySchema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -139,11 +127,8 @@ export async function applyDepartureEffects(
 
 /** POST /import — bulk import plan rows (max 2000). */
 export async function importPlan(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
@@ -151,16 +136,13 @@ export async function importPlan(
   const parsed = importSchema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
       // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
-  // Branch: conditional gate.
   if (!req.user) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(401)
@@ -179,7 +161,6 @@ export async function importPlan(
     // Continue the controller logic.
     locationWhere(scope),
   );
-  // Return value / early exit.
   return res.status(201).json(result);
 }
 
@@ -187,7 +168,6 @@ export async function importPlan(
 export async function create(req: Request, res: Response) {
   // Zod schema for request shape.
   const schema = z.object({
-    // Provide hotelDate for the object/call below.
     hotelDate: dateSchema,
     // Validate field locationId.
     locationId: z.string().min(1),
@@ -204,16 +184,13 @@ export async function create(req: Request, res: Response) {
   const parsed = schema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
       // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
-  // Branch: conditional gate.
   if (!req.user) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(401)
@@ -230,10 +207,8 @@ export async function create(req: Request, res: Response) {
   const result = await createDailyPlanEntry({
     // Continue the controller logic.
     ...parsed.data,
-    // Provide createdByEmployeeId for the object/call below.
     createdByEmployeeId: req.user.employeeId,
   });
-  // Return value / early exit.
   return res.status(201).json(result);
 }
 

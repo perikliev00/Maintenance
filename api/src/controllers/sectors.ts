@@ -4,7 +4,6 @@
  * PATCH accepts optional locationIds for an atomic metadata+membership save.
  */
 import type { NextFunction, Request, Response } from "express";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Import local module ../errors.
 import { AppError } from "../errors";
@@ -62,11 +61,9 @@ const optionalCode = z
 
 /** GET /sectors — admin list (scoped; optional includeInactive). */
 export async function list(req: Request, res: Response) {
-  // Bind includeInactive for use in the handler below.
   const includeInactive = req.query.includeInactive === "true";
   // Resolve caller's DataScope for Prisma filtering.
   const scope = await resolveDataScope(req.user!);
-  // Await async work into sectors.
   const sectors = await listSectors(includeInactive, sectorWhere(scope));
   // JSON success response with the payload.
   return res.json(sectors);
@@ -74,23 +71,16 @@ export async function list(req: Request, res: Response) {
 
 /** Compact list of sectors where the caller is primary supervisor (auth only). */
 export async function listMine(req: Request, res: Response) {
-  // Await async work into sectors.
   const sectors = await listMySectors(req.user!.employeeId);
   // JSON success response with the payload.
   return res.json({
-    // Provide count for the object/call below.
     count: sectors.length,
     // Continue the controller logic.
     sectors: sectors.map((s) => ({
-      // Provide id for the object/call below.
       id: s.id,
-      // Provide code for the object/call below.
       code: s.code,
-      // Provide nameBg for the object/call below.
       nameBg: s.nameBg,
-      // Provide nameEn for the object/call below.
       nameEn: s.nameEn,
-      // Provide locationCount for the object/call below.
       locationCount: s.locationCount,
     })),
   });
@@ -102,7 +92,6 @@ export async function get(req: Request, res: Response) {
   const scope = await resolveDataScope(req.user!);
   // Await side-effecting async work.
   await assertCanAccessSector(scope, req.params.id);
-  // Await async work into sector.
   const sector = await getSector(req.params.id);
   // JSON success response with the payload.
   return res.json(sector);
@@ -114,11 +103,8 @@ export async function create(req: Request, res: Response) {
   const schema = z.object({
     // Validate field propertyId.
     propertyId: z.string().min(1).optional(),
-    // Provide code for the object/call below.
     code: optionalCode,
-    // Provide nameBg for the object/call below.
     nameBg: optionalTrimmed,
-    // Provide nameEn for the object/call below.
     nameEn: optionalTrimmed,
     // Validate field primarySupervisorEmployeeId.
     primarySupervisorEmployeeId: z.string().min(1).nullable().optional(),
@@ -147,14 +133,12 @@ export async function create(req: Request, res: Response) {
     throw new AppError(403, "forbidden", OUT_OF_SCOPE);
   }
 
-  // Bind primarySupervisorEmployeeId for use in the handler below.
   const primarySupervisorEmployeeId =
     // Continue the controller logic.
     parsed.data.primarySupervisorEmployeeId;
   // Continue the controller logic.
   assertCanCreateSector(scope, primarySupervisorEmployeeId);
 
-  // Await async work into allowCrossSectorTransfer.
   const allowCrossSectorTransfer = await canPerform(
     // Continue the controller logic.
     req.user!.role,
@@ -168,17 +152,12 @@ export async function create(req: Request, res: Response) {
     await assertLocationsInSectorScope(scope, parsed.data.locationIds);
   }
 
-  // Await async work into sector.
   const sector = await createSector({
     // Continue the controller logic.
     ...parsed.data,
-    // Pass primarySupervisorEmployeeId through.
     primarySupervisorEmployeeId,
-    // Provide actorEmployeeId for the object/call below.
     actorEmployeeId: req.user!.employeeId,
-    // Pass scope through.
     scope,
-    // Pass allowCrossSectorTransfer through.
     allowCrossSectorTransfer,
   });
   // Created response with the new resource body.
@@ -192,11 +171,8 @@ export async function create(req: Request, res: Response) {
 export async function update(req: Request, res: Response) {
   // Zod schema schema for request validation.
   const schema = z.object({
-    // Provide code for the object/call below.
     code: optionalCode.optional(),
-    // Provide nameBg for the object/call below.
     nameBg: optionalTrimmed.optional(),
-    // Provide nameEn for the object/call below.
     nameEn: optionalTrimmed.optional(),
     // Validate field primarySupervisorEmployeeId.
     primarySupervisorEmployeeId: z.string().min(1).nullable().optional(),
@@ -226,7 +202,6 @@ export async function update(req: Request, res: Response) {
 
   // Branch when this condition holds.
   if (scope.kind === "sectors") {
-    // Bind nextSupervisor for use in the handler below.
     const nextSupervisor = parsed.data.primarySupervisorEmployeeId;
     // Branch when this condition holds.
     if (
@@ -241,7 +216,6 @@ export async function update(req: Request, res: Response) {
     }
   }
 
-  // Await async work into allowCrossSectorTransfer.
   const allowCrossSectorTransfer = await canPerform(
     // Continue the controller logic.
     req.user!.role,
@@ -261,34 +235,20 @@ export async function update(req: Request, res: Response) {
     await assertLocationsInSectorScope(scope, parsed.data.locationIds);
   }
 
-  // Await async work into sector.
   const sector = await saveSector(req.params.id, {
-    // Provide code for the object/call below.
     code: parsed.data.code,
-    // Provide nameBg for the object/call below.
     nameBg: parsed.data.nameBg,
-    // Provide nameEn for the object/call below.
     nameEn: parsed.data.nameEn,
-    // Provide primarySupervisorEmployeeId for the object/call below.
     primarySupervisorEmployeeId: parsed.data.primarySupervisorEmployeeId,
-    // Provide isActive for the object/call below.
     isActive: parsed.data.isActive,
-    // Provide locationIds for the object/call below.
     locationIds: parsed.data.locationIds,
-    // Provide expectedVersion for the object/call below.
     expectedVersion: parsed.data.expectedVersion,
-    // Provide actor for the object/call below.
     actor: {
-      // Provide employeeId for the object/call below.
       employeeId: req.user!.employeeId,
-      // Provide userId for the object/call below.
       userId: req.user!.userId,
-      // Provide role for the object/call below.
       role: req.user!.role,
     },
-    // Pass scope through.
     scope,
-    // Pass allowCrossSectorTransfer through.
     allowCrossSectorTransfer,
   });
   // JSON success response with the payload.
@@ -297,11 +257,8 @@ export async function update(req: Request, res: Response) {
 
 /** PUT /sectors/:id/locations — replace sector location membership. */
 export async function setLocations(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
@@ -329,7 +286,6 @@ export async function setLocations(
   // Await side-effecting async work.
   await assertCanAccessSector(scope, req.params.id);
 
-  // Await async work into allowCrossSectorTransfer.
   const allowCrossSectorTransfer = await canPerform(
     // Continue the controller logic.
     req.user!.role,
@@ -342,24 +298,17 @@ export async function setLocations(
     await assertLocationsInSectorScope(scope, parsed.data.locationIds);
   }
 
-  // Await async work into sector.
   const sector = await setSectorLocations(
     // Pass req.params.id through.
     req.params.id,
     // Pass parsed.data.locationIds through.
     parsed.data.locationIds,
     {
-      // Provide actorEmployeeId for the object/call below.
       actorEmployeeId: req.user!.employeeId,
-      // Provide actorUserId for the object/call below.
       actorUserId: req.user!.userId,
-      // Provide actorRole for the object/call below.
       actorRole: req.user!.role,
-      // Pass scope through.
       scope,
-      // Pass allowCrossSectorTransfer through.
       allowCrossSectorTransfer,
-      // Provide expectedVersion for the object/call below.
       expectedVersion: parsed.data.expectedVersion,
     },
   );

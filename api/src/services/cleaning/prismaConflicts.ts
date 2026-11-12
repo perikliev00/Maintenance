@@ -6,11 +6,8 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../errors";
 // Side-effect or default import required by this module.
 import {
-  // Field value required by this payload or query.
   isP2002,
-  // Field value required by this payload or query.
   p2002Targets,
-  // Carry this field through the payload or query.
   targetsMatch,
 // Execute: } from "../db/prismaErrors";
 } from "../db/prismaErrors";
@@ -20,9 +17,7 @@ export { isP2002, p2002Targets, targetsMatch };
 
 /** Translate session-start unique races into user-facing conflict errors. */
 export function mapStartUniqueConflict(
-  // Carry this field through the payload or query.
   err: Prisma.PrismaClientKnownRequestError,
-// Begin block/object for the following statements.
 ): never {
   // Prisma reports partial-unique targets as column names (and sometimes index names).
   if (
@@ -33,7 +28,6 @@ export function mapStartUniqueConflict(
       // Execute: "taskId",
       "taskId",
     ])
-  // Begin block/object for the following statements.
   ) {
     // Abort with an HTTP-mapped AppError or rethrow.
     throw new AppError(409, "conflict", "Task already has a running session");
@@ -47,7 +41,6 @@ export function mapStartUniqueConflict(
       // Execute: "employeeId",
       "employeeId",
     ])
-  // Begin block/object for the following statements.
   ) {
     // Abort with an HTTP-mapped AppError or rethrow.
     throw new AppError(409, "conflict", "Employee already has a running session");
@@ -58,11 +51,8 @@ export function mapStartUniqueConflict(
 
 /** Translate one-active-task-per-room/date unique races into 409 conflicts. */
 export function mapCreateTaskUniqueConflict(
-  // Carry this field through the payload or query.
   err: Prisma.PrismaClientKnownRequestError,
-// Begin block/object for the following statements.
 ): never {
-  // Capture targets for subsequent checks or writes.
   const targets = p2002Targets(err);
   // Named index or the (locationId, hotelDate) column pair both mean the same race.
   const isActiveTaskUnique =

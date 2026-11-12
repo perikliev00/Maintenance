@@ -3,7 +3,6 @@
  * complete/cancel require commandId (idempotency) and session scope access.
  */
 import type { Request, Response } from "express";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Continue named import list.
 import {
@@ -52,15 +51,10 @@ export async function complete(req: Request, res: Response) {
 
   // Invoke service and capture the result payload.
   const result = await completeCleaningSession({
-    // Provide sessionId for the object/call below.
     sessionId: req.params.id,
-    // Provide employeeId for the object/call below.
     employeeId: req.user!.employeeId,
-    // Provide commandId for the object/call below.
     commandId: parsed.data.commandId,
-    // Provide notes for the object/call below.
     notes: parsed.data.notes,
-    // Provide expectedVersion for the object/call below.
     expectedVersion: parsed.data.expectedVersion,
     // Same bypass set as tickets (owner/supervisor/manager/admin/reception).
     bypassSessionOwnerCheck: canBypassCleaningAssignee(req.user!.role),
@@ -96,15 +90,10 @@ export async function cancel(req: Request, res: Response) {
 
   // Invoke service and capture the result payload.
   const result = await cancelCleaningSession({
-    // Provide sessionId for the object/call below.
     sessionId: req.params.id,
-    // Provide employeeId for the object/call below.
     employeeId: req.user!.employeeId,
-    // Provide commandId for the object/call below.
     commandId: parsed.data.commandId,
-    // Provide notes for the object/call below.
     notes: parsed.data.notes,
-    // Provide expectedVersion for the object/call below.
     expectedVersion: parsed.data.expectedVersion,
     // Reviewers cancel abandoned sessions owned by others.
     bypassSessionOwnerCheck: true,
@@ -118,7 +107,6 @@ export async function cancel(req: Request, res: Response) {
 export async function listReview(req: Request, res: Response) {
   // Resolve caller's DataScope for Prisma filtering.
   const scope = await resolveDataScope(req.user!);
-  // Await async work into sessions.
   const sessions = await listOverdueSessions(sessionTaskWhere(scope));
   // JSON success response with the payload.
   return res.json(sessions);

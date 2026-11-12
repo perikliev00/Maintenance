@@ -2,7 +2,6 @@
  * Shared includes, payload matchers, and complete/cancel lock+guard prelude.
  */
 import { SessionStatus } from "@prisma/client";
-// Type-only import from @prisma/client used by cleaning/sessionShared.ts.
 import type { Prisma } from "@prisma/client";
 // Import ../../errors for cleaning/sessionShared.ts.
 import { AppError } from "../../errors";
@@ -18,20 +17,15 @@ type TxClient = Prisma.TransactionClient;
 
 // Exported constant sessionWithTaskInclude shared by callers.
 export const sessionWithTaskInclude = {
-  // Carry this field through the payload or query.
   task: { include: taskInclude },
 // Narrow or freeze the type for safer downstream use.
 } as const;
 
 // Public entry: startSessionPayloadMatches — see body for domain rules.
 export function startSessionPayloadMatches(
-  // Carry this field through the payload or query.
   row: { taskId: string; employeeId: string },
-  // Carry this field through the payload or query.
   input: { taskId: string; employeeId: string },
-// Begin block/object for the following statements.
 ): boolean {
-  // Return the computed result to the caller.
   return row.taskId === input.taskId && row.employeeId === input.employeeId;
 }
 
@@ -39,22 +33,16 @@ export function startSessionPayloadMatches(
 export function sessionCommandPayloadMatches(
   // Open nested structure for the next related fields.
   row: {
-    // Carry this field through the payload or query.
     id: string;
-    // Carry this field through the payload or query.
     employeeId: string;
     // Parameter/field in the surrounding signature or type.
     completeActorEmployeeId?: string | null;
     // Parameter/field in the surrounding signature or type.
     cancelActorEmployeeId?: string | null;
   },
-  // Carry this field through the payload or query.
   input: { sessionId: string; employeeId: string },
-  // Field value required by this payload or query.
   kind: "complete" | "cancel",
-// Begin block/object for the following statements.
 ): boolean {
-  // Capture priorActor for subsequent checks or writes.
   const priorActor =
     // Execute: kind === "complete"
     kind === "complete"
@@ -62,17 +50,13 @@ export function sessionCommandPayloadMatches(
       ? (row.completeActorEmployeeId ?? row.employeeId)
       // Continue the previous expression with this clause.
       : (row.cancelActorEmployeeId ?? row.employeeId);
-  // Return the computed result to the caller.
   return row.id === input.sessionId && priorActor === input.employeeId;
 }
 
 /** Peek session, lock task→session. Throws 404 when missing. */
 export async function peekAndLockSession(
-  // Carry this field through the payload or query.
   tx: TxClient,
-  // Carry this field through the payload or query.
   sessionId: string,
-// Begin block/object for the following statements.
 ): Promise<{ id: string; taskId: string }> {
   // Load sessionPeek needed for the next decision or write.
   const sessionPeek = await tx.cleaningSession.findUnique({
@@ -84,11 +68,8 @@ export async function peekAndLockSession(
     // Abort with an HTTP-mapped AppError or rethrow.
     throw new AppError(404, "not_found", "Session not found");
   }
-  // Await side effect or helper before continuing.
   await lockTask(tx, sessionPeek.taskId);
-  // Await side effect or helper before continuing.
   await lockSession(tx, sessionPeek.id);
-  // Return the computed result to the caller.
   return { id: sessionPeek.id, taskId: sessionPeek.taskId };
 }
 
@@ -97,22 +78,17 @@ export async function peekAndLockSession(
  * version, and finish-after-start. Used by complete and cancel.
  */
 export async function loadRunningSessionForTerminalCommand(
-  // Carry this field through the payload or query.
   tx: TxClient,
   // Open nested structure for the next related fields.
   input: {
-    // Carry this field through the payload or query.
     sessionId: string;
-    // Carry this field through the payload or query.
     employeeId: string;
     // Parameter/field in the surrounding signature or type.
     expectedVersion?: number;
     // Parameter/field in the surrounding signature or type.
     bypassSessionOwnerCheck?: boolean;
   },
-  // Field value required by this payload or query.
   alreadyTerminal: "completed" | "cancelled",
-// Begin block/object for the following statements.
 ) {
   // Load session needed for the next decision or write.
   const session = await tx.cleaningSession.findUniqueOrThrow({
@@ -125,7 +101,6 @@ export async function loadRunningSessionForTerminalCommand(
     !input.bypassSessionOwnerCheck &&
     // Execute: session.employeeId !== input.employeeId
     session.employeeId !== input.employeeId
-  // Begin block/object for the following statements.
   ) {
     // Load taskPeek needed for the next decision or write.
     const taskPeek = await tx.cleaningTask.findUnique({
@@ -197,6 +172,5 @@ export async function loadRunningSessionForTerminalCommand(
     throw new AppError(400, "invalid_time", "Finish time before start time");
   }
 
-  // Return the computed result to the caller.
   return { session, task, finishedAt };
 }

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Blocks git push when the local CI gate fails.
+# Installed via: npm run hooks:install  (sets core.hooksPath=scripts/ci/hooks)
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "pre-push: running npm run ci:local (this mirrors GitHub CI checks)"
+echo "pre-push: refuse concurrent runs; failures / timeouts / crashes exit non-zero"
+
+if ! npm run ci:local; then
+  echo "pre-push: ci:local failed — push blocked" >&2
+  exit 1
+fi
+
+echo "pre-push: ci:local passed — allowing push"
+exit 0

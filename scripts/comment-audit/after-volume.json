@@ -1,0 +1,207 @@
+﻿{
+  "files": 768,
+  "totalLines": 146411,
+  "fullLineComments": 8723,
+  "top": [
+    [
+      "Support the surrounding logic for this step.",
+      612
+    ],
+    [
+      "Execute the next setup or assertion step for this scenario.",
+      382
+    ],
+    [
+      "Open multi-line construct.",
+      76
+    ],
+    [
+      "Seed prerequisite rows so the mutation under test has a realistic baseline.",
+      72
+    ],
+    [
+      "Pagination step for list/contract coverage.",
+      72
+    ],
+    [
+      "Close multi-line construct with trailing syntax.",
+      71
+    ],
+    [
+      "Import dependency used by this module.",
+      71
+    ],
+    [
+      "Memoize callback identity for stable child/effect deps.",
+      65
+    ],
+    [
+      "Assert response/page reached the expected status.",
+      65
+    ],
+    [
+      "Import module dependency used by this file.",
+      63
+    ],
+    [
+      "Begin block/object for the following statements.",
+      63
+    ],
+    [
+      "Delivery/replay step for async notification paths.",
+      62
+    ],
+    [
+      "Initialize an object holding related fields.",
+      59
+    ],
+    [
+      "Continue the call chain for setup or assertion detail.",
+      58
+    ],
+    [
+      "Export type alias for consumers.",
+      57
+    ],
+    [
+      "Assign value for subsequent use.",
+      55
+    ],
+    [
+      "Mutable local binding.",
+      53
+    ],
+    [
+      "Shared Prisma client bound to the isolated test database.",
+      49
+    ],
+    [
+      "Guard that mutating suites only run against the isolated test database.",
+      48
+    ],
+    [
+      "Field value required by this payload or query.",
+      47
+    ],
+    [
+      "Guard optional cleanup or alternate assertion paths.",
+      47
+    ],
+    [
+      "Refuse to mutate unless connected to the isolated test database.",
+      45
+    ],
+    [
+      "Carry this field through the payload or query.",
+      43
+    ],
+    [
+      "Return the computed result to the caller.",
+      43
+    ],
+    [
+      "Initialize an array used by subsequent logic.",
+      42
+    ],
+    [
+      "task: seeded entity required before the mutation under test.",
+      42
+    ],
+    [
+      "Provide role field used by this structure.",
+      40
+    ],
+    [
+      "Import type-only dependency for typing without runtime cost.",
+      38
+    ],
+    [
+      "Branch: conditional gate.",
+      38
+    ],
+    [
+      "Iterate a collection or counted range.",
+      37
+    ],
+    [
+      "Bilingual label for action/entity key bg.",
+      37
+    ],
+    [
+      "Bilingual label for action/entity key en.",
+      37
+    ],
+    [
+      "Prisma client types/runtime for DB setup and assertions.",
+      36
+    ],
+    [
+      "Conditional branch for this case.",
+      36
+    ],
+    [
+      "Provide status field used by this structure.",
+      35
+    ],
+    [
+      "Override env for isolation, rate-limit disable, or scheduler quieting.",
+      34
+    ],
+    [
+      "Provide message field used by this structure.",
+      32
+    ],
+    [
+      "Provide kind field used by this structure.",
+      32
+    ],
+    [
+      "Spread prior fields/items so overrides can layer cleanly.",
+      30
+    ],
+    [
+      "Hold a mutable ref that persists across renders without re-render.",
+      30
+    ],
+    [
+      "Return the JSX/UI tree for this render path.",
+      29
+    ],
+    [
+      "Provide locale field used by this structure.",
+      29
+    ],
+    [
+      "Run next step: } finally {",
+      28
+    ],
+    [
+      "Import bindings from ../../src/db.",
+      27
+    ],
+    [
+      "Group related unit tests.",
+      27
+    ],
+    [
+      "Provide id field used by this structure.",
+      26
+    ],
+    [
+      "Import module node:test for this service.",
+      26
+    ],
+    [
+      "Import bindings from node:path.",
+      26
+    ],
+    [
+      "Import bindings from dotenv.",
+      26
+    ],
+    [
+      "Provide where field used by this structure.",
+      25
+    ]
+  ]
+}
