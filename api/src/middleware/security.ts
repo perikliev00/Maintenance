@@ -2,8 +2,11 @@
  * HTTP security middleware: Helmet headers, trust-proxy for rate-limit keys,
  * and named limiters for login, invitation redeem, and global API traffic.
  */
+// Express Application and request/response types for limiters.
 import type { Application, Request, Response } from "express";
+// Secure default HTTP response headers.
 import helmet from "helmet";
+// Rate-limit factory and IPv6-safe IP key helper.
 import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 
 /** Normalize client IP for rate-limit keys (IPv6-safe via ipKeyGenerator). */
@@ -39,7 +42,9 @@ export const securityHeaders = helmet();
 
 /** Per IP+email: slows credential stuffing on /auth/login. */
 export const authLoginLimiter = rateLimit({
+  // 15-minute sliding window for login attempts.
   windowMs: 15 * 60 * 1000,
+  // Max attempts per key inside the window.
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
@@ -64,11 +69,13 @@ export const invitationRedeemLimiter = rateLimit({
   legacyHeaders: false,
   handler: rateLimitedHandler,
   skip: () => rateLimitsDisabled(),
+  // Public redeem has no email; key solely by client IP.
   keyGenerator: (req) => clientIpKey(req),
 });
 
 /** Broad per-IP ceiling; /health skipped for load balancer probes. */
 export const globalApiLimiter = rateLimit({
+  // One-minute window for the broad API ceiling.
   windowMs: 60 * 1000,
   limit: 300,
   standardHeaders: true,

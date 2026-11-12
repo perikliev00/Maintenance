@@ -1,0 +1,13 @@
+﻿api/tests/attendance/overnight.ingest.test.ts
+api/tests/attendance/reports.pagination.db.http.test.ts
+api/tests/auth/crossInstance.grants.test.ts
+api/tests/auth/crossInstance.server.ts
+api/tests/auth/ma02.logout-refresh.concurrency.test.ts
+api/tests/cards/fixtures.ts
+api/tests/cards/issue.idempotency.http.test.ts
+api/tests/cards/issue.validation.http.test.ts
+api/tests/cards/revoke.idempotency.http.test.ts
+api/tests/cleaning/assignment.serialization.test.ts
+api/tests/cleaning/availability.http.test.ts
+api/tests/cleaning/complete.http.test.ts
+api/tests/cleaning/fixtures.ts

@@ -1,0 +1,15 @@
+﻿web/src/pages/CommonAreasPage.tsx
+web/src/pages/control/controlBoardTypes.ts
+web/src/pages/control/ControlCleaningSection.tsx
+web/src/pages/control/ControlPage.tsx
+web/src/pages/control/ControlRolesSection.tsx
+web/src/pages/control/ControlTicketsSection.tsx
+web/src/pages/control/runTicketMutation.ts
+web/src/pages/control/useControlBoard.ts
+web/src/pages/control/useControlCleaning.ts
+web/src/pages/control/useControlPeople.ts
+web/src/pages/control/useControlTickets.ts
+web/src/pages/ControlPage.tsx
+web/src/pages/controlPageState.test.ts
+web/src/pages/controlPageState.ts
+web/src/pages/HomePage.tsx

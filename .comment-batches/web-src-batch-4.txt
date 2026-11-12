@@ -1,0 +1,17 @@
+﻿web/src/hooks/useLocationCatalog.ts
+web/src/hooks/useLocationCatalogPicker.ts
+web/src/hooks/useModalLifecycle.ts
+web/src/hooks/useOfflineStatus.ts
+web/src/hooks/useTicketLifecycleActions.ts
+web/src/i18n.ts
+web/src/index.css
+web/src/lib/delayedVisible.test.ts
+web/src/lib/delayedVisible.ts
+web/src/lib/pagedListSession.test.ts
+web/src/lib/pagedListSession.ts
+web/src/main.tsx
+web/src/offline/batchRetry.test.ts
+web/src/offline/commands.ts
+web/src/offline/conflict.test.ts
+web/src/offline/conflict.ts
+web/src/offline/connState.test.ts

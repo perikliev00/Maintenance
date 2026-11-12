@@ -1,18 +1,31 @@
 /** Issue category/option catalog CRUD and reorder (manage vs report on routes). */
 import type { NextFunction, Request, Response } from "express";
+// Import dependency @prisma/client.
 import { IssueOptionKind, Priority } from "@prisma/client";
+// Import dependency zod/v3.
 import { z } from "zod/v3";
+// Continue named import list.
 import {
+  // Bring archiveCategory into scope from the import.
   archiveCategory,
+  // Bring archiveIssueOption into scope from the import.
   archiveIssueOption,
+  // Bring createCategory into scope from the import.
   createCategory,
+  // Bring createIssueOption into scope from the import.
   createIssueOption,
+  // Bring listCategories into scope from the import.
   listCategories,
+  // Bring listIssueOptions into scope from the import.
   listIssueOptions,
+  // Bring reorderIssueOptions into scope from the import.
   reorderIssueOptions,
+  // Bring updateCategory into scope from the import.
   updateCategory,
+  // Bring updateIssueOption into scope from the import.
   updateIssueOption,
 } from "../../services/issueCatalog";
+// Import local module ./shared.
 import { prioritySchema } from "./shared";
 
 // Zod field / transform.
@@ -20,11 +33,17 @@ const kindSchema = z.nativeEnum(IssueOptionKind);
 
 /** GET /categories — list issue categories (optional includeInactive). */
 export async function listCategoriesHandler(
+  // Provide req for the object/call below.
   req: Request,
+  // Provide res for the object/call below.
   res: Response,
+  // Provide next for the object/call below.
   next: NextFunction,
+// Continue the controller logic.
 ) {
+  // Bind includeInactive for use in the handler below.
   const includeInactive = req.query.includeInactive === "true";
+  // Await async work into categories.
   const categories = await listCategories({ activeOnly: !includeInactive });
   // JSON success response.
   return res.json(categories);
@@ -32,16 +51,25 @@ export async function listCategoriesHandler(
 
 /** POST /categories — create an issue category. */
 export async function createCategoryHandler(
+  // Provide req for the object/call below.
   req: Request,
+  // Provide res for the object/call below.
   res: Response,
+  // Provide next for the object/call below.
   next: NextFunction,
+// Continue the controller logic.
 ) {
   // Zod schema for request shape.
   const schema = z.object({
+    // Validate field key.
     key: z.string().min(1).max(32),
+    // Validate field nameBg.
     nameBg: z.string().min(1).max(120),
+    // Validate field nameEn.
     nameEn: z.string().min(1).max(120),
+    // Validate field sortOrder.
     sortOrder: z.number().int().optional(),
+    // Validate field isActive.
     isActive: z.boolean().optional(),
   });
   // Parse and validate input.
@@ -50,7 +78,9 @@ export async function createCategoryHandler(
   if (!parsed.success) {
     // Return value / early exit.
     return res
+      // Set response status code.
       .status(400)
+      // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
   // Persist or load row.
@@ -61,15 +91,23 @@ export async function createCategoryHandler(
 
 /** PATCH /categories/:id — update category names/sort/active. */
 export async function updateCategoryHandler(
+  // Provide req for the object/call below.
   req: Request,
+  // Provide res for the object/call below.
   res: Response,
+  // Provide next for the object/call below.
   next: NextFunction,
+// Continue the controller logic.
 ) {
   // Zod schema for request shape.
   const schema = z.object({
+    // Validate field nameBg.
     nameBg: z.string().min(1).max(120).optional(),
+    // Validate field nameEn.
     nameEn: z.string().min(1).max(120).optional(),
+    // Validate field sortOrder.
     sortOrder: z.number().int().optional(),
+    // Validate field isActive.
     isActive: z.boolean().optional(),
   });
   // Parse and validate input.
@@ -78,7 +116,9 @@ export async function updateCategoryHandler(
   if (!parsed.success) {
     // Return value / early exit.
     return res
+      // Set response status code.
       .status(400)
+      // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
   // Persist or load row.
@@ -89,9 +129,13 @@ export async function updateCategoryHandler(
 
 /** POST /categories/:id/archive — soft-archive a category. */
 export async function archiveCategoryHandler(
+  // Provide req for the object/call below.
   req: Request,
+  // Provide res for the object/call below.
   res: Response,
+  // Provide next for the object/call below.
   next: NextFunction,
+// Continue the controller logic.
 ) {
   // Persist or load row.
   const row = await archiveCategory(req.params.id);
@@ -101,17 +145,29 @@ export async function archiveCategoryHandler(
 
 /** GET /issue-options — list options (optional categoryId / includeInactive). */
 export async function listIssueOptionsHandler(
+  // Provide req for the object/call below.
   req: Request,
+  // Provide res for the object/call below.
   res: Response,
+  // Provide next for the object/call below.
   next: NextFunction,
+// Continue the controller logic.
 ) {
+  // Bind includeInactive for use in the handler below.
   const includeInactive = req.query.includeInactive === "true";
+  // Bind categoryId for use in the handler below.
   const categoryId =
+    // Narrow the runtime type before using the value.
     typeof req.query.categoryId === "string"
+      // Continue the conditional expression.
       ? req.query.categoryId
+      // Continue the conditional expression.
       : undefined;
+  // Await async work into options.
   const options = await listIssueOptions({
+    // Provide activeOnly for the object/call below.
     activeOnly: !includeInactive,
+    // Pass categoryId through.
     categoryId,
   });
   // JSON success response.
@@ -120,9 +176,13 @@ export async function listIssueOptionsHandler(
 
 /** POST /issue-options/reorder — set sort order from an ordered id list. */
 export async function reorderIssueOptionsHandler(
+  // Provide req for the object/call below.
   req: Request,
+  // Provide res for the object/call below.
   res: Response,
+  // Provide next for the object/call below.
   next: NextFunction,
+// Continue the controller logic.
 ) {
   // Zod schema for request shape.
   const schema = z.object({ ids: z.array(z.string().min(1)).min(1) });
@@ -132,9 +192,12 @@ export async function reorderIssueOptionsHandler(
   if (!parsed.success) {
     // Return value / early exit.
     return res
+      // Set response status code.
       .status(400)
+      // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
+  // Await async work into rows.
   const rows = await reorderIssueOptions(parsed.data.ids);
   // JSON success response.
   return res.json(rows);
@@ -142,19 +205,31 @@ export async function reorderIssueOptionsHandler(
 
 /** POST /issue-options — create an issue option under a category. */
 export async function createIssueOptionHandler(
+  // Provide req for the object/call below.
   req: Request,
+  // Provide res for the object/call below.
   res: Response,
+  // Provide next for the object/call below.
   next: NextFunction,
+// Continue the controller logic.
 ) {
   // Zod schema for request shape.
   const schema = z.object({
+    // Validate field maintenanceCategoryId.
     maintenanceCategoryId: z.string().min(1),
+    // Provide kind for the object/call below.
     kind: kindSchema,
+    // Validate field nameBg.
     nameBg: z.string().min(1).max(200),
+    // Validate field nameEn.
     nameEn: z.string().min(1).max(200),
+    // Provide defaultPriority for the object/call below.
     defaultPriority: prioritySchema.optional(),
+    // Validate field defaultBlocksRoom.
     defaultBlocksRoom: z.boolean().optional(),
+    // Validate field sortOrder.
     sortOrder: z.number().int().optional(),
+    // Validate field isActive.
     isActive: z.boolean().optional(),
   });
   // Parse and validate input.
@@ -163,12 +238,16 @@ export async function createIssueOptionHandler(
   if (!parsed.success) {
     // Return value / early exit.
     return res
+      // Set response status code.
       .status(400)
+      // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
   // Persist or load row.
   const row = await createIssueOption({
+    // Continue the controller logic.
     ...parsed.data,
+    // Provide defaultPriority for the object/call below.
     defaultPriority: parsed.data.defaultPriority as Priority | undefined,
   });
   // Return value / early exit.
@@ -177,19 +256,31 @@ export async function createIssueOptionHandler(
 
 /** PATCH /issue-options/:id — update an issue option. */
 export async function updateIssueOptionHandler(
+  // Provide req for the object/call below.
   req: Request,
+  // Provide res for the object/call below.
   res: Response,
+  // Provide next for the object/call below.
   next: NextFunction,
+// Continue the controller logic.
 ) {
   // Zod schema for request shape.
   const schema = z.object({
+    // Validate field maintenanceCategoryId.
     maintenanceCategoryId: z.string().min(1).optional(),
+    // Provide kind for the object/call below.
     kind: kindSchema.optional(),
+    // Validate field nameBg.
     nameBg: z.string().min(1).max(200).optional(),
+    // Validate field nameEn.
     nameEn: z.string().min(1).max(200).optional(),
+    // Provide defaultPriority for the object/call below.
     defaultPriority: prioritySchema.nullable().optional(),
+    // Validate field defaultBlocksRoom.
     defaultBlocksRoom: z.boolean().nullable().optional(),
+    // Validate field sortOrder.
     sortOrder: z.number().int().optional(),
+    // Validate field isActive.
     isActive: z.boolean().optional(),
   });
   // Parse and validate input.
@@ -198,15 +289,22 @@ export async function updateIssueOptionHandler(
   if (!parsed.success) {
     // Return value / early exit.
     return res
+      // Set response status code.
       .status(400)
+      // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
   // Persist or load row.
   const row = await updateIssueOption(req.params.id, {
+    // Continue the controller logic.
     ...parsed.data,
+    // Provide defaultPriority for the object/call below.
     defaultPriority: parsed.data.defaultPriority as
+      // Continue the controller logic.
       | Priority
+      // Continue the controller logic.
       | null
+      // Continue the controller logic.
       | undefined,
   });
   // JSON success response.
@@ -215,9 +313,13 @@ export async function updateIssueOptionHandler(
 
 /** POST /issue-options/:id/archive — soft-archive an issue option. */
 export async function archiveIssueOptionHandler(
+  // Provide req for the object/call below.
   req: Request,
+  // Provide res for the object/call below.
   res: Response,
+  // Provide next for the object/call below.
   next: NextFunction,
+// Continue the controller logic.
 ) {
   // Persist or load row.
   const row = await archiveIssueOption(req.params.id);

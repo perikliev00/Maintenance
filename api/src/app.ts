@@ -6,48 +6,83 @@
  * `index.ts` listens first, then awaits them and calls `setBootstrapComplete(true)`.
  * Until that flag is set, `/health/ready` returns 503; bootstrap failure is fatal.
  */
+// HTTP framework used to assemble middleware and routers.
 import express from "express";
+// Cross-origin allowlist for the SPA (credentials + Origin checks).
 import cors from "cors";
+// Parse Cookie header into req.cookies for session/CSRF.
 import cookieParser from "cookie-parser";
+// Login/refresh/logout and session routes.
 import { authRouter } from "./routes/auth";
+// Room inventory and occupancy routes.
 import { roomsRouter } from "./routes/rooms";
+// Shared/common-area location routes.
 import { commonAreasRouter } from "./routes/commonAreas";
+// Cleaning task assignment and completion routes.
 import { cleaningRouter } from "./routes/cleaning";
+// Maintenance ticket routes.
 import { maintenanceRouter } from "./routes/maintenance";
+// Employee/people directory and role routes.
 import { peopleRouter } from "./routes/people";
+// Invitation redeem + device pairing routes (same module).
 import {
   devicesRouter,
   invitationsRouter,
 } from "./routes/invitations";
+// Hotel settings CRUD routes.
 import { settingsRouter } from "./routes/settings";
+// Role-grant matrix management routes.
 import { permissionsRouter } from "./routes/permissions";
+// Live SSE stream and ticket issuance routes.
 import { eventsRouter } from "./routes/events";
+// Live operations board routes.
 import { operationsRouter } from "./routes/operations";
+// Attendance ingest and adjustment routes.
 import { attendanceRouter } from "./routes/attendance";
+// Daily plan planning routes.
 import { dailyPlanRouter } from "./routes/dailyPlan";
+// Analytics aggregate routes.
 import { analyticsRouter } from "./routes/analytics";
+// Access card issue/revoke routes.
 import { cardsRouter } from "./routes/cards";
+// Sector configuration routes.
 import { sectorsRouter } from "./routes/sectors";
+// Shift schedule routes.
 import { shiftsRouter } from "./routes/shifts";
+// Generic location lookup routes.
 import { locationsRouter } from "./routes/locations";
+// Audit event query routes.
 import { auditRouter } from "./routes/audit";
+// My-work personal queue routes.
 import { myWorkRouter } from "./routes/myWork";
+// Background job status/run routes.
 import { jobsRouter } from "./routes/jobs";
+// Offline sync pull/push routes.
 import { syncRouter } from "./routes/sync";
+// In-app notification routes.
 import { notificationsRouter } from "./routes/notifications";
+// Typed operational errors mapped to HTTP by the terminal handler.
 import { AppError } from "./errors";
+// Trust-proxy, Helmet headers, and global rate limiter.
 import {
   configureTrustProxy,
   globalApiLimiter,
   securityHeaders,
 } from "./middleware/security";
+// Double-submit CSRF middleware for cookie-authenticated mutations.
 import { requireCsrf } from "./middleware/session";
+// Prisma singleton used by the default readiness DB probe.
 import { prisma } from "./db";
+// Request metrics/logging helpers and Prometheus text renderer.
 import { log, renderMetrics, requestObservability, safeErrorMessage } from "./observability";
 
+// False until required DB defaults finish; gates /health/ready.
 let bootstrapComplete = false;
+// True after SIGTERM/SIGINT path starts; drains traffic with 503.
 let shuttingDown = false;
+// Called from index.ts after initializeRequiredDefaults succeeds.
 export function setBootstrapComplete(value: boolean) { bootstrapComplete = value; }
+// Called when graceful shutdown begins so readiness and traffic stop.
 export function setShuttingDown(value: boolean) { shuttingDown = value; }
 
 /** Build and return a configured Express app (does not listen). */
@@ -59,6 +94,7 @@ export function createApp(options: { probeDatabase?: () => Promise<unknown> } = 
   configureTrustProxy(app);
   // Standard security response headers (Helmet).
   app.use(securityHeaders);
+  // Attach request ids, latency metrics, and structured HTTP access logs.
   app.use(requestObservability);
 
   // Comma-separated WEB_ORIGIN; trailing slashes normalized for comparison.
@@ -94,19 +130,26 @@ export function createApp(options: { probeDatabase?: () => Promise<unknown> } = 
   app.get("/health", (_req, res) => {
     res.json({ ok: true });
   });
+  // Alias liveness path used by newer probes/orchestrators.
   app.get("/health/live", (_req, res) => res.json({ ok: true }));
+  // Readiness: bootstrap + not shutting down + successful DB probe.
   app.get("/health/ready", async (_req, res) => {
+    // Stay 503 until defaults finish or while draining on shutdown.
     if (!bootstrapComplete || shuttingDown) return res.status(503).json({ ok: false, ready: false });
     try {
+      // Injectable probe lets unit tests avoid a real Prisma round-trip.
       await (options.probeDatabase ?? (() => prisma.$transaction((tx) => tx.$queryRaw`SELECT 1`, { maxWait: 1000, timeout: 2000 })))();
       return res.json({ ok: true, ready: true });
     } catch {
+      // DB unreachable — report which dependency failed for operators.
       return res.status(503).json({ ok: false, ready: false, dependency: "database" });
     }
   });
+  // Prometheus exposition for scrape-based monitoring.
   app.get("/metrics", (_req, res) => {
     res.type("text/plain; version=0.0.4; charset=utf-8").send(renderMetrics());
   });
+  // Reject new work once graceful shutdown has started.
   app.use((_req, res, next) => {
     if (shuttingDown) return res.status(503).json({ error: "shutting_down" });
     next();

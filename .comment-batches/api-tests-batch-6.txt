@@ -1,0 +1,14 @@
+﻿api/tests/scenarios/cleaning.notification-recovery.test.ts
+api/tests/scenarios/cleaning-replay.db.test.ts
+api/tests/scenarios/explainCatalogPrisma.ts
+api/tests/scenarios/jobs.db.test.ts
+api/tests/scenarios/jobs.run.http.test.ts
+api/tests/scenarios/locations.catalog.pagination.http.test.ts
+api/tests/scenarios/locations.catalog.perf.db.test.ts
+api/tests/scenarios/locations.pagination.http.test.ts
+api/tests/scenarios/ma04.service-status.concurrency.test.ts
+api/tests/scenarios/notifications.http.test.ts
+api/tests/scenarios/operations-live.attention.db.test.ts
+api/tests/scenarios/operations-live.audit.db.test.ts
+api/tests/scenarios/outbox.starvation.db.test.ts
+api/tests/scenarios/qr.http.test.ts

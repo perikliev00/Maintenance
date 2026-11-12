@@ -3,7 +3,9 @@
  * middleware reloads role/email from the DB after verify — do not trust JWT
  * role alone for authorization.
  */
+// jsonwebtoken for HS256 sign/verify of access tokens.
 import jwt from "jsonwebtoken";
+// Role claim type mirrored from Prisma (reloaded from DB after verify).
 import type { Role } from "@prisma/client";
 
 /** Only HS256 is accepted for access tokens (SUS-002 / B3). */

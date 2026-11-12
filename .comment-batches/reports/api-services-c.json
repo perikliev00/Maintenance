@@ -1,0 +1,260 @@
+{
+  "batch": "api-services-c",
+  "filesInspected": 168,
+  "filesModified": 168,
+  "commentsAdded": 14067,
+  "linesSkippedForSafety": 100,
+  "skipReasons": [
+    {
+      "file": "api/src/services/assignees.ts",
+      "lineHint": "SELECT id FROM \"User\" WHERE \"employeeId\" = ${employeeId} FOR SHARE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/assignees.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/invitations/redeem.ts",
+      "lineHint": "SELECT id FROM \"Invitation\" WHERE id = ${inv.id} FOR UPDATE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/invitations/redeem.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/executionLock.test.ts",
+      "lineHint": "SELECT pg_try_advisory_lock(${JOB_EXECUTION_ADVISORY_KEY}) AS locked",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/executionLock.test.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/executionLock.test.ts",
+      "lineHint": "SELECT pg_advisory_unlock(${JOB_EXECUTION_ADVISORY_KEY})",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/executionLock.test.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/executionLock.ts",
+      "lineHint": "SELECT pg_try_advisory_lock(${JOB_EXECUTION_ADVISORY_KEY}) AS locked",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/executionLock.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/executionLock.ts",
+      "lineHint": "SELECT pg_advisory_unlock(${JOB_EXECUTION_ADVISORY_KEY})",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/executionLock.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "UPDATE \"CleaningSession\"",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "SET \"anomalyFlags\" =",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "(CASE WHEN jsonb_typeof(\"anomalyFlags\") = 'array'",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "THEN \"anomalyFlags\" ELSE '[]'::jsonb END) || '[\"overdue\"]'::jsonb,",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "\"updatedAt\" = CURRENT_TIMESTAMP",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "WHERE id = ${session.id} AND status = 'running'",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "AND \"startedAt\" <= ${cutoff}",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "AND NOT (COALESCE(\"anomalyFlags\", '[]'::jsonb) @> '[\"overdue\"]'::jsonb)",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "RETURNING id",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/overdueSessions.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/ticketSlaBreach.ts",
+      "lineHint": "SELECT id, status, \"slaPausedAt\"",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/ticketSlaBreach.ts",
+      "lineHint": "FROM \"MaintenanceTicket\"",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/ticketSlaBreach.ts",
+      "lineHint": "WHERE id = ${ticket.id}",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/ticketSlaBreach.ts",
+      "lineHint": "FOR UPDATE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/jobs/ticketSlaBreach.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAccessLocks.ts",
+      "lineHint": "SELECT id FROM \"User\" WHERE id IN (${Prisma.join(ids)}) ORDER BY id FOR UPDATE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAccessLocks.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAccessLocks.ts",
+      "lineHint": "SELECT id FROM \"User\" WHERE \"employeeId\" IN (${Prisma.join(ids)})",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAccessLocks.ts",
+      "lineHint": "ORDER BY id FOR UPDATE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAccessLocks.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAccessLocks.ts",
+      "lineHint": "SELECT id FROM \"Employee\" WHERE id IN (${Prisma.join(ids)})",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAccessLocks.ts",
+      "lineHint": "ORDER BY id FOR UPDATE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAccessLocks.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAuthorization.ts",
+      "lineHint": "SELECT id FROM \"User\" WHERE id = ${userId} FOR SHARE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAuthorization.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAuthorization.ts",
+      "lineHint": "SELECT id FROM \"Sector\" WHERE id IN (${Prisma.join(ids)}) ORDER BY id FOR SHARE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/liveAuthorization.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/locations/mutations.ts",
+      "lineHint": "SELECT id FROM \"Location\" WHERE id = ${opts.id} FOR UPDATE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/locations/mutations.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/maintenance/duplicateDetection/normalize.ts",
+      "lineHint": "export function normalizeIdentityText(value: string): string {",
+      "reason": "Inside string/template/block-comment; skipped for safety (later commented manually)"
+    },
+    {
+      "file": "api/src/services/maintenance/duplicateDetection/normalize.ts",
+      "lineHint": "return value",
+      "reason": "Inside string/template/block-comment; skipped for safety (later commented manually)"
+    },
+    {
+      "file": "api/src/services/maintenance/duplicateDetection/normalize.ts",
+      "lineHint": ".normalize(\"NFKC\")",
+      "reason": "Inside string/template/block-comment; skipped for safety (later commented manually)"
+    },
+    {
+      "file": "api/src/services/maintenance/duplicateDetection/normalize.ts",
+      "lineHint": ".toLowerCase()",
+      "reason": "Inside string/template/block-comment; skipped for safety (later commented manually)"
+    },
+    {
+      "file": "api/src/services/maintenance/duplicateDetection/normalize.ts",
+      "lineHint": ".replace(HARMLESS_PUNCT, \" \")",
+      "reason": "Inside string/template/block-comment; skipped for safety (later commented manually)"
+    },
+    {
+      "file": "api/src/services/maintenance/duplicateDetection/normalize.ts",
+      "lineHint": ".replace(/\\s+/g, \" \")",
+      "reason": "Inside string/template/block-comment; skipped for safety (later commented manually)"
+    },
+    {
+      "file": "api/src/services/maintenance/duplicateDetection/normalize.ts",
+      "lineHint": ".trim();",
+      "reason": "Inside string/template/block-comment; skipped for safety (later commented manually)"
+    },
+    {
+      "file": "api/src/services/maintenance/locks.ts",
+      "lineHint": "SELECT id FROM \"MaintenanceTicket\" WHERE id = ${ticketId} FOR UPDATE",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    },
+    {
+      "file": "api/src/services/maintenance/locks.ts",
+      "lineHint": "`;",
+      "reason": "Inside string/template/block-comment; skipped for safety"
+    }
+  ],
+  "errors": []
+}

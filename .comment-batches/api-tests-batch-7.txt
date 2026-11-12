@@ -1,0 +1,13 @@
+﻿api/tests/scenarios/rollback.db.test.ts
+api/tests/scenarios/scheduler.test.ts
+api/tests/scenarios/security.http.test.ts
+api/tests/scenarios/settings.concurrency.db.test.ts
+api/tests/scenarios/sse.authorization.db.test.ts
+api/tests/scenarios/sse.http.test.ts
+api/tests/scenarios/startApi.ts
+api/tests/scenarios/sync.assignee.http.test.ts
+api/tests/scenarios/sync.cleaning.assignee.http.test.ts
+api/tests/scenarios/sync.http.test.ts
+api/tests/scenarios/sync.ticket.assign-close-reopen.http.test.ts
+api/tests/scenarios/ticket.notification-recovery.test.ts
+api/tests/sectors/access.revoke.concurrency.test.ts

@@ -1,0 +1,15 @@
+﻿e2e/playwright.config.ts
+e2e/playwright.scenarios.config.ts
+e2e/tests/audit-page-live-refresh.spec.ts
+e2e/tests/audit-page-smoke.spec.ts
+e2e/tests/cookie-csrf-mutate.spec.ts
+e2e/tests/helpers/api.ts
+e2e/tests/helpers/auth.ts
+e2e/tests/helpers/fixtures.ts
+e2e/tests/helpers/jobRun.spec.ts
+e2e/tests/helpers/jobRun.ts
+e2e/tests/helpers/nav.ts
+e2e/tests/housekeeping-modals.spec.ts
+e2e/tests/location-actions-by-role.spec.ts
+e2e/tests/location-archive-flow.spec.ts
+e2e/tests/login.smoke.spec.ts

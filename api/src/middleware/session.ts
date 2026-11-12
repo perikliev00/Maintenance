@@ -2,16 +2,23 @@
  * Auth cookie issuance/clearing, token extraction, and CSRF double-submit.
  * Access/refresh are httpOnly; CSRF cookie is readable by JS for the header mirror.
  */
+// Express cookie and middleware types.
 import type { CookieOptions, Request, Response, NextFunction } from "express";
+// Cryptographically strong CSRF secret generation.
 import crypto from "crypto";
+// TTLs aligned with AuthSession access/refresh lifetimes.
 import {
   ACCESS_TOKEN_TTL_SEC,
   REFRESH_TOKEN_TTL_MS,
 } from "../services/authSessions";
 
+// httpOnly short-lived access token cookie name.
 export const SESSION_COOKIE = "session";
+// httpOnly longer-lived refresh token cookie name.
 export const REFRESH_COOKIE = "refresh";
+// Readable CSRF cookie mirrored into x-csrf-token by the SPA.
 export const CSRF_COOKIE = "csrf";
+// Header name the SPA must send on cookie-authenticated mutations.
 export const CSRF_HEADER = "x-csrf-token";
 
 /** Secure cookies in production, or when COOKIE_SECURE=1 (e.g. HTTPS local). */
@@ -80,6 +87,7 @@ export function clearAuthCookies(res: Response): void {
   res.clearCookie(CSRF_COOKIE, { ...opts, httpOnly: false });
 }
 
+// Distinguishes Authorization Bearer vs session-cookie presentation.
 export type AuthVia = "bearer" | "cookie";
 
 /**

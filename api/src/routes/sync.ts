@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import * as SyncController from "../controllers/sync";
 
+// Create the Express router for offline sync push/pull endpoints.
 export const syncRouter = Router();
 
 // POST /push — apply queued offline commands from the client.

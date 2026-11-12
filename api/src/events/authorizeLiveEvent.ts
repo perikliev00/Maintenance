@@ -2,15 +2,19 @@
  * Per-subscriber delivery filter for live SSE events based on DataScope.
  * Injected checks exist so unit tests can stub location/task/ticket access.
  */
+// Soft-fail on 403/404 AppErrors without killing the SSE stream.
 import { AppError } from "../errors";
+// Data-scope asserts that decide whether an entity is visible to the subscriber.
 import {
   assertCanAccessLocation,
   assertCanAccessTask,
   assertCanAccessTicket,
   type DataScope,
 } from "../services/dataScope";
+// Live event payload published on the in-process bus.
 import type { LiveEvent } from "./bus";
 
+// Injectable access checks so unit tests can stub without Prisma.
 export type LiveAccessChecks = {
   assertCanAccessLocation: typeof assertCanAccessLocation;
   assertCanAccessTask: typeof assertCanAccessTask;

@@ -9,6 +9,7 @@ import { authLoginLimiter } from "../middleware/security";
 import { requireCsrf } from "../middleware/session";
 import * as authController from "../controllers/auth";
 
+// Create the Express router for authentication endpoints.
 export const authRouter = Router();
 
 // POST /login — email/password; issues access+refresh cookies (rate-limited).
@@ -23,7 +24,9 @@ authRouter.post("/logout", asyncHandler(authController.logout));
 // POST /logout-all — revoke all sessions for the authenticated user.
 authRouter.post(
   "/logout-all",
+  // CSRF protection for a cross-session destructive auth action.
   requireCsrf,
+  // Delegate to logout-all with async error forwarding.
   asyncHandler(authController.logoutAll),
 );
 

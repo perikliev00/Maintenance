@@ -1,0 +1,24 @@
+﻿ABSOLUTE RULE: You may ONLY ADD English comment lines. NEVER modify, delete, replace, reorder, reformat, or move any existing code or comments. NEVER change whitespace/indentation of existing lines. NEVER modify package files, lockfiles, migrations, generated files, or vendor code.
+
+Workspace: c:\Users\Admin\Desktop\maintenance
+
+For EACH file listed in the batch file:
+1. Read the entire file.
+2. For every source line that lacks an adequate explanatory comment immediately above it (or inline), insert a concise English `//` (or language-appropriate) comment on its own new line immediately ABOVE that line.
+3. Skip empty lines and lines that are only closing brackets `}` / `);` / `],` unless a meaningful safe comment is clearly warranted.
+4. Skip lines that already have an adequate explanatory comment.
+5. Never insert comments inside string literals, template literals, regexes, or JSX text nodes.
+6. If commenting a line is unsafe, skip it and record the reason.
+7. Prefer meaningful "what/why" explanations over restating the code.
+8. Do NOT ask for confirmation. Process every file in the batch.
+
+After finishing all files, return a JSON report:
+{
+  "batch": "<batch name>",
+  "filesInspected": N,
+  "filesModified": N,
+  "commentsAdded": N,
+  "linesSkippedForSafety": N,
+  "skipReasons": [{"file":"...","lineHint":"...","reason":"..."}],
+  "errors": []
+}

@@ -3,8 +3,10 @@
  * Publishers call publish(); the /events/stream handler subscribes and filters
  * delivery with authorizeLiveEvent / data scope.
  */
+// Node EventEmitter used as the in-process live channel.
 import { EventEmitter } from "events";
 
+// Discriminated live event types the SSE stream may deliver.
 export type LiveEventType =
   | "location.changed"
   | "cleaning.changed"
@@ -15,6 +17,7 @@ export type LiveEventType =
   | "notification.changed"
   | "jobs.changed";
 
+// Payload shape stamped with `at` before fan-out.
 export type LiveEvent = {
   type: LiveEventType;
   locationId?: string;
@@ -24,8 +27,10 @@ export type LiveEvent = {
   at: string;
 };
 
+// Subscriber callback invoked for every published live event.
 type Listener = (event: LiveEvent) => void;
 
+// Process-local emitter; not shared across Node processes/replicas.
 const emitter = new EventEmitter();
 // Many concurrent SSE clients each register a listener.
 emitter.setMaxListeners(100);

@@ -1,0 +1,11 @@
+﻿api/tests/shifts/task-shift.http.test.ts
+api/tests/tickets/assign.start.concurrency.test.ts
+api/tests/tickets/assignee.gate.http.test.ts
+api/tests/tickets/duplicate.prevention.test.ts
+api/tests/tickets/fixtures.ts
+api/tests/tickets/idempotency.concurrency.test.ts
+api/tests/tickets/list.pagination.http.test.ts
+api/tests/tickets/reopen.history.test.ts
+api/tests/tickets/report.validation.http.test.ts
+api/tests/tickets/resolve.notes.policy.test.ts
+api/tests/tickets/sla.lifecycle.test.ts

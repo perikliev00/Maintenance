@@ -4,6 +4,7 @@ import { requireAuth, requireAction } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import * as CommonAreasController from "../controllers/commonAreas";
 
+// Create an Express router dedicated to common-area endpoints.
 export const commonAreasRouter = Router();
 
 // GET / — list common-area locations in the caller's data scope.
@@ -15,7 +16,10 @@ commonAreasRouter.get("/:id", requireAuth, requireAction("rooms.view"), asyncHan
 // POST /:id/mark-dirty — set common area dirty and rebind cleaning work.
 commonAreasRouter.post(
   "/:id/mark-dirty",
+  // Require an authenticated session before mutating location state.
   requireAuth,
+  // Authorize the rooms.mark_dirty action for this mutation.
   requireAction("rooms.mark_dirty"),
+  // Delegate to the common-area controller with async error forwarding.
   asyncHandler(CommonAreasController.markDirty),
 );

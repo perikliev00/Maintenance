@@ -1,0 +1,16 @@
+﻿web/src/api/analyticsApi.ts
+web/src/api/attendanceApi.ts
+web/src/api/auditApi.ts
+web/src/api/capabilities.parity.test.ts
+web/src/api/capabilities.test.ts
+web/src/api/capabilities.ts
+web/src/api/cardsApi.ts
+web/src/api/cleaningApi.ts
+web/src/api/client.ts
+web/src/api/duplicateReport.test.ts
+web/src/api/duplicateReport.ts
+web/src/api/http.session.test.ts
+web/src/api/http.ts
+web/src/api/jobsApi.ts
+web/src/api/liveEvents.ts
+web/src/api/locationsApi.ts

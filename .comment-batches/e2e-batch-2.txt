@@ -1,0 +1,10 @@
+﻿e2e/tests/scenarios/locations-pagination.spec.ts
+e2e/tests/scenarios/ma03-shift-roster-stale.spec.ts
+e2e/tests/scenarios/offline.spec.ts
+e2e/tests/scenarios/queues.spec.ts
+e2e/tests/scenarios/remaining-ui.spec.ts
+e2e/tests/scenarios/remaining-workflows.spec.ts
+e2e/tests/scenarios/ui.spec.ts
+e2e/tests/scenarios/vite-runtime.d.ts
+e2e/tests/scenarios/workflows.spec.ts
+e2e/tests/settings-draft-gaps.spec.ts

@@ -1,0 +1,12 @@
+﻿web/src/pages/AnalyticsPage.tsx
+web/src/pages/AttendancePage.tsx
+web/src/pages/auditLiveEvents.test.ts
+web/src/pages/AuditPage.tsx
+web/src/pages/auditPageLogic.test.ts
+web/src/pages/auditPageLogic.ts
+web/src/pages/cards/cardLabels.test.ts
+web/src/pages/cards/cardLabels.ts
+web/src/pages/cards/useCardIssueWizard.ts
+web/src/pages/cards/useStaffCards.ts
+web/src/pages/cardsLabels.test.ts
+web/src/pages/CardsPage.tsx
