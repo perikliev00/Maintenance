@@ -90,11 +90,8 @@ export function LoadingIndicator({
       // Assign value for subsequent use.
       aria-busy="true"
     >
-      // Render JSX element.
-      <span className="loading-indicator__spinner" aria-hidden="true" />
-      // Render JSX element.
-      <span className="loading-indicator__label">{label}</span>
-    // JSX element boundary.
-    </Tag>
+            <span className="loading-indicator__spinner" aria-hidden="true" />
+            <span className="loading-indicator__label">{label}</span>
+        </Tag>
   );
 }

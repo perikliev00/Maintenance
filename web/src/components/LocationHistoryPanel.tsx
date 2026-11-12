@@ -119,8 +119,7 @@ export function LocationHistoryPanel({
       // Assign value for subsequent use.
       onClick={onClose}
     >
-      // Render JSX element.
-      <div
+            <div
         // Assign value for subsequent use.
         className="location-detail-modal"
         // Assign value for subsequent use.
@@ -132,28 +131,17 @@ export function LocationHistoryPanel({
         // Arrow function / callback body.
         onClick={(e) => e.stopPropagation()}
       >
-        // Render JSX element.
-        <header className="location-detail-modal-header">
-          // Render JSX element.
-          <div>
-            // Render JSX element.
-            <h3 id="location-detail-title">
-              // JSX expression container.
-              {unitLabelCap} {location.number}
-            // JSX element boundary.
-            </h3>
-            // Render JSX element.
-            <div className="muted">
-              // JSX expression container.
-              {location.buildingCode} · ет. {location.floor}
-              // JSX expression container.
-              {location.sector ? ` · ${location.sector.code}` : ""}
-            // JSX element boundary.
-            </div>
-          // JSX element boundary.
-          </div>
-          // Render JSX element.
-          <button
+                <header className="location-detail-modal-header">
+                    <div>
+                        <h3 id="location-detail-title">
+                            {unitLabelCap} {location.number}
+                        </h3>
+                        <div className="muted">
+                            {location.buildingCode} · ет. {location.floor}
+                            {location.sector ? ` · ${location.sector.code}` : ""}
+                        </div>
+                    </div>
+                    <button
             // Assign value for subsequent use.
             type="button"
             // Assign value for subsequent use.
@@ -163,51 +151,31 @@ export function LocationHistoryPanel({
             // Assign value for subsequent use.
             aria-label="Close"
           >
-            // Identifier continuation in list.
-            X
-          // JSX element boundary.
+                        X
           </button>
-        // JSX element boundary.
-        </header>
+                </header>
 
-        // Render JSX element.
-        <div className="location-detail-modal-body">
-          // Render JSX element.
-          <div>
-            // Render JSX element.
-            <span className={`pill cleaning-${location.cleaningStatus}`}>
-              // JSX expression container.
-              {location.cleaningStatus}
-            // JSX element boundary.
-            </span>{" "}
-            // Render JSX element.
-            <span className={`pill service-${location.serviceStatus}`}>
-              // JSX expression container.
-              {location.serviceStatus}
-            // JSX element boundary.
-            </span>{" "}
-            // Render JSX element.
-            <span className={`pill ready-${location.readiness}`}>
-              // JSX expression container.
-              {location.readiness}
-            // JSX element boundary.
-            </span>
-          // JSX element boundary.
-          </div>
+                <div className="location-detail-modal-body">
+                    <div>
+                        <span className={`pill cleaning-${location.cleaningStatus}`}>
+                            {location.cleaningStatus}
+                        </span>{" "}
+                        <span className={`pill service-${location.serviceStatus}`}>
+                            {location.serviceStatus}
+                        </span>{" "}
+                        <span className={`pill ready-${location.readiness}`}>
+                            {location.readiness}
+                        </span>
+                    </div>
 
-          // JSX expression container.
-          {(canSetOccupancy || canSetServiceStatus) && (
+                    {(canSetOccupancy || canSetServiceStatus) && (
             // Render JSX element.
             <section className="location-ops-controls">
-              // Render JSX element.
-              <h4>Оперативни състояния</h4>
-              // JSX expression container.
-              {canSetOccupancy && onOccupancyChange && (
+                            <h4>Оперативни състояния</h4>
+                            {canSetOccupancy && onOccupancyChange && (
                 // Render JSX element.
                 <label>
-                  // JSX boolean prop or identifier.
-                  Occupancy
-                  // Render JSX element.
+                                    Occupancy
                   <select
                     // Assign value for subsequent use.
                     value={location.occupancy}
@@ -219,26 +187,19 @@ export function LocationHistoryPanel({
                       onOccupancyChange(e.target.value as LocationOccupancy)
                     }
                   >
-                    // JSX expression container.
-                    {OCCUPANCY_OPTIONS.map((o) => (
+                                        {OCCUPANCY_OPTIONS.map((o) => (
                       // Render JSX element.
                       <option key={o} value={o}>
-                        // JSX expression container.
-                        {o}
-                      // JSX element boundary.
-                      </option>
+                                                {o}
+                                            </option>
                     ))}
-                  // JSX element boundary.
-                  </select>
-                // JSX element boundary.
-                </label>
+                                    </select>
+                                </label>
               )}
-              // JSX expression container.
-              {canSetServiceStatus && onServiceStatusChange && (
+                            {canSetServiceStatus && onServiceStatusChange && (
                 // Render JSX element.
                 <label>
                   Service status
-                  // Render JSX element.
                   <select
                     // Assign value for subsequent use.
                     value={location.serviceStatus}
@@ -253,30 +214,21 @@ export function LocationHistoryPanel({
                       )
                     }
                   >
-                    // JSX expression container.
-                    {SERVICE_OPTIONS.map((o) => (
+                                        {SERVICE_OPTIONS.map((o) => (
                       // Render JSX element.
                       <option key={o} value={o}>
-                        // JSX expression container.
-                        {o}
-                      // JSX element boundary.
-                      </option>
+                                                {o}
+                                            </option>
                     ))}
-                  // JSX element boundary.
-                  </select>
-                // JSX element boundary.
-                </label>
+                                    </select>
+                                </label>
               )}
-            // JSX element boundary.
-            </section>
+                        </section>
           )}
 
-          // Render JSX element.
-          <section>
-            // Render JSX element.
-            <h4>Хронология</h4>
-            // Render JSX element.
-            <AuditTimeline
+                    <section>
+                        <h4>Хронология</h4>
+                        <AuditTimeline
               // Assign value for subsequent use.
               events={events}
               // Assign value for subsequent use.
@@ -288,14 +240,10 @@ export function LocationHistoryPanel({
               // Assign value for subsequent use.
               emptyLabel="Няма одит записи за това помещение."
             />
-          // JSX element boundary.
-          </section>
-        // JSX element boundary.
-        </div>
-      // JSX element boundary.
-      </div>
-    // JSX element boundary.
-    </div>,
+                    </section>
+                </div>
+            </div>
+        </div>,
     // Continue multi-line list/arguments.
     document.body,
   );

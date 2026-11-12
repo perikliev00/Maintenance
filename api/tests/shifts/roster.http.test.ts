@@ -443,7 +443,6 @@ describe("shift roster HTTP", () => {
         RAISE EXCEPTION 'test-forced-roster-insert-failure';
       END;
       $$ LANGUAGE plpgsql;
-    // Execute the next setup or assertion step for this scenario.
     `);
     // Await async work before asserting or releasing locks.
     await prisma.$executeRawUnsafe(`
@@ -452,7 +451,6 @@ describe("shift roster HTTP", () => {
       FOR EACH ROW
       WHEN (NEW."hotelDate" = DATE '${world.dayD}')
       EXECUTE FUNCTION ${fn}();
-    // Execute the next setup or assertion step for this scenario.
     `);
 
     // Try path where partial failure must not leak suite state.

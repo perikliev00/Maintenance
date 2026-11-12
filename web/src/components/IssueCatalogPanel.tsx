@@ -131,10 +131,8 @@ export function IssueCatalogPanel({ locale }: Props) {
   return (
     // Render JSX element.
     <div className="issue-catalog">
-      // Render JSX element.
-      <div className="settings-tabs" role="tablist">
-        // Render JSX element.
-        <button
+            <div className="settings-tabs" role="tablist">
+                <button
           // Assign value for subsequent use.
           type="button"
           // Assign value for subsequent use.
@@ -142,12 +140,9 @@ export function IssueCatalogPanel({ locale }: Props) {
           // Arrow function / callback body.
           onClick={() => setSubTab("options")}
         >
-          // JSX expression container.
-          {label("Опции", "Options")}
-        // JSX element boundary.
-        </button>
-        // Render JSX element.
-        <button
+                    {label("Опции", "Options")}
+                </button>
+                <button
           // Assign value for subsequent use.
           type="button"
           // Assign value for subsequent use.
@@ -155,31 +150,20 @@ export function IssueCatalogPanel({ locale }: Props) {
           // Arrow function / callback body.
           onClick={() => setSubTab("categories")}
         >
-          // JSX expression container.
-          {label("Категории", "Categories")}
-        // JSX element boundary.
-        </button>
-      // JSX element boundary.
-      </div>
+                    {label("Категории", "Categories")}
+                </button>
+            </div>
 
-      // JSX expression container.
-      {error && <div className="error banner">{error}</div>}
-      // JSX expression container.
-      {message && <div className="ok banner">{message}</div>}
+            {error && <div className="error banner">{error}</div>}
+            {message && <div className="ok banner">{message}</div>}
 
-      // JSX expression container.
-      {subTab === "categories" && (
+            {subTab === "categories" && (
         // Continue module logic.
         <>
-          // Render JSX element.
-          <form className="stack-form" onSubmit={onAddCategory}>
-            // Render JSX element.
-            <h3>{label("Нова категория", "New category")}</h3>
-            // Render JSX element.
-            <label>
-              // JSX boolean prop or identifier.
-              key
-              // Render JSX element.
+                    <form className="stack-form" onSubmit={onAddCategory}>
+                        <h3>{label("Нова категория", "New category")}</h3>
+                        <label>
+                            key
               <input
                 // Assign value for subsequent use.
                 value={catKey}
@@ -190,14 +174,10 @@ export function IssueCatalogPanel({ locale }: Props) {
                 // Assign value for subsequent use.
                 placeholder="plumbing"
               />
-            // JSX element boundary.
-            </label>
-            // Render JSX element.
-            <label>
-              // JSX expression container.
-              {label("Име BG", "Name BG")}
-              // Render JSX element.
-              <input
+                        </label>
+                        <label>
+                            {label("Име BG", "Name BG")}
+                            <input
                 // Assign value for subsequent use.
                 value={catNameBg}
                 // Arrow function / callback body.
@@ -205,14 +185,10 @@ export function IssueCatalogPanel({ locale }: Props) {
                 // JSX boolean prop or identifier.
                 required
               />
-            // JSX element boundary.
-            </label>
-            // Render JSX element.
-            <label>
-              // JSX expression container.
-              {label("Име EN", "Name EN")}
-              // Render JSX element.
-              <input
+                        </label>
+                        <label>
+                            {label("Име EN", "Name EN")}
+                            <input
                 // Assign value for subsequent use.
                 value={catNameEn}
                 // Arrow function / callback body.
@@ -220,50 +196,29 @@ export function IssueCatalogPanel({ locale }: Props) {
                 // JSX boolean prop or identifier.
                 required
               />
-            // JSX element boundary.
-            </label>
-            // Render JSX element.
-            <button type="submit" disabled={busy}>
-              // JSX expression container.
-              {label("Добави", "Add")}
-            // JSX element boundary.
-            </button>
-          // JSX element boundary.
-          </form>
-          // Render JSX element.
-          <table className="data-table">
-            // Render JSX element.
-            <thead>
-              // Render JSX element.
-              <tr>
-                // Render JSX element.
-                <th>key</th>
-                // Render JSX element.
-                <th>{label("Име", "Name")}</th>
-                // Render JSX element.
-                <th>{label("Активна", "Active")}</th>
-                // Render JSX element.
-                <th>{label("Действия", "Actions")}</th>
-              // JSX element boundary.
-              </tr>
-            // JSX element boundary.
-            </thead>
-            // Render JSX element.
-            <tbody>
-              // JSX expression container.
-              {categories.map((c) => (
+                        </label>
+                        <button type="submit" disabled={busy}>
+                            {label("Добави", "Add")}
+                        </button>
+                    </form>
+                    <table className="data-table">
+                        <thead>
+                            <tr>
+                                <th>key</th>
+                                <th>{label("Име", "Name")}</th>
+                                <th>{label("Активна", "Active")}</th>
+                                <th>{label("Действия", "Actions")}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {categories.map((c) => (
                 // Render JSX element.
                 <tr key={c.id}>
-                  // Render JSX element.
-                  <td>{c.key}</td>
-                  // Render JSX element.
-                  <td>{catName(c)}</td>
-                  // Render JSX element.
-                  <td>{c.isActive ? "✓" : "—"}</td>
-                  // Render JSX element.
-                  <td>
-                    // JSX expression container.
-                    {c.isActive ? (
+                                    <td>{c.key}</td>
+                                    <td>{catName(c)}</td>
+                                    <td>{c.isActive ? "✓" : "—"}</td>
+                                    <td>
+                                        {c.isActive ? (
                       // Render JSX element.
                       <button
                         // Assign value for subsequent use.
@@ -281,10 +236,8 @@ export function IssueCatalogPanel({ locale }: Props) {
                           })
                         }
                       >
-                        // JSX expression container.
-                        {label("Архивирай", "Archive")}
-                      // JSX element boundary.
-                      </button>
+                                                {label("Архивирай", "Archive")}
+                                            </button>
                     // Invoke helper or pass arguments.
                     ) : (
                       // Render JSX element.
@@ -307,38 +260,25 @@ export function IssueCatalogPanel({ locale }: Props) {
                           })
                         }
                       >
-                        // JSX expression container.
-                        {label("Активирай", "Activate")}
-                      // JSX element boundary.
-                      </button>
+                                                {label("Активирай", "Activate")}
+                                            </button>
                     )}
-                  // JSX element boundary.
-                  </td>
-                // JSX element boundary.
-                </tr>
+                                    </td>
+                                </tr>
               ))}
-            // JSX element boundary.
-            </tbody>
-          // JSX element boundary.
-          </table>
-        // Continue module logic.
-        </>
+                        </tbody>
+                    </table>
+                </>
       )}
 
-      // JSX expression container.
-      {subTab === "options" && (
+            {subTab === "options" && (
         // Continue module logic.
         <>
-          // Render JSX element.
-          <form className="stack-form" onSubmit={onAddOption}>
-            // Render JSX element.
-            <h3>{label("Нова опция", "New option")}</h3>
-            // Render JSX element.
-            <label>
-              // JSX expression container.
-              {label("Категория", "Category")}
-              // Render JSX element.
-              <select
+                    <form className="stack-form" onSubmit={onAddOption}>
+                        <h3>{label("Нова опция", "New option")}</h3>
+                        <label>
+                            {label("Категория", "Category")}
+                            <select
                 // Assign value for subsequent use.
                 value={optCategoryId}
                 // Arrow function / callback body.
@@ -346,29 +286,21 @@ export function IssueCatalogPanel({ locale }: Props) {
                 // JSX boolean prop or identifier.
                 required
               >
-                // JSX expression container.
-                {categories
+                                {categories
                   // Arrow function / callback body.
                   .filter((c) => c.isActive)
                   // Arrow function / callback body.
                   .map((c) => (
                     // Render JSX element.
                     <option key={c.id} value={c.id}>
-                      // JSX expression container.
-                      {catName(c)}
-                    // JSX element boundary.
-                    </option>
+                                            {catName(c)}
+                                        </option>
                   ))}
-              // JSX element boundary.
-              </select>
-            // JSX element boundary.
-            </label>
-            // Render JSX element.
-            <label>
-              // JSX expression container.
-              {label("Вид", "Kind")}
-              // Render JSX element.
-              <select
+                            </select>
+                        </label>
+                        <label>
+                            {label("Вид", "Kind")}
+                            <select
                 // Assign value for subsequent use.
                 value={optKind}
                 // Arrow function / callback body.
@@ -377,28 +309,17 @@ export function IssueCatalogPanel({ locale }: Props) {
                   setOptKind(e.target.value as "maintenance" | "housekeeping")
                 }
               >
-                // Render JSX element.
-                <option value="maintenance">
-                  // JSX expression container.
-                  {KIND_LABELS.maintenance[locale]}
-                // JSX element boundary.
-                </option>
-                // Render JSX element.
-                <option value="housekeeping">
-                  // JSX expression container.
-                  {KIND_LABELS.housekeeping[locale]}
-                // JSX element boundary.
-                </option>
-              // JSX element boundary.
-              </select>
-            // JSX element boundary.
-            </label>
-            // Render JSX element.
-            <label>
-              // JSX expression container.
-              {label("Име BG", "Name BG")}
-              // Render JSX element.
-              <input
+                                <option value="maintenance">
+                                    {KIND_LABELS.maintenance[locale]}
+                                </option>
+                                <option value="housekeeping">
+                                    {KIND_LABELS.housekeeping[locale]}
+                                </option>
+                            </select>
+                        </label>
+                        <label>
+                            {label("Име BG", "Name BG")}
+                            <input
                 // Assign value for subsequent use.
                 value={optNameBg}
                 // Arrow function / callback body.
@@ -406,14 +327,10 @@ export function IssueCatalogPanel({ locale }: Props) {
                 // JSX boolean prop or identifier.
                 required
               />
-            // JSX element boundary.
-            </label>
-            // Render JSX element.
-            <label>
-              // JSX expression container.
-              {label("Име EN", "Name EN")}
-              // Render JSX element.
-              <input
+                        </label>
+                        <label>
+                            {label("Име EN", "Name EN")}
+                            <input
                 // Assign value for subsequent use.
                 value={optNameEn}
                 // Arrow function / callback body.
@@ -421,39 +338,25 @@ export function IssueCatalogPanel({ locale }: Props) {
                 // JSX boolean prop or identifier.
                 required
               />
-            // JSX element boundary.
-            </label>
-            // Render JSX element.
-            <label>
-              // JSX expression container.
-              {label("Приоритет по подразб.", "Default priority")}
-              // Render JSX element.
-              <select
+                        </label>
+                        <label>
+                            {label("Приоритет по подразб.", "Default priority")}
+                            <select
                 // Assign value for subsequent use.
                 value={optDefaultPriority}
                 // Arrow function / callback body.
                 onChange={(e) => setOptDefaultPriority(e.target.value)}
               >
-                // Render JSX element.
-                <option value="">—</option>
-                // Render JSX element.
-                <option value="low">low</option>
-                // Render JSX element.
-                <option value="normal">normal</option>
-                // Render JSX element.
-                <option value="high">high</option>
-                // Render JSX element.
-                <option value="urgent">urgent</option>
-              // JSX element boundary.
-              </select>
-            // JSX element boundary.
-            </label>
-            // Render JSX element.
-            <label>
-              // JSX expression container.
-              {label("Блокира по подразб.", "Default blocks room")}
-              // Render JSX element.
-              <select
+                                <option value="">—</option>
+                                <option value="low">low</option>
+                                <option value="normal">normal</option>
+                                <option value="high">high</option>
+                                <option value="urgent">urgent</option>
+                            </select>
+                        </label>
+                        <label>
+                            {label("Блокира по подразб.", "Default blocks room")}
+                            <select
                 // Assign value for subsequent use.
                 value={
                   // Assign value for subsequent use.
@@ -467,61 +370,36 @@ export function IssueCatalogPanel({ locale }: Props) {
                   setOptDefaultBlocks(v === "" ? "" : v === "1");
                 }}
               >
-                // Render JSX element.
-                <option value="">—</option>
-                // Render JSX element.
-                <option value="1">{label("Да", "Yes")}</option>
-                // Render JSX element.
-                <option value="0">{label("Не", "No")}</option>
-              // JSX element boundary.
-              </select>
-            // JSX element boundary.
-            </label>
-            // Render JSX element.
-            <button type="submit" disabled={busy}>
-              // JSX expression container.
-              {label("Добави", "Add")}
-            // JSX element boundary.
-            </button>
-          // JSX element boundary.
-          </form>
-          // Render JSX element.
-          <p className="muted issue-catalog-hint">
-            // JSX expression container.
-            {label(
+                                <option value="">—</option>
+                                <option value="1">{label("Да", "Yes")}</option>
+                                <option value="0">{label("Не", "No")}</option>
+                            </select>
+                        </label>
+                        <button type="submit" disabled={busy}>
+                            {label("Добави", "Add")}
+                        </button>
+                    </form>
+                    <p className="muted issue-catalog-hint">
+                        {label(
               // Continue multi-line list/arguments.
               "Влачете редовете за пренареждане. ↑/↓ са за клавиатура.",
               // Continue multi-line list/arguments.
               "Drag rows to reorder. ↑/↓ buttons are for keyboard.",
             )}
-          // JSX element boundary.
-          </p>
-          // Render JSX element.
-          <table className="data-table issue-options-table">
-            // Render JSX element.
-            <thead>
-              // Render JSX element.
-              <tr>
-                // Render JSX element.
-                <th>{label("Подредба", "Order")}</th>
-                // Render JSX element.
-                <th>{label("Наименование", "Name")}</th>
-                // Render JSX element.
-                <th>{label("Вид", "Kind")}</th>
-                // Render JSX element.
-                <th>{label("Категория", "Category")}</th>
-                // Render JSX element.
-                <th>{label("Активна", "Active")}</th>
-                // Render JSX element.
-                <th>{label("Действия", "Actions")}</th>
-              // JSX element boundary.
-              </tr>
-            // JSX element boundary.
-            </thead>
-            // Render JSX element.
-            <tbody>
-              // JSX expression container.
-              {options.map((o, idx) => {
+                    </p>
+                    <table className="data-table issue-options-table">
+                        <thead>
+                            <tr>
+                                <th>{label("Подредба", "Order")}</th>
+                                <th>{label("Наименование", "Name")}</th>
+                                <th>{label("Вид", "Kind")}</th>
+                                <th>{label("Категория", "Category")}</th>
+                                <th>{label("Активна", "Active")}</th>
+                                <th>{label("Действия", "Actions")}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {options.map((o, idx) => {
                 // Local constant binding.
                 const cat =
                   // Continue module logic.
@@ -562,10 +440,8 @@ export function IssueCatalogPanel({ locale }: Props) {
                     // Assign value for subsequent use.
                     onDragEnd={onDragEnd}
                   >
-                    // Render JSX element.
-                    <td>
-                      // Render JSX element.
-                      <span
+                                        <td>
+                                            <span
                         // Assign value for subsequent use.
                         className="drag-handle"
                         // Assign value for subsequent use.
@@ -573,12 +449,9 @@ export function IssueCatalogPanel({ locale }: Props) {
                         // Continue module logic.
                         aria-hidden
                       >
-                        // Continue module logic.
-                        ⋮⋮
-                      // JSX element boundary.
+                                                ⋮⋮
                       </span>
-                      // Render JSX element.
-                      <button
+                                            <button
                         // Assign value for subsequent use.
                         type="button"
                         // Assign value for subsequent use.
@@ -590,12 +463,9 @@ export function IssueCatalogPanel({ locale }: Props) {
                         // Assign value for subsequent use.
                         aria-label={label("Нагоре", "Move up")}
                       >
-                        // Continue module logic.
-                        ↑
-                      // JSX element boundary.
+                                                ↑
                       </button>
-                      // Render JSX element.
-                      <button
+                                            <button
                         // Assign value for subsequent use.
                         type="button"
                         // Assign value for subsequent use.
@@ -607,24 +477,15 @@ export function IssueCatalogPanel({ locale }: Props) {
                         // Assign value for subsequent use.
                         aria-label={label("Надолу", "Move down")}
                       >
-                        // Continue module logic.
-                        ↓
-                      // JSX element boundary.
+                                                ↓
                       </button>
-                    // JSX element boundary.
-                    </td>
-                    // Render JSX element.
-                    <td>{locale === "bg" ? o.nameBg : o.nameEn}</td>
-                    // Render JSX element.
-                    <td>{KIND_LABELS[o.kind]?.[locale] ?? o.kind}</td>
-                    // Render JSX element.
-                    <td>{cat ? catName(cat) : "—"}</td>
-                    // Render JSX element.
-                    <td>{o.isActive ? "✓" : "—"}</td>
-                    // Render JSX element.
-                    <td>
-                      // JSX expression container.
-                      {o.isActive ? (
+                                        </td>
+                                        <td>{locale === "bg" ? o.nameBg : o.nameEn}</td>
+                                        <td>{KIND_LABELS[o.kind]?.[locale] ?? o.kind}</td>
+                                        <td>{cat ? catName(cat) : "—"}</td>
+                                        <td>{o.isActive ? "✓" : "—"}</td>
+                                        <td>
+                                            {o.isActive ? (
                         // Render JSX element.
                         <button
                           // Assign value for subsequent use.
@@ -642,10 +503,8 @@ export function IssueCatalogPanel({ locale }: Props) {
                             })
                           }
                         >
-                          // JSX expression container.
-                          {label("Архивирай", "Archive")}
-                        // JSX element boundary.
-                        </button>
+                                                    {label("Архивирай", "Archive")}
+                                                </button>
                       // Invoke helper or pass arguments.
                       ) : (
                         // Render JSX element.
@@ -665,25 +524,17 @@ export function IssueCatalogPanel({ locale }: Props) {
                             })
                           }
                         >
-                          // JSX expression container.
-                          {label("Активирай", "Activate")}
-                        // JSX element boundary.
-                        </button>
+                                                    {label("Активирай", "Activate")}
+                                                </button>
                       )}
-                    // JSX element boundary.
-                    </td>
-                  // JSX element boundary.
-                  </tr>
+                                        </td>
+                                    </tr>
                 );
               })}
-            // JSX element boundary.
-            </tbody>
-          // JSX element boundary.
-          </table>
-        // Continue module logic.
-        </>
+                        </tbody>
+                    </table>
+                </>
       )}
-    // JSX element boundary.
-    </div>
+        </div>
   );
 }

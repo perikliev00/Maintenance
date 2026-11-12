@@ -108,9 +108,7 @@ export async function assertActiveAssignee(
   if (db !== prisma) {
     // Await side effect before continuing.
     await db.$queryRaw`
-      // Support the surrounding control flow.
       SELECT id FROM "User" WHERE "employeeId" = ${employeeId} FOR SHARE
-    // Support the surrounding control flow.
     `;
   }
   // Missing employee → same validation error as wrong role (no 404 leak).

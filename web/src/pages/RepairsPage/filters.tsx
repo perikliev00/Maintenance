@@ -93,8 +93,7 @@ export function Filters({
           {people.map((p) => (
             // Render a <option> element for layout or semantics.
             <option key={p.employeeId} value={p.employeeId}>
-              // Support the surrounding logic for this step.
-              {p.fullName}
+                            {p.fullName}
             </option>
           // Support the surrounding logic for this step.
           ))}

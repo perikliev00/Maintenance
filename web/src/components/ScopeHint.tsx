@@ -91,9 +91,7 @@ export function ScopeHint({ user, locale = "bg" }: Props) {
   return (
     // Render JSX element.
     <p className="muted small scope-hint" role="status">
-      // JSX expression container.
-      {label} — {detail}
-    // JSX element boundary.
-    </p>
+            {label} — {detail}
+        </p>
   );
 }

@@ -254,9 +254,7 @@ export async function ingestEvent(input: {
     const result = await prisma.$transaction(async (tx) => {
       // Serialize per-employee rebuilds so concurrent punches cannot fork intervals.
       await tx.$executeRaw`
-        // Support the surrounding control flow.
         SELECT id FROM "Employee" WHERE id = ${input.employeeId} FOR UPDATE
-      // Support the surrounding control flow.
       `;
       // Await async query or service call.
       const event = await tx.attendanceEvent.create({

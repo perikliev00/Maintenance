@@ -63,8 +63,7 @@ export function NotificationInbox({ locale, active, onOpen }: Props) {
   return (
     // Render JSX element.
     <div className="notif-inbox">
-      // Render JSX element.
-      <button
+            <button
         // Assign value for subsequent use.
         type="button"
         // Assign value for subsequent use.
@@ -76,8 +75,7 @@ export function NotificationInbox({ locale, active, onOpen }: Props) {
         // Assign value for subsequent use.
         onClick={onOpen}
       >
-        // Render JSX element.
-        <svg
+                <svg
           // Assign value for subsequent use.
           className="notif-bell-icon"
           // Assign value for subsequent use.
@@ -95,22 +93,15 @@ export function NotificationInbox({ locale, active, onOpen }: Props) {
           // Continue module logic.
           aria-hidden
         >
-          // Render JSX element.
-          <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5" />
-          // Render JSX element.
-          <path d="M9.5 17a2.5 2.5 0 0 0 5 0" />
-        // JSX element boundary.
-        </svg>
-        // JSX block comment.
-        {/* Cap display at 99+ so the badge stays compact. */}
-        // JSX expression container.
-        {count > 0 && (
+                    <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5" />
+                    <path d="M9.5 17a2.5 2.5 0 0 0 5 0" />
+                </svg>
+                {/* Cap display at 99+ so the badge stays compact. */}
+                {count > 0 && (
           // Render JSX element.
           <span className="notif-badge">{count > 99 ? "99+" : count}</span>
         )}
-      // JSX element boundary.
-      </button>
-    // JSX element boundary.
-    </div>
+            </button>
+        </div>
   );
 }

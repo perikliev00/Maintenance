@@ -83,8 +83,7 @@ export function SystemStatusSection({
       {stale && (
         // Render a <p> element for layout or semantics.
         <p className="muted" role="status">
-          // Support the surrounding logic for this step.
-          {label(
+                    {label(
             // Support the surrounding logic for this step.
             "Последното опресняване не успя — показаните стойности може да са остарели.",
             // Support the surrounding logic for this step.

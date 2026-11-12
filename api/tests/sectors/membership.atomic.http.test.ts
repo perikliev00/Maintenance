@@ -286,7 +286,6 @@ describe("sector membership atomic HTTP", () => {
         RAISE EXCEPTION 'test-forced-sector-location-insert-failure';
       END;
       $$ LANGUAGE plpgsql;
-    // Execute the next setup or assertion step for this scenario.
     `);
     // Await async work before asserting or releasing locks.
     await prisma.$executeRawUnsafe(`
@@ -295,7 +294,6 @@ describe("sector membership atomic HTTP", () => {
       FOR EACH ROW
       WHEN (NEW."sectorId" = '${world.sectorA2Id}')
       EXECUTE FUNCTION ${fn}();
-    // Execute the next setup or assertion step for this scenario.
     `);
 
     // Try path where partial failure must not leak suite state.

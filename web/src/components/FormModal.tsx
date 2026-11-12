@@ -130,8 +130,7 @@ export function FormModal({
       // Assign value for subsequent use.
       onClick={requestClose}
     >
-      // Render JSX element.
-      <div
+            <div
         // Assign value for subsequent use.
         ref={panelRef}
         // Assign value for subsequent use.
@@ -145,12 +144,9 @@ export function FormModal({
         // Arrow function / callback body.
         onClick={(e) => e.stopPropagation()}
       >
-        // Render JSX element.
-        <div className="panel-header">
-          // Render JSX element.
-          <h2 id={titleId}>{title}</h2>
-          // Render JSX element.
-          <button
+                <div className="panel-header">
+                    <h2 id={titleId}>{title}</h2>
+                    <button
             // Assign value for subsequent use.
             type="button"
             // Assign value for subsequent use.
@@ -162,40 +158,23 @@ export function FormModal({
             // Assign value for subsequent use.
             disabled={busy}
           >
-            // Continue module logic.
-            ×
-          // JSX element boundary.
+                        ×
           </button>
-        // JSX element boundary.
-        </div>
-        // JSX expression container.
-        {error && <p className="error-banner">{error}</p>}
-        // Render JSX element.
-        <form className="report-form modal-form-scroll" onSubmit={onSubmit}>
-          // JSX expression container.
-          {children}
-          // Render JSX element.
-          <div className="modal-actions">
-            // Render JSX element.
-            <button type="button" className="ghost" onClick={requestClose} disabled={busy}>
-              // JSX expression container.
-              {cancelLabel}
-            // JSX element boundary.
-            </button>
-            // Render JSX element.
-            <button type="submit" disabled={busy}>
-              // JSX expression container.
-              {busy ? "…" : submitLabel}
-            // JSX element boundary.
-            </button>
-          // JSX element boundary.
-          </div>
-        // JSX element boundary.
-        </form>
-      // JSX element boundary.
-      </div>
-    // JSX element boundary.
-    </div>,
+                </div>
+                {error && <p className="error-banner">{error}</p>}
+                <form className="report-form modal-form-scroll" onSubmit={onSubmit}>
+                    {children}
+                    <div className="modal-actions">
+                        <button type="button" className="ghost" onClick={requestClose} disabled={busy}>
+                            {cancelLabel}
+                        </button>
+                        <button type="submit" disabled={busy}>
+                            {busy ? "…" : submitLabel}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>,
     // Continue multi-line list/arguments.
     document.body,
   );

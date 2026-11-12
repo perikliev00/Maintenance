@@ -30,10 +30,8 @@ export function BrandMark({ size = 28, className }: Props) {
       // Assign value for subsequent use.
       aria-hidden="true"
     >
-      // Render JSX element.
-      <rect width="32" height="32" rx="8" fill="var(--accent-soft)" />
-      // Render JSX element.
-      <path
+            <rect width="32" height="32" rx="8" fill="var(--accent-soft)" />
+            <path
         // Assign value for subsequent use.
         d="M6 22.5V9.5L16 16.2L26 9.5V22.5"
         // Assign value for subsequent use.
@@ -45,9 +43,7 @@ export function BrandMark({ size = 28, className }: Props) {
         // Assign value for subsequent use.
         strokeLinejoin="round"
       />
-      // Render JSX element.
-      <circle cx="16" cy="16.2" r="1.8" fill="var(--accent-bright)" />
-    // JSX element boundary.
-    </svg>
+            <circle cx="16" cy="16.2" r="1.8" fill="var(--accent-bright)" />
+        </svg>
   );
 }

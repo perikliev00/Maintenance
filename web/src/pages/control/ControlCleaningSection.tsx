@@ -76,8 +76,7 @@ export function ControlCleaningSection({
             {rooms.map((room) => (
               // Render a <option> element for layout or semantics.
               <option key={room.id} value={room.id}>
-                // Support the surrounding logic for this step.
-                {room.buildingCode} {room.number}
+                                {room.buildingCode} {room.number}
               </option>
             // Support the surrounding logic for this step.
             ))}
@@ -103,8 +102,7 @@ export function ControlCleaningSection({
             {housekeepers.map((hk) => (
               // Render a <option> element for layout or semantics.
               <option key={hk.id} value={hk.id}>
-                // Support the surrounding logic for this step.
-                {hk.fullName} ({hk.employeeNumber})
+                                {hk.fullName} ({hk.employeeNumber})
               </option>
             // Support the surrounding logic for this step.
             ))}

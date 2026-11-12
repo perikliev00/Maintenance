@@ -201,23 +201,19 @@ export function TeamPage({ user, locale = "bg" }: Props) {
               // Pass onClick prop/value into the element or config.
               onClick={() => setTab("onboarding")}
             >
-              // Support the surrounding logic for this step.
               Onboarding
-            </button>
+</button>
           )}
         </div>
       </div>
 
-      // Support the surrounding logic for this step.
-      {displayError && <div className="error banner">{displayError}</div>}
-      // Support the surrounding logic for this step.
-      {onboarding.inviteMessage && tab === "onboarding" && (
+            {displayError && <div className="error banner">{displayError}</div>}
+            {onboarding.inviteMessage && tab === "onboarding" && (
         // Render a <div> element for layout or semantics.
         <div className="ok banner">{onboarding.inviteMessage}</div>
       )}
 
-      // Support the surrounding logic for this step.
-      {tab === "directory" && (
+            {tab === "directory" && (
         // Render TeamDirectoryPanel as part of this view composition.
         <TeamDirectoryPanel
           // Pass locale prop/value into the element or config.
@@ -275,8 +271,7 @@ export function TeamPage({ user, locale = "bg" }: Props) {
         />
       )}
 
-      // Support the surrounding logic for this step.
-      {tab === "onboarding" && canInvite && (
+            {tab === "onboarding" && canInvite && (
         // Render TeamOnboardingPanel as part of this view composition.
         <TeamOnboardingPanel
           // Pass locale prop/value into the element or config.
@@ -344,8 +339,7 @@ export function TeamPage({ user, locale = "bg" }: Props) {
         />
       )}
 
-      // Support the surrounding logic for this step.
-      {devicesPerson && (
+            {devicesPerson && (
         // Render TeamPersonDevicesDialog as part of this view composition.
         <TeamPersonDevicesDialog
           // Pass person prop/value into the element or config.
@@ -377,8 +371,7 @@ export function TeamPage({ user, locale = "bg" }: Props) {
         />
       )}
 
-      // Support the surrounding logic for this step.
-      {detailPerson && (
+            {detailPerson && (
         // Render TeamPersonDetailDialog as part of this view composition.
         <TeamPersonDetailDialog
           // Pass person prop/value into the element or config.

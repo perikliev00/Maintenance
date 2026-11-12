@@ -296,12 +296,10 @@ export function OutboxIssuesPanel({
   return (
     // Render JSX element.
     <div className="outbox-issues">
-      // JSX expression container.
-      {conflictCount > 0 && (
+            {conflictCount > 0 && (
         // Render JSX element.
         <div className="banner warn">
-          // JSX expression container.
-          {t(
+                    {t(
             // List item in import/export/params.
             locale,
             // Continue multi-line list/arguments.
@@ -309,15 +307,12 @@ export function OutboxIssuesPanel({
             // Continue multi-line list/arguments.
             `${conflictCount} conflicts need resolution — local actions were not applied`,
           )}
-        // JSX element boundary.
-        </div>
+                </div>
       )}
-      // JSX expression container.
-      {failedCount > 0 && (
+            {failedCount > 0 && (
         // Render JSX element.
         <div className="banner error">
-          // JSX expression container.
-          {t(
+                    {t(
             // List item in import/export/params.
             locale,
             // Continue multi-line list/arguments.
@@ -325,15 +320,12 @@ export function OutboxIssuesPanel({
             // Continue multi-line list/arguments.
             `${failedCount} queued actions failed`,
           )}
-        // JSX element boundary.
-        </div>
+                </div>
       )}
-      // JSX expression container.
-      {items.length > 0 && (
+            {items.length > 0 && (
         // Render JSX element.
         <ul className="outbox-issue-list">
-          // JSX expression container.
-          {items.map((item) => {
+                    {items.map((item) => {
             // Local constant binding.
             const details = parseConflictDetails(item.conflictDetails);
             // Local constant binding.
@@ -370,92 +362,62 @@ export function OutboxIssuesPanel({
             return (
               // Render JSX element.
               <li key={item.id} className="outbox-issue-item">
-                // Render JSX element.
-                <div className="outbox-issue-meta">
-                  // Render JSX element.
-                  <strong>
-                    // JSX expression container.
-                    {item.status === "conflict"
+                                <div className="outbox-issue-meta">
+                                    <strong>
+                                        {item.status === "conflict"
                       // Invoke helper or pass arguments.
                       ? t(locale, "Конфликт", "Conflict")
                       // Invoke helper or pass arguments.
                       : t(locale, "Грешка", "Failed")}
-                    // JSX block comment.
-                    {/* Render branch: item.conflictCode ? ` · $item.conflictCode` : "" */}
-                    // JSX expression container.
-                    {item.conflictCode ? ` · ${item.conflictCode}` : ""}
-                  // JSX element boundary.
-                  </strong>
-                  // Render JSX element.
-                  <span className="muted">
-                    // JSX expression container.
-                    {new Date(item.updatedAt).toLocaleString()}
-                  // JSX element boundary.
-                  </span>
-                  // Render JSX element.
-                  <span>{message}</span>
-                  // JSX expression container.
-                  {existingTicketId ? (
+                                        {/* Render branch: item.conflictCode ? ` · $item.conflictCode` : "" */}
+                                        {item.conflictCode ? ` · ${item.conflictCode}` : ""}
+                                    </strong>
+                                    <span className="muted">
+                                        {new Date(item.updatedAt).toLocaleString()}
+                                    </span>
+                                    <span>{message}</span>
+                                    {existingTicketId ? (
                     // Render JSX element.
                     <span className="muted">
-                      // JSX expression container.
-                      {t(locale, "Съществуващ тикет", "Existing ticket")}:{" "}
-                      // Render JSX element.
-                      <code>{existingTicketId.slice(0, 10)}…</code>
-                    // JSX element boundary.
-                    </span>
+                                            {t(locale, "Съществуващ тикет", "Existing ticket")}:{" "}
+                                            <code>{existingTicketId.slice(0, 10)}…</code>
+                                        </span>
                   // Close multi-line construct with trailing syntax.
                   ) : null}
-                  // JSX expression container.
-                  {item.status === "conflict" && (
+                                    {item.status === "conflict" && (
                     // Continue module logic.
                     <>
-                      // Render JSX element.
-                      <span className="muted">
-                        // JSX expression container.
-                        {t(locale, "Локален intent", "Local intent")}:{" "}
-                        // JSX expression container.
-                        {localIntentSummary(locale, item)}
-                      // JSX element boundary.
-                      </span>
-                      // JSX expression container.
-                      {(details?.currentVersion !== undefined ||
+                                            <span className="muted">
+                                                {t(locale, "Локален intent", "Local intent")}:{" "}
+                                                {localIntentSummary(locale, item)}
+                                            </span>
+                                            {(details?.currentVersion !== undefined ||
                         // Continue module logic.
                         details?.status ||
                         // Invoke helper or pass arguments.
                         details?.assignedEmployeeId) && (
                         // Render JSX element.
                         <span className="muted">
-                          // JSX expression container.
-                          {t(locale, "Сървър", "Server")}:
-                          // JSX expression container.
+                                                    {t(locale, "Сървър", "Server")}:
                           {details.currentVersion !== undefined
                             // Continue module logic.
                             ? ` v${details.currentVersion}`
                             // Continue module logic.
                             : ""}
-                          // JSX block comment.
-                          {/* Render branch: details.status ? ` · $details.status` : "" */}
-                          // JSX expression container.
-                          {details.status ? ` · ${details.status}` : ""}
-                          // JSX expression container.
-                          {details.assignedEmployeeId
+                                                    {/* Render branch: details.status ? ` · $details.status` : "" */}
+                                                    {details.status ? ` · ${details.status}` : ""}
+                                                    {details.assignedEmployeeId
                             // Invoke helper or pass arguments.
                             ? ` · ${t(locale, "назначен", "assignee")} ${details.assignedEmployeeId.slice(0, 8)}…`
                             // Continue module logic.
                             : ""}
-                        // JSX element boundary.
-                        </span>
+                                                </span>
                       )}
-                    // Continue module logic.
-                    </>
+                                        </>
                   )}
-                // JSX element boundary.
-                </div>
-                // Render JSX element.
-                <div className="outbox-issue-actions">
-                  // JSX expression container.
-                  {item.status === "conflict" && rebaseable && (
+                                </div>
+                                <div className="outbox-issue-actions">
+                                    {item.status === "conflict" && rebaseable && (
                     // Render JSX element.
                     <button
                       // Assign value for subsequent use.
@@ -467,8 +429,7 @@ export function OutboxIssuesPanel({
                       // Arrow function / callback body.
                       onClick={() => void onRebase(item.id)}
                     >
-                      // JSX expression container.
-                      {t(
+                                            {t(
                         // List item in import/export/params.
                         locale,
                         // Continue multi-line list/arguments.
@@ -476,11 +437,9 @@ export function OutboxIssuesPanel({
                         // Continue multi-line list/arguments.
                         "Retry with current version",
                       )}
-                    // JSX element boundary.
-                    </button>
+                                        </button>
                   )}
-                  // JSX expression container.
-                  {item.status === "failed" && (
+                                    {item.status === "failed" && (
                     // Render JSX element.
                     <button
                       // Assign value for subsequent use.
@@ -492,13 +451,10 @@ export function OutboxIssuesPanel({
                       // Arrow function / callback body.
                       onClick={() => void onRetryFailed(item.id)}
                     >
-                      // JSX expression container.
-                      {t(locale, "Опитай пак", "Retry")}
-                    // JSX element boundary.
-                    </button>
+                                            {t(locale, "Опитай пак", "Retry")}
+                                        </button>
                   )}
-                  // Render JSX element.
-                  <button
+                                    <button
                     // Assign value for subsequent use.
                     type="button"
                     // Assign value for subsequent use.
@@ -508,20 +464,14 @@ export function OutboxIssuesPanel({
                     // Arrow function / callback body.
                     onClick={() => void onDismiss(item.id)}
                   >
-                    // JSX expression container.
-                    {t(locale, "Отхвърли", "Dismiss")}
-                  // JSX element boundary.
-                  </button>
-                // JSX element boundary.
-                </div>
-              // JSX element boundary.
-              </li>
+                                        {t(locale, "Отхвърли", "Dismiss")}
+                                    </button>
+                                </div>
+                            </li>
             );
           })}
-        // JSX element boundary.
-        </ul>
+                </ul>
       )}
-    // JSX element boundary.
-    </div>
+        </div>
   );
 }

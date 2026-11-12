@@ -726,13 +726,9 @@ describe("people lifecycle HTTP", () => {
           (tx) =>
             // Arrange or act for this test case.
             tx.$queryRaw`
-              // Arrange or act for this test case.
               SELECT id FROM "User"
-              // Arrange or act for this test case.
               WHERE id IN (${a.userId}, ${b.userId})
-              // Arrange or act for this test case.
               ORDER BY id FOR UPDATE
-            // Arrange or act for this test case.
             `,
           // Arrange or act for this test case.
           () =>
@@ -967,9 +963,7 @@ describe("people lifecycle HTTP", () => {
       (tx) =>
         // Arrange or act for this test case.
         tx.$queryRaw`
-          // Arrange or act for this test case.
           SELECT id FROM "User" WHERE id = ${worker.userId} FOR UPDATE
-        // Arrange or act for this test case.
         `,
       // Arrange or act for this test case.
       () =>

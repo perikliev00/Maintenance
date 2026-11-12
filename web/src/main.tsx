@@ -52,10 +52,8 @@ function mount() {
   createRoot(document.getElementById("root")!).render(
     // Render JSX element.
     <StrictMode>
-      // Render JSX element.
-      <App />
-    // JSX element boundary.
-    </StrictMode>,
+            <App />
+        </StrictMode>,
   );
 }
 

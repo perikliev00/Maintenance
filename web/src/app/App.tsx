@@ -183,10 +183,8 @@ export default function App() {
   return (
     // Render UI node.
     <>
-    // Support the surrounding logic for this step.
-    {signOutError && <p role="alert" className="error">{signOutError}</p>}
-    // Render AppRouting as part of this view composition.
-    <AppRouting
+        {signOutError && <p role="alert" className="error">{signOutError}</p>}
+        <AppRouting
       // Pass authReady prop/value into the element or config.
       authReady={authReady}
       // Pass signedIn prop/value into the element or config.

@@ -68,48 +68,31 @@ export function AuditTimeline({
   return (
     // Render JSX element.
     <ul className="audit-timeline">
-      // JSX expression container.
-      {events.map((ev) => (
+            {events.map((ev) => (
         // Render JSX element.
         <li key={ev.id} className="audit-timeline-item">
-          // Render JSX element.
-          <div className="audit-timeline-meta">
-            // Render JSX element.
-            <span className="muted">
-              // JSX expression container.
-              {new Date(ev.occurredAt).toLocaleString()}
-            // JSX element boundary.
-            </span>
-            // JSX block comment.
-            {/* Actor is optional on system-generated events. */}
-            // JSX expression container.
-            {ev.actor && (
+                    <div className="audit-timeline-meta">
+                        <span className="muted">
+                            {new Date(ev.occurredAt).toLocaleString()}
+                        </span>
+                        {/* Actor is optional on system-generated events. */}
+                        {ev.actor && (
               // Render JSX element.
               <span className="audit-timeline-actor">{ev.actor.fullName}</span>
             )}
-          // JSX element boundary.
-          </div>
-          // Render JSX element.
-          <div className="audit-timeline-summary">
-            // JSX expression container.
-            {auditHeadline(ev, locale)}
-          // JSX element boundary.
-          </div>
-          // JSX block comment.
-          {/* Optional free-text reason from the mutating action. */}
-          // JSX expression container.
-          {ev.reason && (
+                    </div>
+                    <div className="audit-timeline-summary">
+                        {auditHeadline(ev, locale)}
+                    </div>
+                    {/* Optional free-text reason from the mutating action. */}
+                    {ev.reason && (
             // Render JSX element.
             <div className="muted audit-timeline-reason">
-              // Continue module logic.
-              Причина: {ev.reason}
-            // JSX element boundary.
-            </div>
+                            Причина: {ev.reason}
+                        </div>
           )}
-        // JSX element boundary.
-        </li>
+                </li>
       ))}
-    // JSX element boundary.
-    </ul>
+        </ul>
   );
 }

@@ -113,8 +113,7 @@ export function LocationIssueDialog({
   return createPortal(
     // Render JSX element.
     <div className="modal-backdrop" role="presentation" onClick={onCancel}>
-      // Render JSX element.
-      <form
+            <form
         // Assign value for subsequent use.
         className="modal"
         // Arrow function / callback body.
@@ -127,10 +126,8 @@ export function LocationIssueDialog({
           onSubmit();
         }}
       >
-        // Render JSX element.
-        <h3>{t(locale, "Докладвай проблем", "Report issue")}</h3>
-        // Render JSX element.
-        <IssueReportForm
+                <h3>{t(locale, "Докладвай проблем", "Report issue")}</h3>
+                <IssueReportForm
           // Assign value for subsequent use.
           locale={locale}
           // Assign value for subsequent use.
@@ -166,22 +163,14 @@ export function LocationIssueDialog({
           // Assign value for subsequent use.
           onPriorityChange={onPriorityChange}
         />
-        // Render JSX element.
-        <div className="modal-actions">
-          // Render JSX element.
-          <button type="button" className="ghost" onClick={onCancel}>
-            // JSX expression container.
-            {t(locale, "Отказ", "Cancel")}
-          // JSX element boundary.
-          </button>
-          // Render JSX element.
-          <button type="submit">{t(locale, "Изпрати", "Submit")}</button>
-        // JSX element boundary.
-        </div>
-      // JSX element boundary.
-      </form>
-    // JSX element boundary.
-    </div>,
+                <div className="modal-actions">
+                    <button type="button" className="ghost" onClick={onCancel}>
+                        {t(locale, "Отказ", "Cancel")}
+                    </button>
+                    <button type="submit">{t(locale, "Изпрати", "Submit")}</button>
+                </div>
+            </form>
+        </div>,
     // Continue multi-line list/arguments.
     document.body,
   );

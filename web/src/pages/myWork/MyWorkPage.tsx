@@ -358,8 +358,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
       {fromCache && (
         // Render a <div> element for layout or semantics.
         <div className="banner warn">
-          // Support the surrounding logic for this step.
-          {t(locale, "Данните може да са остарели", "Data may be stale")}
+                    {t(locale, "Данните може да са остарели", "Data may be stale")}
         </div>
       )}
       {/* Outbox conflict/failed counts when present. */}
@@ -607,8 +606,7 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
           {showTickets && (
             // Open a React fragment to group children without an extra DOM node.
             <>
-            // Render TicketsSection as part of this view composition.
-            <TicketsSection
+                        <TicketsSection
               // Pass locale prop/value into the element or config.
               locale={locale}
               // Pass tickets prop/value into the element or config.
@@ -646,14 +644,12 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
               // Pass onError prop/value into the element or config.
               onError={setError}
             />
-            // Support the surrounding logic for this step.
-            {ticketCursor && !fromCache && (
+                        {ticketCursor && !fromCache && (
               // Render a <button> element for layout or semantics.
               <button type="button" className="btn" disabled={loadingTickets || busyId !== null}
                 // Pass onClick prop/value into the element or config.
                 onClick={() => void loadMoreTickets()}>
-                // Support the surrounding logic for this step.
-                {loadingTickets ? (
+                                {loadingTickets ? (
                   // Render LoadingIndicator as part of this view composition.
                   <LoadingIndicator
                     // Pass variant prop/value into the element or config.

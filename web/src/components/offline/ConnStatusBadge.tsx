@@ -94,9 +94,7 @@ export function ConnStatusBadge({
       // Assign value for subsequent use.
       role="status"
     >
-      // JSX expression container.
-      {connLabel(locale, conn, p, s)}
-    // JSX element boundary.
-    </div>
+            {connLabel(locale, conn, p, s)}
+        </div>
   );
 }

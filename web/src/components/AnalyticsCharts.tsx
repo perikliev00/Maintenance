@@ -84,30 +84,21 @@ export function AnalyticsBarChart({
   return (
     // Render JSX element.
     <section className="panel analytics-chart-panel">
-      // Render JSX element.
-      <div className="panel-header">
-        // Render JSX element.
-        <h2>{title}</h2>
-        // Render JSX element.
-        <span className="muted">
-          // JSX expression container.
-          {countLabel ?? `${items.length} · общо ${total}`}
-        // JSX element boundary.
-        </span>
-      // JSX element boundary.
-      </div>
-      // JSX block comment.
-      {/* Empty period vs horizontal bar rows. */}
-      // JSX expression container.
-      {items.length === 0 ? (
+            <div className="panel-header">
+                <h2>{title}</h2>
+                <span className="muted">
+                    {countLabel ?? `${items.length} · общо ${total}`}
+                </span>
+            </div>
+            {/* Empty period vs horizontal bar rows. */}
+            {items.length === 0 ? (
         // Render JSX element.
         <p className="muted">Няма данни за периода.</p>
       // Invoke helper or pass arguments.
       ) : (
         // Render JSX element.
         <div className="analytics-hchart" role="img" aria-label={title}>
-          // JSX expression container.
-          {items.map((item, idx) => {
+                    {items.map((item, idx) => {
             // Const arrow/function binding.
             const pctOfMax = (item.count / max) * 100;
             // Minimum 6% width for non-zero bars so tiny counts stay visible.
@@ -127,16 +118,11 @@ export function AnalyticsBarChart({
                 // Assign value for subsequent use.
                 className={`analytics-hchart-row${isTop ? " is-top" : ""}`}
               >
-                // Render JSX element.
-                <span className="analytics-hchart-label" title={item.key}>
-                  // JSX expression container.
-                  {item.key}
-                // JSX element boundary.
-                </span>
-                // Render JSX element.
-                <div className="analytics-hchart-track">
-                  // Render JSX element.
-                  <div
+                                <span className="analytics-hchart-label" title={item.key}>
+                                    {item.key}
+                                </span>
+                                <div className="analytics-hchart-track">
+                                    <div
                     // Assign value for subsequent use.
                     className="analytics-hchart-bar"
                     // Assign value for subsequent use.
@@ -147,30 +133,21 @@ export function AnalyticsBarChart({
                       animationDelay: `${idx * 45}ms`,
                     }}
                   />
-                // JSX element boundary.
-                </div>
-                // Render JSX element.
-                <div className="analytics-hchart-meta">
-                  // Render JSX element.
-                  <span className="analytics-hchart-value">{item.count}</span>
-                  // JSX block comment.
-                  {/* Share % omitted when the whole chart totals zero. */}
-                  // JSX expression container.
-                  {total > 0 && (
+                                </div>
+                                <div className="analytics-hchart-meta">
+                                    <span className="analytics-hchart-value">{item.count}</span>
+                                    {/* Share % omitted when the whole chart totals zero. */}
+                                    {total > 0 && (
                     // Render JSX element.
                     <span className="muted analytics-hchart-share">{share}%</span>
                   )}
-                // JSX element boundary.
-                </div>
-              // JSX element boundary.
-              </div>
+                                </div>
+                            </div>
             );
           })}
-        // JSX element boundary.
-        </div>
+                </div>
       )}
-    // JSX element boundary.
-    </section>
+        </section>
   );
 }
 
@@ -258,26 +235,16 @@ export function AnalyticsTrendChart({
   return (
     // Render JSX element.
     <section className="panel analytics-chart-panel">
-      // Render JSX element.
-      <div className="panel-header">
-        // Render JSX element.
-        <h2>Тренд</h2>
-        // Render JSX element.
-        <span className="muted">
-          // JSX expression container.
-          {series.length} дни · общо {total}
-          // JSX block comment.
-          {/* Peak callout only when there is a non-zero max day. */}
-          // JSX expression container.
-          {peak.count > 0 ? ` · връх ${peak.count}` : ""}
-        // JSX element boundary.
-        </span>
-      // JSX element boundary.
-      </div>
-      // JSX block comment.
-      {/* Empty / all-zero / chart branches. */}
-      // JSX expression container.
-      {series.length === 0 ? (
+            <div className="panel-header">
+                <h2>Тренд</h2>
+                <span className="muted">
+                    {series.length} дни · общо {total}
+                    {/* Peak callout only when there is a non-zero max day. */}
+                    {peak.count > 0 ? ` · връх ${peak.count}` : ""}
+                </span>
+            </div>
+            {/* Empty / all-zero / chart branches. */}
+            {series.length === 0 ? (
         // Render JSX element.
         <p className="muted">Няма данни за периода.</p>
       // Invoke helper or pass arguments.
@@ -293,8 +260,7 @@ export function AnalyticsTrendChart({
           // Arrow function / callback body.
           onMouseLeave={() => setHoverIndex(null)}
         >
-          // Render JSX element.
-          <svg
+                    <svg
             // Assign value for subsequent use.
             viewBox={`0 0 ${VB_W} ${VB_H}`}
             // Assign value for subsequent use.
@@ -304,18 +270,12 @@ export function AnalyticsTrendChart({
             // Assign value for subsequent use.
             preserveAspectRatio="xMidYMid meet"
           >
-            // Render JSX element.
-            <defs>
-              // Render JSX element.
-              <linearGradient id={`fill-${gradId}`} x1="0" y1="0" x2="0" y2="1">
-                // Render JSX element.
-                <stop offset="0%" stopColor="currentColor" stopOpacity="0.32" />
-                // Render JSX element.
-                <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
-              // JSX element boundary.
-              </linearGradient>
-              // Render JSX element.
-              <filter
+                        <defs>
+                            <linearGradient id={`fill-${gradId}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="currentColor" stopOpacity="0.32" />
+                                <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
+                            </linearGradient>
+                            <filter
                 // Assign value for subsequent use.
                 id={`soft-${gradId}`}
                 // Assign value for subsequent use.
@@ -327,8 +287,7 @@ export function AnalyticsTrendChart({
                 // Assign value for subsequent use.
                 height="140%"
               >
-                // Render JSX element.
-                <feDropShadow
+                                <feDropShadow
                   // Assign value for subsequent use.
                   dx="0"
                   // Assign value for subsequent use.
@@ -340,15 +299,11 @@ export function AnalyticsTrendChart({
                   // Assign value for subsequent use.
                   floodOpacity="0.28"
                 />
-              // JSX element boundary.
-              </filter>
-            // JSX element boundary.
-            </defs>
+                            </filter>
+                        </defs>
 
-            // JSX block comment.
-            {/* Horizontal grid + y-axis tick labels. */}
-            // JSX expression container.
-            {plot.yTicks.map((tick, i) => {
+                        {/* Horizontal grid + y-axis tick labels. */}
+                        {plot.yTicks.map((tick, i) => {
               // Local constant binding.
               const y =
                 // Continue module logic.
@@ -359,8 +314,7 @@ export function AnalyticsTrendChart({
               return (
                 // Render JSX element.
                 <g key={`yt-${tick}-${i}`}>
-                  // Render JSX element.
-                  <line
+                                    <line
                     // Assign value for subsequent use.
                     className="analytics-area-grid"
                     // Assign value for subsequent use.
@@ -372,8 +326,7 @@ export function AnalyticsTrendChart({
                     // Assign value for subsequent use.
                     y2={y}
                   />
-                  // Render JSX element.
-                  <text
+                                    <text
                     // Assign value for subsequent use.
                     className="analytics-area-axis"
                     // Assign value for subsequent use.
@@ -383,17 +336,13 @@ export function AnalyticsTrendChart({
                     // Assign value for subsequent use.
                     textAnchor="end"
                   >
-                    // JSX expression container.
-                    {tick}
-                  // JSX element boundary.
-                  </text>
-                // JSX element boundary.
-                </g>
+                                        {tick}
+                                    </text>
+                                </g>
               );
             })}
 
-            // Render JSX element.
-            <path
+                        <path
               // Assign value for subsequent use.
               className="analytics-area-fill"
               // Assign value for subsequent use.
@@ -401,8 +350,7 @@ export function AnalyticsTrendChart({
               // Assign value for subsequent use.
               fill={`url(#fill-${gradId})`}
             />
-            // Render JSX element.
-            <path
+                        <path
               // Assign value for subsequent use.
               className="analytics-area-line"
               // Assign value for subsequent use.
@@ -411,12 +359,10 @@ export function AnalyticsTrendChart({
               filter={`url(#soft-${gradId})`}
             />
 
-            // JSX expression container.
-            {hover && (
+                        {hover && (
               // Continue module logic.
               <>
-                // Render JSX element.
-                <line
+                                <line
                   // Assign value for subsequent use.
                   className="analytics-guide"
                   // Assign value for subsequent use.
@@ -428,8 +374,7 @@ export function AnalyticsTrendChart({
                   // Assign value for subsequent use.
                   y2={PAD.top + plot.innerH}
                 />
-                // Render JSX element.
-                <circle
+                                <circle
                   // Assign value for subsequent use.
                   className="analytics-point"
                   // Assign value for subsequent use.
@@ -439,12 +384,10 @@ export function AnalyticsTrendChart({
                   // Assign value for subsequent use.
                   r={5}
                 />
-              // Continue module logic.
-              </>
+                            </>
             )}
 
-            // JSX expression container.
-            {plot.coords.map((p, i) => {
+                        {plot.coords.map((p, i) => {
               // Local constant binding.
               const showLabel =
                 // Assign value for subsequent use.
@@ -457,10 +400,8 @@ export function AnalyticsTrendChart({
               return (
                 // Render JSX element.
                 <g key={p.date}>
-                  // JSX block comment.
-                  {/* Date label only on first/last/every Nth day. */}
-                  // JSX expression container.
-                  {showLabel && (
+                                    {/* Date label only on first/last/every Nth day. */}
+                                    {showLabel && (
                     // Render JSX element.
                     <text
                       // Assign value for subsequent use.
@@ -472,13 +413,10 @@ export function AnalyticsTrendChart({
                       // Assign value for subsequent use.
                       textAnchor="middle"
                     >
-                      // JSX expression container.
-                      {p.date.slice(5)}
-                    // JSX element boundary.
-                    </text>
+                                            {p.date.slice(5)}
+                                        </text>
                   )}
-                  // Render JSX element.
-                  <rect
+                                    <rect
                     // Assign value for subsequent use.
                     className="analytics-hit"
                     // Assign value for subsequent use.
@@ -494,15 +432,12 @@ export function AnalyticsTrendChart({
                     // Arrow function / callback body.
                     onFocus={() => setHoverIndex(i)}
                   />
-                // JSX element boundary.
-                </g>
+                                </g>
               );
             })}
-          // JSX element boundary.
-          </svg>
+                    </svg>
 
-          // JSX expression container.
-          {hover && (
+                    {hover && (
             // Render JSX element.
             <div
               // Assign value for subsequent use.
@@ -515,17 +450,12 @@ export function AnalyticsTrendChart({
                 top: `${(hover.y / VB_H) * 100}%`,
               }}
             >
-              // Render JSX element.
-              <strong>{hover.count}</strong>
-              // Render JSX element.
-              <span>{hover.date}</span>
-            // JSX element boundary.
-            </div>
+                            <strong>{hover.count}</strong>
+                            <span>{hover.date}</span>
+                        </div>
           )}
-        // JSX element boundary.
-        </div>
+                </div>
       )}
-    // JSX element boundary.
-    </section>
+        </section>
   );
 }

@@ -209,10 +209,8 @@ export function TicketLifecycleActions({
   return (
     // Render JSX element.
     <div className="actions ticket-lifecycle-actions">
-      // JSX block comment.
-      {/* assigned → start work */}
-      // JSX expression container.
-      {ticket.status === "assigned" && (
+            {/* assigned → start work */}
+            {ticket.status === "assigned" && (
         // Render JSX element.
         <button
           // Assign value for subsequent use.
@@ -236,19 +234,14 @@ export function TicketLifecycleActions({
             )
           }
         >
-          // JSX expression container.
-          {t(locale, "Старт", "Start")}
-        // JSX element boundary.
-        </button>
+                    {t(locale, "Старт", "Start")}
+                </button>
       )}
-      // JSX block comment.
-      {/* in_progress → wait or resolve */}
-      // JSX expression container.
-      {ticket.status === "in_progress" && (
+            {/* in_progress → wait or resolve */}
+            {ticket.status === "in_progress" && (
         // Continue module logic.
         <>
-          // Render JSX element.
-          <button
+                    <button
             // Assign value for subsequent use.
             type="button"
             // Assign value for subsequent use.
@@ -284,12 +277,9 @@ export function TicketLifecycleActions({
               );
             }}
           >
-            // JSX expression container.
-            {t(locale, "Изчакай", "Wait")}
-          // JSX element boundary.
-          </button>
-          // Render JSX element.
-          <button
+                        {t(locale, "Изчакай", "Wait")}
+                    </button>
+                    <button
             // Assign value for subsequent use.
             type="button"
             // Assign value for subsequent use.
@@ -320,21 +310,15 @@ export function TicketLifecycleActions({
               );
             }}
           >
-            // JSX expression container.
-            {t(locale, "Реши", "Resolve")}
-          // JSX element boundary.
-          </button>
-        // Continue module logic.
-        </>
+                        {t(locale, "Реши", "Resolve")}
+                    </button>
+                </>
       )}
-      // JSX block comment.
-      {/* waiting → resume or resolve */}
-      // JSX expression container.
-      {ticket.status === "waiting" && (
+            {/* waiting → resume or resolve */}
+            {ticket.status === "waiting" && (
         // Continue module logic.
         <>
-          // Render JSX element.
-          <button
+                    <button
             // Assign value for subsequent use.
             type="button"
             // Assign value for subsequent use.
@@ -356,12 +340,9 @@ export function TicketLifecycleActions({
               )
             }
           >
-            // JSX expression container.
-            {t(locale, "Продължи", "Resume")}
-          // JSX element boundary.
-          </button>
-          // Render JSX element.
-          <button
+                        {t(locale, "Продължи", "Resume")}
+                    </button>
+                    <button
             // Assign value for subsequent use.
             type="button"
             // Assign value for subsequent use.
@@ -392,14 +373,10 @@ export function TicketLifecycleActions({
               );
             }}
           >
-            // JSX expression container.
-            {t(locale, "Реши", "Resolve")}
-          // JSX element boundary.
-          </button>
-        // Continue module logic.
-        </>
+                        {t(locale, "Реши", "Resolve")}
+                    </button>
+                </>
       )}
-    // JSX element boundary.
-    </div>
+        </div>
   );
 }

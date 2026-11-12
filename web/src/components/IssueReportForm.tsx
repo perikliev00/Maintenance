@@ -238,16 +238,12 @@ export function IssueReportForm({
   return (
     // Continue module logic.
     <>
-      // JSX expression container.
-      {beforeFields}
-      // JSX expression container.
-      {!catalogOnly && onPickModeChange ? (
+            {beforeFields}
+            {!catalogOnly && onPickModeChange ? (
         // Render JSX element.
         <label>
-          // JSX expression container.
-          {typeLabel}
-          // Render JSX element.
-          <select
+                    {typeLabel}
+                    <select
             // Assign value for subsequent use.
             value={effectivePick}
             // Arrow function / callback body.
@@ -256,24 +252,17 @@ export function IssueReportForm({
               onPickModeChange(e.target.value as IssuePickMode)
             }
           >
-            // Render JSX element.
-            <option value="option">{catalogLabel}</option>
-            // Render JSX element.
-            <option value="custom">{customLabel}</option>
-          // JSX element boundary.
-          </select>
-        // JSX element boundary.
-        </label>
+                        <option value="option">{catalogLabel}</option>
+                        <option value="custom">{customLabel}</option>
+                    </select>
+                </label>
       // Close multi-line construct with trailing syntax.
       ) : null}
-      // JSX expression container.
-      {effectivePick === "option" ? (
+            {effectivePick === "option" ? (
         // Render JSX element.
         <label>
-          // JSX expression container.
-          {optionLabel}
-          // Render JSX element.
-          <select
+                    {optionLabel}
+                    <select
             // Assign value for subsequent use.
             value={optionId}
             // Arrow function / callback body.
@@ -286,29 +275,21 @@ export function IssueReportForm({
             // JSX boolean prop or identifier.
             required
           >
-            // JSX expression container.
-            {options.map((o) => (
+                        {options.map((o) => (
               // Render JSX element.
               <option key={o.id} value={o.id}>
-                // JSX expression container.
-                {locale === "en" ? o.nameEn : o.nameBg}
-              // JSX element boundary.
-              </option>
+                                {locale === "en" ? o.nameEn : o.nameBg}
+                            </option>
             ))}
-          // JSX element boundary.
-          </select>
-        // JSX element boundary.
-        </label>
+                    </select>
+                </label>
       // Invoke helper or pass arguments.
       ) : (
         // Continue module logic.
         <>
-          // Render JSX element.
-          <label>
-            // JSX expression container.
-            {titleLabel}
-            // JSX expression container.
-            {titleAsTextarea ? (
+                    <label>
+                        {titleLabel}
+                        {titleAsTextarea ? (
               // Render JSX element.
               <textarea
                 // Assign value for subsequent use.
@@ -332,14 +313,10 @@ export function IssueReportForm({
                 required
               />
             )}
-          // JSX element boundary.
-          </label>
-          // Render JSX element.
-          <label>
-            // JSX expression container.
-            {categoryLabel}
-            // Render JSX element.
-            <select
+                    </label>
+                    <label>
+                        {categoryLabel}
+                        <select
               // Assign value for subsequent use.
               value={categoryId}
               // Arrow function / callback body.
@@ -347,40 +324,28 @@ export function IssueReportForm({
               // JSX boolean prop or identifier.
               required
             >
-              // JSX expression container.
-              {categories.map((c) => (
+                            {categories.map((c) => (
                 // Render JSX element.
                 <option key={c.id} value={c.id}>
-                  // JSX expression container.
-                  {locale === "en" ? c.nameEn : c.nameBg}
-                // JSX element boundary.
-                </option>
+                                    {locale === "en" ? c.nameEn : c.nameBg}
+                                </option>
               ))}
-            // JSX element boundary.
-            </select>
-          // JSX element boundary.
-          </label>
-        // Continue module logic.
-        </>
+                        </select>
+                    </label>
+                </>
       )}
-      // JSX expression container.
-      {titlePreview ? (
+            {titlePreview ? (
         // Render JSX element.
         <p className="muted">
-          // JSX expression container.
-          {t(locale, "Заглавие", "Title")}: <strong>{titlePreview}</strong>
-        // JSX element boundary.
-        </p>
+                    {t(locale, "Заглавие", "Title")}: <strong>{titlePreview}</strong>
+                </p>
       // Close multi-line construct with trailing syntax.
       ) : null}
-      // JSX expression container.
-      {showDescription ? (
+            {showDescription ? (
         // Render JSX element.
         <label>
-          // JSX expression container.
-          {clarificationLabel}
-          // Render JSX element.
-          <textarea
+                    {clarificationLabel}
+                    <textarea
             // Assign value for subsequent use.
             value={description}
             // Arrow function / callback body.
@@ -397,16 +362,12 @@ export function IssueReportForm({
               "Additional details…",
             )}
           />
-        // JSX element boundary.
-        </label>
+                </label>
       // Close multi-line construct with trailing syntax.
       ) : null}
-      // Render JSX element.
-      <label>
-        // JSX expression container.
-        {t(locale, "Приоритет", "Priority")}
-        // Render JSX element.
-        <select
+            <label>
+                {t(locale, "Приоритет", "Priority")}
+                <select
           // Assign value for subsequent use.
           value={priority}
           // Arrow function / callback body.
@@ -415,24 +376,15 @@ export function IssueReportForm({
             onPriorityChange(e.target.value as IssuePriority)
           }
         >
-          // Render JSX element.
-          <option value="low">{priorityLabel(locale, "low")}</option>
-          // Render JSX element.
-          <option value="normal">{priorityLabel(locale, "normal")}</option>
-          // Render JSX element.
-          <option value="high">{priorityLabel(locale, "high")}</option>
-          // Render JSX element.
-          <option value="urgent">{priorityLabel(locale, "urgent")}</option>
-        // JSX element boundary.
-        </select>
-      // JSX element boundary.
-      </label>
-      // JSX expression container.
-      {afterPriority}
-      // Render JSX element.
-      <label className="checkbox checkbox-inline check">
-        // Render JSX element.
-        <input
+                    <option value="low">{priorityLabel(locale, "low")}</option>
+                    <option value="normal">{priorityLabel(locale, "normal")}</option>
+                    <option value="high">{priorityLabel(locale, "high")}</option>
+                    <option value="urgent">{priorityLabel(locale, "urgent")}</option>
+                </select>
+            </label>
+            {afterPriority}
+            <label className="checkbox checkbox-inline check">
+                <input
           // Assign value for subsequent use.
           type="checkbox"
           // Assign value for subsequent use.
@@ -440,13 +392,9 @@ export function IssueReportForm({
           // Arrow function / callback body.
           onChange={(e) => setBlocks(e.target.checked)}
         />
-        // JSX expression container.
-        {blocksLabel}
-      // JSX element boundary.
-      </label>
-      // JSX expression container.
-      {afterBlocks}
-    // Continue module logic.
-    </>
+                {blocksLabel}
+            </label>
+            {afterBlocks}
+        </>
   );
 }

@@ -158,7 +158,6 @@ async function assertNumberTrgmIndexPresent(): Promise<void> {
     WHERE schemaname = ANY (current_schemas(false))
       AND tablename = 'Location'
       AND indexname = 'Location_number_trgm_idx'
-  // Execute the next setup or assertion step for this scenario.
   `);
   // Assert collection size matches the expected post-condition.
   assert.equal(rows.length, 1, "Location_number_trgm_idx must exist");
@@ -220,7 +219,6 @@ async function assertNumberTrgmIndexUsable(selectiveQ: string): Promise<void> {
         `EXPLAIN (FORMAT TEXT)
          SELECT id FROM "Location"
          WHERE "number" ILIKE '%${escaped}%'
-         // Pagination step for list/contract coverage.
          LIMIT 25`,
       );
       // Bind text for later setup or assertions in this scope.

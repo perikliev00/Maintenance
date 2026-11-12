@@ -37,9 +37,7 @@ export function ControlPage({ user }: Props) {
       {user.role === "owner" && (
         // Render a <div> element for layout or semantics.
         <div className="owner-banner">
-          // Support the surrounding logic for this step.
-          Роля собственик — пълен контрол: всички роли, всички панели, всички
-          // Support the surrounding logic for this step.
+                    Роля собственик — пълен контрол: всички роли, всички панели, всички
           действия
         </div>
       )}
@@ -48,8 +46,7 @@ export function ControlPage({ user }: Props) {
       {board.refreshWarning && (
         // Render a <div> element for layout or semantics.
         <div className="error banner" role="status">
-          // Support the surrounding logic for this step.
-          {board.refreshWarning}
+                    {board.refreshWarning}
         </div>
       )}
 
@@ -60,8 +57,7 @@ export function ControlPage({ user }: Props) {
       ) : (
         // Render a <div> element for layout or semantics.
         <div className="control-grid">
-          // Support the surrounding logic for this step.
-          {board.canChangeRole && (
+                    {board.canChangeRole && (
             // Render ControlRolesSection as part of this view composition.
             <ControlRolesSection
               // Pass user prop/value into the element or config.
@@ -91,8 +87,7 @@ export function ControlPage({ user }: Props) {
             />
           )}
 
-          // Support the surrounding logic for this step.
-          {board.canCreateCleaning && (
+                    {board.canCreateCleaning && (
             // Render ControlCleaningSection as part of this view composition.
             <ControlCleaningSection
               // Pass rooms prop/value into the element or config.
@@ -120,8 +115,7 @@ export function ControlPage({ user }: Props) {
             />
           )}
 
-          // Support the surrounding logic for this step.
-          {board.canWorkTickets && (
+                    {board.canWorkTickets && (
             // Render ControlTicketsSection as part of this view composition.
             <ControlTicketsSection
               // Pass canAssign prop/value into the element or config.
