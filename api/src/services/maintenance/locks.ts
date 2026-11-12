@@ -2,6 +2,7 @@
  * Row-level locks for ticket lifecycle mutations (serialize concurrent transitions).
  */
 import { AppError } from "../../errors";
+// Import type(s) Tx for typing without runtime cost.
 import type { Tx } from "./types";
 
 /**
@@ -15,6 +16,7 @@ export async function lockTicket(tx: Tx, ticketId: string) {
   `;
   // Missing id → 404 rather than proceeding with a stale in-memory ticket.
   if (rows.length === 0) {
+    // Abort with an error so callers can react.
     throw new AppError(404, "not_found", "Ticket not found");
   }
 }
@@ -28,11 +30,14 @@ export async function loadLockedTicket(tx: Tx, ticketId: string) {
   await lockTicket(tx, ticketId);
   // Reload full columns after the lock so status checks see committed state.
   const ticket = await tx.maintenanceTicket.findUnique({
+    // Set where on the structure being built.
     where: { id: ticketId },
   });
   // Race: deleted between lock and findUnique (should be rare).
   if (!ticket) {
+    // Abort with an error so callers can react.
     throw new AppError(404, "not_found", "Ticket not found");
   }
+  // Return the computed result to the caller.
   return ticket;
 }

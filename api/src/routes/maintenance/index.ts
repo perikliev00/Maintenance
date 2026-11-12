@@ -3,6 +3,7 @@ import { Router } from "express";
 import { registerCatalogRoutes } from "./catalog";
 import { registerTicketRoutes } from "./tickets";
 
+// Aggregate maintenance router; catalog and ticket modules register here.
 export const maintenanceRouter = Router();
 // Issue categories and options (catalog).
 registerCatalogRoutes(maintenanceRouter);

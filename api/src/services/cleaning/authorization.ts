@@ -1,4 +1,6 @@
+// Import @prisma/client for cleaning/authorization.ts.
 import { Role } from "@prisma/client";
+// Import ../authorization/assigneeBypass for cleaning/authorization.ts.
 import { canBypassAssignee } from "../authorization/assigneeBypass";
 
 /**
@@ -7,5 +9,6 @@ import { canBypassAssignee } from "../authorization/assigneeBypass";
  * for HTTP + sync.
  */
 export function canBypassCleaningAssignee(role: Role): boolean {
+  // Return the computed result to the caller.
   return canBypassAssignee(role);
 }

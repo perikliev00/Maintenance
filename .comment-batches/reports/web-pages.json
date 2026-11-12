@@ -1,0 +1,1510 @@
+{
+  "batch": "web-pages",
+  "filesInspected": 147,
+  "filesModified": 144,
+  "commentsAdded": 14887,
+  "linesSkippedForSafety": 1316,
+  "skipReasons": [
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "{theme === \"dark\" ? \"Light\" : \"Dark\"}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<div className=\"login-brand\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<BrandMark size={44} />",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<div className=\"login-brand-text\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<h1>Activate device</h1>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<p className=\"muted\">Enter your invitation code</p>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "Invitation code",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "autoComplete=\"one-time-code\"",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "required",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "placeholder=\"ABCD-EFGH\"",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "Device label",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "required",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "Password{\" \"}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<span className=\"muted\">(required for first activation)</span>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "autoComplete=\"new-password\"",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "minLength={8}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "Confirm password",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "autoComplete=\"new-password\"",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<button type=\"submit\" disabled={loading}>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "<button type=\"button\" className=\"ghost\" onClick={onBackToLogin}>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/ActivatePage.tsx",
+      "lineHint": "Back to sign in",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "[",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "];",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<header className=\"page-header analytics-header\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<div>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<h1>{t(locale, \"Умна аналитика\", \"Smart analytics\")}</h1>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<p>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{t(",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<div className=\"analytics-toolbar\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{t(locale, \"От\", \"From\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{t(locale, \"До\", \"To\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<button type=\"button\" className=\"ghost\" onClick={() => applyPreset(\"today\")}>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{t(locale, \"Днес\", \"Today\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<button type=\"button\" className=\"ghost\" onClick={() => applyPreset(\"7d\")}>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{t(locale, \"7 дни\", \"7 days\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<button type=\"button\" className=\"ghost\" onClick={() => applyPreset(\"30d\")}>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{t(locale, \"30 дни\", \"30 days\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "}}",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{t(locale, \"Обнови\", \"Refresh\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{t(locale, \"Поддръжка\", \"Maintenance\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ": \"\"",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "}`",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ": undefined",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<AnalyticsTrendChart series={data.series} />",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<div className=\"analytics-grid\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<AnalyticsBarChart",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<AnalyticsBarChart",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "? `n=${data.kpis.onTimeSampleCount}`",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ": undefined",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "compare={data.comparison.onTimePct}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "? `n=${data.kpis.durationSampleCount}`",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ": undefined",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<KpiCard",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "? `n=${data.kpis.durationSampleCount}`",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ": undefined",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<AnalyticsTrendChart series={data.series} />",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<div className=\"analytics-grid\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<AnalyticsBarChart",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<AnalyticsBarChart",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<section className=\"panel analytics-chart-panel\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<div className=\"panel-header\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<h2>Навременност</h2>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "<span className=\"muted\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "n={data.kpis.onTimeSampleCount}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "Експорт CSV",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{data.riskRooms.length === 0 ? (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "{factorLabel(f)}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "))}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AnalyticsPage.tsx",
+      "lineHint": "))}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "];",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<header className=\"page-header\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<div>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<h1>Присъствие</h1>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<p>Работно време, почивки и записи за преглед</p>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<button type=\"button\" className=\"primary\" onClick={() => void onExport()}>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "Експорт CSV",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<div className=\"toolbar\" style={{ flexWrap: \"wrap\", gap: \"0.75rem\" }}>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<div className=\"segmented\" role=\"tablist\" aria-label=\"Период\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "{SCOPES.map((s) => (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "Отдел",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<select",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<option value=\"\">Всички</option>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "{departments.map((d) => (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "{!departments.includes(\"Maintenance\") && (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "Търсене",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "placeholder=\"Име / служебен номер…\"",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<button type=\"button\" className=\"ghost\" onClick={() => void refresh()}>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "Refresh",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "}}",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "{loadingMore ? (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "rows={3}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "required",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "Предложен край",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "Почивки (мин)",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<div className=\"row-actions\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "Изпрати",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AttendancePage.tsx",
+      "lineHint": "Отказ",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "{",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<header className=\"page-header\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<div>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<h1>{t(locale, \"Одит лог\", \"Audit log\")}</h1>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<p className=\"muted\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "{t(",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "{t(locale, \"Действие\", \"Action\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<select value={action} onChange={(e) => setAction(e.target.value)}>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<option value=\"\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "{t(locale, \"Всички действия\", \"All actions\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "{AUDIT_ACTION_FILTERS.map((opt) => (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "{t(locale, \"Свързано с\", \"Related to\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<select",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<option value=\"\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "{t(locale, \"Всички типове\", \"All types\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "{AUDIT_ENTITY_FILTERS.map((opt) => (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "{refreshing",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<div className=\"table-wrap\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<table className=\"data-table\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<thead>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<tr>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<th>{t(locale, \"Кога\", \"When\")}</th>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<th>{t(locale, \"Кой\", \"Who\")}</th>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<th>{t(locale, \"Какво се случи\", \"What happened\")}</th>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<th>{t(locale, \"Свързано с\", \"Related to\")}</th>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<th>{t(locale, \"Причина\", \"Reason\")}</th>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<th />",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "<tbody>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/AuditPage.tsx",
+      "lineHint": "))",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<header className=\"page-header\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<div>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<h1>{t(locale, \"Карти\", \"Cards\")}</h1>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<p>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "{t(",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<div className=\"toolbar\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "{t(locale, \"Издаване\", \"Issue\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "{t(locale, \"Карти на служители\", \"Staff cards\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "1. {t(locale, \"Тип карта\", \"Card type\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<span",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "2. {t(locale, \"Данни за достъп\", \"Access details\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "Напред",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "{wizard.isStaff && (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<option value=\"\">Без конкретна стая</option>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "{wizard.rooms.map((r) => (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "Валидна от",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "Валидна до",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "Етикет (опционално)",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<input",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "placeholder=\"напр. Гост Иванов\"",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "maxLength={120}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "Назад",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "Напред",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "placeholder=\"Име или служебен номер…\"",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<label>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "Статус",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<select",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<option value=\"\">Всички</option>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<option value=\"active\">Активни</option>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<option value=\"revoked\">Отменени</option>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ": \"—\"}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<td>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "{card.status === \"active\"",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "<td>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": "{canRevoke && card.status === \"active\" ? (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/CardsPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "<header className=\"page-header\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "<div>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "<h1>{t(locale, \"Начало\", \"Home\")}</h1>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "<p>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{t(",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{error && <div className=\"error banner\">{error}</div>}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{message && <div className=\"ok banner\">{message}</div>}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{refreshWarning && (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{loading ? (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{t(locale, \"Обнови\", \"Refresh\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{liveAt && (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{tickets.length === 0 ? (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "}}",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "<h2>{t(locale, \"Добави проблем\", \"Report issue\")}</h2>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{!canReport ? (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "}}",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "}}",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": ") : null",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "afterBlocks={",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": "{pendingDuplicate && (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HomePage.tsx",
+      "lineHint": ">",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "];",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "<header className=\"page-header\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "<div>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "<h1>{label(\"Почистване\", \"Housekeeping\")}</h1>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "<p>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "{label(",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "<div className=\"settings-tabs\" role=\"tablist\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "{TABS.filter((t) => t.id !== \"catalog\" || canManageLocations).map(",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "}}",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "}}",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "{label(\"Презареди\", \"Reload\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/HousekeepingPage.tsx",
+      "lineHint": "}}",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "t,",
+      "reason": "no-meaningful-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "<header className=\"page-header live-board-header\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "<div>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "<h1>{t(\"Табло на живо\", \"Live board\")}</h1>",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "<p className=\"muted\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "{t(",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "<ScopeHint user={user} locale={locale} />",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "<div className=\"live-board-toolbar\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "<span className={`live-conn live-conn-${conn}`} role=\"status\">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "<span className=\"live-conn-dot\" aria-hidden />",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "{connLabel}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "{data && (",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": ": null}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "<button",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "disabled={loading}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": ">",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/LiveBoardPage.tsx",
+      "lineHint": "{t(\"Обнови\", \"Refresh\")}",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    }
+  ],
+  "errors": []
+}

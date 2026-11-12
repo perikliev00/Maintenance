@@ -1,0 +1,924 @@
+{
+  "filesInspected": 28,
+  "filesModified": 28,
+  "commentsAdded": 321,
+  "linesSkippedForSafety": 183,
+  "skipReasons": [
+    {
+      "file": "api/src/routes/analytics.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/analytics.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/analytics.ts",
+      "lineHint": "import * as AnalyticsController from \"../controllers/analytics\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/analytics.ts",
+      "lineHint": "\"/summary\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/attendance.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/attendance.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/attendance.ts",
+      "lineHint": "import * as attendanceController from \"../controllers/attendance\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/attendance.ts",
+      "lineHint": "\"/intervals\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/attendance.ts",
+      "lineHint": "\"/intervals/:id\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/attendance.ts",
+      "lineHint": "\"/export.csv\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/attendance.ts",
+      "lineHint": "\"/events\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/attendance.ts",
+      "lineHint": "\"/adjustments\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/attendance.ts",
+      "lineHint": "\"/adjustments/:id/review\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/audit.ts",
+      "lineHint": "import { requireAuth } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/audit.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/audit.ts",
+      "lineHint": "import * as AuditController from \"../controllers/audit\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/auth.ts",
+      "lineHint": "import { requireAuth } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/auth.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/auth.ts",
+      "lineHint": "import { authLoginLimiter } from \"../middleware/security\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/auth.ts",
+      "lineHint": "import { requireCsrf } from \"../middleware/session\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/auth.ts",
+      "lineHint": "import * as authController from \"../controllers/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/auth.ts",
+      "lineHint": "\"/logout-all\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cards.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cards.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cards.ts",
+      "lineHint": "import * as CardsController from \"../controllers/cards\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cards.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cards.ts",
+      "lineHint": "\"/employees\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cards.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cards.ts",
+      "lineHint": "\"/:id/revoke\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/index.ts",
+      "lineHint": "import { registerResultsRoutes } from \"./results\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/index.ts",
+      "lineHint": "import { registerSessionRoutes } from \"./sessions\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/index.ts",
+      "lineHint": "import { registerTaskRoutes } from \"./tasks\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/results.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/results.ts",
+      "lineHint": "import { asyncHandler } from \"../../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/results.ts",
+      "lineHint": "import * as resultsController from \"../../controllers/cleaning/results\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/results.ts",
+      "lineHint": "\"/results\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/sessions.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/sessions.ts",
+      "lineHint": "import { asyncHandler } from \"../../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/sessions.ts",
+      "lineHint": "import * as sessionsController from \"../../controllers/cleaning/sessions\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/sessions.ts",
+      "lineHint": "\"/sessions/:id/complete\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/sessions.ts",
+      "lineHint": "\"/sessions/:id/cancel\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/sessions.ts",
+      "lineHint": "\"/sessions/review\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/tasks.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/tasks.ts",
+      "lineHint": "import { asyncHandler } from \"../../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/tasks.ts",
+      "lineHint": "import * as tasksController from \"../../controllers/cleaning/tasks\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/cleaning/tasks.ts",
+      "lineHint": "\"/tasks\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/tasks.ts",
+      "lineHint": "\"/tasks/:id/start\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/tasks.ts",
+      "lineHint": "\"/tasks/:id/inspect\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/tasks.ts",
+      "lineHint": "\"/tasks/:id/reassign\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/tasks.ts",
+      "lineHint": "\"/employees/housekeepers\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/cleaning/tasks.ts",
+      "lineHint": "\"/available-housekeepers\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/commonAreas.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/commonAreas.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/commonAreas.ts",
+      "lineHint": "import * as CommonAreasController from \"../controllers/commonAreas\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/commonAreas.ts",
+      "lineHint": "\"/:id/mark-dirty\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/dailyPlan.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/dailyPlan.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/dailyPlan.ts",
+      "lineHint": "import * as dailyPlanController from \"../controllers/dailyPlan\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/dailyPlan.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/dailyPlan.ts",
+      "lineHint": "\"/apply-departure-effects\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/dailyPlan.ts",
+      "lineHint": "\"/import\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/dailyPlan.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/dailyPlan.ts",
+      "lineHint": "\"/:id\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/events.ts",
+      "lineHint": "import { requireAuth } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/events.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/events.ts",
+      "lineHint": "import * as eventsController from \"../controllers/events\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "import { invitationRedeemLimiter } from \"../middleware/security\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "import * as invitationsController from \"../controllers/invitations\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "\"/redeem\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "\"/:id/revoke\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/invitations.ts",
+      "lineHint": "\"/:id/revoke\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/jobs.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/jobs.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/jobs.ts",
+      "lineHint": "import * as JobsController from \"../controllers/jobs\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/jobs.ts",
+      "lineHint": "\"/runs\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/jobs.ts",
+      "lineHint": "\"/run\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "import * as locationsController from \"../controllers/locations\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "\"/hierarchy\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "\"/:id/occupancy\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "\"/:id/service-status\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "\"/:id/reconcile-cleaning-status\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "\"/:id/archive\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "\"/:id/restore\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/locations.ts",
+      "lineHint": "\"/:id\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "import { asyncHandler } from \"../../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "import * as catalogController from \"../../controllers/maintenance/catalog\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "\"/categories\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "\"/categories\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "\"/categories/:id\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "\"/categories/:id/archive\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "\"/issue-options\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "\"/issue-options/reorder\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "\"/issue-options\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "\"/issue-options/:id\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/catalog.ts",
+      "lineHint": "\"/issue-options/:id/archive\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/index.ts",
+      "lineHint": "import { registerCatalogRoutes } from \"./catalog\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/maintenance/index.ts",
+      "lineHint": "import { registerTicketRoutes } from \"./tickets\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "import { asyncHandler } from \"../../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "import * as ticketsController from \"../../controllers/maintenance/tickets\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets/:id/events\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets/:id/assign\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets/:id/start\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets/:id/wait\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets/:id/resume\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets/:id/resolve\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets/:id/close\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/maintenance/tickets.ts",
+      "lineHint": "\"/tickets/:id/reopen\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/myWork.ts",
+      "lineHint": "import { requireAuth } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/myWork.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/myWork.ts",
+      "lineHint": "import * as MyWorkController from \"../controllers/myWork\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/notifications.ts",
+      "lineHint": "import { requireAuth } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/notifications.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/notifications.ts",
+      "lineHint": "import * as NotificationsController from \"../controllers/notifications\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/notifications.ts",
+      "lineHint": "\"/unread-count\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/notifications.ts",
+      "lineHint": "\"/read-all\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/notifications.ts",
+      "lineHint": "\"/:id/read\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/notifications.ts",
+      "lineHint": "\"/:id/dismiss\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/operations.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/operations.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/operations.ts",
+      "lineHint": "import * as OperationsController from \"../controllers/operations\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/operations.ts",
+      "lineHint": "\"/live/attention\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/operations.ts",
+      "lineHint": "\"/live\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "import * as peopleController from \"../controllers/people\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "\"/:employeeId\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "\"/:employeeId/block\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "\"/:employeeId/unblock\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "\"/:employeeId/archive\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "\"/:employeeId/restore\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/people.ts",
+      "lineHint": "\"/:id/role\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/permissions.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/permissions.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/permissions.ts",
+      "lineHint": "import * as PermissionsController from \"../controllers/permissions\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/permissions.ts",
+      "lineHint": "\"/matrix\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/permissions.ts",
+      "lineHint": "\"/history\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/permissions.ts",
+      "lineHint": "\"/roles/:role\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/rooms.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/rooms.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/rooms.ts",
+      "lineHint": "import * as RoomsController from \"../controllers/rooms\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/rooms.ts",
+      "lineHint": "\"/:id/mark-dirty\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/sectors.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/sectors.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/sectors.ts",
+      "lineHint": "import * as sectorsController from \"../controllers/sectors\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/sectors.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/sectors.ts",
+      "lineHint": "\"/:id\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/sectors.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/sectors.ts",
+      "lineHint": "\"/:id\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/sectors.ts",
+      "lineHint": "\"/:id/locations\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "import * as SettingsController from \"../controllers/settings\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "\"/public\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "\"/system\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "\"/history\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "\"/sla-policies\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "\"/sla-policies/:priority\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/settings.ts",
+      "lineHint": "\"/:key\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/shifts.ts",
+      "lineHint": "import { requireAuth, requireAction } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/shifts.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/shifts.ts",
+      "lineHint": "import * as ShiftsController from \"../controllers/shifts\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/shifts.ts",
+      "lineHint": "\"/roster\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/shifts.ts",
+      "lineHint": "\"/roster\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/shifts.ts",
+      "lineHint": "\"/\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/shifts.ts",
+      "lineHint": "\"/:id\",",
+      "reason": "Route path string already explained by the route comment above the call"
+    },
+    {
+      "file": "api/src/routes/sync.ts",
+      "lineHint": "import { requireAuth } from \"../middleware/auth\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/sync.ts",
+      "lineHint": "import { asyncHandler } from \"../middleware/asyncHandler\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    },
+    {
+      "file": "api/src/routes/sync.ts",
+      "lineHint": "import * as SyncController from \"../controllers/sync\";",
+      "reason": "Import covered by file-level JSDoc; commenting would only restate the import"
+    }
+  ],
+  "errors": []
+}

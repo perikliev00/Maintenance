@@ -1,19 +1,32 @@
 /** Settings + SLA policy HTTP handlers (public subset vs settings.manage routes). */
 import type { Request, Response } from "express";
+// Import dependency zod/v3.
 import { z } from "zod/v3";
+// Continue named import list.
 import {
+  // Bring ensureDefaultSettings into scope from the import.
   ensureDefaultSettings,
+  // Bring getAllSettings into scope from the import.
   getAllSettings,
+  // Bring getPublicSettings into scope from the import.
   getPublicSettings,
+  // Bring getSystemStatus into scope from the import.
   getSystemStatus,
+  // Bring listSettingHistory into scope from the import.
   listSettingHistory,
+  // Bring updateSetting into scope from the import.
   updateSetting,
 } from "../services/settings";
+// Continue named import list.
 import {
+  // Bring ensureDefaultSlaPolicies into scope from the import.
   ensureDefaultSlaPolicies,
+  // Bring listSlaPolicies into scope from the import.
   listSlaPolicies as fetchSlaPolicies,
+  // Bring upsertSlaPolicy into scope from the import.
   upsertSlaPolicy,
 } from "../services/slaPolicies";
+// Import dependency @prisma/client.
 import { Priority } from "@prisma/client";
 
 /** Non-sensitive settings any authenticated client may read (seeds defaults first). */
@@ -38,10 +51,15 @@ export async function getSystem(_req: Request, res: Response) {
 
 /** GET /settings/history — optional key filter and limit. */
 export async function listHistory(req: Request, res: Response) {
+  // Bind key for use in the handler below.
   const key = typeof req.query.key === "string" ? req.query.key : undefined;
+  // Bind limit for use in the handler below.
   const limit =
+    // Narrow the runtime type before using the value.
     typeof req.query.limit === "string"
+      // Continue the conditional expression.
       ? Number.parseInt(req.query.limit, 10)
+      // Continue the conditional expression.
       : undefined;
   // JSON success response.
   return res.json(await listSettingHistory({ key, limit }));
@@ -59,7 +77,9 @@ export async function listSlaPolicies(_req: Request, res: Response) {
 export async function upsertSla(req: Request, res: Response) {
   // Priority comes from the path; must be a known enum value.
   const priorityParsed = z
+    // Restrict to an allowed enum set.
     .enum(["low", "normal", "high", "urgent"])
+    // Run safeParse so validation failures stay typed.
     .safeParse(req.params.priority);
   // Branch: conditional gate.
   if (!priorityParsed.success) {
@@ -68,7 +88,9 @@ export async function upsertSla(req: Request, res: Response) {
   }
   // Zod schema for request shape.
   const schema = z.object({
+    // Validate field hours.
     hours: z.number().int().min(1).max(168),
+    // Validate field isActive.
     isActive: z.boolean().optional(),
   });
   // Parse and validate input.
@@ -77,14 +99,20 @@ export async function upsertSla(req: Request, res: Response) {
   if (!parsed.success) {
     // Return value / early exit.
     return res
+      // Set response status code.
       .status(400)
+      // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
   // Persist or load row.
   const row = await upsertSlaPolicy({
+    // Provide priority for the object/call below.
     priority: priorityParsed.data as Priority,
+    // Provide hours for the object/call below.
     hours: parsed.data.hours,
+    // Provide isActive for the object/call below.
     isActive: parsed.data.isActive,
+    // Provide actorEmployeeId for the object/call below.
     actorEmployeeId: req.user!.employeeId,
   });
   // JSON success response.
@@ -96,8 +124,11 @@ export async function update(req: Request, res: Response) {
   // HTTP clients must send expectedVersion so stale tabs cannot last-write-wins.
   // Internal service callers may still omit it.
   const schema = z.object({
+    // Validate field value.
     value: z.unknown(),
+    // Validate field reason.
     reason: z.string().max(500).optional(),
+    // Validate field expectedVersion.
     expectedVersion: z.number().int().min(0),
   });
   // Parse and validate input.
@@ -106,16 +137,23 @@ export async function update(req: Request, res: Response) {
   if (!parsed.success) {
     // Return value / early exit.
     return res
+      // Set response status code.
       .status(400)
+      // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
 
   // Service validates key schema, CAS version, and writes history.
   const result = await updateSetting({
+    // Provide key for the object/call below.
     key: req.params.key,
+    // Provide value for the object/call below.
     value: parsed.data.value,
+    // Provide actorEmployeeId for the object/call below.
     actorEmployeeId: req.user!.employeeId,
+    // Provide reason for the object/call below.
     reason: parsed.data.reason,
+    // Provide expectedVersion for the object/call below.
     expectedVersion: parsed.data.expectedVersion,
   });
   // JSON success response.

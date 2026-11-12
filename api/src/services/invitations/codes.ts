@@ -4,6 +4,7 @@
  */
 import { createHash, randomBytes } from "crypto";
 
+// Capture code alphabet for use in this scope.
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /** SHA-256 of the normalized (trim + uppercase) invite code. */
@@ -16,7 +17,9 @@ export function hashInviteCode(code: string): string {
 export function generateInviteCode(): string {
   // Eight random bytes mapped into the unambiguous alphabet.
   const bytes = randomBytes(8);
+  // Capture out for use in this scope.
   let out = "";
+  // Iterate items to apply the same logic to each entry.
   for (let i = 0; i < 8; i++) {
     // Modulo alphabet length — slight bias is fine for invite codes.
     out += CODE_ALPHABET[bytes[i]! % CODE_ALPHABET.length];

@@ -1,0 +1,17 @@
+﻿api/src/services/sectors/format.ts
+api/src/services/sectors/index.ts
+api/src/services/sectors/membership.test.ts
+api/src/services/sectors/membership.ts
+api/src/services/sectors/queries.ts
+api/src/services/sectors/testHooks.ts
+api/src/services/sectors/validation.test.ts
+api/src/services/sectors/validation.ts
+api/src/services/settings.systemStatus.test.ts
+api/src/services/settings/index.ts
+api/src/services/settings/schema.ts
+api/src/services/settingsSchema.test.ts
+api/src/services/shifts/index.ts
+api/src/services/slaPolicies.ts
+api/src/services/sync/applyCommand.ts
+api/src/services/sync/commands/cleaning.ts
+api/src/services/sync/commands/tickets.ts

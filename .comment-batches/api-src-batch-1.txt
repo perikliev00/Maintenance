@@ -1,0 +1,17 @@
+﻿api/src/controllers/events.scope.test.ts
+api/src/controllers/events.ticket.test.ts
+api/src/controllers/events.ts
+api/src/controllers/invitations.ts
+api/src/controllers/jobs.ts
+api/src/controllers/locations.ts
+api/src/controllers/locationsBoard.ts
+api/src/controllers/maintenance/catalog.ts
+api/src/controllers/maintenance/queryBool.ts
+api/src/controllers/maintenance/shared.ts
+api/src/controllers/maintenance/tickets.ts
+api/src/controllers/myWork.ts
+api/src/controllers/notifications.ts
+api/src/controllers/operations.ts
+api/src/controllers/people.lifecycle.http.test.ts
+api/src/controllers/people.list.http.test.ts
+api/src/controllers/people.role.http.test.ts

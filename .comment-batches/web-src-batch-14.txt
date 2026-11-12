@@ -1,0 +1,15 @@
+﻿web/src/pages/team/teamListConstants.ts
+web/src/pages/team/TeamOnboardingPanel.tsx
+web/src/pages/team/TeamPage.tsx
+web/src/pages/team/TeamPersonDetailDialog.tsx
+web/src/pages/team/TeamPersonDevicesDialog.tsx
+web/src/pages/team/useTeamDirectory.ts
+web/src/pages/team/useTeamOnboarding.ts
+web/src/pages/TeamPage.tsx
+web/src/pages/ticketLabels.test.ts
+web/src/pages/ticketLabels.ts
+web/src/pages/useLiveBoardController.ts
+web/src/saveRefresh.test.ts
+web/src/saveRefresh.ts
+web/src/styles/analytics.css
+web/src/styles/base.css

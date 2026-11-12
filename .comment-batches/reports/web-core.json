@@ -1,0 +1,15 @@
+{
+  "batch": "web-core",
+  "filesInspected": 101,
+  "filesModified": 101,
+  "commentsAdded": 11234,
+  "linesSkippedForSafety": 1,
+  "skipReasons": [
+    {
+      "file": "web/src/components/LocationHistoryPanel.tsx",
+      "lineHint": "Service status",
+      "reason": "possible JSX text node"
+    }
+  ],
+  "errors": []
+}

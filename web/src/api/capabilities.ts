@@ -6,64 +6,110 @@
  * Catalogs come from `api/src/contracts/permissionsCatalog` (single source).
  */
 import {
+  // List item in import/export/params.
   ALL_ACTIONS,
+  // List item in import/export/params.
   ALL_PANELS,
+  // List item in import/export/params.
   DEFAULT_PANEL_BY_ROLE,
+  // Continue multi-line list/arguments.
   LANDING_BY_ROLE as LANDING_BY_ROLE_CATALOG,
+  // Local type alias shaping data.
   type Action,
+  // Local type alias shaping data.
   type Panel,
+// Close multi-line construct with trailing syntax.
 } from "../../../api/src/contracts/permissionsCatalog";
 
+// Export type alias for consumers.
 export type Role =
+  // Union/intersection type member.
   | "reception"
+  // Union/intersection type member.
   | "housekeeper"
+  // Union/intersection type member.
   | "supervisor"
+  // Union/intersection type member.
   | "technician"
+  // Union/intersection type member.
   | "manager"
+  // Union/intersection type member.
   | "admin"
+  // Union/intersection type member.
   | "owner";
 
 /** Display labels (Bulgarian) for role chips in the shell. */
 export const ROLE_LABELS: Record<Role, string> = {
+  // Field/property in this shape.
   owner: "собственик",
+  // Field/property in this shape.
   housekeeper: "камериер",
+  // Field/property in this shape.
   technician: "техник",
+  // Field/property in this shape.
   reception: "рецепция",
+  // Field/property in this shape.
   supervisor: "супервайзър",
+  // Field/property in this shape.
   manager: "управител",
+  // Field/property in this shape.
   admin: "администратор",
 };
 
+// Exported constant / binding.
 export const ALL_ROLES: Role[] = [
+  // Continue multi-line list/arguments.
   "owner",
+  // Continue multi-line list/arguments.
   "admin",
+  // Continue multi-line list/arguments.
   "manager",
+  // Continue multi-line list/arguments.
   "supervisor",
+  // Continue multi-line list/arguments.
   "reception",
+  // Continue multi-line list/arguments.
   "technician",
+  // Continue multi-line list/arguments.
   "housekeeper",
 ];
 
+// Re-export selected public symbols.
 export { ALL_ACTIONS, ALL_PANELS };
+// Export type alias for consumers.
 export type { Action, Panel };
 
 /** Offline / stale-session fallback panels (same data as API seed defaults). */
 const PANEL_BY_ROLE: Record<Exclude<Role, "owner">, Panel[]> = {
+  // Field/property in this shape.
   housekeeper: [...DEFAULT_PANEL_BY_ROLE.housekeeper],
+  // Field/property in this shape.
   technician: [...DEFAULT_PANEL_BY_ROLE.technician],
+  // Field/property in this shape.
   reception: [...DEFAULT_PANEL_BY_ROLE.reception],
+  // Field/property in this shape.
   supervisor: [...DEFAULT_PANEL_BY_ROLE.supervisor],
+  // Field/property in this shape.
   manager: [...DEFAULT_PANEL_BY_ROLE.manager],
+  // Field/property in this shape.
   admin: [...DEFAULT_PANEL_BY_ROLE.admin],
 };
 
+// Local constant binding.
 const LANDING_BY_ROLE: Record<Role, Panel> = {
+  // Field/property in this shape.
   housekeeper: LANDING_BY_ROLE_CATALOG.housekeeper,
+  // Field/property in this shape.
   technician: LANDING_BY_ROLE_CATALOG.technician,
+  // Field/property in this shape.
   reception: LANDING_BY_ROLE_CATALOG.reception,
+  // Field/property in this shape.
   supervisor: LANDING_BY_ROLE_CATALOG.supervisor,
+  // Field/property in this shape.
   manager: LANDING_BY_ROLE_CATALOG.manager,
+  // Field/property in this shape.
   admin: LANDING_BY_ROLE_CATALOG.admin,
+  // Field/property in this shape.
   owner: LANDING_BY_ROLE_CATALOG.owner,
 };
 
@@ -75,6 +121,7 @@ export function isOwner(role: Role): boolean {
 
 /** Privileged accounts (owner/admin) — mirrors server `isPrivilegedRole`. */
 export function isPrivilegedRole(role: Role): boolean {
+  // Return computed result to caller.
   return role === "owner" || role === "admin";
 }
 
@@ -83,11 +130,17 @@ export function isPrivilegedRole(role: Role): boolean {
  * target role. Non-owners cannot manage owner/admin targets.
  */
 export function canManagePersonAccess(
+  // Field/property in this shape.
   actorRole: Role,
+  // Field/property in this shape.
   targetRole: Role | null,
+// Open multi-line construct.
 ): boolean {
+  // Conditional branch for this case.
   if (targetRole == null) return true;
+  // Conditional branch for this case.
   if (isPrivilegedRole(targetRole) && !isOwner(actorRole)) return false;
+  // Return computed result to caller.
   return true;
 }
 
@@ -127,17 +180,24 @@ export function canViewControl(role: Role): boolean {
  * remains authoritative when present (including empty arrays).
  */
 function legacyTicketResolve(role: Role): boolean {
+  // Return computed result to caller.
   return isOwner(role) || ["supervisor", "manager", "technician", "admin"].includes(role);
 }
 
+// Function definition.
 function legacyTicketAssign(role: Role): boolean {
+  // Return computed result to caller.
   return (
+    // Invoke helper or pass arguments.
     isOwner(role) ||
+    // Invoke helper or pass arguments.
     ["reception", "supervisor", "manager", "admin"].includes(role)
   );
 }
 
+// Function definition.
 function legacyTicketClose(role: Role): boolean {
+  // Return computed result to caller.
   return isOwner(role) || ["supervisor", "manager", "admin"].includes(role);
 }
 
@@ -152,7 +212,9 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
   if (Array.isArray(user.actions)) return user.actions.includes(action);
   // Fallback when session predates capabilities (actions omitted, not []).
   if (action === "tickets.resolve") return legacyTicketResolve(user.role);
+  // Conditional branch for this case.
   if (action === "tickets.assign") return legacyTicketAssign(user.role);
+  // Conditional branch for this case.
   if (action === "tickets.close") return legacyTicketClose(user.role);
   // Branch: conditional gate.
   if (action === "people.view") return canViewTeam(user.role);
@@ -195,7 +257,9 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
   if (action === "plan.view" || action === "plan.manage") {
     // Return value / early exit.
     return (
+      // Invoke helper or pass arguments.
       ["reception", "supervisor", "manager"].includes(user.role) ||
+      // Assign value for subsequent use.
       (action === "plan.view" && user.role === "admin")
     );
   }
@@ -236,9 +300,13 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
   }
   // Branch: conditional gate.
   if (
+    // Assign value for subsequent use.
     action === "audit.view" ||
+    // Assign value for subsequent use.
     action === "jobs.view" ||
+    // Assign value for subsequent use.
     action === "jobs.run"
+  // Open multi-line construct.
   ) {
     // Return value / early exit.
     return ["manager", "admin"].includes(user.role);
@@ -255,32 +323,52 @@ export function canPerformAction(user: AuthUser, action: Action): boolean {
 export function panelsForUser(user: AuthUser): Panel[] {
   // Explicit array (including []) is authoritative; legacy fallback only when missing.
   if (Array.isArray(user.panels)) {
+    // Return computed result to caller.
     return [...user.panels];
   }
+  // Return computed result to caller.
   return [...panelsForRole(user.role)];
 }
 
+// Export type alias for consumers.
 export type ModuleToggles = {
+  // Field/property in this shape.
   rooms: boolean;
+  // Field/property in this shape.
   common: boolean;
+  // Field/property in this shape.
   cleaning: boolean;
+  // Field/property in this shape.
   maintenance: boolean;
+  // Field/property in this shape.
   my_work?: boolean;
+  // Field/property in this shape.
   repairs?: boolean;
+  // Field/property in this shape.
   team: boolean;
+  // Field/property in this shape.
   live: boolean;
+  // Field/property in this shape.
   control: boolean;
+  // Field/property in this shape.
   daily_plan: boolean;
+  // Field/property in this shape.
   attendance: boolean;
+  // Field/property in this shape.
   access_cards: boolean;
+  // Field/property in this shape.
   analytics: boolean;
+  // Field/property in this shape.
   audit?: boolean;
 };
 
 /** Apply module toggles from public settings onto role panels. */
 export function filterPanelsByModules(
+  // Field/property in this shape.
   panels: Panel[],
+  // Field/property in this shape.
   modules?: ModuleToggles | null,
+// Open multi-line construct.
 ): Panel[] {
   // Branch: conditional gate.
   if (!modules) return panels;
@@ -312,7 +400,9 @@ export function filterPanelsByModules(
     if (p === "mywork") {
       // Return value / early exit.
       return (
+        // Assign value for subsequent use.
         modules.my_work !== false &&
+        // Assign value for subsequent use.
         (modules.maintenance !== false || modules.cleaning !== false)
       );
     }
@@ -351,13 +441,21 @@ export function assignableRolesFor(actor: Role): Role[] {
 
 /** Session identity + optional capability fields from `/auth/me`. */
 export type AuthUser = {
+  // Field/property in this shape.
   id: string;
+  // Field/property in this shape.
   email: string;
+  // Field/property in this shape.
   role: Role;
+  // Field/property in this shape.
   employeeId: string;
+  // Field/property in this shape.
   fullName: string;
+  // Field/property in this shape.
   panels?: Panel[];
+  // Field/property in this shape.
   actions?: Action[];
+  // Field/property in this shape.
   landing?: Panel;
   /** Set for supervisors — count of active sectors they primarily supervise. */
   supervisedSectorCount?: number | null;

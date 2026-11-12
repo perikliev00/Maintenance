@@ -1,0 +1,11 @@
+﻿api/tests/_iso_worker_probe.mjs
+api/tests/assertTestDatabase.ts
+api/tests/attendance/adjustments.atomicity.test.ts
+api/tests/attendance/adjustments.auth.http.test.ts
+api/tests/attendance/adjustments.partial.test.ts
+api/tests/attendance/adjustments.review.http.test.ts
+api/tests/attendance/approve-vs-rebuild.concurrency.test.ts
+api/tests/attendance/dst.ingest.test.ts
+api/tests/attendance/fixtures.ts
+api/tests/attendance/ingest.concurrency.test.ts
+api/tests/attendance/late-events.ingest.test.ts

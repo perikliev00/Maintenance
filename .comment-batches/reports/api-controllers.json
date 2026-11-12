@@ -1,0 +1,55 @@
+{
+  "batch": "api-controllers",
+  "filesInspected": 37,
+  "filesModified": 37,
+  "commentsAdded": 3139,
+  "linesSkippedForSafety": 9,
+  "skipReasons": [
+    {
+      "file": "api/src/controllers/auth.logout.test.ts",
+      "lineHint": "(",
+      "reason": "pure opener bracket"
+    },
+    {
+      "file": "api/src/controllers/auth.logoutAll.test.ts",
+      "lineHint": "(",
+      "reason": "pure opener bracket"
+    },
+    {
+      "file": "api/src/controllers/events.ticket.test.ts",
+      "lineHint": "{",
+      "reason": "pure opener bracket"
+    },
+    {
+      "file": "api/src/controllers/events.ticket.test.ts",
+      "lineHint": "{",
+      "reason": "pure opener bracket"
+    },
+    {
+      "file": "api/src/controllers/events.ticket.test.ts",
+      "lineHint": "{",
+      "reason": "pure opener bracket"
+    },
+    {
+      "file": "api/src/controllers/events.ticket.test.ts",
+      "lineHint": "{",
+      "reason": "pure opener bracket"
+    },
+    {
+      "file": "api/src/controllers/events.ticket.test.ts",
+      "lineHint": "{",
+      "reason": "pure opener bracket"
+    },
+    {
+      "file": "api/src/controllers/locationsBoard.ts",
+      "lineHint": "{",
+      "reason": "pure opener bracket"
+    },
+    {
+      "file": "api/src/controllers/sectors.ts",
+      "lineHint": "{",
+      "reason": "pure opener bracket"
+    }
+  ],
+  "errors": []
+}

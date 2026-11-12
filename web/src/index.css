@@ -1,3 +1,5 @@
+/* Reset default body margin so the app shell controls page spacing. */
 body {
+  /* Remove the browser default body margin. */
   margin: 0;
 }

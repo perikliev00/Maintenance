@@ -1,0 +1,15 @@
+﻿web/src/pages/housekeeping/SectorAdminTab.tsx
+web/src/pages/housekeeping/ShiftAdminTab.tsx
+web/src/pages/housekeeping/shiftRosterLoadLogic.test.ts
+web/src/pages/housekeeping/shiftRosterLoadLogic.ts
+web/src/pages/housekeeping/useHousekeepingBusy.ts
+web/src/pages/housekeeping/useSectorEditor.ts
+web/src/pages/housekeeping/useShiftEditor.ts
+web/src/pages/housekeepingLogic.ts
+web/src/pages/HousekeepingPage.tsx
+web/src/pages/housekeepingSaveLogic.test.ts
+web/src/pages/liveBoard.audit.test.ts
+web/src/pages/liveBoardController.test.ts
+web/src/pages/liveBoardLogic.test.ts
+web/src/pages/liveBoardLogic.ts
+web/src/pages/LiveBoardPage.tsx

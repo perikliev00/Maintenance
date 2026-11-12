@@ -7,6 +7,8 @@ import { requireAuth } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import * as AuditController from "../controllers/audit";
 
+// Create the Express router for audit event listing.
+// Express router for audit event listing (and /audit-events alias mount).
 export const auditRouter = Router();
 
 // GET / — list audit events; controller checks audit.view (and scope).

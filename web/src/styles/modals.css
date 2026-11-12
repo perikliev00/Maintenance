@@ -1,311 +1,527 @@
+/* Style rule selector. */
 .modal-backdrop {
+  /* Declare layout/visual property for this rule. */
   position: fixed;
+  /* Declare layout/visual property for this rule. */
   inset: 0;
+  /* Declare layout/visual property for this rule. */
   background: var(--overlay);
+  /* Declare layout/visual property for this rule. */
   display: grid;
+  /* Declare layout/visual property for this rule. */
   place-items: center;
   /* Above location-detail-backdrop (100) when both briefly coexist. */
   z-index: 110;
+  /* Declare layout/visual property for this rule. */
   padding: var(--space-4);
+  /* Declare layout/visual property for this rule. */
   backdrop-filter: blur(6px);
+  /* Declare layout/visual property for this rule. */
   animation: page-enter 200ms var(--ease) both;
 }
 
+/* Style rule selector. */
 .modal {
+  /* Declare layout/visual property for this rule. */
   width: min(440px, 100%);
+  /* Declare layout/visual property for this rule. */
   background: var(--surface);
+  /* Declare layout/visual property for this rule. */
   border: 1px solid var(--border);
+  /* Declare layout/visual property for this rule. */
   border-radius: var(--radius-lg);
+  /* Declare layout/visual property for this rule. */
   padding: var(--space-5);
+  /* Declare layout/visual property for this rule. */
   display: grid;
+  /* Declare layout/visual property for this rule. */
   gap: var(--space-3);
+  /* Declare layout/visual property for this rule. */
   box-shadow: var(--shadow-md);
 }
 
+/* Style rule selector. */
 .modal h3 {
+  /* Declare layout/visual property for this rule. */
   margin: 0;
+  /* Declare layout/visual property for this rule. */
   font-family: var(--font-display);
+  /* Declare layout/visual property for this rule. */
   font-size: 1.15rem;
+  /* Declare layout/visual property for this rule. */
   letter-spacing: -0.02em;
 }
 
+/* Style rule selector. */
 .modal label {
+  /* Declare layout/visual property for this rule. */
   display: grid;
+  /* Declare layout/visual property for this rule. */
   gap: 0.3rem;
+  /* Declare layout/visual property for this rule. */
   font-size: 0.88rem;
+  /* Declare layout/visual property for this rule. */
   color: var(--muted);
 }
 
+/* Style rule selector. */
 .modal .checkbox {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   align-items: center;
+  /* Declare layout/visual property for this rule. */
   gap: 0.5rem;
+  /* Declare layout/visual property for this rule. */
   color: var(--text);
 }
 
+/* Style rule selector. */
 .modal-actions {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   justify-content: flex-end;
+  /* Declare layout/visual property for this rule. */
   gap: 0.5rem;
+  /* Declare layout/visual property for this rule. */
   margin-top: 0.25rem;
 }
 
+/* Style rule selector. */
 .housekeeping-modal {
+  /* Declare layout/visual property for this rule. */
   width: min(720px, 100%);
+  /* Declare layout/visual property for this rule. */
   max-height: min(92vh, 900px);
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-direction: column;
+  /* Declare layout/visual property for this rule. */
   gap: var(--space-3);
 }
 
+/* Style rule selector. */
 .housekeeping-modal .modal-form-scroll {
+  /* Declare layout/visual property for this rule. */
   overflow: auto;
+  /* Declare layout/visual property for this rule. */
   max-height: min(70vh, 640px);
+  /* Declare layout/visual property for this rule. */
   padding-right: 0.25rem;
 }
 
+/* Style rule selector. */
 .pagination-bar {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-wrap: wrap;
+  /* Declare layout/visual property for this rule. */
   align-items: center;
+  /* Declare layout/visual property for this rule. */
   gap: 0.5rem;
+  /* Declare layout/visual property for this rule. */
   margin-top: 0.75rem;
 }
 
+/* Style rule selector. */
 .pagination-bar .muted {
+  /* Declare layout/visual property for this rule. */
   margin-right: auto;
 }
 
+/* Style rule selector. */
 .location-archived-tag {
+  /* Declare layout/visual property for this rule. */
   color: var(--danger, #b42318);
+  /* Declare layout/visual property for this rule. */
   font-size: 0.8em;
+  /* Declare layout/visual property for this rule. */
   margin-left: 0.35rem;
 }
 
+/* Style rule selector. */
 .reassign-modal {
+  /* Declare layout/visual property for this rule. */
   width: min(560px, 100%);
+  /* Declare layout/visual property for this rule. */
   max-height: min(90vh, 720px);
+  /* Declare layout/visual property for this rule. */
   overflow: auto;
 }
 
+/* Style rule selector. */
 .reassign-hk-list {
+  /* Declare layout/visual property for this rule. */
   list-style: none;
+  /* Declare layout/visual property for this rule. */
   margin: 0;
+  /* Declare layout/visual property for this rule. */
   padding: 0;
+  /* Declare layout/visual property for this rule. */
   display: grid;
+  /* Declare layout/visual property for this rule. */
   gap: 0.35rem;
+  /* Declare layout/visual property for this rule. */
   max-height: 240px;
+  /* Declare layout/visual property for this rule. */
   overflow: auto;
 }
 
+/* Style rule selector. */
 .reassign-hk-option {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   gap: 0.5rem;
+  /* Declare layout/visual property for this rule. */
   align-items: flex-start;
+  /* Declare layout/visual property for this rule. */
   padding: 0.45rem 0.55rem;
+  /* Declare layout/visual property for this rule. */
   border: 1px solid var(--border);
+  /* Declare layout/visual property for this rule. */
   border-radius: var(--radius-md);
+  /* Declare layout/visual property for this rule. */
   color: var(--text);
 }
 
+/* Style rule selector. */
 .reassign-hk-option.disabled {
+  /* Declare layout/visual property for this rule. */
   opacity: 0.55;
 }
 
+/* Style rule selector. */
 .reassign-hk-option.availability-available {
+  /* Declare layout/visual property for this rule. */
   border-color: color-mix(in srgb, var(--ok, #2f9e44) 45%, var(--border));
 }
 
+/* Style rule selector. */
 .reassign-override {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   gap: 0.5rem;
+  /* Declare layout/visual property for this rule. */
   align-items: flex-start;
 }
 
+/* Style rule selector. */
 .rooms-filters {
+  /* Declare layout/visual property for this rule. */
   flex-wrap: wrap;
+  /* Declare layout/visual property for this rule. */
   align-items: end;
+  /* Declare layout/visual property for this rule. */
   gap: 0.65rem;
 }
 
+/* Style rule selector. */
 .rooms-filters .checkbox {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   align-items: center;
+  /* Declare layout/visual property for this rule. */
   gap: 0.35rem;
+  /* Declare layout/visual property for this rule. */
   font-size: 0.85rem;
 }
 
+/* Style rule selector. */
 .issue-summary {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-wrap: wrap;
+  /* Declare layout/visual property for this rule. */
   gap: 0.35rem;
+  /* Declare layout/visual property for this rule. */
   align-items: center;
+  /* Declare layout/visual property for this rule. */
   margin-bottom: 0.25rem;
+  /* Declare layout/visual property for this rule. */
   font-size: 0.85rem;
 }
 
+/* Style rule selector. */
 .next-action {
+  /* Declare layout/visual property for this rule. */
   font-weight: 600;
+  /* Declare layout/visual property for this rule. */
   display: block;
+  /* Declare layout/visual property for this rule. */
   margin-bottom: 0.2rem;
 }
 
+/* Style rule selector. */
 .small {
+  /* Declare layout/visual property for this rule. */
   font-size: 0.8rem;
 }
 
+/* Style rule selector. */
 .home-grid,
+/* Style rule selector. */
 .control-grid {
+  /* Declare layout/visual property for this rule. */
   display: grid;
+  /* Declare layout/visual property for this rule. */
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
+  /* Declare layout/visual property for this rule. */
   gap: var(--space-4);
+  /* Declare layout/visual property for this rule. */
   align-items: start;
 }
 
+/* Style rule selector. */
 .control-issues {
+  /* Declare layout/visual property for this rule. */
   grid-column: 1 / -1;
 }
 
+/* Style rule selector. */
 .panel-header {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   justify-content: space-between;
+  /* Declare layout/visual property for this rule. */
   align-items: center;
+  /* Declare layout/visual property for this rule. */
   gap: 0.75rem;
+  /* Declare layout/visual property for this rule. */
   margin-bottom: var(--space-3);
 }
 
+/* Style rule selector. */
 .panel-header h2,
+/* Style rule selector. */
 .home-form h2 {
+  /* Declare layout/visual property for this rule. */
   margin: 0 0 0.75rem;
+  /* Declare layout/visual property for this rule. */
   font-family: var(--font-display);
+  /* Declare layout/visual property for this rule. */
   font-size: 1.05rem;
+  /* Declare layout/visual property for this rule. */
   font-weight: 600;
+  /* Declare layout/visual property for this rule. */
   letter-spacing: -0.02em;
 }
 
+/* Style rule selector. */
 .panel-header h2 {
+  /* Declare layout/visual property for this rule. */
   margin: 0;
 }
 
+/* Style rule selector. */
 .location-repairs-panel {
+  /* Declare layout/visual property for this rule. */
   margin: 0.75rem 0 1rem;
 }
 
+/* Style rule selector. */
 .location-repairs-list {
+  /* Declare layout/visual property for this rule. */
   list-style: none;
+  /* Declare layout/visual property for this rule. */
   margin: 0;
+  /* Declare layout/visual property for this rule. */
   padding: 0;
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-direction: column;
+  /* Declare layout/visual property for this rule. */
   gap: 0.75rem;
 }
 
+/* Style rule selector. */
 .location-repairs-list .issue-row {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-wrap: wrap;
+  /* Declare layout/visual property for this rule. */
   justify-content: space-between;
+  /* Declare layout/visual property for this rule. */
   gap: 0.5rem;
+  /* Declare layout/visual property for this rule. */
   align-items: flex-start;
 }
 
+/* Style rule selector. */
 .task-priority-due {
+  /* Declare layout/visual property for this rule. */
   margin-top: 0.25rem;
 }
 
 
 /* Portaled to document.body — fixed to the viewport, scroll-safe centering. */
 .location-detail-backdrop {
+  /* Declare layout/visual property for this rule. */
   position: fixed;
+  /* Declare layout/visual property for this rule. */
   inset: 0;
+  /* Declare layout/visual property for this rule. */
   z-index: 100;
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   justify-content: center;
+  /* Declare layout/visual property for this rule. */
   align-items: flex-start;
+  /* Declare layout/visual property for this rule. */
   overflow-y: auto;
+  /* Declare layout/visual property for this rule. */
   padding: 1.25rem;
+  /* Declare layout/visual property for this rule. */
   background: rgba(15, 18, 22, 0.45);
+  /* Declare layout/visual property for this rule. */
   backdrop-filter: blur(4px);
 }
 
+/* Style rule selector. */
 .location-detail-modal {
+  /* Declare layout/visual property for this rule. */
   width: min(560px, 100%);
+  /* Declare layout/visual property for this rule. */
   max-height: calc(100dvh - 2.5rem);
+  /* Declare layout/visual property for this rule. */
   margin: auto;
+  /* Declare layout/visual property for this rule. */
   background: var(--surface-elevated, var(--surface));
+  /* Declare layout/visual property for this rule. */
   border: 1px solid var(--border);
+  /* Declare layout/visual property for this rule. */
   border-radius: var(--radius-lg, 12px);
+  /* Declare layout/visual property for this rule. */
   box-shadow: var(--shadow-md, 0 16px 40px rgba(0, 0, 0, 0.18));
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-direction: column;
+  /* Declare layout/visual property for this rule. */
   overflow: hidden;
 }
 
+/* Style rule selector. */
 .location-detail-modal-header {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   justify-content: space-between;
+  /* Declare layout/visual property for this rule. */
   align-items: flex-start;
+  /* Declare layout/visual property for this rule. */
   gap: 0.75rem;
+  /* Declare layout/visual property for this rule. */
   padding: 1.1rem 1.2rem 0.75rem;
+  /* Declare layout/visual property for this rule. */
   border-bottom: 1px solid var(--border);
+  /* Declare layout/visual property for this rule. */
   flex-shrink: 0;
 }
 
+/* Style rule selector. */
 .location-detail-modal-header h3 {
+  /* Declare layout/visual property for this rule. */
   margin: 0;
 }
 
+/* Style rule selector. */
 .location-detail-close {
+  /* Declare layout/visual property for this rule. */
   min-width: 2.25rem;
+  /* Declare layout/visual property for this rule. */
   min-height: 2.25rem;
+  /* Declare layout/visual property for this rule. */
   font-weight: 700;
+  /* Declare layout/visual property for this rule. */
   line-height: 1;
 }
 
+/* Style rule selector. */
 .location-detail-modal-body {
+  /* Declare layout/visual property for this rule. */
   padding: 0.9rem 1.2rem 1.35rem;
+  /* Declare layout/visual property for this rule. */
   overflow: auto;
+  /* Declare layout/visual property for this rule. */
   overscroll-behavior: contain;
+  /* Declare layout/visual property for this rule. */
   display: grid;
+  /* Declare layout/visual property for this rule. */
   gap: 0.85rem;
+  /* Declare layout/visual property for this rule. */
   align-content: start;
+  /* CSS declaration for this rule. */
   -webkit-overflow-scrolling: touch;
+  /* Declare layout/visual property for this rule. */
   min-height: 0;
 }
 
+/* Responsive breakpoint overrides. */
 @media (max-width: 640px) {
+  /* Style rule selector. */
   .location-detail-backdrop {
+    /* Declare layout/visual property for this rule. */
     padding: 0.75rem;
   }
 
+  /* Style rule selector. */
   .location-detail-modal {
+    /* Declare layout/visual property for this rule. */
     width: 100%;
+    /* Declare layout/visual property for this rule. */
     max-height: calc(100dvh - 1.5rem);
   }
 }
 
+/* Style rule selector. */
 .location-ops-controls {
+  /* Declare layout/visual property for this rule. */
   display: grid;
+  /* Declare layout/visual property for this rule. */
   gap: 0.65rem;
 }
 
+/* Style rule selector. */
 .location-ops-controls label {
+  /* Declare layout/visual property for this rule. */
   display: grid;
+  /* Declare layout/visual property for this rule. */
   gap: 0.25rem;
+  /* Declare layout/visual property for this rule. */
   font-size: 0.9rem;
 }
 
+/* Style rule selector. */
 .location-ops-controls select {
+  /* Declare layout/visual property for this rule. */
   width: 100%;
 }
 
+/* Style rule selector. */
 .location-row-clickable {
+  /* Declare layout/visual property for this rule. */
   cursor: pointer;
 }
 
+/* Style rule selector. */
 .location-row-clickable:hover td {
+  /* Declare layout/visual property for this rule. */
   background: var(--surface-hover);
 }
 
+/* Style rule selector. */
 .location-row-selected td {
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--accent, #3b82f6) 8%, transparent);
 }

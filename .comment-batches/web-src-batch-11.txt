@@ -1,0 +1,15 @@
+﻿web/src/pages/myWork/pendingSyncFromOutbox.ts
+web/src/pages/myWork/tasks.tsx
+web/src/pages/myWork/tickets.tsx
+web/src/pages/MyWorkPage.tsx
+web/src/pages/NotificationsPage.tsx
+web/src/pages/PermissionsPage.tsx
+web/src/pages/permissionsPageState.test.ts
+web/src/pages/permissionsPageState.ts
+web/src/pages/permissionsSaveFlow.test.ts
+web/src/pages/permissionsSaveFlow.ts
+web/src/pages/plan/constants.ts
+web/src/pages/plan/DepartureEffectsPanel.tsx
+web/src/pages/plan/ImportPanel.tsx
+web/src/pages/plan/index.ts
+web/src/pages/plan/PlanCrud.tsx

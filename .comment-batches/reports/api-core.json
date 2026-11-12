@@ -1,0 +1,35 @@
+{
+  "batch": "api-core",
+  "filesInspected": 30,
+  "filesModified": 29,
+  "commentsAdded": 513,
+  "linesSkippedForSafety": 12,
+  "skipReasons": [
+    {
+      "file": "api/src/errors.ts",
+      "lineHint": "entire file",
+      "reason": "Already had adequate JSDoc and constructor comments; no uncommented source lines needing new // comments"
+    },
+    {
+      "file": "api/src/permissions.ts",
+      "lineHint": "DEFAULT_ACTION_GRANTS action string literals",
+      "reason": "Skipped per-string catalog literals inside role arrays; role-level what/why comments cover the grant groups"
+    },
+    {
+      "file": "api/src/app.ts",
+      "lineHint": "app.use(\"/rooms\"...) router mounts",
+      "reason": "Skipped repeating comments on each domain router mount under the existing section comment"
+    },
+    {
+      "file": "api/src/middleware/session.ts",
+      "lineHint": "closing braces / return next()",
+      "reason": "Skipped pure closing brackets and trivial fall-through closers per batch rules"
+    },
+    {
+      "file": "api/src/events/authorizeLiveEvent.ts",
+      "lineHint": "case fall-through and closing braces",
+      "reason": "Skipped pure closing brackets and case labels already covered by adjacent what/why comments"
+    }
+  ],
+  "errors": []
+}

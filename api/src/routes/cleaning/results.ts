@@ -9,8 +9,11 @@ export function registerResultsRoutes(router: Router): void {
   // GET /results — aggregated cleaning results for the selected period.
   router.get(
     "/results",
+    // Require an authenticated session before reading results.
     requireAuth,
+    // Authorize cleaning.results_view for the results report.
     requireAction("cleaning.results_view"),
+    // Delegate to the results controller with async error forwarding.
     asyncHandler(resultsController.get),
   );
 }

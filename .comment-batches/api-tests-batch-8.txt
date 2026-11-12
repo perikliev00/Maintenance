@@ -1,0 +1,9 @@
+﻿api/tests/sectors/auth.http.test.ts
+api/tests/sectors/fixtures.ts
+api/tests/sectors/membership.atomic.http.test.ts
+api/tests/sectors/membership.concurrency.test.ts
+api/tests/sectors/r1r2.residuals.test.ts
+api/tests/sectors/save.atomic.http.test.ts
+api/tests/sectors/snapshots.lifecycle.test.ts
+api/tests/shifts/fixtures.ts
+api/tests/shifts/roster.http.test.ts

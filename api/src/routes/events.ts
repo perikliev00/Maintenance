@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
 import * as eventsController from "../controllers/events";
 
+// Express router for SSE ticket issuance and the live event stream.
 export const eventsRouter = Router();
 
 // POST /ticket — issue a short-lived SSE ticket for EventSource clients.

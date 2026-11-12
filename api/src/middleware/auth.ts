@@ -2,22 +2,32 @@
  * Request authentication and action-gate middleware.
  * Attaches req.user (DB-backed) and req.authVia (bearer vs cookie).
  */
+// Express request/response types for middleware signatures.
 import { Request, Response, NextFunction } from "express";
+// Action catalog key type for requireAction.
 import { Action } from "../permissions";
+// DB-backed RoleGrant check used after authentication.
 import { canPerform } from "../services/roleGrants";
+// Ensures AuthSession is active and user is enabled.
 import { assertSessionActive } from "../services/authSessions";
+// Access JWT verify + AuthUser claim shape.
 import {
   verifyAccessToken,
   type AuthUser,
 } from "../auth/tokens";
+// Prefer Bearer, else session cookie; AuthVia labels which path won.
 import { extractAccessToken, type AuthVia } from "./session";
 
+// Re-export AuthUser so route modules can import from middleware/auth.
 export type { AuthUser };
 
+// Augment Express Request with authenticated identity fields.
 declare global {
   namespace Express {
     interface Request {
+      // DB-backed identity attached by requireAuth.
       user?: AuthUser;
+      // Whether the token came from Authorization or the session cookie.
       authVia?: AuthVia;
     }
   }

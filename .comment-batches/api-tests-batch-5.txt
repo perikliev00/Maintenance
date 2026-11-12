@@ -1,0 +1,17 @@
+﻿api/tests/plan/plan.read.http.test.ts
+api/tests/preloadIsolatedTestEnv.ts
+api/tests/proveP1Isolation.mjs
+api/tests/proveP1Isolation.negative.mjs
+api/tests/proveP1Isolation.worker.mjs
+api/tests/readiness/archive.occupancy.test.ts
+api/tests/readiness/blocking.lifecycle.test.ts
+api/tests/readiness/fixtures.ts
+api/tests/registerP1TestEnv.mjs
+api/tests/roleGrants.bootstrap.child.ts
+api/tests/runWithP1Isolation.mjs
+api/tests/scenarios/analytics.db.test.ts
+api/tests/scenarios/attendance.http.test.ts
+api/tests/scenarios/audit.overdue-scope.db.test.ts
+api/tests/scenarios/audit.sla-scope.db.test.ts
+api/tests/scenarios/auth.http.test.ts
+api/tests/scenarios/catalog-settings.http.test.ts

@@ -1,0 +1,1010 @@
+{
+  "batch": "tests-e2e",
+  "filesInspected": 145,
+  "filesModified": 145,
+  "commentsAdded": 23478,
+  "linesSkippedForSafety": 510,
+  "skipReasons": [
+    {
+      "file": "api/tests/assertTestDatabase.ts",
+      "lineHint": "? fromEnv",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/assertTestDatabase.ts",
+      "lineHint": ": DEFAULT_EXPECTED_TEST_DATABASE;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/assertTestDatabase.ts",
+      "lineHint": "SELECT current_database() AS name",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/assertTestDatabase.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "0,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "0,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "? AttendanceIntervalStatus.adjusted",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": ": AttendanceIntervalStatus.needs_review,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "0,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.atomicity.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "? controlSnap.anomalyFlags",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": ": [];",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "CREATE OR REPLACE FUNCTION ${fn}() RETURNS trigger AS $$",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "BEGIN",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "PERFORM nextval('${probeSeq}');",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "RAISE EXCEPTION 'test-forced-attendance-interval-update-failure';",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "END;",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "$$ LANGUAGE plpgsql;",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "CREATE TRIGGER ${trg}",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "BEFORE UPDATE ON \"AttendanceInterval\"",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "FOR EACH ROW",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "WHEN (NEW.id = '${target.id}' AND NEW.status = 'adjusted')",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "EXECUTE FUNCTION ${fn}();",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/adjustments.review.http.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/approve-vs-rebuild.concurrency.test.ts",
+      "lineHint": "reviewResult.status === \"rejected\"",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/approve-vs-rebuild.concurrency.test.ts",
+      "lineHint": "? formatReject(reviewResult.reason)",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/approve-vs-rebuild.concurrency.test.ts",
+      "lineHint": ": \"ok\"",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/approve-vs-rebuild.concurrency.test.ts",
+      "lineHint": "reviewResult.status === \"rejected\"",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/approve-vs-rebuild.concurrency.test.ts",
+      "lineHint": "? formatReject(reviewResult.reason)",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/approve-vs-rebuild.concurrency.test.ts",
+      "lineHint": ": \"ok\"",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "0,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "SELECT pid::int AS pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "FROM pg_stat_activity",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "WHERE wait_event_type = 'Lock'",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "AND pid <> ${holderPid}",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "AND datname = current_database()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "AND ${holderPid} = ANY (pg_blocking_pids(pid))",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "SELECT pid::int AS pid, pg_blocking_pids(pid) AS blockers",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "FROM pg_stat_activity",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "WHERE wait_event_type = 'Lock'",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "AND pid <> ${holderPid}",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "AND datname = current_database()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/fixtures.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/ingest.concurrency.test.ts",
+      "lineHint": "SELECT pg_backend_pid()::int AS pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/ingest.concurrency.test.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/ingest.concurrency.test.ts",
+      "lineHint": "SELECT id FROM \"AttendanceInterval\" WHERE id = ${lockIv.id} FOR UPDATE",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/attendance/ingest.concurrency.test.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/ingest.concurrency.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/late-events.ingest.test.ts",
+      "lineHint": "})),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/attendance/late-events.ingest.test.ts",
+      "lineHint": "})),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/auth/ma02.logout-refresh.concurrency.test.ts",
+      "lineHint": "? getSetCookie.call(res.headers)",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/auth/ma02.logout-refresh.concurrency.test.ts",
+      "lineHint": ": ([res.headers.get(\"set-cookie\")].filter(Boolean) as string[]);",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/fixtures.ts",
+      "lineHint": ": 0;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/fixtures.ts",
+      "lineHint": ": 0;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/fixtures.ts",
+      "lineHint": "SELECT pg_backend_pid()::int AS pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cards/fixtures.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/fixtures.ts",
+      "lineHint": "LOCK TABLE \"AccessCard\" IN SHARE ROW EXCLUSIVE MODE",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cards/fixtures.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/issue.idempotency.http.test.ts",
+      "lineHint": "]),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/issue.idempotency.http.test.ts",
+      "lineHint": "})),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/issue.idempotency.http.test.ts",
+      "lineHint": "]),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/revoke.idempotency.http.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/revoke.idempotency.http.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/revoke.idempotency.http.test.ts",
+      "lineHint": "SELECT pg_backend_pid()::int AS pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cards/revoke.idempotency.http.test.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/revoke.idempotency.http.test.ts",
+      "lineHint": "SELECT id FROM \"AccessCard\" WHERE id = ${target.cardId} FOR UPDATE",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cards/revoke.idempotency.http.test.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cards/revoke.idempotency.http.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/assignment.serialization.test.ts",
+      "lineHint": "}));",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/assignment.serialization.test.ts",
+      "lineHint": "}))),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/assignment.serialization.test.ts",
+      "lineHint": "2,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/assignment.serialization.test.ts",
+      "lineHint": ": prisma.$transaction(tx => linkOrCreateDepartureTask(tx, { locationId: world.lo",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "SELECT count(*)::bigint AS n",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "FROM pg_stat_activity",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "WHERE wait_event_type = 'Lock'",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "AND pid <> pg_backend_pid()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "AND datname = current_database()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "SELECT count(*)::bigint AS n",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "FROM pg_locks",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "WHERE NOT granted",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/fixtures.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "]),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "? attWorld.housekeeper.employeeId",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": ": attWorld.otherHk.employeeId;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "adjustments.map((a) => ({ id: a.id, status: a.status })),",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": ")} intervals=${JSON.stringify(",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "intervals.map((i) => ({",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "id: i.id,",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "status: i.status,",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "worked: i.workedMinutes,",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "})),",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "intervals.map((i) => ({",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "id: i.id,",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "status: i.status,",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "worked: i.workedMinutes,",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "brk: i.breakMinutes,",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "})),",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": ")} adjustments=${JSON.stringify(",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "adjustments.map((a) => ({ id: a.id, status: a.status })),",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "]),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "]),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "]),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "2,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/independent.audit.20261105.test.ts",
+      "lineHint": "}>",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/lifecycle.concurrency.test.ts",
+      "lineHint": "]));",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/lifecycle.concurrency.test.ts",
+      "lineHint": "]));",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/lifecycle.sessions.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/lifecycle.sessions.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/lifecycle.sessions.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/lifecycle.sessions.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/lifecycle.sessions.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/lifecycle.sessions.test.ts",
+      "lineHint": "1,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/reassign.http.test.ts",
+      "lineHint": "? ordered",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/cleaning/reassign.http.test.ts",
+      "lineHint": ": [ordered[1]!, ordered[0]!];",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WITH RECURSIVE blocked AS (",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "SELECT pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "FROM pg_stat_activity",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WHERE datname = current_database()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "AND pid <> ${blockerPid}",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "AND ${blockerPid} = ANY (pg_blocking_pids(pid))",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "UNION",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "SELECT a.pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "FROM pg_stat_activity a",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "INNER JOIN blocked b ON b.pid = ANY (pg_blocking_pids(a.pid))",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WHERE a.datname = current_database()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "AND a.pid <> ${blockerPid}",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "SELECT DISTINCT pid::int AS pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "FROM blocked",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WHERE EXISTS (",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "SELECT 1",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "FROM pg_stat_activity s",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WHERE s.pid = blocked.pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "AND s.wait_event_type = 'Lock'",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "}>",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": ">`",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WITH RECURSIVE blocked(pid) AS (",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "SELECT pid FROM pg_stat_activity",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WHERE datname = current_database()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "AND ${barrierPid} = ANY (pg_blocking_pids(pid))",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "UNION",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "SELECT a.pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "FROM pg_stat_activity a",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "JOIN blocked b ON b.pid = ANY (pg_blocking_pids(a.pid))",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WHERE a.datname = current_database()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "SELECT a.pid,",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "a.state,",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "a.wait_event_type AS \"waitEventType\",",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "a.wait_event AS \"waitEvent\",",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "left(a.query, 240) AS query",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "FROM pg_stat_activity a",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "JOIN blocked b ON b.pid = a.pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WHERE a.datname = current_database()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": ">`",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "SELECT pid, pg_blocking_pids(pid) AS \"blockedBy\"",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "FROM pg_stat_activity",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "WHERE datname = current_database()",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "AND cardinality(pg_blocking_pids(pid)) > 0",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "SELECT pg_backend_pid() AS pid",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "`;",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": "? \"operations still pending (no settlement yet)\"",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/dbBarrier.ts",
+      "lineHint": ": JSON.stringify(operationSettled, replaceErrors, 2);",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/httpHarness.ts",
+      "lineHint": "? getSetCookie.call(res.headers)",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/httpHarness.ts",
+      "lineHint": ": ([res.headers.get(\"set-cookie\")].filter(Boolean) as string[]);",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/httpHarness.ts",
+      "lineHint": "? { \"Content-Type\": \"application/json\" }",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/httpHarness.ts",
+      "lineHint": ": {}),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/httpHarness.ts",
+      "lineHint": "})),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "SELECT id FROM \"User\" WHERE id = ${worker.userId} FOR UPDATE",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "`,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "]),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "SELECT id FROM \"User\" WHERE id = ${worker.userId} FOR UPDATE",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "`,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "SELECT id FROM \"User\" WHERE id = ${worker.userId} FOR UPDATE",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "`,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "SELECT id FROM \"User\" WHERE id = ${tech.userId} FOR UPDATE",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "`,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/archive.assign.concurrency.test.ts",
+      "lineHint": "]),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/invite.lifecycle.concurrency.test.ts",
+      "lineHint": "SELECT id FROM \"User\" WHERE id = ${target.userId} FOR UPDATE",
+      "reason": "inside_template_literal"
+    },
+    {
+      "file": "api/tests/people/invite.lifecycle.concurrency.test.ts",
+      "lineHint": "`,",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/invite.lifecycle.concurrency.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    },
+    {
+      "file": "api/tests/people/invite.lifecycle.concurrency.test.ts",
+      "lineHint": "),",
+      "reason": "no_safe_meaningful_comment"
+    }
+  ],
+  "errors": []
+}

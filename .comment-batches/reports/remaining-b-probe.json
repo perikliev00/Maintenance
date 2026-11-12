@@ -1,0 +1,290 @@
+{
+  "batch": "remaining-b",
+  "filesInspected": 5,
+  "filesModified": 0,
+  "commentsAdded": 0,
+  "linesSkippedForSafety": 56,
+  "skipReasons": [
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "Log out",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "Sign out everywhere",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "Meridian",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "Menu",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "const {createApp,setBootstrapComplete}=require('./dist/app');",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "setBootstrapComplete(true);",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "createApp({probeDatabase:async()=>{}}).listen(4000,'0.0.0.0');",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "let received=0;",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "require('node:http').createServer((req,res)=>{",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "if(req.method==='POST' && req.url.startsWith('/hooks?')) {",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "let body=''; req.on('data',b=>body+=b); req.on('end',()=>{",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "try { if(JSON.parse(body).alerts?.length) received++; res.end('ok'); }",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "catch {res.statusCode=400;res.end();}",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "});",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "} else {res.end(JSON.stringify({received}));}",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "}).listen(9094,'0.0.0.0');`;",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "assert.ok(asset, \"built SPA JavaScript asset\");",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "const js = await fetch(`${base}${asset}`);",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "assert.equal(js.status, 200);",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "assert.match(js.headers.get(\"cache-control\"), /immutable/);",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "assert.equal(await (await fetch(`${base}/a/deep/spa/path`)).text(), html);",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "docker(\"exec\", api, \"node\", \"-e\", \"fetch('http://127.0.0.1:4000/metrics').then(a",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "console.log(\"PASS edge: JSON readiness, POST validation, metrics variants, SPA/a",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "const tlsWeb = `${tag}-https`;",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "run(tlsWeb, [\"-p\", \"127.0.0.1::443\", \"-e\", \"APP_DOMAIN=localhost\",",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "\"--health-interval=1s\", \"--health-start-period=1s\", \"--health-timeout=3s\", webIm",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "const compose = JSON.parse(docker(\"compose\", \"--env-file\", join(root, \".env.prod",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "\"-f\", join(root, \"compose.prod.yml\"), \"config\", \"--format\", \"json\"));",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "assert.deepEqual(JSON.parse(docker(\"inspect\", \"--format\", \"{{json .Config.Health",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "await waitFor(() => assert.equal(docker(\"inspect\", \"--format\", \"{{.State.Health.",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "assert.equal(docker(\"exec\", tlsWeb, \"id\", \"-u\"), \"1000\");",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "const ca = docker(\"exec\", tlsWeb, \"cat\", \"/data/caddy/pki/authorities/local/root",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "const tlsPort = Number(docker(\"port\", tlsWeb, \"443/tcp\").split(\":\").at(-1));",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "function secureGet(path) {",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "return new Promise((resolve, reject) => {",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "const req = httpsRequest({ hostname: \"127.0.0.1\", port: tlsPort, path,",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "servername: \"localhost\", ca, headers: { Host: \"localhost\" }, timeout: 3000 }, re",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "let body = \"\"; res.on(\"data\", chunk => { body += chunk; });",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "res.on(\"end\", () => resolve({ status: res.statusCode, headers: res.headers, body",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "});",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "req.on(\"error\", reject); req.on(\"timeout\", () => req.destroy(new Error(\"HTTPS pr",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "});",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "}",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "await waitFor(async () => {",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "const ready = await secureGet(\"/api/health/ready\");",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "assert.equal(ready.status, 200);",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "assert.deepEqual(JSON.parse(ready.body), { ok: true, ready: true });",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "assert.equal(ready.headers[\"x-frame-options\"], \"DENY\");",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "});",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "for (const path of [\"/api/metrics\", \"/api/metrics/\", \"/api/METRICS/\"]) assert.eq",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "console.log(\"PASS HTTPS: exact Compose healthcheck, healthy non-root container, ",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "writeFileSync(join(temp, \"alertmanager.yml\"), readFileSync(join(root, \"infra/mon",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "run(alerts, [\"--network-alias\", \"alerts\", \"--entrypoint\", \"/bin/sh\",",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "\"--mount\", `type=bind,source=${join(root, \"infra/monitoring/start-alertmanager.s",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "\"--mount\", `type=bind,source=${join(temp, \"alertmanager.yml\")},target=/etc/alert",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "\"-e\", \"ALERT_WEBHOOK_URL=http://api:9094/hooks?first=1&second=two%20words\",",
+      "reason": "inside-string-or-template"
+    }
+  ],
+  "errors": []
+}

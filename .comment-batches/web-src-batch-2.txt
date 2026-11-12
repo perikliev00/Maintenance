@@ -1,0 +1,14 @@
+﻿web/src/app/boardFocus.ts
+web/src/app/index.ts
+web/src/app/NavIcon.tsx
+web/src/app/routing.tsx
+web/src/app/useAuthBootstrap.ts
+web/src/audit/formatAuditDetails.ts
+web/src/audit/labels.test.ts
+web/src/audit/labels.ts
+web/src/components/AnalyticsCharts.tsx
+web/src/components/AuditTimeline.tsx
+web/src/components/BrandMark.tsx
+web/src/components/FormModal.tsx
+web/src/components/IssueCatalogPanel.tsx
+web/src/components/IssueReportForm.tsx

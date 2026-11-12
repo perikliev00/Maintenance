@@ -1,0 +1,50 @@
+{
+  "batch": "remaining-a",
+  "filesInspected": 18,
+  "filesModified": 18,
+  "commentsAdded": 2648,
+  "linesSkippedForSafety": 8,
+  "skipReasons": [
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "Log out",
+      "reason": "possible JSX text node"
+    },
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "Sign out everywhere",
+      "reason": "possible JSX text node"
+    },
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "Meridian",
+      "reason": "possible JSX text node"
+    },
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "Menu",
+      "reason": "possible JSX text node"
+    },
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "JSX children trees",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/app/routing.tsx",
+      "lineHint": "JSX panel trees",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/app/NavIcon.tsx",
+      "lineHint": "SVG child paths",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "bootstrap template body",
+      "reason": "inside-string-or-template"
+    }
+  ],
+  "errors": []
+}

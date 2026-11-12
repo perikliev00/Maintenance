@@ -1,0 +1,1010 @@
+{
+  "batch": "api-services-a",
+  "filesInspected": 44,
+  "filesModified": 44,
+  "commentsAdded": 3590,
+  "linesSkippedForSafety": 493,
+  "skipReasons": [
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "CatalogStatus,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "InspectionResult,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "LocationKind,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "Prisma,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "SessionStatus,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "TaskStatus,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "avgValidMinutesFromTaskMs,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "sessionDurationBuckets,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "sumValidSessionMs,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "MIN_PERCENTILE_SAMPLES,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "bucketCounts,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "compareMetric,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "percentile,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "round1,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "formatLocationLabel,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "locationWithBuildingInclude,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "mergeTicketThresholdFactor,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "sortRiskRooms,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "completedTasks,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "rejectedInspections,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "approvedInspections,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "completedSessions,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "prevCompleted,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "prevRejected,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "prevApproved,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "taskSessions,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "autoAccepted,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "completedTaskWhere,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "anomalyThresholdMinutes,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "anomalyThresholdMinutes,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "totalValidMsForTasks,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "tasksWithValidTime,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "locationId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "riskRooms,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "count,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "riskTicketThreshold,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "recentCompleted,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "\"cleaned tasks\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "acceptedTasks,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "onTimePct,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/housekeepingSummary.ts",
+      "lineHint": "avgMinutesPerTask,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/period.test.ts",
+      "lineHint": "DAY_MS,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/period.test.ts",
+      "lineHint": "endOfDay,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/period.test.ts",
+      "lineHint": "previousPeriod,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/period.test.ts",
+      "lineHint": "startOfDay,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "MIN_PERCENTILE_SAMPLES,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "avg,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "bucketCounts,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "compareMetric,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "percentile,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "round1,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "formatLocationLabel,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "locationWithBuildingInclude,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "addTicketThresholdRiskRooms,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "mergeBlockingPastSlaRiskRooms,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "sortRiskRooms,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "riskRooms,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "openBlockingPastSla,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/maintenanceSummary.ts",
+      "lineHint": "ticketCountsByLocation,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/riskRooms.ts",
+      "lineHint": "): void {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/analytics/riskRooms.ts",
+      "lineHint": "locationId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/riskRooms.ts",
+      "lineHint": "): void {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/analytics/riskRooms.ts",
+      "lineHint": "label,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/riskRooms.ts",
+      "lineHint": "): void {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/analytics/riskRooms.ts",
+      "lineHint": "locationId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/riskRooms.ts",
+      "lineHint": "label,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/sessionThresholds.ts",
+      "lineHint": "): number {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/analytics/forecast.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/analytics/forecast.ts",
+      "lineHint": "remainingDaysInMonth,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/stats.ts",
+      "lineHint": "current,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/stats.ts",
+      "lineHint": "previous,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/stats.ts",
+      "lineHint": "current,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/analytics/stats.ts",
+      "lineHint": "previous,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "OPEN_MISSING_END_HOURS,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "addDaysYmd,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "asFlags,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "hotelDateKey,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "pairEventsToIntervalDrafts,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "uniqueFlags,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "AttendanceAdjustmentStatus,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "AttendanceIntervalStatus,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "Prisma,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "): Promise<boolean> {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "id,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "id,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "cutoff,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "events,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "timeZone,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.ts",
+      "lineHint": "intervalId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/notificationOutbox.ts",
+      "lineHint": "deliverOutboxIntent,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/notificationOutbox.ts",
+      "lineHint": "flushOutbox,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/notificationOutbox.ts",
+      "lineHint": "countOutboxBacklog,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/notificationOutbox.ts",
+      "lineHint": "listEligibleOutboxKeys,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/notificationOutbox.ts",
+      "lineHint": "recordOutboxFailure,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/notificationOutbox.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/notificationOutbox.ts",
+      "lineHint": "): Promise<void> {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/notificationOutbox.ts",
+      "lineHint": "): Promise<void> {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "assertValidAdjustmentTimes,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "computeWorkedMinutes,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "AttendanceAdjustmentStatus,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "AttendanceIntervalStatus,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "Role,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "recipientsWithAction,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "enqueueAttendanceNotice,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "tryDeliverAttendanceNotice,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "403,",
+      "reason": "literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "\"forbidden\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "\"You can only request adjustments for your own intervals\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "\"attendance.approve_adjustment\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "reason,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "proposedStartedAt,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "proposedEndedAt,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "reason,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "proposedStartedAt,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "proposedEndedAt,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "tx,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "reviewedAt,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "startedAt,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "endedAt,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "breakMinutes,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "workedMinutes,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "startedAt,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "endedAt,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "breakMinutes,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/adjustments.ts",
+      "lineHint": "tx,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/stale.test.ts",
+      "lineHint": "claimStaleOpenInterval,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/stale.test.ts",
+      "lineHint": "OPEN_MISSING_END_HOURS,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/stale.test.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/stale.test.ts",
+      "lineHint": "db,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/stale.test.ts",
+      "lineHint": "\"large_clock_skew\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/stale.test.ts",
+      "lineHint": "\"missing_end\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/stale.test.ts",
+      "lineHint": "\"large_clock_skew\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/stale.test.ts",
+      "lineHint": "\"missing_end\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "): CsvRow {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"hotelDate\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"employeeNumber\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"fullName\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"department\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"startedAt\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"endedAt\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"breakMinutes\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"workedMinutes\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"status\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"anomalyFlags\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"2026-10-06\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"E100\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"Ada Lovelace\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"Housekeeping\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"30\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"450\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"closed\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/csv.test.ts",
+      "lineHint": "\"overlap|large_clock_skew\",",
+      "reason": "string-literal-argument"
+    },
+    {
+      "file": "api/src/services/attendance/reports/pagination.test.ts",
+      "lineHint": "decodeIntervalCursor,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/pagination.test.ts",
+      "lineHint": "drainExportPages,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/pagination.test.ts",
+      "lineHint": "encodeIntervalCursor,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/pagination.test.ts",
+      "lineHint": "listPageFromRows,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/pagination.test.ts",
+      "lineHint": "resolveListLimit,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/pagination.test.ts",
+      "lineHint": "hotelDate,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/pagination.test.ts",
+      "lineHint": "batchSize,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/pagination.test.ts",
+      "lineHint": "toCursor,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/pagination.test.ts",
+      "lineHint": "toCursor,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "AttendanceAdjustmentStatus,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "AttendanceEventKind,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "AttendanceIntervalStatus,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "PrismaClient,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "Role,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "rebuildIntervalsForEmployee,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "requestAdjustment,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "reviewAdjustment,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "cleanupEmployeeGraph,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "createEmployeeWithUser,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "ensureUnrelatedControlFixture,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "UNRELATED_CONTROL_EMAIL,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/rebuild.test.ts",
+      "lineHint": "employeeId,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/map.ts",
+      "lineHint": ") {",
+      "reason": "function-signature-closer"
+    },
+    {
+      "file": "api/src/services/attendance/reports/query.ts",
+      "lineHint": "EXPORT_BATCH,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/query.ts",
+      "lineHint": "EXPORT_CEILING,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/query.ts",
+      "lineHint": "intervalInclude,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/query.ts",
+      "lineHint": "mapInterval,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/query.ts",
+      "lineHint": "decodeIntervalCursor,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/query.ts",
+      "lineHint": "drainExportPages,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/query.ts",
+      "lineHint": "listPageFromRows,",
+      "reason": "shorthand-property"
+    },
+    {
+      "file": "api/src/services/attendance/reports/query.ts",
+      "lineHint": "resolveListLimit,",
+      "reason": "shorthand-property"
+    }
+  ],
+  "errors": []
+}

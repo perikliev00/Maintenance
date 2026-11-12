@@ -1,171 +1,288 @@
+/* Style rule selector. */
 .mywork-page {
+  /* Declare layout/visual property for this rule. */
   max-width: 720px;
 }
 
+/* Style rule selector. */
 .mywork-header {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-wrap: wrap;
+  /* Declare layout/visual property for this rule. */
   align-items: flex-start;
+  /* Declare layout/visual property for this rule. */
   justify-content: space-between;
+  /* Declare layout/visual property for this rule. */
   gap: 0.75rem;
 }
 
+/* Style rule selector. */
 .mywork-conn {
+  /* Declare layout/visual property for this rule. */
   font-size: 0.8rem;
+  /* Declare layout/visual property for this rule. */
   font-weight: 600;
+  /* Declare layout/visual property for this rule. */
   letter-spacing: 0.02em;
+  /* Declare layout/visual property for this rule. */
   padding: 0.35rem 0.7rem;
+  /* Declare layout/visual property for this rule. */
   border-radius: 999px;
+  /* Declare layout/visual property for this rule. */
   border: 1px solid var(--border);
 }
 
+/* Style rule selector. */
 .mywork-conn-online {
+  /* Declare layout/visual property for this rule. */
   color: var(--success-text, #3dba7a);
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--success-bg, #143528) 80%, transparent);
 }
 
+/* Style rule selector. */
 .mywork-conn-syncing {
+  /* Declare layout/visual property for this rule. */
   color: var(--warn-text);
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--warn-bg) 80%, transparent);
 }
 
+/* Style rule selector. */
 .mywork-conn-offline {
+  /* Declare layout/visual property for this rule. */
   color: var(--danger-text);
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--danger-bg) 80%, transparent);
 }
 
+/* Style rule selector. */
 .mywork-conn-unreachable {
+  /* Declare layout/visual property for this rule. */
   color: var(--warn-text);
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--danger-bg) 55%, transparent);
+  /* Declare layout/visual property for this rule. */
   border-color: color-mix(in srgb, var(--danger-text) 35%, var(--border));
 }
 
+/* Style rule selector. */
 .outbox-issues {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-direction: column;
+  /* Declare layout/visual property for this rule. */
   gap: 0.5rem;
+  /* Declare layout/visual property for this rule. */
   margin-bottom: var(--space-3, 0.75rem);
 }
 
+/* Style rule selector. */
 .outbox-issue-list {
+  /* Declare layout/visual property for this rule. */
   list-style: none;
+  /* Declare layout/visual property for this rule. */
   margin: 0;
+  /* Declare layout/visual property for this rule. */
   padding: 0;
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-direction: column;
+  /* Declare layout/visual property for this rule. */
   gap: 0.5rem;
 }
 
+/* Style rule selector. */
 .outbox-issue-item {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-wrap: wrap;
+  /* Declare layout/visual property for this rule. */
   align-items: flex-start;
+  /* Declare layout/visual property for this rule. */
   justify-content: space-between;
+  /* Declare layout/visual property for this rule. */
   gap: 0.75rem;
+  /* Declare layout/visual property for this rule. */
   padding: 0.65rem 0.8rem;
+  /* Declare layout/visual property for this rule. */
   border: 1px solid var(--border);
+  /* Declare layout/visual property for this rule. */
   border-radius: var(--radius-md, 10px);
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
 }
 
+/* Style rule selector. */
 .outbox-issue-meta {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-direction: column;
+  /* Declare layout/visual property for this rule. */
   gap: 0.2rem;
+  /* Declare layout/visual property for this rule. */
   min-width: 0;
+  /* Declare layout/visual property for this rule. */
   flex: 1;
 }
 
+/* Style rule selector. */
 .outbox-issue-actions {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-wrap: wrap;
+  /* Declare layout/visual property for this rule. */
   gap: 0.35rem;
 }
 
+/* Style rule selector. */
 .mywork-section {
+  /* Declare layout/visual property for this rule. */
   margin: 1.25rem 0 1.75rem;
 }
 
+/* Style rule selector. */
 .mywork-section h2 {
+  /* Declare layout/visual property for this rule. */
   margin: 0 0 0.75rem;
+  /* Declare layout/visual property for this rule. */
   font-size: 1.05rem;
 }
 
+/* Style rule selector. */
 .mywork-cards {
+  /* Declare layout/visual property for this rule. */
   display: grid;
+  /* Declare layout/visual property for this rule. */
   gap: 0.85rem;
 }
 
+/* Style rule selector. */
 .mywork-card {
+  /* Declare layout/visual property for this rule. */
   padding: 1rem 1.1rem;
+  /* Declare layout/visual property for this rule. */
   border: 1px solid var(--border);
+  /* Declare layout/visual property for this rule. */
   border-radius: 14px;
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--panel, var(--card, #152228)) 92%, transparent);
 }
 
+/* Style rule selector. */
 .mywork-card-current {
+  /* Declare layout/visual property for this rule. */
   border-color: color-mix(in srgb, var(--accent, #3dba7a) 55%, var(--border));
+  /* Declare layout/visual property for this rule. */
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #3dba7a) 25%, transparent);
 }
 
+/* Style rule selector. */
 .mywork-card-rework {
+  /* Declare layout/visual property for this rule. */
   border-color: color-mix(in srgb, var(--warn-text) 45%, var(--border));
 }
 
+/* Style rule selector. */
 .mywork-card-top {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   align-items: center;
+  /* Declare layout/visual property for this rule. */
   justify-content: space-between;
+  /* Declare layout/visual property for this rule. */
   gap: 0.75rem;
+  /* Declare layout/visual property for this rule. */
   margin-bottom: 0.35rem;
 }
 
+/* Style rule selector. */
 .mywork-findings {
+  /* Declare layout/visual property for this rule. */
   margin: 0.4rem 0 0.6rem;
+  /* Declare layout/visual property for this rule. */
   padding: 0.55rem 0.65rem;
+  /* Declare layout/visual property for this rule. */
   border-radius: 8px;
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--warn-bg) 70%, transparent);
+  /* Declare layout/visual property for this rule. */
   color: var(--warn-text);
+  /* Declare layout/visual property for this rule. */
   font-size: 0.92rem;
 }
 
+/* Style rule selector. */
 .mywork-actions {
+  /* Declare layout/visual property for this rule. */
   display: flex;
+  /* Declare layout/visual property for this rule. */
   flex-wrap: wrap;
+  /* Declare layout/visual property for this rule. */
   gap: 0.65rem;
+  /* Declare layout/visual property for this rule. */
   margin-top: 0.85rem;
 }
 
+/* Style rule selector. */
 .mywork-btn {
+  /* Declare layout/visual property for this rule. */
   min-height: 3rem;
+  /* Declare layout/visual property for this rule. */
   min-width: 8rem;
+  /* Declare layout/visual property for this rule. */
   padding: 0.7rem 1.2rem;
+  /* Declare layout/visual property for this rule. */
   font-size: 1.05rem;
+  /* Declare layout/visual property for this rule. */
   font-weight: 600;
+  /* Declare layout/visual property for this rule. */
   border-radius: 12px;
 }
 
+/* Style rule selector. */
 .mywork-btn.primary {
+  /* Declare layout/visual property for this rule. */
   background: var(--accent, #1f6f5b);
+  /* Declare layout/visual property for this rule. */
   color: #fff;
+  /* Declare layout/visual property for this rule. */
   border: none;
 }
 
+/* Style rule selector. */
 .mywork-btn.primary:disabled {
+  /* Declare layout/visual property for this rule. */
   opacity: 0.55;
 }
 
+/* Style rule selector. */
 .pill.status-rework {
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--warn-bg) 85%, transparent);
+  /* Declare layout/visual property for this rule. */
   color: var(--warn-text);
 }
 
+/* Style rule selector. */
 .pill.status-in_progress {
+  /* Declare layout/visual property for this rule. */
   background: color-mix(in srgb, var(--accent, #1f6f5b) 25%, transparent);
 }
 
+/* Responsive breakpoint overrides. */
 @media (max-width: 900px) {
+  /* Style rule selector. */
   .mywork-btn {
+    /* Declare layout/visual property for this rule. */
     flex: 1 1 auto;
   }
 }

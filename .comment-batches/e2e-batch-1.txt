@@ -1,0 +1,15 @@
+﻿e2e/tests/mid-drain-switch.spec.ts
+e2e/tests/module-toggle-nav.spec.ts
+e2e/tests/my-work-housekeeper-shift.spec.ts
+e2e/tests/my-work-technician-queue.spec.ts
+e2e/tests/permissions-live-refresh.spec.ts
+e2e/tests/readiness-blocking-flow.spec.ts
+e2e/tests/repairs-lifecycle-flow.spec.ts
+e2e/tests/repairs-pagination.spec.ts
+e2e/tests/revoke-action-ui.spec.ts
+e2e/tests/role-change-kickout.spec.ts
+e2e/tests/rooms-reassign-modal.spec.ts
+e2e/tests/scenarios/auth-recovery.spec.ts
+e2e/tests/scenarios/calendar.spec.ts
+e2e/tests/scenarios/helpers/ticketListMock.ts
+e2e/tests/scenarios/live.spec.ts

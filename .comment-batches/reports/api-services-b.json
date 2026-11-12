@@ -1,0 +1,115 @@
+{
+  "batch": "api-services-b",
+  "filesInspected": 55,
+  "filesModified": 54,
+  "commentsAdded": 3526,
+  "linesSkippedForSafety": 21,
+  "skipReasons": [
+    {
+      "file": "api/src/services/cleaning/cycles.ts",
+      "lineHint": "SELECT id FROM \"CleaningTask\"",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/cycles.ts",
+      "lineHint": "WHERE \"locationId\" = ${locationId}",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/cycles.ts",
+      "lineHint": "AND status IN (",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/cycles.ts",
+      "lineHint": "'assigned'::\"TaskStatus\",",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/cycles.ts",
+      "lineHint": "'in_progress'::\"TaskStatus\",",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/cycles.ts",
+      "lineHint": "'rework'::\"TaskStatus\"",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/cycles.ts",
+      "lineHint": "ORDER BY id",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/cycles.ts",
+      "lineHint": "FOR UPDATE",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/cycles.ts",
+      "lineHint": "`;",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/inspection.ts",
+      "lineHint": "input.findings?.trim() ? ` — ${input.findings.trim()}` : \"\"",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/inspection.ts",
+      "lineHint": "}`",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/inspection.ts",
+      "lineHint": "input.findings?.trim() ? ` — ${input.findings.trim()}` : \"\"",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/inspection.ts",
+      "lineHint": "}`,",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/locks.ts",
+      "lineHint": "SELECT id FROM \"CleaningTask\" WHERE id = ${taskId} FOR UPDATE",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/locks.ts",
+      "lineHint": "`;",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/locks.ts",
+      "lineHint": "SELECT id FROM \"CleaningSession\" WHERE id = ${sessionId} FOR UPDATE",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/locks.ts",
+      "lineHint": "`;",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/locks.ts",
+      "lineHint": "SELECT id FROM \"Location\" WHERE id = ${locationId} FOR UPDATE",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/cleaning/locks.ts",
+      "lineHint": "`;",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/dailyPlanEffects/applyEntry.ts",
+      "lineHint": "SELECT id FROM \"CleaningTask\" WHERE id = ${task.id} FOR UPDATE",
+      "reason": "inside_string_template_or_regex_continuation"
+    },
+    {
+      "file": "api/src/services/dailyPlanEffects/applyEntry.ts",
+      "lineHint": "`;",
+      "reason": "inside_string_template_or_regex_continuation"
+    }
+  ],
+  "errors": []
+}

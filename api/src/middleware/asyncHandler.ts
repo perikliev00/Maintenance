@@ -1,4 +1,5 @@
 /** Express 4 helpers for async route handlers. */
+// RequestHandler type for wrapping async route functions.
 import type { RequestHandler } from "express";
 
 /**

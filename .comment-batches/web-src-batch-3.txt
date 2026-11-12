@@ -1,0 +1,17 @@
+﻿web/src/components/LoadingIndicator.tsx
+web/src/components/LocationCatalogPanel.tsx
+web/src/components/LocationHistoryPanel.tsx
+web/src/components/LocationIssueDialog.tsx
+web/src/components/NotificationInbox.tsx
+web/src/components/offline/ConnStatusBadge.tsx
+web/src/components/OutboxIssuesPanel.tsx
+web/src/components/ScopeHint.tsx
+web/src/components/SectorPanel.tsx
+web/src/components/ShiftPanel.tsx
+web/src/components/ticketBusyGate.test.ts
+web/src/components/ticketBusyGate.ts
+web/src/components/TicketLifecycleActions.tsx
+web/src/hooks/useBusyMutation.ts
+web/src/hooks/useIssueCatalog.ts
+web/src/hooks/useLiveRefresh.events.test.ts
+web/src/hooks/useLiveRefresh.ts

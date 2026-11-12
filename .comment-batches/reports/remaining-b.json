@@ -1,0 +1,45 @@
+{
+  "batch": "remaining-b",
+  "filesInspected": 44,
+  "filesModified": 44,
+  "commentsAdded": 2069,
+  "linesSkippedForSafety": 62,
+  "skipReasons": [
+    {
+      "file": "api/src/scripts/backfillAuditLocationIds.ts",
+      "lineHint": "UPDATE \"AuditEvent\" AS ae / SQL body",
+      "reason": "inside SQL template literal — comments would corrupt the query string"
+    },
+    {
+      "file": "web/src/app/App.tsx",
+      "lineHint": "Log out / Sign out everywhere / Meridian / Menu",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "web/src/pages/SettingsPage/InterfaceTab.tsx",
+      "lineHint": "<label> / {label(...)} / <option>…",
+      "reason": "jsx-children-unsafe-for-slash-comment"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "bootstrap template body (createApp…listen)",
+      "reason": "inside-string-or-template"
+    },
+    {
+      "file": "scripts/run-local-restore-drill.ps1",
+      "lineHint": "SELECT pg_terminate_backend… / CREATE DATABASE",
+      "reason": "inside PowerShell here-string (@\" \"@)"
+    },
+    {
+      "file": "scripts/ci/prepare-p1-test-db.sh",
+      "lineHint": "SEED=… / WEB_ORIGIN=… / MIGRATE_PLAIN=…",
+      "reason": "already has adequate trailing # inline comments"
+    },
+    {
+      "file": "scripts/verify-containers.mjs",
+      "lineHint": "try { console.error… } catch { /* failed startup */ }",
+      "reason": "one-liner already has inline block comment; slash comment above would be redundant"
+    }
+  ],
+  "errors": []
+}

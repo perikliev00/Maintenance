@@ -1,0 +1,10 @@
+﻿api/src/services/sync/commandSchemas.ts
+api/src/services/sync/conflicts.test.ts
+api/src/services/sync/conflicts.ts
+api/src/services/sync/device.ts
+api/src/services/sync/index.ts
+api/src/services/sync/pull.ts
+api/src/services/sync/push.ts
+api/src/services/sync/types.ts
+api/src/startup/requiredDefaults.ts
+api/src/startup/requiredDefaults.wiring.test.ts
