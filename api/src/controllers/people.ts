@@ -3,9 +3,7 @@
  * Domain work lives in services/people; this file is HTTP parse → service → JSON.
  */
 import type { Request, Response } from "express";
-// Import dependency @prisma/client.
 import { Role } from "@prisma/client";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Continue named import list.
 import {
@@ -41,18 +39,14 @@ const lifecycleBodySchema = z.object({
 function lifecycleActor(req: Request) {
   // Return value or early exit.
   return {
-    // Provide userId for the object/call below.
     userId: req.user!.userId,
-    // Provide employeeId for the object/call below.
     employeeId: req.user!.employeeId,
-    // Provide role for the object/call below.
     role: req.user!.role,
   };
 }
 
 /** GET /people — employee directory with optional search/role/onboarding filters. */
 export async function list(req: Request, res: Response) {
-  // Bind limitRaw for use in the handler below.
   const limitRaw =
     // Narrow the runtime type before using the value.
     typeof req.query.limit === "string"
@@ -62,19 +56,12 @@ export async function list(req: Request, res: Response) {
       : undefined;
   // Invoke service and capture the result payload.
   const result = await listPeopleDirectory({
-    // Provide q for the object/call below.
     q: typeof req.query.q === "string" ? req.query.q : undefined,
-    // Provide role for the object/call below.
     role: typeof req.query.role === "string" ? req.query.role : undefined,
-    // Provide includeInactive for the object/call below.
     includeInactive: req.query.includeInactive === "true",
-    // Provide includeArchived for the object/call below.
     includeArchived: req.query.includeArchived === "true",
-    // Provide notOnboarded for the object/call below.
     notOnboarded: req.query.notOnboarded === "true",
-    // Provide limit for the object/call below.
     limit: limitRaw,
-    // Provide cursor for the object/call below.
     cursor:
       // Narrow the runtime type before using the value.
       typeof req.query.cursor === "string" && req.query.cursor.trim()
@@ -89,7 +76,6 @@ export async function list(req: Request, res: Response) {
 
 /** GET /people/:employeeId — single person detail. */
 export async function getOne(req: Request, res: Response) {
-  // Await async work into person.
   const person = await getPerson(req.params.employeeId);
   // JSON success response with the payload.
   return res.json(person);
@@ -103,13 +89,10 @@ export async function block(req: Request, res: Response) {
   if (!parsed.success) {
     // Bad-request validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide details for the object/call below.
       details: parsed.error.flatten(),
     });
   }
-  // Await async work into person.
   const person = await blockPerson(
     // Continue the controller logic.
     lifecycleActor(req),
@@ -132,13 +115,10 @@ export async function unblock(req: Request, res: Response) {
   if (!parsed.success) {
     // Bad-request validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide details for the object/call below.
       details: parsed.error.flatten(),
     });
   }
-  // Await async work into person.
   const person = await unblockPerson(
     // Continue the controller logic.
     lifecycleActor(req),
@@ -161,13 +141,10 @@ export async function archive(req: Request, res: Response) {
   if (!parsed.success) {
     // Bad-request validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide details for the object/call below.
       details: parsed.error.flatten(),
     });
   }
-  // Await async work into person.
   const person = await archivePerson(
     // Continue the controller logic.
     lifecycleActor(req),
@@ -190,13 +167,10 @@ export async function restore(req: Request, res: Response) {
   if (!parsed.success) {
     // Bad-request validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide details for the object/call below.
       details: parsed.error.flatten(),
     });
   }
-  // Await async work into person.
   const person = await restorePerson(
     // Continue the controller logic.
     lifecycleActor(req),
@@ -227,20 +201,14 @@ export async function changeRole(req: Request, res: Response) {
   if (!parsed.success) {
     // Bad-request validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide details for the object/call below.
       details: parsed.error.flatten(),
     });
   }
 
-  // Await async work into person.
   const person = await changePersonRole({
-    // Provide actorRole for the object/call below.
     actorRole: req.user!.role,
-    // Provide userId for the object/call below.
     userId: req.params.id,
-    // Provide nextRole for the object/call below.
     nextRole: parsed.data.role,
   });
   // JSON success response with the payload.

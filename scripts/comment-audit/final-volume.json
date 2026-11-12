@@ -1,0 +1,207 @@
+{
+  "files": 774,
+  "totalLines": 136468,
+  "fullLineComments": 3010,
+  "top": [
+    [
+      "Shared Prisma client bound to the isolated test database.",
+      49
+    ],
+    [
+      "Guard that mutating suites only run against the isolated test database.",
+      48
+    ],
+    [
+      "Refuse to mutate unless connected to the isolated test database.",
+      45
+    ],
+    [
+      "Repeat/poll to widen the race window or wait for lock waiters.",
+      24
+    ],
+    [
+      "Shared test fixtures for seeding users, locations, and domain entities.",
+      23
+    ],
+    [
+      "Run actors together to expose races and serialization bugs.",
+      23
+    ],
+    [
+      "Complete the ternary or optional chain started above.",
+      20
+    ],
+    [
+      "Union/intersection type member.",
+      20
+    ],
+    [
+      "Spread remaining fields/props.",
+      20
+    ],
+    [
+      "Memoize derived value to avoid recomputing every render.",
+      20
+    ],
+    [
+      "Abort this path by throwing an error to callers.",
+      19
+    ],
+    [
+      "Re-export public API surface.",
+      19
+    ],
+    [
+      "Execute: assert.equal(",
+      18
+    ],
+    [
+      "Lazy-load this panel chunk so Vite can code-split pages.",
+      18
+    ],
+    [
+      "Shape CleaningWorld documents the fixture/response fields this suite touches.",
+      17
+    ],
+    [
+      "Brief yield so lock waiters/UI can settle before asserting.",
+      16
+    ],
+    [
+      "Playwright test runner APIs for browser E2E scenarios.",
+      16
+    ],
+    [
+      "Runner option controlling stability or isolation of the suite.",
+      15
+    ],
+    [
+      "Fire-and-forget async work without awaiting in this path.",
+      15
+    ],
+    [
+      "Assert replay/idempotent path did not create duplicates.",
+      14
+    ],
+    [
+      "Load isolated P1 test env before any Prisma/DB clients connect.",
+      14
+    ],
+    [
+      "HTTP harness to listen an in-process API for request-level tests.",
+      14
+    ],
+    [
+      "Function definition.",
+      14
+    ],
+    [
+      "Iterate collection / range.",
+      14
+    ],
+    [
+      "Continue module logic.",
+      14
+    ],
+    [
+      "Test lifecycle hook.",
+      13
+    ],
+    [
+      "Capture remote/API result needed by this flow.",
+      12
+    ],
+    [
+      "Shape TicketsWorld documents the fixture/response fields this suite touches.",
+      12
+    ],
+    [
+      "Expected numeric assertion argument for this check.",
+      11
+    ],
+    [
+      "Append an entry to the accumulating collection.",
+      11
+    ],
+    [
+      "Configure body for the request/server under test.",
+      11
+    ],
+    [
+      "Configure headers for the request/server under test.",
+      11
+    ],
+    [
+      "Register test lifecycle hook for setup or teardown.",
+      10
+    ],
+    [
+      "Emit diagnostic output for debugging this path.",
+      10
+    ],
+    [
+      "Iterate items to apply the same logic to each entry.",
+      10
+    ],
+    [
+      "iv: seeded entity required before the mutation under test.",
+      10
+    ],
+    [
+      "Surface a hard failure when isolation or contract is violated.",
+      10
+    ],
+    [
+      "created: seeded entity required before the mutation under test.",
+      10
+    ],
+    [
+      "Invoke helper or pass arguments.",
+      10
+    ],
+    [
+      "Load local snap asynchronously for the next steps.",
+      9
+    ],
+    [
+      "target: seeded entity required before the mutation under test.",
+      9
+    ],
+    [
+      "ticket: seeded entity required before the mutation under test.",
+      9
+    ],
+    [
+      "Shape SectorsWorld documents the fixture/response fields this suite touches.",
+      9
+    ],
+    [
+      "Find the first matching item for this lookup.",
+      9
+    ],
+    [
+      "Shape AttendanceWorld documents the fixture/response fields this suite touches.",
+      8
+    ],
+    [
+      "settled: capture concurrent outcomes for race assertions.",
+      8
+    ],
+    [
+      "Filter items down to those relevant for this view.",
+      8
+    ],
+    [
+      "Always run cleanup to preserve DB/server isolation across cases.",
+      8
+    ],
+    [
+      "Drive the browser through the user-visible workflow step.",
+      8
+    ],
+    [
+      "Execute: assert.throws(",
+      7
+    ]
+  ]
+}

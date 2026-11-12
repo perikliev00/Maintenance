@@ -47,10 +47,7 @@ export const KNOWN_AUDIT_PRODUCER_ACTIONS = [
   "people.restore",
   "device.revoke",
   "sync.push",
-// Support the surrounding control flow.
 ] as const;
 
-// Public type KnownAuditProducerAction for callers of this service.
 export type KnownAuditProducerAction =
-  // Support the surrounding control flow.
   (typeof KNOWN_AUDIT_PRODUCER_ACTIONS)[number];

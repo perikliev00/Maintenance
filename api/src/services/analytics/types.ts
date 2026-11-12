@@ -12,12 +12,8 @@ export type AnalyticsDomain = "maintenance" | "housekeeping";
  * respect sector/location scope without duplicating auth logic here.
  */
 export type AnalyticsScopeFilters = {
-  // Optional taskWhere.
   taskWhere?: Prisma.CleaningTaskWhereInput;
-  // Optional ticketWhere.
   ticketWhere?: Prisma.MaintenanceTicketWhereInput;
-  // Optional locationWhere.
   locationWhere?: Prisma.LocationWhereInput;
-  // Optional sessionWhere.
   sessionWhere?: Prisma.CleaningSessionWhereInput;
 };

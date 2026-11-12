@@ -7,7 +7,6 @@ import { mapInterval } from "./map";
 function escapeCsvCell(value: string): string {
   // RFC-style quoting: wrap and double any embedded quotes.
   if (/[",\r\n]/.test(value)) {
-    // Return computed result.
     return `"${value.replace(/"/g, '""')}"`;
   }
   // Plain cell — safe without quotes.
@@ -16,7 +15,6 @@ function escapeCsvCell(value: string): string {
 
 /** Build a CSV document (header + rows); anomaly flags joined with `|`. */
 export function intervalsToCsv(
-  // Param rows required by this function.
   rows: ReturnType<typeof mapInterval>[],
 ): string {
   // Stable column order for spreadsheet imports.
@@ -31,37 +29,25 @@ export function intervalsToCsv(
     "workedMinutes",
     "status",
     "anomalyFlags",
-  // Support the surrounding control flow.
   ].map(escapeCsvCell);
   // First line is the header row.
   const lines = [header.join(",")];
-  // Iterate items for aggregation or writes.
   for (const r of rows) {
     // Null endedAt / workedMinutes become empty cells; flags pipe-joined.
     const cells = [
-      // Support the surrounding control flow.
       r.hotelDate,
-      // Support the surrounding control flow.
       r.employee.employeeNumber,
-      // Support the surrounding control flow.
       r.employee.fullName,
-      // Support the surrounding control flow.
       r.employee.department ?? "",
-      // Support the surrounding control flow.
       r.startedAt,
-      // Support the surrounding control flow.
       r.endedAt ?? "",
       // Invoke String.
       String(r.breakMinutes),
       // Assign r.workedMinutes.
       r.workedMinutes == null ? "" : String(r.workedMinutes),
-      // Support the surrounding control flow.
       r.status,
-      // Support the surrounding control flow.
       r.anomalyFlags.join("|"),
-    // Support the surrounding control flow.
     ].map(escapeCsvCell);
-    // Support the surrounding control flow.
     lines.push(cells.join(","));
   }
   // LF-separated document (spreadsheet-friendly).

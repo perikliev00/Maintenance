@@ -40,7 +40,6 @@ import {
 
 /** Heartbeat interval; also refreshes session + DataScope. */
 const SSE_HEARTBEAT_MS = 25_000;
-// Bind activeStreams for use in the handler below.
 const activeStreams = new Set<() => void>();
 
 /** Close active streams during process drain; each remains authorization-scoped. */
@@ -53,19 +52,15 @@ export function closeSseStreams() {
 export { resolveSseTicketUser } from "../auth/sseTickets";
 // Re-export public symbols for consumers.
 export {
-  // Pass refreshSseSubscriberState through.
   refreshSseSubscriberState,
-  // Pass SseScopeRefreshError through.
   SseScopeRefreshError,
 } from "../services/events/sseRefresh";
 
 /** Session access token via Authorization: Bearer (preferred). */
 async function authenticateBearer(req: Request): Promise<AuthUser | null> {
-  // Bind header for use in the handler below.
   const header = req.headers.authorization;
   // Guard: skip or fail when the negated condition holds.
   if (!header?.startsWith("Bearer ")) return null;
-  // Bind token for use in the handler below.
   const token = header.slice("Bearer ".length);
   // Try block for operations that may throw.
   try {
@@ -82,7 +77,6 @@ async function authenticateBearer(req: Request): Promise<AuthUser | null> {
 
 /** Short-lived stream ticket via ?ticket= (EventSource-compatible). */
 async function authenticateTicket(req: Request): Promise<AuthUser | null> {
-  // Bind ticket for use in the handler below.
   const ticket =
     // Narrow the runtime type before using the value.
     typeof req.query.ticket === "string" ? req.query.ticket : null;
@@ -97,7 +91,6 @@ async function authenticateTicket(req: Request): Promise<AuthUser | null> {
  * SSE-purpose JWTs are rejected as Bearer/cookie so tickets stay query-only.
  */
 async function authenticateStream(req: Request): Promise<AuthUser | null> {
-  // Await async work into viaBearer.
   const viaBearer = await authenticateBearer(req);
   // Branch when this condition holds.
   if (viaBearer) return viaBearer;
@@ -134,7 +127,6 @@ function writeSse(res: Response, event: string, data: unknown) {
 
 /** Issue a short-lived JWT for EventSource clients that cannot send cookies/headers. */
 export function issueTicket(req: Request, res: Response) {
-  // Bind issued for use in the handler below.
   const issued = signSseTicket(req.user!);
   // Write JSON body for a successful response.
   res.json(issued);
@@ -151,9 +143,7 @@ export async function stream(req: Request, res: Response) {
   if (!user) {
     // Unauthorized when auth is missing or invalid.
     return res.status(401).json({
-      // Provide error for the object/call below.
       error: "unauthorized",
-      // Provide message for the object/call below.
       message: "Missing or invalid token",
     });
   }
@@ -172,9 +162,7 @@ export async function stream(req: Request, res: Response) {
     log.error("sse_initial_scope_failed", { error: safeErrorMessage(err) });
     // Send the HTTP response and end the handler.
     return res.status(500).json({
-      // Provide error for the object/call below.
       error: "internal",
-      // Provide message for the object/call below.
       message: "Failed to resolve data scope",
     });
   }
@@ -195,11 +183,8 @@ export async function stream(req: Request, res: Response) {
 
   // Initial connected event so the client knows the stream is live.
   writeSse(res, "connected", {
-    // Provide ok for the object/call below.
     ok: true,
-    // Provide userId for the object/call below.
     userId: currentUser.userId,
-    // Provide at for the object/call below.
     at: new Date().toISOString(),
   });
 
@@ -210,7 +195,6 @@ export async function stream(req: Request, res: Response) {
   // Serialize delivery and heartbeat checks. An older asynchronous refresh must
   // never overwrite a newer authorization decision or write after revocation.
   let pending: Promise<void> = Promise.resolve();
-  // Bind enqueue for use in the handler below.
   const enqueue = (action: () => Promise<void>) => {
     // Continue the controller logic.
     pending = pending.then(async () => {
@@ -228,9 +212,7 @@ export async function stream(req: Request, res: Response) {
         sseDeliveryFailed();
         // Continue the controller logic.
         writeSse(res, "revoked", {
-          // Provide ok for the object/call below.
           ok: false,
-          // Provide reason for the object/call below.
           reason: err instanceof SseScopeRefreshError
             // Continue the conditional expression.
             ? "scope_refresh_failed"
@@ -251,7 +233,6 @@ export async function stream(req: Request, res: Response) {
     if (closed) return;
     // Continue the controller logic.
     enqueue(async () => {
-      // Await async work into authorized.
       const authorized = await authorizeLiveDelivery(currentUser, event, (live) => {
         // Guard: skip or fail when the negated condition holds.
         if (!closed) writeSse(res, live.type, live);
@@ -264,12 +245,10 @@ export async function stream(req: Request, res: Response) {
       if (closed) return;
     });
   };
-  // Bind unsubscribe for use in the handler below.
   const unsubscribe = subscribe(onLive);
 
   // Continue the controller logic.
   let heartbeat: ReturnType<typeof setInterval> | undefined;
-  // Bind cleanup for use in the handler below.
   const cleanup = () => {
     // Branch when this condition holds.
     if (closed) return;
@@ -284,7 +263,6 @@ export async function stream(req: Request, res: Response) {
     // Continue the controller logic.
     unsubscribe();
   };
-  // Bind shutdownClose for use in the handler below.
   const shutdownClose = () => {
     // Branch when this condition holds.
     if (closed) return;

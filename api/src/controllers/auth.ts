@@ -3,7 +3,6 @@
  * Access/refresh tokens are issued only via httpOnly cookies (never JSON body).
  */
 import type { Request, Response } from "express";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Import local module ../db.
 import { prisma } from "../db";
@@ -63,9 +62,7 @@ export async function login(req: Request, res: Response) {
 
   // Continue the controller logic.
   const { user, tokens } = await loginWithCredentials(parsed.data, {
-    // Provide userAgent for the object/call below.
     userAgent: req.get("user-agent") ?? undefined,
-    // Provide ip for the object/call below.
     ip: req.ip,
   });
 
@@ -74,9 +71,7 @@ export async function login(req: Request, res: Response) {
 
   // Tokens only in httpOnly cookies — never in JSON body (XSS).
   return res.json({
-    // Pass user through.
     user,
-    // Provide expiresIn for the object/call below.
     expiresIn: tokens.expiresIn,
   });
 }
@@ -91,18 +86,14 @@ export async function refresh(req: Request, res: Response) {
     if (!refreshToken) {
       // Unauthorized when auth is missing or invalid.
       return res.status(401).json({
-        // Provide error for the object/call below.
         error: "unauthorized",
-        // Provide message for the object/call below.
         message: "Missing refresh token",
       });
     }
 
     // Rotate refresh hash and mint a new access token.
     const tokens = await rotateRefresh(refreshToken, {
-      // Provide userAgent for the object/call below.
       userAgent: req.get("user-agent"),
-      // Provide ip for the object/call below.
       ip: req.ip,
     });
 
@@ -137,7 +128,6 @@ export async function logout(req: Request, res: Response) {
     if (extracted) {
       // Try block for operations that may throw.
       try {
-        // Await async work into user.
         const user = await authenticateToken(extracted.token);
         // Await side-effecting async work.
         await revokeSession(user.sid);
@@ -151,17 +141,12 @@ export async function logout(req: Request, res: Response) {
 
     // Fallback: look up session by refresh-token hash when access token is gone/invalid.
     if (!revoked) {
-      // Bind refreshToken for use in the handler below.
       const refreshToken = readRefreshToken(req);
       // Branch when this condition holds.
       if (refreshToken) {
-        // Bind hash for use in the handler below.
         const hash = hashRefreshToken(refreshToken);
-        // Await async work into session.
         const session = await prisma.authSession.findUnique({
-          // Provide where for the object/call below.
           where: { refreshTokenHash: hash },
-          // Provide select for the object/call below.
           select: { id: true },
         });
         // Branch when this condition holds.
@@ -198,7 +183,6 @@ export async function logoutAll(req: Request, res: Response) {
     count = await revokeAllUsingRefreshToken(refreshToken);
   // Continue the controller logic.
   } else {
-    // Bind access for use in the handler below.
     const access = extractAccessToken(req);
     // Guard: skip or fail when the negated condition holds.
     if (!access) throw new AppError(401, "unauthorized", "Missing token");
@@ -223,18 +207,14 @@ export async function logoutAll(req: Request, res: Response) {
 export async function me(req: Request, res: Response) {
   // Reload user from DB so role/active changes apply immediately.
   const user = await prisma.user.findUnique({
-    // Provide where for the object/call below.
     where: { id: req.user!.userId },
-    // Provide include for the object/call below.
     include: { employee: true },
   });
   // Missing, blocked, or archived accounts cannot use /me.
   if (!user || !user.isActive || user.employee.archivedAt) {
     // Unauthorized when auth is missing or invalid.
     return res.status(401).json({
-      // Provide error for the object/call below.
       error: "unauthorized",
-      // Provide message for the object/call below.
       message: !user ? "User not found" : "Account blocked",
     });
   }

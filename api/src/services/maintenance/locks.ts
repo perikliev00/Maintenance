@@ -30,7 +30,6 @@ export async function loadLockedTicket(tx: Tx, ticketId: string) {
   await lockTicket(tx, ticketId);
   // Reload full columns after the lock so status checks see committed state.
   const ticket = await tx.maintenanceTicket.findUnique({
-    // Set where on the structure being built.
     where: { id: ticketId },
   });
   // Race: deleted between lock and findUnique (should be rare).
@@ -38,6 +37,5 @@ export async function loadLockedTicket(tx: Tx, ticketId: string) {
     // Abort with an error so callers can react.
     throw new AppError(404, "not_found", "Ticket not found");
   }
-  // Return the computed result to the caller.
   return ticket;
 }

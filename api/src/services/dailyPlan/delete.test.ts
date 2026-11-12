@@ -14,9 +14,7 @@ import { AppError } from "../../errors";
 import { assertTestDatabase } from "../../../tests/assertTestDatabase";
 // Side-effect or default import required by this module.
 import {
-  // Carry this field through the payload or query.
   cleanupCleaningWorld,
-  // Carry this field through the payload or query.
   createCleaningWorld,
   // Local structural type for this module's contracts.
   type CleaningWorld,
@@ -28,53 +26,38 @@ import { createDailyPlanEntry } from "./create";
 import { deleteDailyPlanEntry } from "./delete";
 // Import ../hotelTime for dailyPlan/delete.test.ts.
 import { todayHotelDateYmd } from "../hotelTime";
-// Type-only import from ../dataScope used by dailyPlan/delete.test.ts.
 import type { DataScope } from "../dataScope";
 
 // Local helper allScope keeps the main flow readable.
 function allScope(employeeId: string): DataScope {
-  // Return the computed result to the caller.
   return {
-    // Field value required by this payload or query.
     kind: "all",
-    // Carry this field through the payload or query.
     employeeId,
-    // Carry this field through the payload or query.
     role: Role.owner,
-    // Carry this field through the payload or query.
     sectorIds: [],
   };
 }
 
 // Local helper emptySectorsScope keeps the main flow readable.
 function emptySectorsScope(employeeId: string): DataScope {
-  // Return the computed result to the caller.
   return {
-    // Field value required by this payload or query.
     kind: "sectors",
-    // Carry this field through the payload or query.
     employeeId,
-    // Carry this field through the payload or query.
     role: Role.supervisor,
-    // Carry this field through the payload or query.
     sectorIds: [],
   };
 }
 
-// Begin block/object for the following statements.
 describe("deleteDailyPlanEntry scope", () => {
   // Execute: let world: CleaningWorld;
   let world: CleaningWorld;
 
-  // Begin block/object for the following statements.
   before(async () => {
-    // Await side effect or helper before continuing.
     await assertTestDatabase(prisma);
     // Execute: world = await createCleaningWorld(prisma);
     world = await createCleaningWorld(prisma);
   });
 
-  // Begin block/object for the following statements.
   after(async () => {
     // Branch when this condition holds for the domain rule.
     if (world) {
@@ -83,24 +66,17 @@ describe("deleteDailyPlanEntry scope", () => {
         // Restrict the query to the relevant rows only.
         where: { locationId: { in: [world.locationAId, world.locationBId] } },
       });
-      // Await side effect or helper before continuing.
       await cleanupCleaningWorld(prisma, world);
     }
-    // Await side effect or helper before continuing.
     await prisma.$disconnect();
   });
 
-  // Begin block/object for the following statements.
   it("deletes when caller has all scope", async () => {
     // Load created needed for the next decision or write.
     const created = await createDailyPlanEntry({
-      // Carry this field through the payload or query.
       hotelDate: await todayHotelDateYmd(),
-      // Carry this field through the payload or query.
       locationId: world.locationAId,
-      // Field value required by this payload or query.
       category: "arrival",
-      // Carry this field through the payload or query.
       createdByEmployeeId: world.owner.employeeId,
     });
     // Load result needed for the next decision or write.
@@ -116,14 +92,11 @@ describe("deleteDailyPlanEntry scope", () => {
     assert.equal(
       // Read the latest row(s) needed for this step.
       await prisma.dailyPlanEntry.findUnique({ where: { id: created.entry.id } }),
-      // Field value required by this payload or query.
       null,
     );
   });
 
-  // Begin block/object for the following statements.
   it("returns not_found for missing id", async () => {
-    // Await side effect or helper before continuing.
     await assert.rejects(
       // Execute: () =>
       () =>
@@ -145,20 +118,14 @@ describe("deleteDailyPlanEntry scope", () => {
     );
   });
 
-  // Begin block/object for the following statements.
   it("rejects out-of-scope sector caller without deleting", async () => {
     // Load created needed for the next decision or write.
     const created = await createDailyPlanEntry({
-      // Carry this field through the payload or query.
       hotelDate: await todayHotelDateYmd(),
-      // Carry this field through the payload or query.
       locationId: world.locationBId,
-      // Field value required by this payload or query.
       category: "priority",
-      // Carry this field through the payload or query.
       createdByEmployeeId: world.owner.employeeId,
     });
-    // Await side effect or helper before continuing.
     await assert.rejects(
       // Execute: () =>
       () =>

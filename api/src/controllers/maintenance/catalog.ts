@@ -1,8 +1,6 @@
 /** Issue category/option catalog CRUD and reorder (manage vs report on routes). */
 import type { NextFunction, Request, Response } from "express";
-// Import dependency @prisma/client.
 import { IssueOptionKind, Priority } from "@prisma/client";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Continue named import list.
 import {
@@ -33,17 +31,12 @@ const kindSchema = z.nativeEnum(IssueOptionKind);
 
 /** GET /categories — list issue categories (optional includeInactive). */
 export async function listCategoriesHandler(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
-  // Bind includeInactive for use in the handler below.
   const includeInactive = req.query.includeInactive === "true";
-  // Await async work into categories.
   const categories = await listCategories({ activeOnly: !includeInactive });
   // JSON success response.
   return res.json(categories);
@@ -51,11 +44,8 @@ export async function listCategoriesHandler(
 
 /** POST /categories — create an issue category. */
 export async function createCategoryHandler(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
@@ -76,7 +66,6 @@ export async function createCategoryHandler(
   const parsed = schema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -85,17 +74,13 @@ export async function createCategoryHandler(
   }
   // Persist or load row.
   const row = await createCategory(parsed.data);
-  // Return value / early exit.
   return res.status(201).json(row);
 }
 
 /** PATCH /categories/:id — update category names/sort/active. */
 export async function updateCategoryHandler(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
@@ -114,7 +99,6 @@ export async function updateCategoryHandler(
   const parsed = schema.safeParse(req.body ?? {});
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -129,11 +113,8 @@ export async function updateCategoryHandler(
 
 /** POST /categories/:id/archive — soft-archive a category. */
 export async function archiveCategoryHandler(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
@@ -145,17 +126,12 @@ export async function archiveCategoryHandler(
 
 /** GET /issue-options — list options (optional categoryId / includeInactive). */
 export async function listIssueOptionsHandler(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
-  // Bind includeInactive for use in the handler below.
   const includeInactive = req.query.includeInactive === "true";
-  // Bind categoryId for use in the handler below.
   const categoryId =
     // Narrow the runtime type before using the value.
     typeof req.query.categoryId === "string"
@@ -163,11 +139,8 @@ export async function listIssueOptionsHandler(
       ? req.query.categoryId
       // Continue the conditional expression.
       : undefined;
-  // Await async work into options.
   const options = await listIssueOptions({
-    // Provide activeOnly for the object/call below.
     activeOnly: !includeInactive,
-    // Pass categoryId through.
     categoryId,
   });
   // JSON success response.
@@ -176,11 +149,8 @@ export async function listIssueOptionsHandler(
 
 /** POST /issue-options/reorder — set sort order from an ordered id list. */
 export async function reorderIssueOptionsHandler(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
@@ -190,14 +160,12 @@ export async function reorderIssueOptionsHandler(
   const parsed = schema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
       // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
-  // Await async work into rows.
   const rows = await reorderIssueOptions(parsed.data.ids);
   // JSON success response.
   return res.json(rows);
@@ -205,11 +173,8 @@ export async function reorderIssueOptionsHandler(
 
 /** POST /issue-options — create an issue option under a category. */
 export async function createIssueOptionHandler(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
@@ -217,13 +182,11 @@ export async function createIssueOptionHandler(
   const schema = z.object({
     // Validate field maintenanceCategoryId.
     maintenanceCategoryId: z.string().min(1),
-    // Provide kind for the object/call below.
     kind: kindSchema,
     // Validate field nameBg.
     nameBg: z.string().min(1).max(200),
     // Validate field nameEn.
     nameEn: z.string().min(1).max(200),
-    // Provide defaultPriority for the object/call below.
     defaultPriority: prioritySchema.optional(),
     // Validate field defaultBlocksRoom.
     defaultBlocksRoom: z.boolean().optional(),
@@ -236,7 +199,6 @@ export async function createIssueOptionHandler(
   const parsed = schema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -247,20 +209,15 @@ export async function createIssueOptionHandler(
   const row = await createIssueOption({
     // Continue the controller logic.
     ...parsed.data,
-    // Provide defaultPriority for the object/call below.
     defaultPriority: parsed.data.defaultPriority as Priority | undefined,
   });
-  // Return value / early exit.
   return res.status(201).json(row);
 }
 
 /** PATCH /issue-options/:id — update an issue option. */
 export async function updateIssueOptionHandler(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {
@@ -268,13 +225,11 @@ export async function updateIssueOptionHandler(
   const schema = z.object({
     // Validate field maintenanceCategoryId.
     maintenanceCategoryId: z.string().min(1).optional(),
-    // Provide kind for the object/call below.
     kind: kindSchema.optional(),
     // Validate field nameBg.
     nameBg: z.string().min(1).max(200).optional(),
     // Validate field nameEn.
     nameEn: z.string().min(1).max(200).optional(),
-    // Provide defaultPriority for the object/call below.
     defaultPriority: prioritySchema.nullable().optional(),
     // Validate field defaultBlocksRoom.
     defaultBlocksRoom: z.boolean().nullable().optional(),
@@ -287,7 +242,6 @@ export async function updateIssueOptionHandler(
   const parsed = schema.safeParse(req.body ?? {});
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -298,7 +252,6 @@ export async function updateIssueOptionHandler(
   const row = await updateIssueOption(req.params.id, {
     // Continue the controller logic.
     ...parsed.data,
-    // Provide defaultPriority for the object/call below.
     defaultPriority: parsed.data.defaultPriority as
       // Continue the controller logic.
       | Priority
@@ -313,11 +266,8 @@ export async function updateIssueOptionHandler(
 
 /** POST /issue-options/:id/archive — soft-archive an issue option. */
 export async function archiveIssueOptionHandler(
-  // Provide req for the object/call below.
   req: Request,
-  // Provide res for the object/call below.
   res: Response,
-  // Provide next for the object/call below.
   next: NextFunction,
 // Continue the controller logic.
 ) {

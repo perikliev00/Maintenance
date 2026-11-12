@@ -24,7 +24,6 @@ export const UNBOUND_CLEANING_CYCLE = 0;
 
 /** Hotel-date YMD from a Date column stored as UTC midnight. */
 export function formatCleaningHotelDate(d: Date): string {
-  // Return the computed result to the caller.
   return formatHotelDate(d);
 }
 
@@ -40,28 +39,21 @@ export function isFutureHotelDate(hotelDate: Date, todayYmd: string): boolean {
  * Today/past allocates a new cycle and may mark dirty if clean/pending.
  */
 export async function resolveCycleForNewTask(
-  // Carry this field through the payload or query.
   tx: Tx,
-  // Carry this field through the payload or query.
   locationId: string,
-  // Carry this field through the payload or query.
   hotelDate: Date,
   // Parameter/field in the surrounding signature or type.
   todayYmd?: string,
-// Begin block/object for the following statements.
 ): Promise<number> {
   // Allow callers to pass today once when creating many tasks in a loop.
   const today = todayYmd ?? (await todayHotelDateYmd());
   // Future plans must not dirty the room or consume a cycle yet.
   if (isFutureHotelDate(hotelDate, today)) {
-    // Await side effect or helper before continuing.
     await lockLocation(tx, locationId);
-    // Return the computed result to the caller.
     return UNBOUND_CLEANING_CYCLE;
   }
   // Today/past: new cycle; dirty only if currently clean or pending inspection.
   return allocateCleaningCycle(tx, locationId, {
-    // Field value required by this payload or query.
     setDirtyIfCleanOrPending: true,
   });
 }
@@ -71,13 +63,10 @@ export async function resolveCycleForNewTask(
  * Rejects starting tasks whose hotelDate is still in the future.
  */
 export async function ensureTaskCycleForStart(
-  // Carry this field through the payload or query.
   tx: Tx,
-  // Carry this field through the payload or query.
   task: { id: string; locationId: string; hotelDate: Date; cleaningCycle: number },
   // Parameter/field in the surrounding signature or type.
   todayYmd?: string,
-// Begin block/object for the following statements.
 ): Promise<number> {
   // Load today needed for the next decision or write.
   const today = todayYmd ?? (await todayHotelDateYmd());
@@ -94,7 +83,6 @@ export async function ensureTaskCycleForStart(
     );
   }
 
-  // Await side effect or helper before continuing.
   await lockLocation(tx, task.locationId);
   // Load location needed for the next decision or write.
   const location = await tx.location.findUniqueOrThrow({
@@ -108,15 +96,12 @@ export async function ensureTaskCycleForStart(
     task.cleaningCycle !== UNBOUND_CLEANING_CYCLE &&
     // Execute: task.cleaningCycle === location.cleaningCycle
     task.cleaningCycle === location.cleaningCycle
-  // Begin block/object for the following statements.
   ) {
-    // Return the computed result to the caller.
     return task.cleaningCycle;
   }
 
   // Unbound or stale: allocate a fresh cycle and stamp it onto the task.
   const next = await allocateCleaningCycle(tx, task.locationId, {
-    // Field value required by this payload or query.
     setDirtyIfCleanOrPending: true,
   });
   // Persist the mutation inside the current transaction/context.
@@ -126,7 +111,6 @@ export async function ensureTaskCycleForStart(
     // Fields written by this create/update.
     data: { cleaningCycle: next },
   });
-  // Return the computed result to the caller.
   return next;
 }
 
@@ -135,11 +119,8 @@ export async function ensureTaskCycleForStart(
  * Optionally force dirty, or dirty only when currently clean / pending inspection.
  */
 export async function allocateCleaningCycle(
-  // Carry this field through the payload or query.
   tx: Tx,
-  // Carry this field through the payload or query.
   locationId: string,
-  // Begin block/object for the following statements.
   opts?: {
     // Parameter/field in the surrounding signature or type.
     forceDirty?: boolean;
@@ -148,9 +129,7 @@ export async function allocateCleaningCycle(
     // Parameter/field in the surrounding signature or type.
     extra?: Prisma.LocationUpdateInput;
   },
-// Begin block/object for the following statements.
 ): Promise<number> {
-  // Await side effect or helper before continuing.
   await lockLocation(tx, locationId);
   // Load location needed for the next decision or write.
   const location = await tx.location.findUniqueOrThrow({
@@ -159,9 +138,7 @@ export async function allocateCleaningCycle(
   });
   // Monotonic cycle id — supersedes any prior task ownership.
   const next = location.cleaningCycle + 1;
-  // Begin block/object for the following statements.
   const data: Prisma.LocationUpdateInput = {
-    // Carry this field through the payload or query.
     cleaningCycle: next,
     // Spread remaining fields without dropping caller data.
     ...(opts?.extra ?? {}),
@@ -178,14 +155,12 @@ export async function allocateCleaningCycle(
     (location.cleaningStatus === CleaningStatus.verified_clean ||
       // Execute: location.cleaningStatus === CleaningStatus.pending_inspection)
       location.cleaningStatus === CleaningStatus.pending_inspection)
-  // Begin block/object for the following statements.
   ) {
     // Execute: data.cleaningStatus = CleaningStatus.dirty;
     data.cleaningStatus = CleaningStatus.dirty;
   }
   // Persist the mutation inside the current transaction/context.
   await tx.location.update({ where: { id: locationId }, data });
-  // Return the computed result to the caller.
   return next;
 }
 
@@ -195,11 +170,8 @@ export async function allocateCleaningCycle(
  * under those locks before mutating.
  */
 export async function lockRebindableTasksAndLocation(
-  // Carry this field through the payload or query.
   tx: Tx,
-  // Carry this field through the payload or query.
   locationId: string,
-// Begin block/object for the following statements.
 ): Promise<void> {
   // Lock rebindable tasks before Location. startCleaningTask holds Task then
   // Location; acquiring Location first here deadlocks against that path.
@@ -214,7 +186,6 @@ export async function lockRebindableTasksAndLocation(
     ORDER BY id
     FOR UPDATE
   `;
-  // Await side effect or helper before continuing.
   await lockLocation(tx, locationId);
 }
 
@@ -227,27 +198,21 @@ export async function lockRebindableTasksAndLocation(
  * {@link lockRebindableTasksAndLocation} for this location in `tx`.
  */
 export async function bumpDirtyAndRebindWork(
-  // Carry this field through the payload or query.
   tx: Tx,
-  // Carry this field through the payload or query.
   locationId: string,
   // Parameter/field in the surrounding signature or type.
   extra?: Prisma.LocationUpdateInput,
   // Parameter/field in the surrounding signature or type.
   opts?: { alreadyLocked?: boolean },
-// Begin block/object for the following statements.
 ): Promise<number> {
   // Guard: handle missing/invalid state before continuing.
   if (!opts?.alreadyLocked) {
-    // Await side effect or helper before continuing.
     await lockRebindableTasksAndLocation(tx, locationId);
   }
   // New cycle + force dirty; `extra` may also set occupancy (departure path).
   // allocateCleaningCycle re-takes Location FOR UPDATE (safe when already held).
   const next = await allocateCleaningCycle(tx, locationId, {
-    // Field value required by this payload or query.
     forceDirty: true,
-    // Carry this field through the payload or query.
     extra,
   });
   // Rebind active work so it can still mutate cleaningStatus on the new cycle.
@@ -255,15 +220,12 @@ export async function bumpDirtyAndRebindWork(
   await tx.cleaningTask.updateMany({
     // Restrict the query to the relevant rows only.
     where: {
-      // Carry this field through the payload or query.
       locationId,
-      // Carry this field through the payload or query.
       status: { in: REBINDABLE_TASK_STATUSES },
     },
     // Fields written by this create/update.
     data: { cleaningCycle: next },
   });
-  // Return the computed result to the caller.
   return next;
 }
 
@@ -272,15 +234,10 @@ export async function bumpDirtyAndRebindWork(
  * Locks the location. Throws 409 stale_cleaning_cycle on mismatch.
  */
 export async function assertTaskOwnsCleaningCycle(
-  // Carry this field through the payload or query.
   tx: Tx,
-  // Carry this field through the payload or query.
   locationId: string,
-  // Carry this field through the payload or query.
   taskCleaningCycle: number,
-// Begin block/object for the following statements.
 ): Promise<void> {
-  // Await side effect or helper before continuing.
   await lockLocation(tx, locationId);
   // Load location needed for the next decision or write.
   const location = await tx.location.findUniqueOrThrow({

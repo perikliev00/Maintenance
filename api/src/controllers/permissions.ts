@@ -1,8 +1,6 @@
 /** Permissions matrix HTTP handlers (permissions.manage on the route). */
 import type { Request, Response } from "express";
-// Import dependency @prisma/client.
 import { Role } from "@prisma/client";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Continue named import list.
 import {
@@ -24,7 +22,6 @@ export async function getMatrix(req: Request, res: Response) {
 
 /** Parse history `limit` query: omit → undefined; invalid → 400. */
 export function parseHistoryLimit(
-  // Provide raw for the object/call below.
   raw: unknown,
 // Continue the controller logic.
 ): { ok: true; limit?: number } | { ok: false; message: string } {
@@ -43,7 +40,6 @@ export function parseHistoryLimit(
     // Return value or early exit.
     return { ok: false, message: "limit must be a positive integer" };
   }
-  // Bind limit for use in the handler below.
   const limit = Number.parseInt(raw, 10);
   // Guard: skip or fail when the negated condition holds.
   if (!Number.isFinite(limit) || limit < 1) {
@@ -56,11 +52,9 @@ export function parseHistoryLimit(
 
 /** GET /permissions/history — optional role filter and limit. */
 export async function listHistory(req: Request, res: Response) {
-  // Bind roleRaw for use in the handler below.
   const roleRaw =
     // Narrow the runtime type before using the value.
     typeof req.query.role === "string" ? req.query.role : undefined;
-  // Bind role for use in the handler below.
   const role =
     // Continue the controller logic.
     roleRaw && (MATRIX_ROLES as string[]).includes(roleRaw)
@@ -68,15 +62,12 @@ export async function listHistory(req: Request, res: Response) {
       ? (roleRaw as Role)
       // Continue the conditional expression.
       : undefined;
-  // Bind parsedLimit for use in the handler below.
   const parsedLimit = parseHistoryLimit(req.query.limit);
   // Guard: skip or fail when the negated condition holds.
   if (!parsedLimit.ok) {
     // Bad-request validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide message for the object/call below.
       message: parsedLimit.message,
     });
   }
@@ -97,7 +88,6 @@ function parseRoleParam(raw: string | undefined): Role | null {
 
 /** Replace all panel/action grants for a matrix role (audited in the service). */
 export async function replaceRole(req: Request, res: Response) {
-  // Bind roleParam for use in the handler below.
   const roleParam = parseRoleParam(
     // Narrow the runtime type before using the value.
     typeof req.params.role === "string" ? req.params.role : undefined,
@@ -106,9 +96,7 @@ export async function replaceRole(req: Request, res: Response) {
   if (!roleParam) {
     // Bad-request validation error response.
     return res.status(400).json({
-      // Provide error for the object/call below.
       error: "validation",
-      // Provide message for the object/call below.
       message: "Unknown role",
     });
   }
@@ -137,19 +125,12 @@ export async function replaceRole(req: Request, res: Response) {
 
   // Invoke service and capture the result payload.
   const result = await replaceRoleGrants({
-    // Provide targetRole for the object/call below.
     targetRole: roleParam,
-    // Provide panels for the object/call below.
     panels: parsed.data.panels,
-    // Provide actions for the object/call below.
     actions: parsed.data.actions,
-    // Provide expectedVersion for the object/call below.
     expectedVersion: parsed.data.expectedVersion,
-    // Provide actorRole for the object/call below.
     actorRole: req.user!.role,
-    // Provide actorEmployeeId for the object/call below.
     actorEmployeeId: req.user!.employeeId,
-    // Provide reason for the object/call below.
     reason: parsed.data.reason,
   });
   // JSON success response with the payload.

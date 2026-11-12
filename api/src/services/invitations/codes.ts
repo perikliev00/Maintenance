@@ -17,7 +17,6 @@ export function hashInviteCode(code: string): string {
 export function generateInviteCode(): string {
   // Eight random bytes mapped into the unambiguous alphabet.
   const bytes = randomBytes(8);
-  // Capture out for use in this scope.
   let out = "";
   // Iterate items to apply the same logic to each entry.
   for (let i = 0; i < 8; i++) {

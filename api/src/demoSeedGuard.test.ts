@@ -1,6 +1,5 @@
 // Strict assertions for seed-guard allow/deny cases.
 import assert from "node:assert/strict";
-// Node test runner primitives.
 import { describe, it } from "node:test";
 // Guard under test: refuses destructive demo seed unless env proves a disposable DB.
 import { assertDemoSeedAllowed } from "./demoSeedGuard";

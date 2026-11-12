@@ -1,6 +1,5 @@
 /** In-app notifications for the authenticated employee's inbox only. */
 import type { Request, Response } from "express";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Continue named import list.
 import {
@@ -20,7 +19,6 @@ import {
 export async function list(req: Request, res: Response) {
   // Query flags: unread-only, include dismissed, cursor pagination, limit.
   const schema = z.object({
-    // Provide unread for the object/call below.
     unread: z
       // Restrict to an allowed enum set.
       .enum(["1", "true", "0", "false"])
@@ -28,7 +26,6 @@ export async function list(req: Request, res: Response) {
       .optional()
       // Continue the fluent chain.
       .transform((v) => v === "1" || v === "true"),
-    // Provide includeDismissed for the object/call below.
     includeDismissed: z
       // Restrict to an allowed enum set.
       .enum(["1", "true", "0", "false"])
@@ -45,7 +42,6 @@ export async function list(req: Request, res: Response) {
   const parsed = schema.safeParse(req.query);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -57,15 +53,10 @@ export async function list(req: Request, res: Response) {
   return res.json(
     // Await async step.
     await listNotificationsForEmployee({
-      // Provide employeeId for the object/call below.
       employeeId: req.user!.employeeId,
-      // Provide unreadOnly for the object/call below.
       unreadOnly: parsed.data.unread,
-      // Provide includeDismissed for the object/call below.
       includeDismissed: parsed.data.includeDismissed,
-      // Provide cursor for the object/call below.
       cursor: parsed.data.cursor,
-      // Provide limit for the object/call below.
       limit: parsed.data.limit,
     }),
   );
@@ -95,9 +86,7 @@ export async function markRead(req: Request, res: Response) {
   return res.json(
     // Await async step.
     await markNotificationRead({
-      // Provide employeeId for the object/call below.
       employeeId: req.user!.employeeId,
-      // Provide notificationId for the object/call below.
       notificationId: req.params.id,
     }),
   );
@@ -109,9 +98,7 @@ export async function dismiss(req: Request, res: Response) {
   return res.json(
     // Await async step.
     await dismissNotification({
-      // Provide employeeId for the object/call below.
       employeeId: req.user!.employeeId,
-      // Provide notificationId for the object/call below.
       notificationId: req.params.id,
     }),
   );

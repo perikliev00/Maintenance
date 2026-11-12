@@ -6,7 +6,6 @@ import type { Panel } from "../api/capabilities";
 
 // Discriminated union of board deep-link payloads (location vs ticket).
 export type BoardFocus =
-  // Support the surrounding logic for this step.
   | {
       // Focus a room or common-area location on its panel.
       type: "location";
@@ -19,7 +18,6 @@ export type BoardFocus =
       // Optional cleaning session associated with the focus.
       sessionId?: string;
     }
-  // Support the surrounding logic for this step.
   | {
       // Focus a maintenance ticket on the repairs panel.
       type: "ticket";
@@ -34,9 +32,7 @@ export type NavigateToFocus = (panel: Panel, focus?: BoardFocus | null) => void;
 
 /** Map location kind to the rooms/common panel. */
 export function panelForLocationKind(
-  // Provide kind field used by this structure.
   kind: string,
-// Support the surrounding logic for this step.
 ): "rooms" | "common" {
   // Common areas open the common panel; everything else opens rooms.
   return kind === "common_area" ? "common" : "rooms";

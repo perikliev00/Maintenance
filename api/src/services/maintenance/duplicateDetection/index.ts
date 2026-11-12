@@ -2,15 +2,10 @@
 export { normalizeIdentityText } from "./normalize";
 // Re-export selected symbols for barrel consumers.
 export {
-  // Run next step: optionIdentityKey,
   optionIdentityKey,
-  // Run next step: customDuplicateIdentityKey,
   customDuplicateIdentityKey,
-  // Run next step: customIdentityLockKey,
   customIdentityLockKey,
-  // Run next step: duplicateLockKey,
   duplicateLockKey,
-// Run next step: } from "./identity";
 } from "./identity";
 // Re-export selected symbols for barrel consumers.
 export { synonymGroupForLabel, labelsAreSimilar } from "./synonyms";
@@ -18,9 +13,7 @@ export { synonymGroupForLabel, labelsAreSimilar } from "./synonyms";
 export { lockDuplicateIdentity } from "./locks";
 // Re-export selected symbols for barrel consumers.
 export {
-  // Run next step: detectDuplicates,
   detectDuplicates,
-  // Run next step: storedDuplicateIdentityKey,
   storedDuplicateIdentityKey,
   // Declare type DetectDuplicatesInput for callers and internals.
   type DetectDuplicatesInput,
@@ -30,5 +23,4 @@ export {
   type DuplicateMatch,
   // Declare type ExistingTicketSummary for callers and internals.
   type ExistingTicketSummary,
-// Run next step: } from "./detect";
 } from "./detect";

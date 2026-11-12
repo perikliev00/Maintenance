@@ -3,7 +3,6 @@
  * status transitions and cycle ownership checks.
  */
 import { AppError } from "../../errors";
-// Type-only import from ../db/types used by cleaning/locks.ts.
 import type { Tx } from "../db/types";
 
 // Expose selected types from this module.

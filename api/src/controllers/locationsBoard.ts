@@ -1,8 +1,6 @@
 /** Shared list/get/mark-dirty handlers parameterized by location kind. */
 import type { Request, Response } from "express";
-// Import dependency @prisma/client.
 import { LocationKind } from "@prisma/client";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Import local module ../services/cleaning.
 import { markRoomDirty } from "../services/cleaning";
@@ -29,9 +27,7 @@ import {
 
 /** Build room / common-area controllers that differ only by kind + 404 label. */
 export function createLocationKindController(
-  // Provide kind for the object/call below.
   kind: LocationKind,
-  // Provide notFoundMessage for the object/call below.
   notFoundMessage: string,
 // Continue the controller logic.
 ) {
@@ -71,14 +67,11 @@ export function createLocationKindController(
     const scope = await resolveDataScope(req.user!);
     // Continue the controller logic.
     const { rows, truncated, nextCursor } = await findActiveLocations(
-      // Pass kind through.
       kind,
       // Continue the controller logic.
       locationWhere(scope),
       {
-        // Provide limit for the object/call below.
         limit: parsed.data.limit ?? DEFAULT_ACTIVE_LOCATION_LIMIT,
-        // Provide cursor for the object/call below.
         cursor: parsed.data.cursor,
       },
     );
@@ -94,11 +87,8 @@ export function createLocationKindController(
   async function get(req: Request, res: Response) {
     // Resolve caller's DataScope for Prisma filtering.
     const scope = await resolveDataScope(req.user!);
-    // Await async work into location.
     const location = await loadScopedLocation(scope, req.params.id, {
-      // Pass kind through.
       kind,
-      // Pass notFoundMessage through.
       notFoundMessage,
     });
     // JSON success response with the payload.
@@ -111,12 +101,9 @@ export function createLocationKindController(
     const scope = await resolveDataScope(req.user!);
     // Await side-effecting async work.
     await loadScopedLocation(scope, req.params.id, {
-      // Pass kind through.
       kind,
-      // Pass notFoundMessage through.
       notFoundMessage,
     });
-    // Await async work into location.
     const location = await markRoomDirty(
       // Pass req.params.id through.
       req.params.id,

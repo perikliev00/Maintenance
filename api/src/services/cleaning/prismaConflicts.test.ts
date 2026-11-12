@@ -13,18 +13,13 @@ import { mapStartUniqueConflict } from "./prismaConflicts";
 function p2002(target: string | string[]) {
   // Fail fast with a structured error for the client.
   return new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
-    // Field value required by this payload or query.
     code: "P2002",
-    // Field value required by this payload or query.
     clientVersion: "test",
-    // Carry this field through the payload or query.
     meta: { target },
   });
 }
 
-// Begin block/object for the following statements.
 describe("mapStartUniqueConflict", () => {
-  // Begin block/object for the following statements.
   it("maps task running-session unique by index name", () => {
     // Execute: assert.throws(
     assert.throws(
@@ -43,7 +38,6 @@ describe("mapStartUniqueConflict", () => {
     );
   });
 
-  // Begin block/object for the following statements.
   it("maps task running-session unique by column name", () => {
     // Execute: assert.throws(
     assert.throws(
@@ -58,7 +52,6 @@ describe("mapStartUniqueConflict", () => {
     );
   });
 
-  // Begin block/object for the following statements.
   it("maps employee running-session unique by index name", () => {
     // Execute: assert.throws(
     assert.throws(
@@ -80,7 +73,6 @@ describe("mapStartUniqueConflict", () => {
     );
   });
 
-  // Begin block/object for the following statements.
   it("maps employee running-session unique by column name", () => {
     // Execute: assert.throws(
     assert.throws(
@@ -95,9 +87,7 @@ describe("mapStartUniqueConflict", () => {
     );
   });
 
-  // Begin block/object for the following statements.
   it("rethrows unmapped unique conflicts", () => {
-    // Capture err for subsequent checks or writes.
     const err = p2002(["someOtherUnique"]);
     // Execute: assert.throws(
     assert.throws(

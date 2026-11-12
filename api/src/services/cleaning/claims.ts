@@ -5,7 +5,6 @@
 import { Prisma, SessionStatus, TaskStatus } from "@prisma/client";
 // Import ../../errors for cleaning/claims.ts.
 import { AppError } from "../../errors";
-// Type-only import from ./locks used by cleaning/claims.ts.
 import type { Tx } from "./locks";
 
 /** Payload attached to version/state conflict AppErrors for clients. */
@@ -28,16 +27,12 @@ export type TaskConflictDetails = {
 export function taskConflictDetails(
   // Open nested structure for the next related fields.
   task: {
-    // Carry this field through the payload or query.
     version: number;
-    // Carry this field through the payload or query.
     status: string;
-    // Field value required by this payload or query.
     assignedEmployeeId: string | null;
   },
   // Parameter/field in the surrounding signature or type.
   expectedVersion?: number,
-// Begin block/object for the following statements.
 ): TaskConflictDetails {
   // Include expectedVersion only when the client sent one (offline sync).
   return {
@@ -45,9 +40,7 @@ export function taskConflictDetails(
     ...(expectedVersion !== undefined ? { expectedVersion } : {}),
     // Always echo authoritative version/status/assignee from the DB row.
     currentVersion: task.version,
-    // Carry this field through the payload or query.
     status: task.status,
-    // Carry this field through the payload or query.
     assignedEmployeeId: task.assignedEmployeeId,
   };
 }
@@ -59,16 +52,12 @@ export function taskConflictDetails(
 export function assertTaskVersion(
   // Open nested structure for the next related fields.
   task: {
-    // Carry this field through the payload or query.
     version: number;
-    // Carry this field through the payload or query.
     status: string;
-    // Field value required by this payload or query.
     assignedEmployeeId: string | null;
   },
   // Parameter/field in the surrounding signature or type.
   expectedVersion?: number,
-// Begin block/object for the following statements.
 ) {
   // No expectedVersion → skip check (online paths without optimistic concurrency).
   if (
@@ -76,7 +65,6 @@ export function assertTaskVersion(
     expectedVersion !== undefined &&
     // Execute: task.version !== expectedVersion
     task.version !== expectedVersion
-  // Begin block/object for the following statements.
   ) {
     // Fail closed with structured details for offline retry UX.
     throw new AppError(
@@ -97,13 +85,10 @@ export function assertTaskVersion(
  * Prevents double-complete / cancel races.
  */
 export async function claimRunningSession(
-  // Carry this field through the payload or query.
   tx: Tx,
-  // Carry this field through the payload or query.
   sessionId: string,
   // Fields written by this create/update.
   data: Prisma.CleaningSessionUpdateManyMutationInput,
-// Begin block/object for the following statements.
 ) {
   // Conditional update — only one complete/cancel wins the race.
   const claimed = await tx.cleaningSession.updateMany({
@@ -131,23 +116,18 @@ export async function claimRunningSession(
  * Distinguishes version conflicts from illegal status transitions on failure.
  */
 export async function claimTaskStatus(
-  // Carry this field through the payload or query.
   tx: Tx,
-  // Carry this field through the payload or query.
   taskId: string,
-  // Carry this field through the payload or query.
   fromStatuses: TaskStatus[],
   // Fields written by this create/update.
   data: Prisma.CleaningTaskUncheckedUpdateManyInput,
   // Parameter/field in the surrounding signature or type.
   expectedVersion?: number,
-// Begin block/object for the following statements.
 ) {
   // Status (+ optional version) predicate is the concurrency claim.
   const claimed = await tx.cleaningTask.updateMany({
     // Restrict the query to the relevant rows only.
     where: {
-      // Carry this field through the payload or query.
       id: taskId,
       // Must still be in one of the caller's allowed source statuses.
       status: { in: fromStatuses },
@@ -177,7 +157,6 @@ export async function claimTaskStatus(
       expectedVersion !== undefined &&
       // Execute: task.version !== expectedVersion
       task.version !== expectedVersion
-    // Begin block/object for the following statements.
     ) {
       // Abort with an HTTP-mapped AppError or rethrow.
       throw new AppError(

@@ -2,9 +2,7 @@
  * Attendance interval API DTO mapping and list/export size constants.
  */
 import { Prisma } from "@prisma/client";
-// Runtime import from ../../attendanceRules.
 import { asFlags } from "../../attendanceRules";
-// Runtime import from ../../hotelTime.
 import { formatHotelDate } from "../../hotelTime";
 
 /** Default page size when the client omits `limit`. */
@@ -18,46 +16,30 @@ export const EXPORT_CEILING = 50_000;
 
 /** Prisma include for list/export/get interval payloads. */
 export const intervalInclude = {
-  // Field employee on this type/payload.
   employee: {
-    // Select only needed columns.
     select: {
-      // Field id on this type/payload.
       id: true,
-      // Field fullName on this type/payload.
       fullName: true,
-      // Field employeeNumber on this type/payload.
       employeeNumber: true,
-      // Field department on this type/payload.
       department: true,
     },
   },
-  // Field adjustments on this type/payload.
   adjustments: {
-    // Stable sort for paging.
     orderBy: { createdAt: "desc" as const },
-    // Page size limit.
     take: 5,
-    // Include relations for labels/checks.
     include: {
-      // Field requestedBy on this type/payload.
       requestedBy: {
-        // Select only needed columns.
         select: { id: true, fullName: true, employeeNumber: true },
       },
-      // Field reviewedBy on this type/payload.
       reviewedBy: {
-        // Select only needed columns.
         select: { id: true, fullName: true, employeeNumber: true },
       },
     },
   },
-// Support the surrounding control flow.
 } satisfies Prisma.AttendanceIntervalInclude;
 
 /** Map a Prisma interval (+ employee, recent adjustments) to the API shape. */
 export function mapInterval(
-  // Param row required by this function.
   row: Prisma.AttendanceIntervalGetPayload<{ include: typeof intervalInclude }>,
 ) {
   // ISO strings for clients; hotelDate trimmed to YYYY-MM-DD.
@@ -116,24 +98,15 @@ export function mapInterval(
   };
 }
 
-// Public type ListIntervalsFilter for callers of this service.
 export type ListIntervalsFilter = {
-  // Time field scope.
   scope?: "month" | "today" | "week" | "review";
-  // Optional month.
   month?: string;
-  // Optional department.
   department?: string;
-  // Optional q.
   q?: string;
-  // Optional employeeId.
   employeeId?: string;
 };
 
-// Public type ListIntervalsPage for callers of this service.
 export type ListIntervalsPage = {
-  // Optional limit.
   limit?: number;
-  // Optional cursor.
   cursor?: string;
 };

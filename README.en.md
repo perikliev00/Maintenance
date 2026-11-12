@@ -137,6 +137,12 @@ installed Chromium. Shorter entry points: `npm run test:unit` (web + API, no bro
 `npm run test:e2e`, `npm run test:e2e:scenarios`. Coverage and mutation commands:
 [`docs/testing/COVERAGE.md`](docs/testing/COVERAGE.md), [`docs/testing/MUTATION_TESTING.md`](docs/testing/MUTATION_TESTING.md).
 
+### Local CI gate + pre-push
+
+`npm run ci:local` mirrors the mandatory GitHub Actions jobs (API, Web, Smoke, E2E, …).
+`npm run hooks:install` enables the tracked `pre-push` hook that blocks pushes when the gate is red.
+Docs: [`docs/testing/LOCAL_CI.md`](docs/testing/LOCAL_CI.md).
+
 ---
 
 ## Domain model

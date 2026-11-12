@@ -18,7 +18,6 @@ export class AppError extends Error {
     message: string,
     /** Optional structured details (validation flatten, etc.). */
     public details?: unknown,
-  // Support the surrounding logic for this step.
   ) {
     // Preserve message on the Error base; name stays "Error" unless callers set it.
     super(message);

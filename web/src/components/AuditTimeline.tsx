@@ -4,24 +4,16 @@
  * “no access” message without treating it as a hard failure.
  */
 import type { AuditEventRow } from "../api/client";
-// Import dependency used by this module.
 import { auditHeadline } from "../audit/labels";
-// Import dependency used by this module.
 import { LoadingIndicator } from "./LoadingIndicator";
 
-// Local type alias shaping data.
 type Props = {
-  // Field/property in this shape.
   events: AuditEventRow[];
-  // Field/property in this shape.
   emptyLabel?: string;
-  // Field/property in this shape.
   loading?: boolean;
   /** Permission denial for this timeline (distinct from fetch errors). */
   accessDenied?: boolean;
-  // Field/property in this shape.
   error?: string | null;
-  // Field/property in this shape.
   locale?: "bg" | "en";
 };
 
@@ -29,42 +21,27 @@ type Props = {
  * AuditTimeline React component / page.
  */
 export function AuditTimeline({
-  // List item in import/export/params.
   events,
-  // Assign value for subsequent use.
   emptyLabel = "Няма записи.",
-  // List item in import/export/params.
   loading,
-  // List item in import/export/params.
   accessDenied,
-  // List item in import/export/params.
   error,
-  // Assign value for subsequent use.
   locale = "bg",
-// Open multi-line construct.
 }: Props) {
   // Ordered empty states: loading → permission → error → empty list.
   if (loading) {
-    // Return computed result to caller.
     return <LoadingIndicator label="Зареждане…" />;
   }
-  // Conditional branch for this case.
   if (accessDenied) {
-    // Return computed result to caller.
     return <p className="muted">Нямате достъп до тази хронология.</p>;
   }
-  // Conditional branch for this case.
   if (error) {
-    // Return computed result to caller.
     return <p className="muted">{error}</p>;
   }
-  // Conditional branch for this case.
   if (events.length === 0) {
-    // Return computed result to caller.
     return <p className="muted">{emptyLabel}</p>;
   }
 
-  // Return computed result to caller.
   return (
     // Render JSX element.
     <ul className="audit-timeline">

@@ -11,26 +11,18 @@ export { deriveCleaningServiceType } from "./deriveServiceType";
 
 // Expose selected symbols from this module.
 export {
-  // Carry this field through the payload or query.
   UNBOUND_CLEANING_CYCLE,
-  // Carry this field through the payload or query.
   formatCleaningHotelDate,
-  // Carry this field through the payload or query.
   isFutureHotelDate,
-  // Carry this field through the payload or query.
   resolveCycleForNewTask,
-  // Carry this field through the payload or query.
   allocateCleaningCycle,
-  // Carry this field through the payload or query.
   lockRebindableTasksAndLocation,
-  // Carry this field through the payload or query.
   bumpDirtyAndRebindWork,
 // Execute: } from "./cycles";
 } from "./cycles";
 
 // Expose selected symbols from this module.
 export {
-  // Carry this field through the payload or query.
   taskConflictDetails,
   // Local structural type for this module's contracts.
   type TaskConflictDetails,
@@ -42,11 +34,8 @@ export { createCleaningTask, reassignCleaningTask } from "./tasks";
 
 // Expose selected symbols from this module.
 export {
-  // Carry this field through the payload or query.
   startCleaningTask,
-  // Carry this field through the payload or query.
   completeCleaningSession,
-  // Carry this field through the payload or query.
   cancelCleaningSession,
 // Execute: } from "./sessions";
 } from "./sessions";

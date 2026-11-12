@@ -1,8 +1,6 @@
 /** Access-card list/issue/revoke and employee picker for issuance. */
 import type { Request, Response } from "express";
-// Import dependency @prisma/client.
 import { CardStatus, CardType } from "@prisma/client";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Import local module ../errors.
 import { AppError } from "../errors";
@@ -33,14 +31,11 @@ export async function list(req: Request, res: Response) {
       ? req.query.employeeId
       // Continue the conditional expression.
       : undefined;
-  // Bind q for use in the handler below.
   const q = typeof req.query.q === "string" ? req.query.q.trim() : undefined;
-  // Bind staffOnly for use in the handler below.
   const staffOnly = req.query.staffOnly === "true";
 
   // Validate status enum when provided.
   let status: CardStatus | undefined;
-  // Branch: conditional gate.
   if (typeof req.query.status === "string" && req.query.status) {
     // Parse and validate input.
     const parsed = cardStatusSchema.safeParse(req.query.status);
@@ -55,7 +50,6 @@ export async function list(req: Request, res: Response) {
 
   // Validate cardType enum when provided.
   let cardType: CardType | undefined;
-  // Branch: conditional gate.
   if (typeof req.query.cardType === "string" && req.query.cardType) {
     // Parse and validate input.
     const parsed = cardTypeSchema.safeParse(req.query.cardType);
@@ -68,17 +62,11 @@ export async function list(req: Request, res: Response) {
     cardType = parsed.data;
   }
 
-  // Await async work into cards.
   const cards = await listCards({
-    // Pass employeeId through.
     employeeId,
-    // Pass status through.
     status,
-    // Pass cardType through.
     cardType,
-    // Provide q for the object/call below.
     q: q || undefined,
-    // Pass staffOnly through.
     staffOnly,
   });
   // JSON success response.
@@ -87,9 +75,7 @@ export async function list(req: Request, res: Response) {
 
 /** GET /cards/employees — employee picker for card issuance (optional search). */
 export async function listEmployees(req: Request, res: Response) {
-  // Bind q for use in the handler below.
   const q = typeof req.query.q === "string" ? req.query.q.trim() : undefined;
-  // Await async work into employees.
   const employees = await listCardEmployees(q || undefined);
   // JSON success response.
   return res.json(employees);
@@ -99,7 +85,6 @@ export async function listEmployees(req: Request, res: Response) {
 export async function create(req: Request, res: Response) {
   // Validate issue payload including validity window and idempotency key.
   const schema = z.object({
-    // Provide cardType for the object/call below.
     cardType: cardTypeSchema,
     // Validate field employeeId.
     employeeId: z.string().min(1).nullable().optional(),
@@ -120,7 +105,6 @@ export async function create(req: Request, res: Response) {
   if (!parsed.success) {
     // Throw error path.
     throw new AppError(400, "invalid_input", "Invalid card payload", {
-      // Provide issues for the object/call below.
       issues: parsed.error.issues,
     });
   }
@@ -132,21 +116,13 @@ export async function create(req: Request, res: Response) {
 
   // Capture service / command result.
   const result = await issueCard({
-    // Provide cardType for the object/call below.
     cardType: parsed.data.cardType,
-    // Provide employeeId for the object/call below.
     employeeId: parsed.data.employeeId,
-    // Provide locationId for the object/call below.
     locationId: parsed.data.locationId,
-    // Provide validFrom for the object/call below.
     validFrom: new Date(parsed.data.validFrom),
-    // Provide validUntil for the object/call below.
     validUntil: new Date(parsed.data.validUntil),
-    // Provide label for the object/call below.
     label: parsed.data.label,
-    // Provide commandId for the object/call below.
     commandId: parsed.data.commandId,
-    // Provide issuedByEmployeeId for the object/call below.
     issuedByEmployeeId: req.user.employeeId,
   });
 
@@ -156,11 +132,8 @@ export async function create(req: Request, res: Response) {
 
 /** POST /cards/:id/revoke — revoke an issued card. */
 export async function revoke(req: Request, res: Response) {
-  // Await async work into card.
   const card = await revokeCard({
-    // Provide cardId for the object/call below.
     cardId: req.params.id,
-    // Provide actorEmployeeId for the object/call below.
     actorEmployeeId: req.user!.employeeId,
   });
   // JSON success response.

@@ -52,7 +52,6 @@ function formatPct(value: number | null): string {
  * Number with optional suffix, or a Bulgarian "no data" placeholder.
  */
 function formatNum(value: number | null, suffix = ""): string {
-  // Branch: conditional gate.
   if (value === null) return "няма данни";
   // Early / value return.
   return `${value}${suffix}`;
@@ -107,16 +106,12 @@ export function ResultsPage() {
    * Snap the date range to today or last 7 days and reset pagination.
    */
   function applyPreset(kind: "today" | "7d") {
-    // Branch: conditional gate.
     if (kind === "today") {
-      // State transition.
       setFrom(today);
-      // State transition.
       setTo(today);
     } else {
       // Inclusive 7-day window ending today (today + 6 prior UTC days).
       setFrom(daysAgo(6));
-      // State transition.
       setTo(today);
     }
     // Filters change → return to the first page of rows.
@@ -127,17 +122,14 @@ export function ResultsPage() {
    * Toggle a service-type chip and reset to page 1.
    */
   function toggleServiceType(value: CleaningServiceType) {
-    // State transition.
     setServiceTypes((prev) =>
       prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value],
     );
-    // State transition.
     setPage(1);
   }
 
   // Scale factor for the sparkline bars (floor at 1 to avoid divide-by-zero).
   const maxBar = useMemo(() => {
-    // Branch: conditional gate.
     if (!data?.series.length) return 1;
     // Early / value return.
     return Math.max(1, ...data.series.map((s) => s.completedSessions));
@@ -166,9 +158,7 @@ export function ResultsPage() {
             type="date"
             value={from}
             onChange={(e) => {
-              // State transition.
               setFrom(e.target.value);
-              // State transition.
               setPage(1);
             }}
           />
@@ -179,9 +169,7 @@ export function ResultsPage() {
             type="date"
             value={to}
             onChange={(e) => {
-              // State transition.
               setTo(e.target.value);
-              // State transition.
               setPage(1);
             }}
           />
@@ -216,9 +204,7 @@ export function ResultsPage() {
             type="button"
             className="ghost"
             onClick={() => {
-              // State transition.
               setServiceTypes([]);
-              // State transition.
               setPage(1);
             }}
           >

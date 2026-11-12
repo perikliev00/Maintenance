@@ -2,7 +2,6 @@
 import type { Request, Response } from "express";
 // Import local module ../services/myWork.
 import { getMyWork } from "../services/myWork";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 
 /** GET /my-work — tasks/tickets for the authenticated employee. */

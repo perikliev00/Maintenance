@@ -8,13 +8,9 @@ export { mapInvitation } from "./map";
 export type { IssueInvitationInput } from "./issue";
 // Re-export selected symbols for barrel consumers.
 export {
-  // Run next step: issueInvitation,
   issueInvitation,
-  // Run next step: listActiveInvitations,
   listActiveInvitations,
-  // Run next step: revokeInvitation,
   revokeInvitation,
-// Run next step: } from "./issue";
 } from "./issue";
 // Re-export selected symbols for barrel consumers.
 export { redeemInvitation } from "./redeem";

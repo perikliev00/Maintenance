@@ -1,6 +1,5 @@
 /** Settings + SLA policy HTTP handlers (public subset vs settings.manage routes). */
 import type { Request, Response } from "express";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Continue named import list.
 import {
@@ -26,7 +25,6 @@ import {
   // Bring upsertSlaPolicy into scope from the import.
   upsertSlaPolicy,
 } from "../services/slaPolicies";
-// Import dependency @prisma/client.
 import { Priority } from "@prisma/client";
 
 /** Non-sensitive settings any authenticated client may read (seeds defaults first). */
@@ -51,9 +49,7 @@ export async function getSystem(_req: Request, res: Response) {
 
 /** GET /settings/history — optional key filter and limit. */
 export async function listHistory(req: Request, res: Response) {
-  // Bind key for use in the handler below.
   const key = typeof req.query.key === "string" ? req.query.key : undefined;
-  // Bind limit for use in the handler below.
   const limit =
     // Narrow the runtime type before using the value.
     typeof req.query.limit === "string"
@@ -81,7 +77,6 @@ export async function upsertSla(req: Request, res: Response) {
     .enum(["low", "normal", "high", "urgent"])
     // Run safeParse so validation failures stay typed.
     .safeParse(req.params.priority);
-  // Branch: conditional gate.
   if (!priorityParsed.success) {
     // Validation error response.
     return res.status(400).json({ error: "validation", message: "Invalid priority" });
@@ -97,7 +92,6 @@ export async function upsertSla(req: Request, res: Response) {
   const parsed = schema.safeParse(req.body ?? {});
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -106,13 +100,9 @@ export async function upsertSla(req: Request, res: Response) {
   }
   // Persist or load row.
   const row = await upsertSlaPolicy({
-    // Provide priority for the object/call below.
     priority: priorityParsed.data as Priority,
-    // Provide hours for the object/call below.
     hours: parsed.data.hours,
-    // Provide isActive for the object/call below.
     isActive: parsed.data.isActive,
-    // Provide actorEmployeeId for the object/call below.
     actorEmployeeId: req.user!.employeeId,
   });
   // JSON success response.
@@ -135,7 +125,6 @@ export async function update(req: Request, res: Response) {
   const parsed = schema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -145,15 +134,10 @@ export async function update(req: Request, res: Response) {
 
   // Service validates key schema, CAS version, and writes history.
   const result = await updateSetting({
-    // Provide key for the object/call below.
     key: req.params.key,
-    // Provide value for the object/call below.
     value: parsed.data.value,
-    // Provide actorEmployeeId for the object/call below.
     actorEmployeeId: req.user!.employeeId,
-    // Provide reason for the object/call below.
     reason: parsed.data.reason,
-    // Provide expectedVersion for the object/call below.
     expectedVersion: parsed.data.expectedVersion,
   });
   // JSON success response.

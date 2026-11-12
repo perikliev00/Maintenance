@@ -111,7 +111,6 @@ export function RepairsPage({
         blocksRoom: blocksOnly || undefined,
       };
       if (cursor) params.cursor = cursor;
-      // Branch: conditional gate.
       if (assigneeFilter === "mine") params.mine = true;
       // Else-if branch.
       else if (assigneeFilter !== "all") params.assigneeId = assigneeFilter;
@@ -158,7 +157,6 @@ export function RepairsPage({
   }, [fetchTicketPage, listSession, mapListError, nextCursor]);
 
   const refreshInBackground = useCallback(() => {
-    // Branch: conditional gate.
     if (!navigator.onLine) return;
     // Fire-and-forget async call.
     void refresh().catch(() => undefined);
@@ -209,13 +207,11 @@ export function RepairsPage({
 
   // Effect: sync props/state to side effects.
   useEffect(() => {
-    // Branch: conditional gate.
     if (!canAssign) return;
     // Fire-and-forget async call.
     void fetchPeople()
       // Promise then handler.
       .then((rows) =>
-        // State transition.
         setPeople(
           rows.filter(
             (p) =>
@@ -266,9 +262,7 @@ export function RepairsPage({
 
   // Effect: sync props/state to side effects.
   useEffect(() => {
-    // Branch: conditional gate.
     if (!selectedId) {
-      // State transition.
       setEvents([]);
       return;
     }
@@ -280,7 +274,6 @@ export function RepairsPage({
       .then(
         (rows) =>
           !cancelled &&
-          // State transition.
           setEvents(rows as TicketEventRow[]),
       )
       // Promise catch handler.
@@ -459,9 +452,7 @@ export function RepairsPage({
                           canResolve={canResolve}
                           onBusy={setBusyId}
                           onDone={(result) => {
-                            // State transition.
                             setMessage(result.message);
-                            // State transition.
                             setListView((prev) => ({
                               ...prev,
                               tickets: prev.tickets.map((row) =>
@@ -470,7 +461,6 @@ export function RepairsPage({
                                   : row,
                               ),
                             }));
-                            // Branch: conditional gate.
                             if (!result.queued) refreshInBackground();
                           }}
                           onError={setError}

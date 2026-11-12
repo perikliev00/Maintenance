@@ -7,23 +7,14 @@ export { invalidateGrantCache, readGrantRevisionStamp } from "./cache";
 export { ensureDefaultRoleGrants, applyCatalogGrantSeed } from "./seed";
 // Re-export selected symbols for barrel consumers.
 export {
-  // Run next step: getGrantsForRole,
   getGrantsForRole,
-  // Run next step: panelsForRole,
   panelsForRole,
-  // Run next step: actionsForRole,
   actionsForRole,
-  // Run next step: canPerform,
   canPerform,
-  // Run next step: capabilitiesFor,
   capabilitiesFor,
-  // Run next step: editableRolesFor,
   editableRolesFor,
-  // Run next step: getFullMatrix,
   getFullMatrix,
-  // Run next step: getRoleGrantVersions,
   getRoleGrantVersions,
-// Run next step: } from "./query";
 } from "./query";
 // Re-export selected symbols for barrel consumers.
 export { replaceRoleGrants } from "./replace";

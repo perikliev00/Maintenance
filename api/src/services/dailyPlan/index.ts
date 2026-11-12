@@ -12,11 +12,8 @@ export { importDailyPlan } from "./import";
 export { deleteDailyPlanEntry } from "./delete";
 // Expose selected symbols from this module.
 export {
-  // Carry this field through the payload or query.
   applyDepartureRoomEffects,
-  // Carry this field through the payload or query.
   classifyDepartureRoomEffects,
-  // Carry this field through the payload or query.
   ensureDepartureRoomEffects,
   // Local structural type for this module's contracts.
   type DepartureRoomEffectsDecision,

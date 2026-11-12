@@ -3,7 +3,6 @@
  * Empty sector lists use a non-matching sentinel id so "no sectors" ≠ "all".
  */
 import { Prisma } from "@prisma/client";
-// Import module ../../db for this service.
 import { prisma } from "../../db";
 // Import type(s) DataScope for typing without runtime cost.
 import type { DataScope } from "./types";
@@ -17,28 +16,20 @@ export function taskWhere(scope: DataScope): Prisma.CleaningTaskWhereInput {
   switch (scope.kind) {
     // Hotel-wide roles: no task restriction.
     case "all":
-      // Return the computed result to the caller.
       return {};
     // Handle this specific case value.
     case "sectors":
       // Empty sector list must not match everything — use a sentinel id.
       if (scope.sectorIds.length === 0) {
-        // Return the computed result to the caller.
         return { id: "__none__" };
       }
       // Match snapshotted sectorId or live membership when snapshot is null.
       return {
-        // Set OR on the structure being built.
         OR: [
-          // Run next step: { sectorId: { in: scope.sectorIds } },
           { sectorId: { in: scope.sectorIds } },
-          // Run next step: {
           {
-            // Set sectorId on the structure being built.
             sectorId: null,
-            // Set location on the structure being built.
             location: {
-              // Set sectorMembership on the structure being built.
               sectorMembership: { sectorId: { in: scope.sectorIds } },
             },
           },
@@ -46,7 +37,6 @@ export function taskWhere(scope: DataScope): Prisma.CleaningTaskWhereInput {
       };
     // Housekeepers: only tasks assigned to them.
     case "assigned_tasks":
-      // Return the computed result to the caller.
       return { assignedEmployeeId: scope.employeeId };
     // Handle this specific case value.
     case "assigned_tickets":
@@ -64,37 +54,28 @@ export function locationWhere(scope: DataScope): Prisma.LocationWhereInput {
   switch (scope.kind) {
     // Hotel-wide roles: no location restriction.
     case "all":
-      // Return the computed result to the caller.
       return {};
     // Handle this specific case value.
     case "sectors":
       // Empty supervisor sector list → match nothing.
       if (scope.sectorIds.length === 0) {
-        // Return the computed result to the caller.
         return { id: "__none__" };
       }
       // Live SectorLocation membership for the supervisor's sectors.
       return {
-        // Set sectorMembership on the structure being built.
         sectorMembership: { sectorId: { in: scope.sectorIds } },
       };
     // Housekeepers see rooms they have cleaning work on.
     case "assigned_tasks":
-      // Return the computed result to the caller.
       return {
-        // Set cleaningTasks on the structure being built.
         cleaningTasks: {
-          // Set some on the structure being built.
           some: { assignedEmployeeId: scope.employeeId },
         },
       };
     // Technicians see rooms with tickets assigned to them.
     case "assigned_tickets":
-      // Return the computed result to the caller.
       return {
-        // Set maintenanceTickets on the structure being built.
         maintenanceTickets: {
-          // Set some on the structure being built.
           some: { assigneeId: scope.employeeId },
         },
       };
@@ -110,20 +91,16 @@ export function ticketWhere(scope: DataScope): Prisma.MaintenanceTicketWhereInpu
   switch (scope.kind) {
     // Hotel-wide roles: no ticket restriction.
     case "all":
-      // Return the computed result to the caller.
       return {};
     // Handle this specific case value.
     case "sectors":
       // Empty supervisor sector list → match nothing.
       if (scope.sectorIds.length === 0) {
-        // Return the computed result to the caller.
         return { id: "__none__" };
       }
       // Tickets whose location sits in one of the supervisor's sectors.
       return {
-        // Set location on the structure being built.
         location: {
-          // Set sectorMembership on the structure being built.
           sectorMembership: { sectorId: { in: scope.sectorIds } },
         },
       };
@@ -131,17 +108,11 @@ export function ticketWhere(scope: DataScope): Prisma.MaintenanceTicketWhereInpu
     case "assigned_tasks":
       // Housekeeper: own reports + tickets on rooms they are assigned to clean.
       return {
-        // Set OR on the structure being built.
         OR: [
-          // Run next step: { reportedByEmployeeId: scope.employeeId },
           { reportedByEmployeeId: scope.employeeId },
-          // Run next step: {
           {
-            // Set location on the structure being built.
             location: {
-              // Set cleaningTasks on the structure being built.
               cleaningTasks: {
-                // Set some on the structure being built.
                 some: { assignedEmployeeId: scope.employeeId },
               },
             },
@@ -150,7 +121,6 @@ export function ticketWhere(scope: DataScope): Prisma.MaintenanceTicketWhereInpu
       };
     // Technicians: only tickets assigned to them.
     case "assigned_tickets":
-      // Return the computed result to the caller.
       return { assigneeId: scope.employeeId };
   }
 }
@@ -160,7 +130,6 @@ export function ticketWhere(scope: DataScope): Prisma.MaintenanceTicketWhereInpu
  * Delegates to {@link taskWhere} so sector/assignee rules stay in one place.
  */
 export function sessionTaskWhere(scope: DataScope): Prisma.CleaningSessionWhereInput {
-  // Capture tw for use in this scope.
   const tw = taskWhere(scope);
   // Unrestricted taskWhere → no session restriction either.
   if (Object.keys(tw).length === 0) return {};
@@ -177,22 +146,18 @@ export function sectorWhere(scope: DataScope): Prisma.SectorWhereInput {
   switch (scope.kind) {
     // Hotel-wide roles: browse every sector.
     case "all":
-      // Return the computed result to the caller.
       return {};
     // Handle this specific case value.
     case "sectors":
       // Empty supervisor list → match nothing.
       if (scope.sectorIds.length === 0) {
-        // Return the computed result to the caller.
         return { id: "__none__" };
       }
-      // Return the computed result to the caller.
       return { id: { in: scope.sectorIds } };
     // Field roles do not browse the sector catalog.
     case "assigned_tasks":
     // Handle this specific case value.
     case "assigned_tickets":
-      // Return the computed result to the caller.
       return { id: "__none__" };
   }
 }
@@ -202,9 +167,7 @@ export function sectorWhere(scope: DataScope): Prisma.SectorWhereInput {
  * Callers use null to skip `IN` filters entirely.
  */
 export async function scopedLocationIdsFor(
-  // Set scope on the structure being built.
   scope: DataScope,
-// Run next step: ): Promise<string[] | null> {
 ): Promise<string[] | null> {
   // null = unrestricted (callers skip IN filters).
   if (scope.kind === "all") return null;
@@ -214,11 +177,8 @@ export async function scopedLocationIdsFor(
   if (Object.keys(where).length === 0) return null;
   // Materialize ids for audit / notification scope filters.
   const rows = await prisma.location.findMany({
-    // Run next step: where,
     where,
-    // Set select on the structure being built.
     select: { id: true },
   });
-  // Return the computed result to the caller.
   return rows.map((r) => r.id);
 }

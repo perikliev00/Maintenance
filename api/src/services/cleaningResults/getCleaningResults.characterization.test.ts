@@ -21,35 +21,24 @@ import { getCleaningResults } from "./getCleaningResults";
 // Import ./periodBounds for cleaningResults/getCleaningResults.characterization.test.ts.
 import { dayEndExclusiveUtc, dayStartUtc } from "./periodBounds";
 
-// Begin block/object for the following statements.
 describe("getCleaningResults characterization", () => {
-  // Begin block/object for the following statements.
   before(async () => {
-    // Await side effect or helper before continuing.
     await assertTestDatabase(prisma);
   });
 
-  // Begin block/object for the following statements.
   after(async () => {
-    // Await side effect or helper before continuing.
     await prisma.$disconnect();
   });
 
-  // Begin block/object for the following statements.
   it("empty period returns zeroed summary, empty rows, and hour series", async () => {
     // Load report needed for the next decision or write.
     const report = await getCleaningResults({
-      // Field value required by this payload or query.
       from: "1990-01-01",
-      // Field value required by this payload or query.
       to: "1990-01-01",
-      // Field value required by this payload or query.
       page: 1,
-      // Field value required by this payload or query.
       pageSize: 10,
       // Force no matches even if seed data exists in far future.
       taskWhere: { id: "__characterization_none__" },
-      // Field value required by this payload or query.
       sessionWhere: { taskId: "__characterization_none__" },
     });
 
@@ -85,21 +74,14 @@ describe("getCleaningResults characterization", () => {
     assert.ok(!JSON.stringify(report).includes("Infinity"));
   });
 
-  // Begin block/object for the following statements.
   it("page beyond total yields empty rows while total stays 0 for empty scope", async () => {
     // Load report needed for the next decision or write.
     const report = await getCleaningResults({
-      // Field value required by this payload or query.
       from: "1990-01-02",
-      // Field value required by this payload or query.
       to: "1990-01-02",
-      // Field value required by this payload or query.
       page: 5,
-      // Field value required by this payload or query.
       pageSize: 20,
-      // Field value required by this payload or query.
       taskWhere: { id: "__characterization_none__" },
-      // Field value required by this payload or query.
       sessionWhere: { taskId: "__characterization_none__" },
     });
     // Execute: assert.equal(report.page, 5);
@@ -112,38 +94,24 @@ describe("getCleaningResults characterization", () => {
     assert.deepEqual(report.rows, []);
   });
 
-  // Begin block/object for the following statements.
   it("empty serviceTypes array does not change empty-scope contract", async () => {
     // Load base needed for the next decision or write.
     const base = await getCleaningResults({
-      // Field value required by this payload or query.
       from: "1990-01-03",
-      // Field value required by this payload or query.
       to: "1990-01-03",
-      // Field value required by this payload or query.
       page: 1,
-      // Field value required by this payload or query.
       pageSize: 10,
-      // Field value required by this payload or query.
       taskWhere: { id: "__characterization_none__" },
-      // Field value required by this payload or query.
       sessionWhere: { taskId: "__characterization_none__" },
     });
     // Load withEmptyTypes needed for the next decision or write.
     const withEmptyTypes = await getCleaningResults({
-      // Field value required by this payload or query.
       from: "1990-01-03",
-      // Field value required by this payload or query.
       to: "1990-01-03",
-      // Field value required by this payload or query.
       page: 1,
-      // Field value required by this payload or query.
       pageSize: 10,
-      // Carry this field through the payload or query.
       serviceTypes: [],
-      // Field value required by this payload or query.
       taskWhere: { id: "__characterization_none__" },
-      // Field value required by this payload or query.
       sessionWhere: { taskId: "__characterization_none__" },
     });
     // Execute: assert.deepEqual(withEmptyTypes.summary, base.summary);
@@ -152,11 +120,8 @@ describe("getCleaningResults characterization", () => {
     assert.deepEqual(withEmptyTypes.series, base.series);
   });
 
-  // Begin block/object for the following statements.
   it("inclusive single-day bounds match periodBounds half-open window", async () => {
-    // Capture from for subsequent checks or writes.
     const from = "2024-02-29";
-    // Capture to for subsequent checks or writes.
     const to = "2024-02-29";
     // Execute: assert.equal(dayStartUtc(from).toISOString(), "2024-02-29T00:00:00.000Z");
     assert.equal(dayStartUtc(from).toISOString(), "2024-02-29T00:00:00.000Z");
@@ -164,17 +129,11 @@ describe("getCleaningResults characterization", () => {
     assert.equal(dayEndExclusiveUtc(to).toISOString(), "2024-03-01T00:00:00.000Z");
     // Load report needed for the next decision or write.
     const report = await getCleaningResults({
-      // Carry this field through the payload or query.
       from,
-      // Carry this field through the payload or query.
       to,
-      // Field value required by this payload or query.
       page: 1,
-      // Field value required by this payload or query.
       pageSize: 5,
-      // Field value required by this payload or query.
       taskWhere: { id: "__characterization_none__" },
-      // Field value required by this payload or query.
       sessionWhere: { taskId: "__characterization_none__" },
     });
     // Execute: assert.deepEqual(report.period, { from, to });

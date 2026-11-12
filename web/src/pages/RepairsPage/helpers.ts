@@ -1,9 +1,7 @@
 /** Shared locale + location label helpers for Repairs. */
 import type { MaintenanceTicket } from "../../api/client";
-// Import module dependency from ../../i18n.
 import { t } from "../../i18n";
 
-// Support the surrounding logic for this step.
 export { t };
 // Re-export selected symbols for a stable public barrel.
 export { priorityLabel, statusLabel } from "../ticketLabels";
@@ -16,6 +14,5 @@ export function locLabel(ticket: MaintenanceTicket): string {
 
 /** True when the ticket's location is archived (history-only). */
 export function isArchivedLocation(ticket: MaintenanceTicket): boolean {
-  // Return early result or rendered output from this path.
   return ticket.location.catalogStatus === "archived";
 }

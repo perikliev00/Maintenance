@@ -136,6 +136,12 @@ seed-ната работна DB и инсталиран Chromium. По-крат�
 (web + API, без браузъри), `npm run test:e2e`, `npm run test:e2e:scenarios`. Coverage и mutation:
 [`docs/testing/COVERAGE.md`](docs/testing/COVERAGE.md), [`docs/testing/MUTATION_TESTING.md`](docs/testing/MUTATION_TESTING.md).
 
+### Локален CI gate + pre-push
+
+`npm run ci:local` оглежда задължителните GitHub Actions jobs (API, Web, Smoke, E2E, …).
+`npm run hooks:install` закача tracked `pre-push` hook, който блокира push при червен gate.
+Документация: [`docs/testing/LOCAL_CI.md`](docs/testing/LOCAL_CI.md).
+
 ---
 
 ## Домейн модел

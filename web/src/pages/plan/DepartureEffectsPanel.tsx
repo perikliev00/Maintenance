@@ -46,17 +46,13 @@ export function DepartureEffectsPanel({
 
   /** First pass: apply safe effects; collect deferred entry ids for confirm. */
   async function onApplyDepartureEffects() {
-    // State transition.
     setApplyingEffects(true);
-    // State transition.
     setError(null);
-    // State transition.
     setMessage(null);
     // Try block for fallible work.
     try {
       const result = await applyDepartureRoomEffects(hotelDate);
       if (dateRef.current !== hotelDate) return;
-      // State transition.
       setDeferredEntryIds(result.deferredEntryIds ?? []);
       // Summarize applied / protected / deferred counts for the banner.
       setMessage(
@@ -68,27 +64,21 @@ export function DepartureEffectsPanel({
       await refresh();
     } catch (err) {
       if (dateRef.current !== hotelDate) return;
-      // State transition.
       setError(
         err instanceof Error
           ? err.message
           : "Неуспешно прилагане на ефекти от напускания",
       );
     } finally {
-      // State transition.
       if (dateRef.current === hotelDate) setApplyingEffects(false);
     }
   }
 
   /** Second pass: re-run with confirmEntryIds for ambiguous occupied rooms. */
   async function onConfirmDeferredDepartures() {
-    // Branch: conditional gate.
     if (deferredEntryIds.length === 0) return;
-    // State transition.
     setConfirmingDeferred(true);
-    // State transition.
     setError(null);
-    // State transition.
     setMessage(null);
     // Try block for fallible work.
     try {
@@ -98,7 +88,6 @@ export function DepartureEffectsPanel({
       if (dateRef.current !== hotelDate) return;
       // Remaining deferred ids (if any) stay for another confirm cycle.
       setDeferredEntryIds(result.deferredEntryIds ?? []);
-      // State transition.
       setMessage(
         `Потвърдени отложени напускания: приложени ${result.applied}, защитени ${result.skipped}, остават отложени ${result.deferred}`,
       );
@@ -106,14 +95,12 @@ export function DepartureEffectsPanel({
       await refresh();
     } catch (err) {
       if (dateRef.current !== hotelDate) return;
-      // State transition.
       setError(
         err instanceof Error
           ? err.message
           : "Неуспешно потвърждаване на отложени напускания",
       );
     } finally {
-      // State transition.
       if (dateRef.current === hotelDate) setConfirmingDeferred(false);
     }
   }

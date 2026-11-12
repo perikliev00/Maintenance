@@ -13,28 +13,20 @@ import { lockLocation, type Tx } from "./locks";
  * Soft path returns false on cycle/status mismatch instead of throwing.
  */
 export async function applyLocationCleaningStatusIfCurrent(
-  // Carry this field through the payload or query.
   tx: Tx,
-  // Carry this field through the payload or query.
   locationId: string,
-  // Carry this field through the payload or query.
   taskCleaningCycle: number,
-  // Carry this field through the payload or query.
   cleaningStatus: CleaningStatus,
-  // Begin block/object for the following statements.
   opts?: {
     // Parameter/field in the surrounding signature or type.
     requireCurrent?: boolean;
     // Parameter/field in the surrounding signature or type.
     onlyIfStatus?: CleaningStatus;
   },
-// Begin block/object for the following statements.
 ): Promise<boolean> {
   // Strict path: throw 409 when the task no longer owns the location cycle.
   if (opts?.requireCurrent) {
-    // Await side effect or helper before continuing.
     await assertTaskOwnsCleaningCycle(tx, locationId, taskCleaningCycle);
-  // Begin block/object for the following statements.
   } else {
     // Soft path: lock, then return false on cycle/status mismatch (no throw).
     await lockLocation(tx, locationId);
@@ -54,7 +46,6 @@ export async function applyLocationCleaningStatusIfCurrent(
       opts?.onlyIfStatus !== undefined &&
       // Execute: location.cleaningStatus !== opts.onlyIfStatus
       location.cleaningStatus !== opts.onlyIfStatus
-    // Begin block/object for the following statements.
     ) {
       // Early return of a terminal empty/boolean result.
       return false;
@@ -81,7 +72,6 @@ export async function applyLocationCleaningStatusIfCurrent(
     opts?.onlyIfStatus !== undefined &&
     // Execute: location.cleaningStatus !== opts.onlyIfStatus
     location.cleaningStatus !== opts.onlyIfStatus
-  // Begin block/object for the following statements.
   ) {
     // Early return of a terminal empty/boolean result.
     return false;

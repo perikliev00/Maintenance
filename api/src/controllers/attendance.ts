@@ -3,9 +3,7 @@
  * Action gates live on the route; ingest is idempotent on externalEventId.
  */
 import type { Request, Response } from "express";
-// Import dependency @prisma/client.
 import { AttendanceEventKind } from "@prisma/client";
-// Import dependency zod/v3.
 import { z } from "zod/v3";
 // Continue named import list.
 import {
@@ -32,9 +30,7 @@ const scopeSchema = z.enum(["month", "today", "week", "review"]).optional();
 
 /** Normalize list filter query fields (scope, month, department, search, employee). */
 function parseListQuery(query: Record<string, unknown>) {
-  // Return value / early exit.
   return {
-    // Provide scope for the object/call below.
     scope:
       // Narrow the runtime type before using the value.
       typeof query.scope === "string" &&
@@ -44,15 +40,11 @@ function parseListQuery(query: Record<string, unknown>) {
         ? (query.scope as "month" | "today" | "week" | "review")
         // Continue the conditional expression.
         : undefined,
-    // Provide month for the object/call below.
     month: typeof query.month === "string" ? query.month.trim() : undefined,
-    // Provide department for the object/call below.
     department:
       // Narrow the runtime type before using the value.
       typeof query.department === "string" ? query.department.trim() : undefined,
-    // Provide q for the object/call below.
     q: typeof query.q === "string" ? query.q.trim() : undefined,
-    // Provide employeeId for the object/call below.
     employeeId:
       // Narrow the runtime type before using the value.
       typeof query.employeeId === "string" ? query.employeeId.trim() : undefined,
@@ -61,26 +53,20 @@ function parseListQuery(query: Record<string, unknown>) {
 
 /** Normalize cursor pagination (limit + cursor). */
 function parsePageQuery(query: Record<string, unknown>) {
-  // Bind limitRaw for use in the handler below.
   const limitRaw =
     // Narrow the runtime type before using the value.
     typeof query.limit === "string" ? Number(query.limit) : undefined;
-  // Return value / early exit.
   return {
-    // Provide limit for the object/call below.
     limit:
       // Continue the controller logic.
       limitRaw != null && Number.isFinite(limitRaw) ? limitRaw : undefined,
-    // Provide cursor for the object/call below.
     cursor: typeof query.cursor === "string" ? query.cursor.trim() : undefined,
   };
 }
 
 /** GET /attendance/intervals — paginated intervals plus max clock skew. */
 export async function listIntervals(req: Request, res: Response) {
-  // Bind filter for use in the handler below.
   const filter = parseListQuery(req.query as Record<string, unknown>);
-  // Bind page for use in the handler below.
   const page = parsePageQuery(req.query as Record<string, unknown>);
   // Validate scope enum when present (throws ZodError on bad values).
   scopeSchema.parse(filter.scope);
@@ -93,22 +79,16 @@ export async function listIntervals(req: Request, res: Response) {
   ]);
   // JSON success response.
   return res.json({
-    // Provide intervals for the object/call below.
     intervals: list.intervals,
-    // Provide total for the object/call below.
     total: list.total,
-    // Provide nextCursor for the object/call below.
     nextCursor: list.nextCursor,
-    // Provide limit for the object/call below.
     limit: list.limit,
-    // Provide maxClockSkewSeconds for the object/call below.
     maxClockSkewSeconds: maxSkew,
   });
 }
 
 /** GET /attendance/intervals/:id — single interval detail. */
 export async function getInterval(req: Request, res: Response) {
-  // Await async work into interval.
   const interval = await getIntervalById(req.params.id);
   // JSON success response.
   return res.json(interval);
@@ -120,13 +100,11 @@ export async function getInterval(req: Request, res: Response) {
  * global error handler).
  */
 export async function exportCsv(req: Request, res: Response) {
-  // Bind filter for use in the handler below.
   const filter = parseListQuery(req.query as Record<string, unknown>);
   // Load export rows (may throw AppError 413 if too large).
   const { intervals, truncated, total } =
     // Await side-effecting async work.
     await listIntervalsForExport(filter);
-  // Bind csv for use in the handler below.
   const csv = intervalsToCsv(intervals);
   // Continue the controller logic.
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -171,7 +149,6 @@ export async function ingestEvent(req: Request, res: Response) {
   const parsed = schema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -182,30 +159,18 @@ export async function ingestEvent(req: Request, res: Response) {
   const result = await ingestAttendanceEvent(parsed.data);
   // 201 on first insert; 200 on idempotent replay.
   return res.status(result.created ? 201 : 200).json({
-    // Provide created for the object/call below.
     created: result.created,
-    // Provide event for the object/call below.
     event: {
-      // Provide id for the object/call below.
       id: result.event.id,
-      // Provide externalEventId for the object/call below.
       externalEventId: result.event.externalEventId,
-      // Provide source for the object/call below.
       source: result.event.source,
-      // Provide employeeId for the object/call below.
       employeeId: result.event.employeeId,
-      // Provide kind for the object/call below.
       kind: result.event.kind,
-      // Provide deviceTime for the object/call below.
       deviceTime: result.event.deviceTime.toISOString(),
-      // Provide receivedAt for the object/call below.
       receivedAt: result.event.receivedAt.toISOString(),
-      // Provide normalizedTime for the object/call below.
       normalizedTime: result.event.normalizedTime.toISOString(),
-      // Provide clockSkewSeconds for the object/call below.
       clockSkewSeconds: result.event.clockSkewSeconds,
     },
-    // Provide intervalId for the object/call below.
     intervalId: result.intervalId,
   });
 }
@@ -229,31 +194,22 @@ export async function requestAdjustment(req: Request, res: Response) {
   const parsed = schema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
       // Attach JSON body to the response.
       .json({ error: "validation", details: parsed.error.flatten() });
   }
-  // Await async work into adj.
   const adj = await createAdjustment({
     // Continue the controller logic.
     ...parsed.data,
-    // Provide requestedById for the object/call below.
     requestedById: req.user!.employeeId,
-    // Provide actorRole for the object/call below.
     actorRole: req.user!.role,
   });
-  // Return value / early exit.
   return res.status(201).json({
-    // Provide id for the object/call below.
     id: adj.id,
-    // Provide intervalId for the object/call below.
     intervalId: adj.intervalId,
-    // Provide status for the object/call below.
     status: adj.status,
-    // Provide reason for the object/call below.
     reason: adj.reason,
   });
 }
@@ -271,7 +227,6 @@ export async function reviewAdjustment(req: Request, res: Response) {
   const parsed = schema.safeParse(req.body);
   // Reject invalid request payload.
   if (!parsed.success) {
-    // Return value / early exit.
     return res
       // Set response status code.
       .status(400)
@@ -280,13 +235,9 @@ export async function reviewAdjustment(req: Request, res: Response) {
   }
   // Service applies interval changes when approved.
   const interval = await reviewAdjustmentDecision({
-    // Provide adjustmentId for the object/call below.
     adjustmentId: req.params.id,
-    // Provide reviewedById for the object/call below.
     reviewedById: req.user!.employeeId,
-    // Provide decision for the object/call below.
     decision: parsed.data.decision,
-    // Provide reason for the object/call below.
     reason: parsed.data.reason,
   });
   // JSON success response.

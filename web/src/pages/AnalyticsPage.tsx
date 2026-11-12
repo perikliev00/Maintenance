@@ -23,7 +23,6 @@ import { t, type AppLocale } from "../i18n";
 
 /** Format a Date as YYYY-MM-DD (UTC date portion). */
 function isoDate(d: Date): string {
-  // Return value / early exit.
   return d.toISOString().slice(0, 10);
 }
 
@@ -32,7 +31,6 @@ function daysAgo(n: number): string {
   const d = new Date();
   // Shift calendar day in UTC so presets stay stable across local TZ.
   d.setUTCDate(d.getUTCDate() - n);
-  // Return value / early exit.
   return isoDate(d);
 }
 
@@ -43,10 +41,8 @@ function daysAgo(n: number): string {
 function formatMetric(value: number | null | undefined, suffix = ""): string {
   // Backend sends null when sample size is too small for a reliable metric.
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    // Return value / early exit.
     return "няма достатъчно данни";
   }
-  // Return value / early exit.
   return `${value}${suffix}`;
 }
 
@@ -66,19 +62,14 @@ function formatDelta(cmp?: AnalyticsMetricCompare): string | null {
   // No prior window / null deltaPct — hide the badge entirely.
   if (!cmp || cmp.deltaPct === null || cmp.previous === null) return null;
   const sign = cmp.deltaPct > 0 ? "+" : "";
-  // Return value / early exit.
   return `${sign}${cmp.deltaPct}%`;
 }
 
 /** CSS class for up/down/flat delta coloring. */
 function deltaClass(cmp?: AnalyticsMetricCompare): string {
-  // Branch: conditional gate.
   if (!cmp || cmp.deltaPct === null) return "analytics-delta muted";
-  // Branch: conditional gate.
   if (cmp.deltaPct > 0) return "analytics-delta analytics-delta-up";
-  // Branch: conditional gate.
   if (cmp.deltaPct < 0) return "analytics-delta analytics-delta-down";
-  // Return value / early exit.
   return "analytics-delta muted";
 }
 
@@ -118,15 +109,11 @@ function labelKey(
 ): string {
   // Prefer API catalog names (may include inactive categories for history).
   if (kind === "category") {
-    // Return value / early exit.
     return categoryLabels[key] ?? CATEGORY_LABELS[key] ?? key;
   }
-  // Branch: conditional gate.
   if (kind === "serviceType") {
-    // Return value / early exit.
     return SERVICE_TYPE_LABELS[key] ?? key;
   }
-  // Return value / early exit.
   return PRIORITY_LABELS[key] ?? key;
 }
 
@@ -134,30 +121,22 @@ function labelKey(
 function factorLabel(factor: string): string {
   // Prefix match: tickets_gte_N collapses to one "repeat tickets" label.
   if (factor.startsWith("tickets_gte_")) return "Повторяеми тикети";
-  // Branch: conditional gate.
   if (factor === "blocking_past_sla") return "Блокиране + SLA";
-  // Branch: conditional gate.
   if (factor === "rejected_inspections_gte_2") return "Отхвърлени инспекции";
-  // Return value / early exit.
   return factor;
 }
 
 /** Danger badge for blocking/reject factors; warn otherwise. */
 function factorBadgeClass(factor: string): string {
-  // Branch: conditional gate.
   if (factor === "blocking_past_sla" || factor === "rejected_inspections_gte_2") {
-    // Return value / early exit.
     return "badge-danger";
   }
-  // Return value / early exit.
   return "badge-warn";
 }
 
 /** Unit wording for the seasonal forecast panel. */
 function forecastUnitLabel(unit: string): string {
-  // Branch: conditional gate.
   if (unit === "cleaned_tasks") return "почистени задачи";
-  // Return value / early exit.
   return "сигнали";
 }
 
@@ -211,7 +190,6 @@ function KpiCard({
   tone?: "warn" | "danger";
 }) {
   const delta = formatDelta(compare);
-  // Return value / early exit.
   return (
     <div
       className={`stat-card analytics-kpi${
@@ -264,7 +242,6 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
   useEffect(() => {
     fetchMaintenanceCategories({ includeInactive: true })
       .then((cats) =>
-        // State transition.
         setCategoryLabels(
           Object.fromEntries(cats.map((c) => [c.key, c.nameBg])),
         ),
@@ -298,16 +275,13 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
 
   /** Snap the date range to today / last 7 / last 30 UTC days. */
   function applyPreset(kind: "today" | "7d" | "30d") {
-    // State transition.
     setTo(today);
-    // Branch: conditional gate.
     if (kind === "today") setFrom(today);
     // Else-if branch.
     else if (kind === "7d") setFrom(daysAgo(6));
     else setFrom(daysAgo(29));
   }
 
-  // Return value / early exit.
   return (
     <main className="content">
       <header className="page-header analytics-header">

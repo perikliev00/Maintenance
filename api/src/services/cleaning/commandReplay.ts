@@ -13,11 +13,8 @@ type TxClient = Prisma.TransactionClient;
 
 /** Pre-transaction idempotency read; 409 when commandId payload mismatches. */
 export async function loadCleaningCommandPreTx<T>(
-  // Field value required by this payload or query.
   load: () => Promise<T | null>,
-  // Carry this field through the payload or query.
   payloadMatches: (row: T) => boolean,
-// Begin block/object for the following statements.
 ): Promise<T | null> {
   // Load existing needed for the next decision or write.
   const existing = await load();
@@ -26,19 +23,14 @@ export async function loadCleaningCommandPreTx<T>(
     // Execute: assertCleaningCommandPayloadMatch(payloadMatches(existing));
     assertCleaningCommandPayloadMatch(payloadMatches(existing));
   }
-  // Return the computed result to the caller.
   return existing;
 }
 
 /** In-transaction TOCTOU re-check after domain locks (same semantics as pre-tx). */
 export async function loadCleaningCommandInTx<T>(
-  // Carry this field through the payload or query.
   tx: TxClient,
-  // Field value required by this payload or query.
   load: (client: TxClient) => Promise<T | null>,
-  // Carry this field through the payload or query.
   payloadMatches: (row: T) => boolean,
-// Begin block/object for the following statements.
 ): Promise<T | null> {
   // Load replay needed for the next decision or write.
   const replay = await load(tx);
@@ -47,7 +39,6 @@ export async function loadCleaningCommandInTx<T>(
     // Execute: assertCleaningCommandPayloadMatch(payloadMatches(replay));
     assertCleaningCommandPayloadMatch(payloadMatches(replay));
   }
-  // Return the computed result to the caller.
   return replay;
 }
 
@@ -56,13 +47,9 @@ export async function loadCleaningCommandInTx<T>(
  * so the caller can map other P2002 targets (e.g. running-session indexes).
  */
 export async function replayCleaningCommandOnP2002<T>(
-  // Carry this field through the payload or query.
   err: unknown,
-  // Field value required by this payload or query.
   load: () => Promise<T | null>,
-  // Carry this field through the payload or query.
   payloadMatches: (row: T) => boolean,
-// Begin block/object for the following statements.
 ): Promise<T | null> {
   // Guard: handle missing/invalid state before continuing.
   if (!isP2002(err)) return null;
@@ -72,7 +59,6 @@ export async function replayCleaningCommandOnP2002<T>(
   if (again) {
     // Execute: assertCleaningCommandPayloadMatch(payloadMatches(again));
     assertCleaningCommandPayloadMatch(payloadMatches(again));
-    // Return the computed result to the caller.
     return again;
   }
   // Early return of a terminal empty/boolean result.
