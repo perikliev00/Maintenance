@@ -98,11 +98,13 @@ async function main() {
     },
   });
 
-  // Clear same-day plan entries so scenarios do not collide across runs.
+  // Clear ALL same-day departure entries. Seed creates several departures for
+  // "today"; ensureDepartureRoomEffects applies every matching row, so a
+  // room-scoped delete left applied≈N on a fresh CI working DB.
   await prisma.dailyPlanEntry.deleteMany({
     where: {
       hotelDate,
-      locationId: room.id,
+      category: DailyPlanCategory.departure,
     },
   });
 
