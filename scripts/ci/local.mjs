@@ -10,7 +10,7 @@
  *
  * Exit code is non-zero on any failed/missing check, timeout, or crash.
  * Concurrent runs are refused via an exclusive local lock so they cannot share
- * mutating PostgreSQL state on maintenance / maintenance_p1_test.
+ * mutating PostgreSQL state on maintenance_ci_local / maintenance_p1_test.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -33,8 +33,11 @@ const DEFAULT_PG = {
   port: process.env.PGPORT || "5433",
   user: process.env.PGUSER || "maintenance",
   password: process.env.PGPASSWORD || "maintenance",
-  workingDb: process.env.CI_WORKING_DATABASE || "maintenance",
+  // Disposable CI working DB — never the Compose POSTGRES_DB "maintenance" (dev).
+  workingDb: process.env.CI_WORKING_DATABASE || "maintenance_ci_local",
   p1Db: "maintenance_p1_test",
+  // Compose-created DB used only for readiness probes / CREATE DATABASE.
+  adminDb: process.env.CI_ADMIN_DATABASE || "maintenance",
 };
 
 const args = new Set(process.argv.slice(2));
@@ -68,12 +71,15 @@ function mark(name, status, detail) {
 }
 
 function which(cmd) {
-  const probe = process.platform === "win32" ? "where" : "command";
-  const argsForProbe =
-    process.platform === "win32" ? [cmd] : ["-v", cmd];
-  const bin = process.platform === "win32" ? "where.exe" : "command";
-  const res = spawnSync(bin, argsForProbe, { encoding: "utf8" });
-  if (res.status !== 0) return null;
+  // `command` is a shell builtin — spawnSync("command", …) is ENOENT on Linux.
+  // Windows: where.exe. Unix: /bin/sh -c 'command -v -- "$1"'.
+  const res =
+    process.platform === "win32"
+      ? spawnSync("where.exe", [cmd], { encoding: "utf8" })
+      : spawnSync("/bin/sh", ["-c", 'command -v -- "$1"', "which", cmd], {
+          encoding: "utf8",
+        });
+  if (res.error || res.status !== 0) return null;
   const line = (res.stdout || "").split(/\r?\n/).map((s) => s.trim()).find(Boolean);
   return line || null;
 }
@@ -84,7 +90,9 @@ function run(command, options = {}) {
     env = process.env,
     label = command,
     timeoutMs = 0,
-    shell = process.platform === "win32",
+    // Command strings ("npm run lint", "docker compose …") always need a shell.
+    // shell:false on Linux treated the whole string as an executable → ENOENT.
+    shell = true,
   } = options;
   console.log(`\n$ (${path.relative(rootDir, cwd) || "."}) ${label}`);
   const result = spawnSync(command, {
@@ -277,7 +285,7 @@ function ensureDockerDb() {
   for (let i = 0; i < 30; i++) {
     const ready = spawnSync(
       "docker",
-      ["compose", "exec", "-T", "db", "pg_isready", "-U", DEFAULT_PG.user, "-d", DEFAULT_PG.workingDb],
+      ["compose", "exec", "-T", "db", "pg_isready", "-U", DEFAULT_PG.user, "-d", DEFAULT_PG.adminDb],
       { cwd: rootDir, encoding: "utf8" },
     );
     if (ready.status === 0) {
@@ -288,6 +296,62 @@ function ensureDockerDb() {
   }
   mark("postgres", "fail", "pg_isready timed out");
   return false;
+}
+
+/** Create the disposable CI working DB if missing (never DROP the Compose admin/dev DB). */
+function ensureWorkingDatabase() {
+  const name = DEFAULT_PG.workingDb;
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    mark("prepare-db", "fail", `unsafe CI_WORKING_DATABASE: ${name}`);
+    return false;
+  }
+  if (name === DEFAULT_PG.adminDb) {
+    mark(
+      "prepare-db",
+      "fail",
+      `CI_WORKING_DATABASE must not be the Compose admin/dev database (${DEFAULT_PG.adminDb})`,
+    );
+    return false;
+  }
+  console.log(
+    `Ensuring CI working database ${name} exists (admin/dev DB ${DEFAULT_PG.adminDb} left untouched)`,
+  );
+  const ps = spawnSync("docker", ["compose", "ps", "-q", "db"], {
+    cwd: rootDir,
+    encoding: "utf8",
+  });
+  const container = (ps.stdout || "").trim().split(/\r?\n/).find(Boolean);
+  if (!container) {
+    mark("prepare-db", "fail", "docker compose db container not found");
+    return false;
+  }
+  const create = spawnSync(
+    "docker",
+    [
+      "exec",
+      "-e",
+      `PGPASSWORD=${DEFAULT_PG.password}`,
+      "-i",
+      container,
+      "psql",
+      "-U",
+      DEFAULT_PG.user,
+      "-d",
+      DEFAULT_PG.adminDb,
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      `CREATE DATABASE ${name} OWNER ${DEFAULT_PG.user};`,
+    ],
+    { cwd: rootDir, encoding: "utf8" },
+  );
+  const out = `${create.stdout || ""}${create.stderr || ""}`;
+  if (create.status !== 0 && !/already exists|duplicate_database/i.test(out)) {
+    console.error(out);
+    mark("prepare-db", "fail", `could not create ${name}`);
+    return false;
+  }
+  return true;
 }
 
 function prepareP1(argsList, env) {
@@ -313,6 +377,9 @@ function prepareP1(argsList, env) {
 function prepareDatabases(env) {
   // Working DB migrate + seed (Smoke / smoke scripts). Audit-upgrade uses a
   // dedicated empty DB (GitHub gets a fresh service container).
+  // Destructive seed targets maintenance_ci_local only — not Compose "maintenance".
+  console.log(`CI destructive seed target DATABASE_URL db=${DEFAULT_PG.workingDb}`);
+  if (!ensureWorkingDatabase()) return false;
   const migrateWorking = run("npx prisma migrate deploy", {
     cwd: apiDir,
     env,
@@ -341,7 +408,7 @@ function prepareDatabases(env) {
     mark("prepare-db", "fail", "prepare-p1-test-db.mjs failed");
     return false;
   }
-  mark("prepare-db", "pass", "working + maintenance_p1_test ready");
+  mark("prepare-db", "pass", `${DEFAULT_PG.workingDb} + ${DEFAULT_PG.p1Db} ready`);
   return true;
 }
 
@@ -637,7 +704,7 @@ function printSummary() {
   }
   console.log("======================================");
   console.log(`\nLocal vs GitHub CI differences:`);
-  console.log(`- Postgres: local Compose ${DEFAULT_PG.host}:${DEFAULT_PG.port} (GitHub service :5432)`);
+  console.log(`- Postgres: local Compose ${DEFAULT_PG.host}:${DEFAULT_PG.port} db=${DEFAULT_PG.workingDb} (GitHub service :5432 / maintenance)`);
   console.log(`- Secret scan (Gitleaks): GitHub-only`);
   console.log(`- Dependency review / OSV: GitHub-only`);
   console.log(`- Trivy image scan: GitHub-only`);

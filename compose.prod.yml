@@ -117,6 +117,8 @@ services:
       DATABASE_URL: ${BOOTSTRAP_DATABASE_URL:?Set BOOTSTRAP_DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
       WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN}
+      # assertEnv() (bootstrap.ts) requires TRUST_PROXY=1 in production, same as api.
+      TRUST_PROXY: ${TRUST_PROXY:?Set TRUST_PROXY}
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [backend]
