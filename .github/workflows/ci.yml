@@ -305,7 +305,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - name: Validate production Compose
-        run: docker compose --env-file .env.production.example -f compose.prod.yml config --quiet
+        run: |
+          docker compose --env-file .env.production.example -f compose.prod.yml config --quiet
+          docker compose --env-file .env.production.example -f compose.prod.yml config --format json | node -e '
+            const c=JSON.parse(require("fs").readFileSync(0,"utf8"));
+            const t=c.services?.api?.tmpfs;
+            const expected=["/tmp:size=32m,noexec,nosuid"];
+            if(JSON.stringify(t)!==JSON.stringify(expected)){
+              console.error("api.tmpfs must be",expected,"got",t);
+              process.exit(1);
+            }
+            console.log("api.tmpfs ok:", t[0]);
+          '
       - name: Build production images
         id: build_images
         run: |
@@ -316,6 +327,8 @@ jobs:
           docker build --target web -f web/Dockerfile -t maintenance-web:${GITHUB_SHA} .
       - name: Verify runtime Prisma client
         run: docker run --rm --entrypoint node maintenance-api:${GITHUB_SHA} -e "const {PrismaClient}=require('@prisma/client'); if(!PrismaClient) process.exit(1); console.log('Prisma client available')"
+      - name: Create API container with production Compose tmpfs
+        run: API_IMAGE=maintenance-api:${GITHUB_SHA} RELEASE_SHA=${GITHUB_SHA} node scripts/ci/verify-prod-api-compose-create.mjs
       - name: Verify edge routing and monitoring delivery in isolated containers
         run: API_IMAGE=maintenance-api:${GITHUB_SHA} WEB_IMAGE=maintenance-web:${GITHUB_SHA} node scripts/verify-containers.mjs
       - name: Scan API image

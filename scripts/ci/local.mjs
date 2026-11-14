@@ -374,6 +374,27 @@ function prepareP1(argsList, env) {
   return result.status ?? 1;
 }
 
+/** Install API deps (unless --skip-install) and generate Prisma Client before migrate/seed. */
+function bootstrapApiForDb(env) {
+  if (!skipInstall) {
+    if (npmCi(apiDir, "api npm ci (pre-migrate)") !== 0) {
+      mark("prepare-db", "fail", "api npm ci failed before migrate/seed");
+      return false;
+    }
+  }
+  if (
+    run("npx prisma generate", {
+      cwd: apiDir,
+      env,
+      label: "prisma generate (pre-migrate)",
+    }) !== 0
+  ) {
+    mark("prepare-db", "fail", "prisma generate failed before migrate/seed");
+    return false;
+  }
+  return true;
+}
+
 function prepareDatabases(env) {
   // Working DB migrate + seed (Smoke / smoke scripts). Audit-upgrade uses a
   // dedicated empty DB (GitHub gets a fresh service container).
@@ -430,12 +451,7 @@ function collectSuites(suites, cwd, env) {
 
 function runApiJob(env) {
   let ok = true;
-  if (!skipInstall) {
-    if (npmCi(apiDir, "api npm ci") !== 0) ok = false;
-  }
-  if (run("npx prisma generate", { cwd: apiDir, env, label: "prisma generate" }) !== 0) {
-    ok = false;
-  }
+  // npm ci + prisma generate already ran in bootstrapApiForDb() before DB prep (REL-04).
   if (runNodeNpm("lint", apiDir, env, "api lint") !== 0) ok = false;
   if (runNodeNpm("build", apiDir, env, "api build") !== 0) ok = false;
   if (runNodeNpm("typecheck:tests", apiDir, env, "api typecheck:tests") !== 0) {
@@ -652,6 +668,13 @@ function runContainersJob() {
     label: "compose.prod.yml config",
   }) !== 0) {
     ok = false;
+  } else if (
+    run(
+      'docker compose --env-file .env.production.example -f compose.prod.yml config --format json | node -e "const c=JSON.parse(require(\'fs\').readFileSync(0,\'utf8\'));const t=c.services?.api?.tmpfs;const e=[\'/tmp:size=32m,noexec,nosuid\'];if(JSON.stringify(t)!==JSON.stringify(e)){console.error(\'api.tmpfs\',t);process.exit(1)}console.log(\'api.tmpfs ok\',t[0])"',
+      { cwd: rootDir, label: "compose.prod.yml api.tmpfs shape" },
+    ) !== 0
+  ) {
+    ok = false;
   }
   // Full image build + Trivy matches GitHub but is heavy; run build by default
   // when CI_LOCAL_CONTAINERS=1, otherwise only compose config (documented delta).
@@ -671,6 +694,17 @@ function runContainersJob() {
         'docker run --rm --entrypoint node maintenance-api:local -e "const {PrismaClient}=require(\'@prisma/client\'); if(!PrismaClient) process.exit(1); console.log(\'Prisma client available\')"',
         { cwd: rootDir, label: "verify runtime Prisma client" },
       ) !== 0) {
+        ok = false;
+      }
+      if (run("node scripts/ci/verify-prod-api-compose-create.mjs", {
+        cwd: rootDir,
+        env: {
+          ...process.env,
+          API_IMAGE: "maintenance-api:local",
+          RELEASE_SHA: "local",
+        },
+        label: "create API with prod Compose tmpfs",
+      }) !== 0) {
         ok = false;
       }
       if (run("node scripts/verify-containers.mjs", {
@@ -725,6 +759,11 @@ async function main() {
   const env = baseEnv();
   try {
     if (!ensureDockerDb()) {
+      printSummary();
+      process.exit(1);
+    }
+    // Prisma Client must exist before migrate/seed (matches GitHub Smoke order).
+    if (!bootstrapApiForDb(env)) {
       printSummary();
       process.exit(1);
     }
