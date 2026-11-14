@@ -61,7 +61,9 @@ services:
     init: true
     stop_grace_period: 30s
     read_only: true
-    tmpfs: [/tmp:size=32m,noexec,nosuid]
+    # Quote as one YAML string — unquoted list splits on commas and Compose
+    # treats noexec/nosuid as separate absolute mount paths (REL-01).
+    tmpfs: ["/tmp:size=32m,noexec,nosuid"]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     mem_limit: 768m
