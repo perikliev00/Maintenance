@@ -4,7 +4,7 @@
 
 Hotel operations system for **housekeeping** and **maintenance**: room readiness, cleaning tasks with inspection, repair tickets, team directory, and role control.
 
-This is a live domain model plus a working demo (API + web), built incrementally. Below is the **full domain and everything you can do today**.
+The project has a working local demo (API + web), automated tests, and published container images. Publishing to GHCR does not deploy the app to a server. See the [deployment status and runbook](docs/operations/deploy.md).
 
 ---
 
@@ -21,9 +21,10 @@ This is a live domain model plus a working demo (API + web), built incrementally
 9. [UI panels and actions](#ui-panels-and-actions)
 10. [API](#api)
 11. [Seed / demo data](#seed--demo-data)
-12. [Technical rules](#technical-rules)
-13. [Code layout](#code-layout)
-14. [Roadmap](#roadmap)
+12. [Deployment and operations](#deployment-and-operations)
+13. [Technical rules](#technical-rules)
+14. [Code layout](#code-layout)
+15. [Roadmap](#roadmap)
 
 ---
 
@@ -607,7 +608,7 @@ Aggregator for supervisor/manager: active sessions (elapsed, overdue, anomaly = 
 | POST | `/daily-plan/import` | `plan.manage` — agreed JSON (not a live PMS) |
 | DELETE | `/daily-plan/:id` | `plan.manage` |
 
-Import resolves rooms by `buildingCode` + `roomNumber`, writes `source=import`, stores a `DailyPlanImportBatch`, and is idempotent on `externalId` / existing rows (manual entries are never overwritten). Example: `api/fixtures/daily-plan-import.example.json`.
+The endpoint accepts up to 2,000 JSON records and validates the payload with Zod. It maps `buildingCode` and `roomNumber` to a room inside the caller's scope, stores a `DailyPlanImportBatch`, and reports counts for created, skipped, and failed rows. Reimporting does not duplicate existing records or overwrite manual entries. See the [sample payload](api/fixtures/daily-plan-import.example.json) and [integration tests](api/tests/plan/import.lifecycle.test.ts). This is a JSON import, not a live property-management system connector or a CSV/Excel parser.
 
 ### Maintenance
 
@@ -659,10 +660,6 @@ Errors: `{ error, message, details? }`.
 
 `cd api && ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed` — **wipes and recreates** data. The destructive command refuses to run without both explicit values, when the declared name does not match `DATABASE_URL`, and always in production.
 
-### Production and staging operations
-
-Production containers, HTTPS proxy, health checks, monitoring, backup/restore, first-owner setup, release, and rollback runbooks are in [`docs/operations/`](./docs/operations/). The deployment intentionally runs one API replica until SSE events, rate limits, settings cache invalidation, and job ownership are shared across processes.
-
 | What | Amount / content |
 |---|---|
 | Property | Meridian Resort |
@@ -693,6 +690,16 @@ Extra HK / tech / managers are also seeded.
 4. Report issue with blocks room → Resolve.
 5. **owner** — all tabs; inspect / role change without 403.
 6. **manager** — try role=`owner` → **403**.
+
+---
+
+## Deployment and operations
+
+[GitHub Actions CI](.github/workflows/ci.yml) checks the API, web app, migrations, PostgreSQL integrations, Playwright flows, and container images. After a successful CI run on `main`, the [release workflow](.github/workflows/release.yml) publishes five images to GHCR under the full Git commit SHA. [Deploying to a host](.github/workflows/deploy.yml) is a separate manual step.
+
+[Production Compose](compose.prod.yml) defines Caddy as the public HTTPS edge, a private network for the API and PostgreSQL, and one-shot migration and bootstrap services. The API and scheduler stay on one replica because SSE delivery, rate limits, and settings cache invalidation are process-local. The PostgreSQL advisory lock prevents overlapping job cycles but does not make multiple API replicas safe.
+
+Before go-live, verify a staging release and HTTPS smoke tests, configure a real alert receiver, and prove that an off-host backup can be restored. See the [deployment and rollback guide](docs/operations/deploy.md), [backup installation](docs/operations/backup-install.md), and [incident response](docs/operations/incident-response.md).
 
 ---
 

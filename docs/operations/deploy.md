@@ -1,5 +1,11 @@
 # Staging and production deployment
 
+## Verified status
+
+For commit `0389c030f865`, [CI passed](https://github.com/perikliev00/Maintenance/actions/runs/43645080826) and the [image-publish job succeeded](https://github.com/perikliev00/Maintenance/actions/runs/43645565307). CI verified built containers, edge routing, and alert delivery to a local receiver in an isolated network. These runs do not prove that a release reached a staging or production host. No manual deployment run was visible at the 17 November 2026 review.
+
+Use staging first. Record the environment, release SHA, deploy run, HTTPS check, and smoke results after promotion. Before go-live, run a timed restore from an actual [off-host backup](backup-install.md), test the [alert receiver](incident-response.md), and configure external uptime checks. A checked-in Compose profile or timer example does not prove either is installed.
+
 ## Inputs
 
 Use a clean Linux host with Docker Engine and the Compose v2 plugin. Set public DNS for `APP_DOMAIN` and allow inbound TCP 80/443 and UDP 443. Store `.env.production` outside Git with permissions restricted to the deploy account. Start from `.env.production.example`; generate independent random credentials for the PostgreSQL administrator, migration role, bootstrap role, runtime role, monitoring role, JWT signing key, Grafana, and alert receiver. Do not copy production credentials into staging.
@@ -10,7 +16,7 @@ Before first deploy, provision PostgreSQL roles and grants using the database pr
 
 **Never run `docker compose build` on a production host during promote** (OPS-001 / DEP-01). CI publishes images tagged with the full commit SHA. The checked-in `compose.prod.yml` still contains `build:` blocks for staging/local construction only.
 
-From the deployment host (or via `.github/workflows/deploy.yml`):
+Use a release with successful CI and image publishing on `main`. The [manual deploy workflow](../../.github/workflows/deploy.yml) takes a GitHub Environment and the full Git commit SHA. Configure the environment's SSH access, application URL, checkout path, and known hosts before dispatching. It checks the successful push CI run and all five GHCR manifests before connecting to the host.
 
 The workflow passes the job token to GitHub CLI and logs in to GHCR with
 `packages: read` for manifest verification. Private packages must grant this
@@ -20,6 +26,8 @@ read-only registry credentials; the runner login is not forwarded over SSH.
 The web image runs as UID 1000. When upgrading volumes created by an older
 root-run Caddy image, ensure its data/config volumes are writable by that UID
 before the upgrade; the image build cannot change ownership of existing volumes.
+
+Run the equivalent promotion from the deployment host only after the same release checks:
 
 ```sh
 export RELEASE_SHA=<40-char-git-sha>
@@ -52,7 +60,7 @@ Use a staging database restored from a sanitized backup or seeded with disposabl
 
 ## Post-deploy smoke (beyond `/health/ready`) — DEP-05
 
-After promote, operators (or deploy workflow) should confirm:
+The deploy workflow checks readiness JSON and blocks anonymous metrics access after promotion (items 1–2). Operators should also verify the remaining flows in staging:
 
 1. `GET /api/health/ready` → 200 with JSON `ok: true` and `ready: true` (HTML 200 is a failure)  
 2. `GET /api/metrics`, `/api/metrics/` and encoded/case variants via the **public** edge → **404/401/403**  
@@ -60,8 +68,7 @@ After promote, operators (or deploy workflow) should confirm:
 4. SSE `/api/events/stream` stays open >50s (two heartbeats) on staging  
 5. If profile `monitoring` is enabled: real `ALERT_WEBHOOK_URL` + external uptime (see `incident-response.md`)
 
-Optional helper (requires curl and jq): `APP_URL=https://… bash scripts/post-deploy-smoke.sh`.
-It also checks that an invalid login POST reaches API JSON validation.
+The [smoke helper](../../scripts/post-deploy-smoke.sh) (requires curl and jq) also checks liveness and confirms an invalid login POST reaches API JSON validation. It does not exercise a valid login, a CSRF-protected write, a long-lived SSE stream, or external alert delivery.
 
 CI runs `API_IMAGE=maintenance-api:<tag> WEB_IMAGE=maintenance-web:<tag> node scripts/verify-containers.mjs`
 against the built images. This creates a disposable network, injects only the
@@ -73,7 +80,7 @@ on completion; no application database or external webhook is used.
 
 ## Release promotion
 
-CI builds and scans API, migration, and web images. Tag each immutable image with the commit SHA and record registry digests. Promote those same tags/digests to staging and production; do not rebuild on the target host. Keep deployment concurrency serialized so two migration jobs cannot run together. Capture the release SHA in the deployment record and dashboard annotations.
+CI builds and verifies the production containers and scans the API and web images with Trivy. The [publish workflow](../../.github/workflows/release.yml) pushes API, web, migration, bootstrap, and initial-owner images with SBOMs and provenance. The deploy workflow promotes those full Git SHA **tags**, not pinned registry digests. Record the SHA and registry digests for traceability. Serialize deploys per environment so migration runs do not overlap; do not rebuild on the target host.
 
 The API deployment is intentionally limited to one replica until cross-process SSE fan-out, rate limits, and settings cache invalidation are shared. Background **job ownership** is already multi-instance-safe via a Postgres session advisory lock (see below); that alone does not authorize scaling API replicas.
 
@@ -97,7 +104,7 @@ Scheduled and manual job cycles (`runWithJobExecutionLock` / `POST /jobs/run`) t
 2. Confirm checked-in Compose / env examples still use direct Postgres (`db` / `:5432` / local `:5433`) — grep `compose.prod.yml`, `docker-compose.yml`, `api/.env.example` for `pgbouncer` / `pooler` / `6543` before promote.
 3. Confirm the advisory-lock client still forces `connection_limit=1` via `advisoryLockDatabaseUrl` (do not override with a custom URL that drops it).
 4. If a managed pooler is added later, either keep **session** affinity for the API job connection or redesign the lock protocol — do not assume transaction pooling is safe.
-5. Repo unit/integration tests (`api/src/services/jobs/executionLock.test.ts`) cover in-process + cross-session mutual exclusion against the **test** DB; they do **not** prove production pool mode. Production/staging pool mode remains an **unverified assumption** until ops records the live `RUNTIME_DATABASE_URL` host + pool mode in the release notes.
+5. Repo tests (`api/src/services/jobs/executionLock.test.ts`) cover in-process and cross-session mutual exclusion against a **test** DB. Record whether the target connection is direct or session-pooled without recording the database URL or credentials. Tests do not verify the target's pool mode.
 
 ### `DISABLE_JOB_SCHEDULER` (E2E / probes only)
 

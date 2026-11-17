@@ -4,7 +4,7 @@
 
 Хотелска операционна система за **housekeeping** и **maintenance**: готовност на стаите, задачи за почистване с инспекция, ремонтни тикети, екип и контрол на роли.
 
-Това е жив домейн модел + работещо демо (API + web), изградено инкрементално. По-долу е описан **целият домейн и всичко, което може да се прави днес**.
+Проектът има работещо локално демо (API + web), автоматизирани тестове и публикувани контейнерни образи. Публикуването в GHCR не е равнозначно на внедряване на сървър. Виж [статуса и стъпките за внедряване](docs/operations/deploy.md).
 
 ---
 
@@ -21,9 +21,10 @@
 9. [UI панели и действия](#ui-панели-и-действия)
 10. [API](#api)
 11. [Seed / демо данни](#seed--демо-данни)
-12. [Технически правила](#технически-правила)
-13. [Структура на кода](#структура-на-кода)
-14. [Roadmap](#roadmap)
+12. [Внедряване и операции](#внедряване-и-операции)
+13. [Технически правила](#технически-правила)
+14. [Структура на кода](#структура-на-кода)
+15. [Roadmap](#roadmap)
 
 ---
 
@@ -602,7 +603,7 @@ Housekeeping analytics (`GET /analytics/summary?domain=housekeeping`): същи�
 | POST | `/daily-plan/import` | `plan.manage` — договорен JSON (не жив PMS) |
 | DELETE | `/daily-plan/:id` | `plan.manage` |
 
-Импортът резолва стаи по `buildingCode` + `roomNumber`, пише `source=import`, пази `DailyPlanImportBatch` и е идемпотентен по `externalId` / съществуващ запис (ръчните не се презаписват). Пример: `api/fixtures/daily-plan-import.example.json`.
+Импортът приема до 2000 JSON записа и проверява схемата със Zod. Съпоставя стаите по `buildingCode` и `roomNumber` в разрешения за потребителя обхват, запазва резултата в `DailyPlanImportBatch` и връща броя на създадените, пропуснатите и грешните редове. Повторният импорт не създава дублирани записи и не презаписва ръчните. Виж [примерния JSON](api/fixtures/daily-plan-import.example.json) и [интеграционните тестове](api/tests/plan/import.lifecycle.test.ts). Няма директна връзка със системата на хотела (PMS) и не се приемат CSV/Excel файлове.
 
 ### Maintenance
 
@@ -654,14 +655,6 @@ Housekeeping analytics (`GET /analytics/summary?domain=housekeeping`): същи�
 
 `cd api && ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed` — **изтрива и пресъздава** данните. Командата отказва работа без двете изрични стойности, при несъвпадение с името в `DATABASE_URL` и винаги в production.
 
-### Production и staging операции
-
-Production конфигурацията е в [`compose.prod.yml`](./compose.prod.yml), с API, web/Caddy, отделни migration/bootstrap еднократни услуги и PostgreSQL в частна Docker мрежа. Към публичната мрежа се свързват само Caddy и Alertmanager. HTTPS сертификатите се издават автоматично от Caddy за публично DNS име; DNS трябва да сочи към сървъра и входящите TCP портове 80/443 и UDP 443 да са разрешени.
-
-Локалният demo seed е destructive и не се изпълнява при production startup. Runtime, migration, bootstrap и monitoring DB потребителите трябва да са отделни. API и job scheduler остават един процес/една реплика, защото SSE bus, rate limits и кешове са локални за процеса. Втора API реплика или отделен worker изискват споделени event delivery и rate-limit/cache state.
-
-Runbooks и команди за staging, release, rollback, backup/restore и инциденти са в [`docs/operations/`](./docs/operations/).
-
 | Какво | Количество / съдържание |
 |---|---|
 | Property | Meridian Resort |
@@ -692,6 +685,16 @@ Runbooks и команди за staging, release, rollback, backup/restore и и
 4. Report issue с blocks room → Resolve.
 5. **owner** — всички табове; inspect / role change без 403.
 6. **manager** — опит за role=`owner` → **403**.
+
+---
+
+## Внедряване и операции
+
+[GitHub Actions](.github/workflows/ci.yml) проверява API, web, миграции, интеграции с PostgreSQL, Playwright и контейнерите. След успешна CI проверка на `main` отделен [release workflow](.github/workflows/release.yml) публикува пет образа в GHCR с пълния Git SHA като таг. [Внедряването](.github/workflows/deploy.yml) е отделна ръчна стъпка.
+
+[Production Compose](compose.prod.yml) предвижда Caddy като публичен HTTPS вход, PostgreSQL и API в частна мрежа и еднократни стъпки за миграции и bootstrap. API и scheduler трябва да останат в една реплика: SSE, rate limits и кешът за настройки са локални за процеса. PostgreSQL заключването на фоновите задачи предпазва от застъпване, но не решава тези ограничения.
+
+Преди пускане: потвърди staging внедряване и smoke проверки през HTTPS, настрой наблюдение с реален получател на алармите и докажи възстановяване от off-host backup. Виж [внедряване и rollback](docs/operations/deploy.md), [резервни копия](docs/operations/backup-install.md) и [реакция при инциденти](docs/operations/incident-response.md).
 
 ---
 
