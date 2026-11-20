@@ -139,10 +139,10 @@ export function ResultsPage() {
 
   // Early / value return.
   return (
-    <main className="content">
-      <header className="page-header">
+    <main className="content ui-results-report">
+      <header className="page-header ui-briefing">
         <div>
-          <h1>Резултати по камериер</h1>
+          <p className="ui-eyebrow">ИЗПЪЛНЕНИЕ НА ЕКИПА</p><h1>Резултати по камериер</h1>
           <p>
             Камериери с ≥1 завършена сесия; задачи, приети и сесии са отделни
             броячи
@@ -150,8 +150,10 @@ export function ResultsPage() {
         </div>
       </header>
 
+      <div className="ui-report-layout">
+        <aside className="ui-report-criteria ui-surface" aria-label="Критерии за отчета"><div className="ui-section-heading"><h2>Обхват на отчета</h2><p className="muted">Период и вид услуга</p></div>
       {/* Date range + quick presets. */}
-      <div className="toolbar">
+      <div className="ui-form-stack">
         <label>
           От
           <input
@@ -183,7 +185,7 @@ export function ResultsPage() {
       </div>
 
       {/* Service-type filter chips (multi-select). */}
-      <div className="toolbar">
+      <div className="ui-filter-options">
         {SERVICE_TYPE_OPTIONS.map((opt) => {
           const active = serviceTypes.includes(opt.value);
           // Early / value return.
@@ -213,57 +215,59 @@ export function ResultsPage() {
         )}
       </div>
 
-      {error && <p className="err-text">{error}</p>}
+        </aside>
+        <div className="ui-report-canvas">
+      {error && <p className="err-text" role="alert">{error}</p>}
       {loading && !data && <LoadingIndicator label="Зареждане…" />}
 
       {data && (
         <>
-          <div className="results-kpi-grid">
-            <div className="stat-card">
+          <div className="ui-metrics ui-report-measures">
+            <div className="ui-metric">
               <span className="muted">Камериери с работа</span>
               <strong>{data.summary.housekeeperCount}</strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Приключени задачи</span>
               <strong>{data.summary.completedTasks}</strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Приети</span>
               <strong>{data.summary.acceptedTasks}</strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Сесии</span>
               <strong>{data.summary.completedSessions}</strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Повторна работа</span>
               <strong>{data.summary.reworkEvents}</strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Аномални сесии</span>
               <strong>{data.summary.anomalousSessions}</strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Различни стаи</span>
               <strong>{data.summary.distinctRooms}</strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Валидни мин.</span>
               <strong>
                 {formatNum(data.summary.totalValidSessionMinutes)}
               </strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Изключени мин.</span>
               <strong>
                 {formatNum(data.summary.totalExcludedSessionMinutes)}
               </strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Навреме</span>
               <strong>{formatPct(data.summary.onTimePct)}</strong>
             </div>
-            <div className="stat-card">
+            <div className="ui-metric">
               <span className="muted">Производителност</span>
               <strong>
                 {formatNum(data.summary.productivity, " зад./ч")}
@@ -288,8 +292,8 @@ export function ResultsPage() {
             </div>
           )}
 
-          <section className="panel results-chart-panel">
-            <div className="panel-header">
+          <section className="ui-surface results-chart-panel">
+            <div className="ui-section-heading ui-action-strip">
               <h2>Сесии / Часове</h2>
             </div>
             {data.summary.completedSessions === 0 ? (
@@ -323,59 +327,30 @@ export function ResultsPage() {
                 })}
               </div>
             )}
+            {data.summary.completedSessions > 0 && <details className="ui-chart-data">
+              <summary>Данни по часове</summary>
+              <div className="table-wrap"><table><caption className="sr-only">Завършени сесии по часове</caption>
+                <thead><tr><th scope="col">Час</th><th scope="col">Завършени сесии</th></tr></thead>
+                <tbody>{data.series.map(point => <tr key={point.hour}><th scope="row">{String(point.hour).padStart(2, "0")}:00</th><td>{point.completedSessions}</td></tr>)}</tbody>
+              </table></div>
+            </details>}
           </section>
 
-          <section className="panel">
-            <div className="panel-header">
+          <section className="ui-surface">
+            <div className="ui-section-heading ui-action-strip">
               <h2>По камериер</h2>
               <span className="muted">
                 {data.total} общо · стр. {data.page}/{totalPages}
               </span>
             </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Име</th>
-                    <th>Номер</th>
-                    <th>Задачи</th>
-                    <th>Приети</th>
-                    <th>Сесии</th>
-                    <th>Rework</th>
-                    <th>Аномалии</th>
-                    <th>Навреме</th>
-                    <th>Ср. валидни мин.</th>
-                    <th>Валидни мин.</th>
-                    <th>Изключени мин.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={11} className="muted">
-                        Няма данни за периода.
-                      </td>
-                    </tr>
-                  ) : (
-                    data.rows.map((row) => (
-                      <tr key={row.employeeId}>
-                        <td>{row.fullName}</td>
-                        <td>{row.employeeNumber}</td>
-                        <td>{row.completedTasks}</td>
-                        <td>{row.acceptedTasks}</td>
-                        <td>{row.completedSessions}</td>
-                        <td>{row.reworkEvents}</td>
-                        <td>{row.anomalousSessions}</td>
-                        <td>{formatPct(row.onTimePct)}</td>
-                        <td>{formatNum(row.avgValidMinutes)}</td>
-                        <td>{row.totalValidSessionMinutes}</td>
-                        <td>{row.totalExcludedSessionMinutes}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {data.rows.length === 0 ? <p className="ui-empty muted">Няма данни за периода.</p> : <div className="ui-performance-list">
+              {data.rows.map((row) => <article key={row.employeeId} className="ui-performance-row">
+                <header><h3>{row.fullName}</h3><span className="muted">{row.employeeNumber}</span></header>
+                <dl className="ui-performance-measures">
+                  <div><dt>Задачи</dt><dd>{row.completedTasks}</dd></div><div><dt>Приети</dt><dd>{row.acceptedTasks}</dd></div><div><dt>Сесии</dt><dd>{row.completedSessions}</dd></div><div><dt>Rework</dt><dd>{row.reworkEvents}</dd></div><div><dt>Аномалии</dt><dd>{row.anomalousSessions}</dd></div><div><dt>Навреме</dt><dd>{formatPct(row.onTimePct)}</dd></div><div><dt>Ср. валидни мин.</dt><dd>{formatNum(row.avgValidMinutes)}</dd></div><div><dt>Валидни мин.</dt><dd>{row.totalValidSessionMinutes}</dd></div><div><dt>Изключени мин.</dt><dd>{row.totalExcludedSessionMinutes}</dd></div>
+                </dl>
+              </article>)}
+            </div>}
             {data.total > pageSize && (
               <div className="toolbar results-pager">
                 <button
@@ -399,6 +374,8 @@ export function ResultsPage() {
           </section>
         </>
       )}
+        </div>
+      </div>
     </main>
   );
 }

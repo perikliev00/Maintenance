@@ -192,7 +192,7 @@ function KpiCard({
   const delta = formatDelta(compare);
   return (
     <div
-      className={`stat-card analytics-kpi${
+      className={`ui-metric analytics-kpi${
         tone === "warn" ? " analytics-kpi-warn" : ""
       }${tone === "danger" ? " analytics-kpi-danger" : ""}`}
     >
@@ -283,10 +283,10 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
   }
 
   return (
-    <main className="content">
-      <header className="page-header analytics-header">
+    <main className="content ui-analytics-report">
+      <header className="page-header ui-briefing">
         <div>
-          <h1>{t(locale, "Умна аналитика", "Smart analytics")}</h1>
+          <p className="ui-eyebrow">{t(locale, "ОТ НАБЛЮДЕНИЕ КЪМ РЕШЕНИЕ", "FROM SIGNAL TO DECISION")}</p><h1>{t(locale, "Умна аналитика", "Smart analytics")}</h1>
           <p>
             {t(
               locale,
@@ -302,7 +302,30 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
             </p>
           )}
         </div>
-        <div className="analytics-toolbar">
+      </header>
+
+      <div className="ui-report-layout">
+        <aside className="ui-report-criteria ui-surface" aria-label={t(locale, "Критерии на отчета", "Report criteria")}><div className="ui-section-heading"><h2>{t(locale, "Обхват на анализа", "Analysis scope")}</h2></div>
+      <div className="ui-report-domain" role="group" aria-label={t(locale, "Област на анализа", "Analysis domain")}>
+        <button
+          type="button"
+          aria-pressed={domain === "maintenance"}
+          className={domain === "maintenance" ? "is-selected" : "ghost"}
+          onClick={() => setDomain("maintenance")}
+        >
+          {t(locale, "Поддръжка", "Maintenance")}
+        </button>
+        <button
+          type="button"
+          aria-pressed={domain === "housekeeping"}
+          className={domain === "housekeeping" ? "is-selected" : "ghost"}
+          onClick={() => setDomain("housekeeping")}
+        >
+          {t(locale, "Камериерска", "Housekeeping")}
+        </button>
+      </div>
+
+        <div className="ui-form-stack">
           <label>
             {t(locale, "От", "From")}
             <input
@@ -340,34 +363,14 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
             {t(locale, "Обнови", "Refresh")}
           </button>
         </div>
-      </header>
-
-      <div className="settings-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={domain === "maintenance"}
-          className={domain === "maintenance" ? "nav-tab active" : "nav-tab"}
-          onClick={() => setDomain("maintenance")}
-        >
-          {t(locale, "Поддръжка", "Maintenance")}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={domain === "housekeeping"}
-          className={domain === "housekeeping" ? "nav-tab active" : "nav-tab"}
-          onClick={() => setDomain("housekeeping")}
-        >
-          {t(locale, "Камериерска", "Housekeeping")}
-        </button>
-      </div>
-
+        </aside>
+        <div className="ui-report-canvas">
+          <div className="ui-report-context"><h2>{domain === "maintenance" ? t(locale, "Надеждност на помещенията", "Reliability of your spaces") : t(locale, "Качество и поток на работата", "Quality and flow of work")}</h2><p className="muted">{t(locale, "Промените се сравняват с предходен период със същата дължина.", "Changes compare with the previous period of equal length.")}</p></div>
       {/* Render branch: error && <p className="err-text">error</p> */}
-      {error && <p className="err-text">{error}</p>}
+      {error && <p className="err-text" role="alert">{error}</p>}
       {/* Initial load only — keep prior KPIs visible while refreshing. */}
       {loading && !data && (
-        <section className="panel">
+        <section className="ui-surface">
           <LoadingIndicator
             label={t(locale, "Зареждане на аналитиката…", "Loading analytics…")}
           />
@@ -377,7 +380,7 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
       {/* Guard: response domain must match selected tab (stale race). */}
       {data && data.domain === "maintenance" && domain === "maintenance" && (
         <>
-          <div className="results-kpi-grid">
+          <div className="ui-metrics ui-report-measures">
             <KpiCard
               label="Сигнали"
               value={formatMetric(data.kpis.signals)}
@@ -429,7 +432,7 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
 
           <AnalyticsTrendChart series={data.series} />
 
-          <div className="analytics-grid">
+          <div className="ui-report-breakdowns">
             <AnalyticsBarChart
               title="По категории"
               items={(data.breakdowns.byCategory ?? []).map((i) => ({
@@ -451,7 +454,7 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
       {/* Housekeeping KPIs — same domain-match guard as maintenance. */}
       {data && data.domain === "housekeeping" && domain === "housekeeping" && (
         <>
-          <div className="results-kpi-grid">
+          <div className="ui-metrics ui-report-measures">
             <KpiCard
               label="Приключени задачи"
               value={formatMetric(data.kpis.cleanedTasks)}
@@ -547,7 +550,7 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
 
           <AnalyticsTrendChart series={data.series} />
 
-          <div className="analytics-grid">
+          <div className="ui-report-breakdowns">
             <AnalyticsBarChart
               title="По тип работа"
               items={(data.breakdowns.byServiceType ?? []).map((i) => ({
@@ -562,8 +565,8 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
                 count: i.count,
               }))}
             />
-            <section className="panel analytics-chart-panel">
-              <div className="panel-header">
+            <section className="ui-surface analytics-chart-panel">
+              <div className="ui-section-heading ui-action-strip">
                 <h2>Навременност</h2>
                 <span className="muted">
                   n={data.kpis.onTimeSampleCount}
@@ -596,8 +599,8 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
       {/* Forecast + risk rooms shared across both domains once data is loaded. */}
       {data && (
         <>
-          <section className="panel analytics-forecast">
-            <div className="panel-header">
+          <section className="ui-surface ui-forecast">
+            <div className="ui-section-heading ui-action-strip">
               <h2>Сезонна прогноза</h2>
               <span className="muted">
                 {forecastUnitLabel(data.forecast.unit)}
@@ -607,16 +610,16 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
             <div className="owner-banner analytics-forecast-formula">
               {data.forecast.formula}
             </div>
-            <div className="results-kpi-grid">
-              <div className="stat-card">
+            <div className="ui-metrics ui-report-measures">
+              <div className="ui-metric">
                 <span className="muted">Дневна средна</span>
                 <strong>{formatMetric(data.forecast.dailyRate)}</strong>
               </div>
-              <div className="stat-card">
+              <div className="ui-metric">
                 <span className="muted">Оставащи дни</span>
                 <strong>{data.forecast.remainingDaysInMonth}</strong>
               </div>
-              <div className="stat-card">
+              <div className="ui-metric">
                 <span className="muted">
                   Прогноза ({forecastUnitLabel(data.forecast.unit)})
                 </span>
@@ -625,8 +628,8 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
             </div>
           </section>
 
-          <section className="panel">
-            <div className="panel-header">
+          <section className="ui-surface">
+            <div className="ui-section-heading ui-action-strip">
               <h2>Рискови стаи</h2>
               <div className="analytics-risk-actions">
                 <span className="muted">{data.riskRooms.length}</span>
@@ -650,41 +653,13 @@ export function AnalyticsPage({ locale = "bg" }: { locale?: AppLocale }) {
             {data.riskRooms.length === 0 ? (
               <p className="muted">Няма рискови стаи за периода.</p>
             ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Помещение</th>
-                      <th>Брой</th>
-                      <th>Фактори</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.riskRooms.map((r) => (
-                      <tr key={r.locationId}>
-                        <td>{r.label}</td>
-                        <td>{r.ticketCount}</td>
-                        <td>
-                          <div className="analytics-factors">
-                            {r.factors.map((f) => (
-                              <span
-                                key={f}
-                                className={`pill ${factorBadgeClass(f)}`}
-                              >
-                                {factorLabel(f)}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ul className="ui-queue ui-risk-register">{data.riskRooms.map((room) => <li key={room.locationId} className="ui-work-item"><div className="ui-work-item-location"><strong>{room.label}</strong><small>{room.ticketCount} {t(locale, "сигнала", "issues")}</small></div><div className="ui-work-item-body"><div className="analytics-factors">{room.factors.map((factor) => <span key={factor} className={`pill ${factorBadgeClass(factor)}`}>{factorLabel(factor)}</span>)}</div></div></li>)}</ul>
             )}
           </section>
         </>
       )}
+        </div>
+      </div>
     </main>
   );
 }

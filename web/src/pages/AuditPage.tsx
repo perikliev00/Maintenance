@@ -2,7 +2,7 @@
  * Audit event browser plus optional background job runs (`jobs.view`).
  * Live-refreshes on ticket/cleaning/settings/people/location/jobs changes.
  */
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchAuditEvents,
   fetchJobRuns,
@@ -181,10 +181,10 @@ export function AuditPage({ user, locale = "bg" }: Props) {
   };
 
   return (
-    <div className="page audit-page">
-      <header className="page-header">
+    <main className="content audit-page ui-audit">
+      <header className="page-header ui-briefing">
         <div>
-          <h1>{t(locale, "Одит лог", "Audit log")}</h1>
+          <p className="ui-eyebrow">{t(locale, "ОПЕРАТИВНА ИСТОРИЯ", "OPERATIONAL RECORD")}</p><h1>{t(locale, "Одит лог", "Audit log")}</h1>
           <p className="muted">
             {t(
               locale,
@@ -196,10 +196,10 @@ export function AuditPage({ user, locale = "bg" }: Props) {
       </header>
 
       {/* Surface load/refresh errors. */}
-      {error && <div className="banner error">{error}</div>}
+      {error && <div className="banner error" role="alert">{error}</div>}
 
       {/* Action + entity filters; empty option means all. */}
-      <div className="toolbar filters-row">
+      <section className="ui-surface ui-audit-criteria"><div className="ui-section-heading"><h2>{t(locale, "Намерете действие", "Find an action")}</h2></div><div className="toolbar filters-row">
         <label>
           {t(locale, "Действие", "Action")}
           <select value={action} onChange={(e) => setAction(e.target.value)}>
@@ -239,15 +239,15 @@ export function AuditPage({ user, locale = "bg" }: Props) {
             ? t(locale, "Обновяване…", "Refreshing…")
             : t(locale, "Обнови", "Refresh")}
         </button>
-      </div>
+      </div></section>
 
       {/* Loading gate vs events (+ optional jobs) panels. */}
       {loading ? (
         <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
       ) : (
         <>
-          <section className="panel">
-            <div className="panel-header">
+          <section className="ui-surface">
+            <div className="ui-section-heading ui-action-strip">
               <h2>
                 {t(locale, "Събития", "Events")} ({rows.length})
                 {eventsStale
@@ -255,95 +255,25 @@ export function AuditPage({ user, locale = "bg" }: Props) {
                   : ""}
               </h2>
             </div>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>{t(locale, "Кога", "When")}</th>
-                    <th>{t(locale, "Кой", "Who")}</th>
-                    <th>{t(locale, "Какво се случи", "What happened")}</th>
-                    <th>{t(locale, "Свързано с", "Related to")}</th>
-                    <th>{t(locale, "Причина", "Reason")}</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* Empty state vs event rows with optional expand. */}
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="muted">
-                        {t(locale, "Няма събития.", "No events.")}
-                      </td>
-                    </tr>
-                  ) : (
-                    rows.map((row) => {
-                      // Before/after detail lines; empty means no expand button.
-                      const detailLines = formatAuditDetails(
-                        row.before,
-                        row.after,
-                        locale,
-                      );
-                      const hasDetails = detailLines.length > 0;
-
-                      return (
-                        <Fragment key={row.id}>
-                          <tr>
-                            <td>
-                              {new Date(row.occurredAt).toLocaleString()}
-                            </td>
-                            <td>
-                              {/* System actor when no person linked. */}
-                              {row.actor?.fullName ??
-                                t(locale, "Система", "System")}
-                            </td>
-                            <td>{auditHeadline(row, locale)}</td>
-                            <td>
-                              {formatAuditRelated(row, entityTypeLabel, locale)}
-                            </td>
-                            <td>{row.reason ?? "—"}</td>
-                            <td>
-                              {/* Toggle expand only when detail lines exist. */}
-                              {hasDetails && (
-                                <button
-                                  type="button"
-                                  className="subtle"
-                                  onClick={() =>
-                                    setExpanded(
-                                      expanded === row.id ? null : row.id,
-                                    )
-                                  }
-                                >
-                                  {expanded === row.id
-                                    ? t(locale, "Скрий", "Hide")
-                                    : t(locale, "Подробности", "Details")}
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                          {/* Expanded detail row under the event. */}
-                          {expanded === row.id && hasDetails && (
-                            <tr>
-                              <td colSpan={6}>
-                                <ul className="audit-details-list">
-                                  {detailLines.map((line, idx) => (
-                                    <li key={`${row.id}-${idx}`}>{line}</li>
-                                  ))}
-                                </ul>
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {rows.length === 0 ? <p className="ui-empty muted">{t(locale, "Няма събития.", "No events.")}</p> : <ol className="ui-audit-timeline">
+              {rows.map((row) => {
+                const detailLines = formatAuditDetails(row.before, row.after, locale);
+                return <li key={row.id} data-audit-event-id={row.id}>
+                  <time dateTime={row.occurredAt}>{new Date(row.occurredAt).toLocaleString()}</time>
+                  <article>
+                    <div className="ui-action-strip"><h3>{auditHeadline(row, locale)}</h3>{detailLines.length > 0 && <button type="button" className="ghost" aria-expanded={expanded === row.id} onClick={() => setExpanded(expanded === row.id ? null : row.id)}>{expanded === row.id ? t(locale, "Скрий", "Hide") : t(locale, "Подробности", "Details")}</button>}</div>
+                    <p className="muted">{row.actor?.fullName ?? t(locale, "Система", "System")} · {formatAuditRelated(row, entityTypeLabel, locale)}</p>
+                    <p>{t(locale, "Причина", "Reason")}: {row.reason ?? "—"}</p>
+                    {expanded === row.id && detailLines.length > 0 && <ul className="audit-details-list">{detailLines.map((line, index) => <li key={`${row.id}-${index}`}>{line}</li>)}</ul>}
+                  </article>
+                </li>;
+              })}
+            </ol>}
           </section>
 
           {canJobs && (
-            <section className="panel" style={{ marginTop: "1rem" }}>
-              <div className="panel-header">
+            <section className="ui-surface ui-background-runs">
+              <div className="ui-section-heading ui-action-strip">
                 <h2>{t(locale, "Фонови задачи", "Background tasks")}</h2>
               </div>
               <div className="table-wrap">
@@ -396,6 +326,6 @@ export function AuditPage({ user, locale = "bg" }: Props) {
           )}
         </>
       )}
-    </div>
+    </main>
   );
 }

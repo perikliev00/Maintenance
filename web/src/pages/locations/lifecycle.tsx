@@ -234,7 +234,7 @@ type TaskInfoCellProps = {
 
 /**
  * Priority + due-at content for the active cleaning task (not a table cell).
- * Parent row owns the surrounding `<td>` to avoid nested cells.
+ * Parent row owns the surrounding `<div className="ui-location-facts">` to avoid nested cells.
  */
 export function TaskPriorityDueCell({ task, locale }: TaskInfoCellProps) {
   if (!task) {
@@ -258,7 +258,7 @@ export function TaskPriorityDueCell({ task, locale }: TaskInfoCellProps) {
  */
 export function TaskInfoCell({ task, locale }: TaskInfoCellProps) {
   return (
-    <td>
+    <div className="ui-location-facts">
       {task ? (
         <div>
           <div>
@@ -309,7 +309,7 @@ export function TaskInfoCell({ task, locale }: TaskInfoCellProps) {
       ) : (
         <span className="muted">—</span>
       )}
-    </td>
+    </div>
   );
 }
 

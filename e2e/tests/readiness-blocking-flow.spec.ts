@@ -2,7 +2,7 @@
  * Cleaning, inspection, readiness with blocking repair .
  */
 import { expect, test } from "@playwright/test";
-import { uiLogin, USERS, DEMO_PASSWORD } from "./helpers/auth";
+import { openAccount, uiLogin, USERS, DEMO_PASSWORD } from "./helpers/auth";
 import { openNav } from "./helpers/nav";
 import {
   assignAndStartTicket,
@@ -40,7 +40,7 @@ test.describe("readiness blocking flow", () => {
     // Board labels are "{buildingCode} {number}" (e.g. "ANNEX E2E…"), so match
     // the unique room number as a substring — not exact text of the cell.
     const roomRow = () =>
-      page.locator("tr.location-row-clickable, tr").filter({
+      page.locator("article[data-location-id]").filter({
         hasText: room.number,
       });
 
@@ -61,6 +61,7 @@ test.describe("readiness blocking flow", () => {
     // Runner option controlling stability or isolation of the suite.
     ).toBeVisible({ timeout: 15_000 });
 
+    await openAccount(page);
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 

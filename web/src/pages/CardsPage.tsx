@@ -9,6 +9,7 @@ import {
   type CardStatus,
 } from "../api/client";
 import { LoadingIndicator } from "../components/LoadingIndicator";
+import { SectionNav, Surface, Workspace, WorkspaceIntro } from "../ui";
 import { formatWhen, t } from "../i18n";
 import { CARD_TYPES, labelForType, toIsoLocal } from "./cards/cardLabels";
 import { useCardIssueWizard } from "./cards/useCardIssueWizard";
@@ -42,389 +43,64 @@ export function CardsPage({ user, locale: localeProp }: Props) {
   });
 
   return (
-    <main className="content">
-      <header className="page-header">
-        <div>
-          <h1>{t(locale, "Карти", "Cards")}</h1>
-          <p>
-            {t(
-              locale,
-              "Издаване на физически достъп — запис само в системата",
-              "Issue physical access — system record only",
-            )}
-          </p>
+    <Workspace className="ui-cards-workspace">
+      <WorkspaceIntro eyebrow={t(locale, "ДОСТЪП ДО ИМОТА", "PROPERTY ACCESS")} title={t(locale, "Карти", "Cards")} description={t(locale, "Подгответе право на достъп с ясен обхват и срок на валидност.", "Prepare access with a clear scope and period of validity.")} />
+      {error && <p role="alert" className="error-banner">{error}</p>}
+      {message && <p role="status" className="ok-banner">{message}</p>}
+      <div className="ui-section-layout">
+        <aside>
+          <SectionNav<Tab> label={t(locale, "Работа с карти", "Card workspaces")} items={[{id: "issue", label: t(locale, "Издаване", "Issue")}, {id: "staff", label: t(locale, "Карти на служители", "Staff cards")}]} value={tab} onChange={setTab} />
+          {tab === "issue" && <div className="ui-access-context">
+            <ol className="ui-process-list" aria-label={t(locale, "Стъпки за издаване", "Issue steps")}>
+              {[t(locale, "Тип карта", "Card type"), t(locale, "Данни за достъп", "Access details"), t(locale, "Запис", "Save")].map((stepLabel, index) => <li key={stepLabel} aria-current={wizard.step === index + 1 ? "step" : undefined} className={wizard.step === index + 1 ? "active" : ""}><span aria-hidden="true">{index + 1}</span>{stepLabel}</li>)}
+            </ol>
+            <div className="ui-access-pass"><span className="ui-eyebrow">{t(locale, "ОБХВАТ НА ДОСТЪПА", "ACCESS SCOPE")}</span><strong>{wizard.cardType ? labelForType(locale, wizard.cardType) : t(locale, "Изберете тип", "Choose a type")}</strong><p>{wizard.selectedRoom ? `${wizard.selectedRoom.buildingCode} · ${wizard.selectedRoom.number}` : wizard.isMaster ? t(locale, "Целият имот", "Entire property") : t(locale, "Определете при издаване", "Define when issuing")}</p></div>
+            <p className="muted small">{t(locale, "Създава се запис за достъп. Физическото кодиране на карта не е свързано.", "Creates an access record. Physical card encoding is not connected.")}</p>
+          </div>}
+        </aside>
+        <div className="ui-section-content">
+          {tab === "issue" && <section className="ui-access-studio">
+            {wizard.step === 1 && <Surface title={t(locale, "Тип карта", "Card type")} description={t(locale, "За кого е предназначен достъпът?", "Who needs access?")}>
+              <div className="ui-access-types">{CARD_TYPES.map((cardType) => <button key={cardType.id} type="button" aria-label={t(locale, cardType.bg, cardType.en)} aria-pressed={wizard.cardType === cardType.id} className={wizard.cardType === cardType.id ? "ui-access-type active" : "ui-access-type"} onClick={() => wizard.selectCardType(cardType.id)}><strong>{t(locale, cardType.bg, cardType.en)}</strong><span className="muted">{cardType.id === "guest" ? t(locale, "Достъп до стая в избран период", "Room access during a defined stay") : cardType.id === "master" ? t(locale, "Обхват на целия имот", "Property-wide access") : t(locale, "Достъп, свързан със служител", "Access linked to a team member")}</span></button>)}</div>
+              <div className="ui-commit-bar"><button type="button" disabled={!wizard.cardType} onClick={() => wizard.setStep(2)}>{t(locale, "Напред", "Continue")}</button></div>
+            </Surface>}
+            {wizard.step === 2 && wizard.cardType && <Surface title={t(locale, "Данни за достъп", "Access details")} description={labelForType(locale, wizard.cardType)}>
+              <div className="ui-focused-form">
+                {wizard.isGuest && <label>{t(locale, "Стая", "Room")}<select value={wizard.locationId} onChange={(e) => wizard.setLocationId(e.target.value)}><option value="">{t(locale, "Изберете стая…", "Choose a room…")}</option>{wizard.rooms.map((room) => <option key={room.id} value={room.id}>{room.buildingCode} · {room.number} ({t(locale, "ет.", "fl.")} {room.floor})</option>)}</select></label>}
+                {wizard.isStaff && <label>{t(locale, "Служител", "Employee")}<select value={wizard.employeeId} onChange={(e) => wizard.setEmployeeId(e.target.value)}><option value="">{t(locale, "Изберете служител…", "Choose an employee…")}</option>{wizard.employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName} ({employee.employeeNumber})</option>)}</select></label>}
+                {wizard.isStaff && !wizard.isMaster && <label>{t(locale, "Локация (опционално)", "Location (optional)")}<select value={wizard.locationId} onChange={(e) => wizard.setLocationId(e.target.value)}><option value="">{t(locale, "Без конкретна стая", "No specific room")}</option>{wizard.rooms.map((room) => <option key={room.id} value={room.id}>{room.buildingCode} · {room.number}</option>)}</select></label>}
+                {wizard.isMaster && <p className="ui-context-note">{t(locale, "Мастър картата е с обхват целия имот (без конкретна стая).", "A master card covers the entire property, without a specific room.")}</p>}
+                <fieldset className="ui-validity-fields"><legend>{t(locale, "Период на валидност", "Validity period")}</legend>
+                  <label>{t(locale, "Валидна от", "Valid from")}<input type="datetime-local" value={wizard.validity.validFrom} onChange={(e) => wizard.setValidity((previous) => ({...previous, validFrom: e.target.value}))} /></label>
+                  <label>{t(locale, "Валидна до", "Valid until")}<input type="datetime-local" value={wizard.validity.validUntil} onChange={(e) => wizard.setValidity((previous) => ({...previous, validUntil: e.target.value}))} /></label>
+                </fieldset>
+                <label>{t(locale, "Етикет (опционално)", "Label (optional)")}<input value={wizard.label} onChange={(e) => wizard.setLabel(e.target.value)} placeholder={t(locale, "напр. Гост Иванов", "e.g. Guest Ivanov")} maxLength={120} /></label>
+              </div>
+              <div className="ui-commit-bar"><button type="button" className="ghost" onClick={() => wizard.setStep(1)}>{t(locale, "Назад", "Back")}</button><button type="button" onClick={() => wizard.goToStep3()}>{t(locale, "Напред", "Continue")}</button></div>
+            </Surface>}
+            {wizard.step === 3 && wizard.cardType && <Surface title={t(locale, "Запис", "Save")}>
+              {!wizard.issued ? <>
+                <dl className="ui-record-facts ui-access-review"><div><dt>{t(locale, "Тип", "Type")}</dt><dd>{labelForType(locale, wizard.cardType)}</dd></div>
+                  {wizard.selectedEmployee && <div><dt>{t(locale, "Служител", "Employee")}</dt><dd>{wizard.selectedEmployee.fullName} ({wizard.selectedEmployee.employeeNumber})</dd></div>}
+                  {wizard.selectedRoom && <div><dt>{t(locale, "Стая", "Room")}</dt><dd>{wizard.selectedRoom.buildingCode} · {wizard.selectedRoom.number}</dd></div>}
+                  {wizard.isMaster && <div><dt>{t(locale, "Обхват", "Scope")}</dt><dd>{t(locale, "Целият имот", "Entire property")}</dd></div>}
+                  <div><dt>{t(locale, "Срок", "Validity")}</dt><dd>{formatWhen(toIsoLocal(wizard.validity.validFrom), locale)} — {formatWhen(toIsoLocal(wizard.validity.validUntil), locale)}</dd></div>
+                  {wizard.label.trim() && <div><dt>{t(locale, "Етикет", "Label")}</dt><dd>{wizard.label.trim()}</dd></div>}
+                </dl>
+                <p className="muted">{t(locale, "Ще се запише в базата. Физическото кодиране на карта не е свързано.", "This saves the access record. Physical card encoding is not connected.")}</p>
+                <div className="ui-commit-bar"><button type="button" className="ghost" onClick={() => wizard.setStep(2)} disabled={wizard.issuing}>{t(locale, "Назад", "Back")}</button><button type="button" onClick={() => void wizard.submitIssue()} disabled={wizard.issuing || !canIssue}>{wizard.issuing ? t(locale, "Запис…", "Saving…") : t(locale, "Запиши в системата", "Save access record")}</button></div>
+              </> : <div className="ui-confirmation"><h3>{t(locale, "Записано в системата", "Saved in the system")}</h3><p>{t(locale, "Карта", "Card")} {labelForType(locale, wizard.issued.cardType)} · {t(locale, "статус", "status")} {wizard.issued.status}</p><button type="button" onClick={wizard.resetWizard}>{t(locale, "Ново издаване", "Issue another")}</button></div>}
+            </Surface>}
+          </section>}
+          {tab === "staff" && <Surface title={t(locale, "Карти на служители", "Staff cards")}>
+            <div className="ui-filter-bar"><label>{t(locale, "Търсене", "Search")}<input value={staff.staffQ} onChange={(e) => staff.setStaffQ(e.target.value)} placeholder={t(locale, "Име или служебен номер…", "Name or employee number…")} /></label><label>{t(locale, "Статус", "Status")}<select value={staff.staffStatus} onChange={(e) => staff.setStaffStatus(e.target.value as "" | CardStatus)}><option value="">{t(locale, "Всички", "All")}</option><option value="active">{t(locale, "Активни", "Active")}</option><option value="revoked">{t(locale, "Отменени", "Revoked")}</option></select></label></div>
+            {staff.loading && staff.staffCards.length === 0 ? <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} /> : staff.staffCards.length === 0 ? <p className="ui-empty-state">{t(locale, "Няма служителски карти", "No staff cards")}</p> : <div className="ui-access-register">{staff.staffCards.map((card) => {
+              const grant = card.grants[0];
+              return <article key={card.id} className="ui-access-record" data-card-id={card.id}><header><div><span className="ui-eyebrow">{labelForType(locale, card.cardType)}</span><h3>{card.employee ? `${card.employee.fullName} (${card.employee.employeeNumber})` : "—"}</h3></div><span className={`pill status-${card.status}`}>{card.status === "active" ? t(locale, "активна", "active") : t(locale, "отменена", "revoked")}</span></header><dl className="ui-record-facts"><div><dt>{t(locale, "Валидност", "Validity")}</dt><dd>{grant ? `${formatWhen(grant.validFrom, locale)} — ${formatWhen(grant.validUntil, locale)}` : "—"}</dd></div></dl>{canRevoke && card.status === "active" && <button type="button" className="ghost" disabled={staff.busy} onClick={() => void staff.onRevoke(card.id)}>{t(locale, "Отмени", "Revoke")}</button>}</article>;
+            })}</div>}
+          </Surface>}
         </div>
-      </header>
-
-      <div className="toolbar">
-        <button
-          type="button"
-          className={tab === "issue" ? "active" : "ghost"}
-          onClick={() => setTab("issue")}
-        >
-          {t(locale, "Издаване", "Issue")}
-        </button>
-        <button
-          type="button"
-          className={tab === "staff" ? "active" : "ghost"}
-          onClick={() => setTab("staff")}
-        >
-          {t(locale, "Карти на служители", "Staff cards")}
-        </button>
       </div>
-
-      {error && <p className="error-banner">{error}</p>}
-      {message && <p className="ok-banner">{message}</p>}
-
-      {tab === "issue" && (
-        <section className="cards-wizard">
-          <div className="wizard-steps">
-            <span
-              className={wizard.step === 1 ? "wizard-step active" : "wizard-step"}
-            >
-              1. {t(locale, "Тип карта", "Card type")}
-            </span>
-            <span
-              className={wizard.step === 2 ? "wizard-step active" : "wizard-step"}
-            >
-              2. {t(locale, "Данни за достъп", "Access details")}
-            </span>
-            <span
-              className={wizard.step === 3 ? "wizard-step active" : "wizard-step"}
-            >
-              3. {t(locale, "Запис", "Save")}
-            </span>
-          </div>
-
-          {wizard.step === 1 && (
-            <div className="wizard-panel">
-              <h2>{t(locale, "Тип карта", "Card type")}</h2>
-              <div className="card-type-grid">
-                {CARD_TYPES.map((ct) => (
-                  <button
-                    key={ct.id}
-                    type="button"
-                    className={
-                      wizard.cardType === ct.id
-                        ? "card-type-btn active"
-                        : "card-type-btn"
-                    }
-                    onClick={() => wizard.selectCardType(ct.id)}
-                  >
-                    {t(locale, ct.bg, ct.en)}
-                  </button>
-                ))}
-              </div>
-              <div className="wizard-actions">
-                <button
-                  type="button"
-                  disabled={!wizard.cardType}
-                  onClick={() => wizard.setStep(2)}
-                >
-                  Напред
-                </button>
-              </div>
-            </div>
-          )}
-
-          {wizard.step === 2 && wizard.cardType && (
-            <div className="wizard-panel">
-              <h2>
-                {t(locale, "Данни за достъп", "Access details")} —{" "}
-                {labelForType(locale, wizard.cardType)}
-              </h2>
-              <div className="form-grid">
-                {wizard.isGuest && (
-                  <label>
-                    Стая
-                    <select
-                      value={wizard.locationId}
-                      onChange={(e) => wizard.setLocationId(e.target.value)}
-                    >
-                      <option value="">Изберете стая…</option>
-                      {wizard.rooms.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.buildingCode} · {r.number} (ет. {r.floor})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                {wizard.isStaff && (
-                  <label>
-                    Служител
-                    <select
-                      value={wizard.employeeId}
-                      onChange={(e) => wizard.setEmployeeId(e.target.value)}
-                    >
-                      <option value="">Изберете служител…</option>
-                      {wizard.employees.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.fullName} ({e.employeeNumber})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                {wizard.isStaff && !wizard.isMaster && (
-                  <label>
-                    Локация (опционално)
-                    <select
-                      value={wizard.locationId}
-                      onChange={(e) => wizard.setLocationId(e.target.value)}
-                    >
-                      <option value="">Без конкретна стая</option>
-                      {wizard.rooms.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.buildingCode} · {r.number}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                {wizard.isMaster && (
-                  <p className="muted">
-                    Мастър картата е с обхват целия имот (без конкретна стая).
-                  </p>
-                )}
-
-                <label>
-                  Валидна от
-                  <input
-                    type="datetime-local"
-                    value={wizard.validity.validFrom}
-                    onChange={(e) =>
-                      wizard.setValidity((v) => ({
-                        ...v,
-                        validFrom: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Валидна до
-                  <input
-                    type="datetime-local"
-                    value={wizard.validity.validUntil}
-                    onChange={(e) =>
-                      wizard.setValidity((v) => ({
-                        ...v,
-                        validUntil: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Етикет (опционално)
-                  <input
-                    value={wizard.label}
-                    onChange={(e) => wizard.setLabel(e.target.value)}
-                    placeholder="напр. Гост Иванов"
-                    maxLength={120}
-                  />
-                </label>
-              </div>
-              <div className="wizard-actions">
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => wizard.setStep(1)}
-                >
-                  Назад
-                </button>
-                <button type="button" onClick={() => wizard.goToStep3()}>
-                  Напред
-                </button>
-              </div>
-            </div>
-          )}
-
-          {wizard.step === 3 && wizard.cardType && (
-            <div className="wizard-panel">
-              <h2>Запис</h2>
-              {!wizard.issued ? (
-                <>
-                  <dl className="review-list">
-                    <div>
-                      <dt>Тип</dt>
-                      <dd>{labelForType(locale, wizard.cardType)}</dd>
-                    </div>
-                    {wizard.selectedEmployee && (
-                      <div>
-                        <dt>Служител</dt>
-                        <dd>
-                          {wizard.selectedEmployee.fullName} (
-                          {wizard.selectedEmployee.employeeNumber})
-                        </dd>
-                      </div>
-                    )}
-                    {wizard.selectedRoom && (
-                      <div>
-                        <dt>Стая</dt>
-                        <dd>
-                          {wizard.selectedRoom.buildingCode} ·{" "}
-                          {wizard.selectedRoom.number}
-                        </dd>
-                      </div>
-                    )}
-                    {wizard.isMaster && (
-                      <div>
-                        <dt>Обхват</dt>
-                        <dd>Целият имот</dd>
-                      </div>
-                    )}
-                    <div>
-                      <dt>Срок</dt>
-                      <dd>
-                        {formatWhen(
-                          toIsoLocal(wizard.validity.validFrom),
-                          locale,
-                        )}{" "}
-                        —{" "}
-                        {formatWhen(
-                          toIsoLocal(wizard.validity.validUntil),
-                          locale,
-                        )}
-                      </dd>
-                    </div>
-                    {wizard.label.trim() && (
-                      <div>
-                        <dt>Етикет</dt>
-                        <dd>{wizard.label.trim()}</dd>
-                      </div>
-                    )}
-                  </dl>
-                  <p className="muted">
-                    Ще се запише в базата. Физическото кодиране на карта не е
-                    свързано.
-                  </p>
-                  <div className="wizard-actions">
-                    <button
-                      type="button"
-                      className="ghost"
-                      onClick={() => wizard.setStep(2)}
-                      disabled={wizard.issuing}
-                    >
-                      Назад
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void wizard.submitIssue()}
-                      disabled={wizard.issuing || !canIssue}
-                    >
-                      {wizard.issuing ? "Запис…" : "Запиши в системата"}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="ok-banner">Записано в системата</p>
-                  <p className="muted">
-                    {t(locale, "Карта", "Card")}{" "}
-                    {labelForType(locale, wizard.issued.cardType)} ·{" "}
-                    {t(locale, "статус", "status")} {wizard.issued.status}
-                  </p>
-                  <div className="wizard-actions">
-                    <button type="button" onClick={wizard.resetWizard}>
-                      Ново издаване
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </section>
-      )}
-
-      {tab === "staff" && (
-        <section>
-          <div className="toolbar">
-            <label>
-              Търсене
-              <input
-                value={staff.staffQ}
-                onChange={(e) => staff.setStaffQ(e.target.value)}
-                placeholder="Име или служебен номер…"
-              />
-            </label>
-            <label>
-              Статус
-              <select
-                value={staff.staffStatus}
-                onChange={(e) =>
-                  staff.setStaffStatus(e.target.value as "" | CardStatus)
-                }
-              >
-                <option value="">Всички</option>
-                <option value="active">Активни</option>
-                <option value="revoked">Отменени</option>
-              </select>
-            </label>
-          </div>
-
-          {staff.loading && staff.staffCards.length === 0 ? (
-            <LoadingIndicator label="Зареждане…" />
-          ) : staff.staffCards.length === 0 ? (
-            <p className="muted">Няма служителски карти</p>
-          ) : (
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Служител</th>
-                    <th>Тип</th>
-                    <th>Валидност</th>
-                    <th>Статус</th>
-                    <th>Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {staff.staffCards.map((card) => {
-                    const grant = card.grants[0];
-                    return (
-                      <tr key={card.id}>
-                        <td>
-                          {card.employee
-                            ? `${card.employee.fullName} (${card.employee.employeeNumber})`
-                            : "—"}
-                        </td>
-                        <td>{labelForType(locale, card.cardType)}</td>
-                        <td>
-                          {grant
-                            ? `${formatWhen(grant.validFrom, locale)} — ${formatWhen(grant.validUntil, locale)}`
-                            : "—"}
-                        </td>
-                        <td>
-                          {card.status === "active"
-                            ? t(locale, "активна", "active")
-                            : t(locale, "отменена", "revoked")}
-                        </td>
-                        <td>
-                          {canRevoke && card.status === "active" ? (
-                            <button
-                              type="button"
-                              className="ghost"
-                              disabled={staff.busy}
-                              onClick={() => void staff.onRevoke(card.id)}
-                            >
-                              Отмени
-                            </button>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-    </main>
+    </Workspace>
   );
 }

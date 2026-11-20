@@ -28,7 +28,7 @@ test.describe("settings draft gaps", () => {
 
       await uiLogin(page, USERS.owner);
       await openNav(page, /Настройки|Settings/);
-      await page.getByRole("tab", { name: /Модули|Modules/ }).click();
+      await page.getByRole("button", { name: /Модули|Modules/ }).click();
 
       const attendance = page.getByRole("checkbox", {
         name: /Присъствие|Attendance/,

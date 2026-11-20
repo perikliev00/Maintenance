@@ -16,6 +16,8 @@ import {
   type AuthUser,
 } from "../api/client";
 import { LoadingIndicator } from "../components/LoadingIndicator";
+import { FormModal } from "../components/FormModal";
+import { SectionNav, Surface, Workspace, WorkspaceIntro } from "../ui";
 
 type Props = { user: AuthUser };
 
@@ -243,279 +245,49 @@ export function AttendancePage({ user }: Props) {
   }
 
   return (
-    <main className="content">
-      <header className="page-header">
-        <div>
-          <h1>Присъствие</h1>
-          <p>Работно време, почивки и записи за преглед</p>
-        </div>
-        <button type="button" className="primary" onClick={() => void onExport()}>
-          Експорт CSV
-        </button>
-      </header>
-
-      {/* Warn when terminal clock skew vs server exceeds 30 minutes. */}
-      {maxSkew != null && maxSkew >= 1800 && (
-        <div className="banner warn" role="status">
-          Разлика спрямо сървъра до {maxSkew} секунди — проверете часовника на
-          терминала.
-        </div>
-      )}
-
-      <div className="toolbar" style={{ flexWrap: "wrap", gap: "0.75rem" }}>
-        <div className="segmented" role="tablist" aria-label="Период">
-          {SCOPES.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              role="tab"
-              aria-selected={scope === s.id}
-              className={scope === s.id ? "active" : ""}
-              onClick={() => setScope(s.id)}
-            >
-              {s.bg}
-            </button>
-          ))}
-        </div>
-        {/* Month picker only relevant for month scope. */}
-        {scope === "month" && (
-          <label>
-            Месец
-            <input
-              type="month"
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-            />
-          </label>
-        )}
-        <label>
-          Отдел
-          <select
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-          >
-            <option value="">Всички</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-            {/* Always offer common departments even if absent from loaded rows. */}
-            {!departments.includes("Housekeeping") && (
-              <option value="Housekeeping">Housekeeping</option>
-            )}
-            {!departments.includes("Maintenance") && (
-              <option value="Maintenance">Maintenance</option>
-            )}
-          </select>
-        </label>
-        <label>
-          Търсене
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Име / служебен номер…"
-          />
-        </label>
-        <button type="button" className="ghost" onClick={() => void refresh()}>
-          Refresh
-        </button>
-      </div>
-
-      {/* Surface load/export/adjustment errors. */}
-      {error && <div className="error banner">{error}</div>}
-
-      {/* Loading vs empty vs interval table. */}
-      {loading ? (
-        <LoadingIndicator label="Зареждане…" />
-      ) : intervals.length === 0 ? (
-        <p className="muted">Няма записи за избрания филтър.</p>
-      ) : (
-        <>
-        {/* Pagination stamp: loaded rows vs server total. */}
-        <p className="muted" style={{ marginBottom: "0.5rem" }}>
-          Показани {intervals.length} от {total}
-        </p>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Служител</th>
-                <th>Дата</th>
-                <th>Начало</th>
-                <th>Почивки</th>
-                <th>Край</th>
-                <th>Часове</th>
-                <th>Статус</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
+    <Workspace className="ui-attendance-workspace">
+      <WorkspaceIntro eyebrow="ВРЕМЕ И ПРИСЪСТВИЕ" title="Присъствие" description="Проследете работните интервали и прегледайте записите, които изискват решение." actions={<button type="button" onClick={() => void onExport()}>Експорт CSV</button>} />
+      {maxSkew != null && maxSkew >= 1800 && <div className="banner warn" role="status">Разлика спрямо сървъра до {maxSkew} секунди — проверете часовника на терминала.</div>}
+      {error && <div className="error banner" role="alert">{error}</div>}
+      <div className="ui-section-layout">
+        <aside className="ui-context-panel">
+          <SectionNav<AttendanceScope> label="Период" items={SCOPES.map((item) => ({id: item.id, label: item.bg}))} value={scope} onChange={setScope} />
+          {scope === "month" && <label>Месец<input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></label>}
+          <label>Отдел<select value={department} onChange={(e) => setDepartment(e.target.value)}>
+            <option value="">Всички</option>{departments.map((item) => <option key={item} value={item}>{item}</option>)}
+            {!departments.includes("Housekeeping") && <option value="Housekeeping">Housekeeping</option>}
+            {!departments.includes("Maintenance") && <option value="Maintenance">Maintenance</option>}
+          </select></label>
+          <label>Търсене<input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Име / служебен номер…" /></label>
+          <button type="button" className="ghost" onClick={() => void refresh()}>Refresh</button>
+        </aside>
+        <div className="ui-section-content">
+          <Surface title="Работни интервали" actions={<span className="muted" aria-live="polite">Показани {intervals.length} от {total}</span>}>
+            {loading ? <LoadingIndicator label="Зареждане…" /> : intervals.length === 0 ? <p className="ui-empty-state">Няма записи за избрания филтър.</p> : <div className="ui-time-ledger">
               {intervals.map((row) => {
-                // First pending adjustment drives approve/reject buttons.
-                const pending = row.adjustments.find(
-                  (a) => a.status === "pending",
-                );
-                return (
-                  <tr key={row.id}>
-                    <td>
-                      <strong>{row.employee.fullName}</strong>
-                      <div className="muted">
-                        {row.employee.employeeNumber}
-                        {row.employee.department
-                          ? ` · ${row.employee.department}`
-                          : ""}
-                      </div>
-                    </td>
-                    <td>{row.hotelDate}</td>
-                    <td>{formatTs(row.startedAt)}</td>
-                    <td>{row.breakMinutes} мин</td>
-                    <td>{formatTs(row.endedAt)}</td>
-                    <td>{formatHours(row.workedMinutes)}</td>
-                    <td>
-                      <span className={`pill status-${row.status}`}>
-                        {STATUS_LABEL[row.status] ?? row.status}
-                      </span>
-                      {/* Anomaly flag chips under the status pill. */}
-                      {row.anomalyFlags.length > 0 && (
-                        <div className="muted" style={{ fontSize: "0.8rem" }}>
-                          {row.anomalyFlags.join(", ")}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <div className="row-actions">
-                        {/* Request gate — opens modal with prefilled end/break. */}
-                        {canRequest && (
-                          <button
-                            type="button"
-                            className="ghost"
-                            disabled={busyId === row.id}
-                            onClick={() => {
-                              setAdjustFor(row);
-                              setAdjReason("");
-                              setAdjBreak(String(row.breakMinutes || 30));
-                              setAdjEnd(
-                                row.endedAt
-                                  ? row.endedAt.slice(0, 16)
-                                  : "",
-                              );
-                            }}
-                          >
-                            Корекция
-                          </button>
-                        )}
-                        {/* Approve gate — only when a pending adjustment exists. */}
-                        {canApprove && pending && (
-                          <>
-                            <button
-                              type="button"
-                              className="primary"
-                              disabled={busyId === pending.id}
-                              onClick={() =>
-                                void onReview(pending.id, "approved")
-                              }
-                            >
-                              Одобри
-                            </button>
-                            <button
-                              type="button"
-                              className="ghost"
-                              disabled={busyId === pending.id}
-                              onClick={() =>
-                                void onReview(pending.id, "rejected")
-                              }
-                            >
-                              Откажи
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
+                const pending = row.adjustments.find((adjustment) => adjustment.status === "pending");
+                return <article className="ui-ledger-entry" key={row.id} aria-label={`${row.employee.fullName} ${row.hotelDate}`}>
+                  <header className="ui-ledger-heading"><div><p className="ui-eyebrow">{row.hotelDate}</p><h3>{row.employee.fullName}</h3><p className="muted">{row.employee.employeeNumber}{row.employee.department ? ` · ${row.employee.department}` : ""}</p></div><div className="ui-time-total"><strong>{formatHours(row.workedMinutes)}</strong><span>отработени часове</span></div></header>
+                  <dl className="ui-record-facts"><div><dt>Начало</dt><dd>{formatTs(row.startedAt)}</dd></div><div><dt>Почивки</dt><dd>{row.breakMinutes} мин</dd></div><div><dt>Край</dt><dd>{formatTs(row.endedAt)}</dd></div><div><dt>Статус</dt><dd><span className={`pill status-${row.status}`}>{STATUS_LABEL[row.status] ?? row.status}</span></dd></div></dl>
+                  {row.anomalyFlags.length > 0 && <p className="warn-inline">{row.anomalyFlags.join(", ")}</p>}
+                  {pending && <div className="ui-pending-review"><strong>Заявена корекция</strong><p>{pending.reason}</p><p className="muted">{pending.requestedBy.fullName}{pending.proposedEndedAt ? ` · предложен край: ${formatTs(pending.proposedEndedAt)}` : ""}{pending.proposedBreakMinutes != null ? ` · почивки: ${pending.proposedBreakMinutes} мин` : ""}</p></div>}
+                  <footer className="ui-record-actions">
+                    {canRequest && <button type="button" className="ghost" disabled={busyId === row.id} onClick={() => { setAdjustFor(row); setAdjReason(""); setAdjBreak(String(row.breakMinutes || 30)); setAdjEnd(row.endedAt ? row.endedAt.slice(0, 16) : ""); }}>Корекция</button>}
+                    {canApprove && pending && <><button type="button" disabled={busyId === pending.id} onClick={() => void onReview(pending.id, "approved")}>Одобри</button><button type="button" className="ghost" disabled={busyId === pending.id} onClick={() => void onReview(pending.id, "rejected")}>Откажи</button></>}
+                  </footer>
+                </article>;
               })}
-            </tbody>
-          </table>
+            </div>}
+            {nextCursor && <div className="ui-pagination"><button type="button" className="ghost" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? <LoadingIndicator variant="inline" delayMs={0} label="Зареждане…" /> : "Зареди още"}</button></div>}
+          </Surface>
         </div>
-        {/* Cursor pagination — hide when no next page. */}
-        {nextCursor && (
-          <div style={{ marginTop: "0.75rem" }}>
-            <button
-              type="button"
-              className="ghost"
-              disabled={loadingMore}
-              onClick={() => void loadMore()}
-            >
-              {loadingMore ? (
-                <LoadingIndicator
-                  variant="inline"
-                  delayMs={0}
-                  label="Зареждане…"
-                />
-              ) : (
-                "Зареди още"
-              )}
-            </button>
-          </div>
-        )}
-        </>
-      )}
-
-      {/* Adjustment request modal — closed when adjustFor is null. */}
-      {adjustFor && (
-        <div className="modal-backdrop" role="presentation">
-          <div className="modal" role="dialog" aria-labelledby="adj-title">
-            <h2 id="adj-title">Заявка за корекция</h2>
-            <p className="muted">
-              {adjustFor.employee.fullName} · {adjustFor.hotelDate}
-            </p>
-            <label>
-              Причина
-              <textarea
-                value={adjReason}
-                onChange={(e) => setAdjReason(e.target.value)}
-                rows={3}
-                required
-              />
-            </label>
-            <label>
-              Предложен край
-              <input
-                type="datetime-local"
-                value={adjEnd}
-                onChange={(e) => setAdjEnd(e.target.value)}
-              />
-            </label>
-            <label>
-              Почивки (мин)
-              <input
-                type="number"
-                min={0}
-                value={adjBreak}
-                onChange={(e) => setAdjBreak(e.target.value)}
-              />
-            </label>
-            <div className="row-actions">
-              <button
-                type="button"
-                className="primary"
-                disabled={!adjReason.trim() || busyId === adjustFor.id}
-                onClick={() => void submitAdjustment()}
-              >
-                Изпрати
-              </button>
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => setAdjustFor(null)}
-              >
-                Отказ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </main>
+      </div>
+      {adjustFor && <FormModal title="Заявка за корекция" busy={busyId === adjustFor.id} error={error} submitLabel="Изпрати" submitDisabled={!adjReason.trim()} cancelLabel="Отказ" onClose={() => setAdjustFor(null)} onSubmit={(event) => { event.preventDefault(); void submitAdjustment(); }}>
+        <p className="muted">{adjustFor.employee.fullName} · {adjustFor.hotelDate}</p>
+        <label>Причина<textarea value={adjReason} onChange={(e) => setAdjReason(e.target.value)} rows={3} required /></label>
+        <label>Предложен край<input type="datetime-local" value={adjEnd} onChange={(e) => setAdjEnd(e.target.value)} /></label>
+        <label>Почивки (мин)<input type="number" min={0} value={adjBreak} onChange={(e) => setAdjBreak(e.target.value)} /></label>
+      </FormModal>}
+    </Workspace>
   );
 }

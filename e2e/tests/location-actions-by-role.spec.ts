@@ -1,6 +1,6 @@
 // Playwright test runner APIs for browser E2E scenarios.
 import { expect, test } from "@playwright/test";
-import { uiLogin, USERS } from "./helpers/auth";
+import { openAccount, uiLogin, USERS } from "./helpers/auth";
 import { openNav } from "./helpers/nav";
 
 /**
@@ -21,6 +21,7 @@ test.describe("location actions by role", () => {
       page.getByRole("button", { name: /Маркирай като мръсна|Mark dirty/ }),
     ).toHaveCount(0);
 
+    await openAccount(page);
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 

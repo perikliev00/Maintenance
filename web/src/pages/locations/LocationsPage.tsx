@@ -3,6 +3,7 @@
  * Data and form ownership live in useLocationsBoard / useLocationIssueForm.
  */
 import { useCallback, useRef } from "react";
+import { Metric, WorkspaceIntro, EmptyState } from "../../ui";
 import { LoadingIndicator } from "../../components/LoadingIndicator";
 import { ScopeHint } from "../../components/ScopeHint";
 import { LocationDetailPanel } from "./audit";
@@ -87,14 +88,16 @@ export function LocationsPage({
   closeIssueRef.current = issue.closeIssue;
 
   return (
-    <main className="content">
-      <header className="page-header">
-        <div>
-          <h1>{pageTitle}</h1>
-          <p>{pageSubtitle}</p>
-          <ScopeHint user={user} />
-        </div>
-      </header>
+    <main className="ui-workspace ui-location-workspace">
+      <WorkspaceIntro eyebrow={boardT(locale, "ОПЕРАЦИИ / ЛОКАЦИИ", "OPERATIONS / LOCATIONS")} title={pageTitle} description={pageSubtitle}>
+        <ScopeHint user={user} />
+      </WorkspaceIntro>
+      <div className="ui-metrics">
+        <Metric label={boardT(locale, "В обхвата ви", "In your scope")} value={board.locations.length} />
+        <Metric label={boardT(locale, "Готови", "Ready")} value={board.locations.filter(loc => loc.readiness === "ready").length} />
+        <Metric label={boardT(locale, "Чака проверка", "Awaiting inspection")} value={board.locations.filter(loc => loc.activeTask?.status === "awaiting_inspection").length} />
+        <Metric label={boardT(locale, "Активни ремонти", "Active repairs")} value={board.locations.filter(loc => (loc.blockingIssueCount ?? loc.blockingIssues.length) + (loc.nonBlockingIssueCount ?? 0) > 0).length} />
+      </div>
 
       {board.owner && (
         <div className="owner-banner">
@@ -119,6 +122,8 @@ export function LocationsPage({
         />
       )}
 
+      <details className="ui-filter-disclosure" open>
+        <summary>{boardT(locale, "Намерете локация", "Find a location")}</summary>
       <div className="rooms-filters toolbar">
         <label>
           {boardT(locale, "Търсене", "Search")}
@@ -280,6 +285,7 @@ export function LocationsPage({
           {boardT(locale, "Изчисти филтри", "Clear filters")}
         </button>
       </div>
+      </details>
 
       {board.overdueFilterHint && (
         <div className="warn banner" role="status">
@@ -381,25 +387,10 @@ export function LocationsPage({
           label={boardT(locale, "Зареждане…", "Loading…")}
         />
       ) : (
-        <div className="table-wrap">
-          <p className="muted">
-            {board.filteredLocations.length} / {board.locations.length}{" "}
-            {boardT(locale, "показани", "shown")}
-          </p>
-          <table className="rooms-board-table">
-            <thead>
-              <tr>
-                <th>{unitLabelCap}</th>
-                <th>{boardT(locale, "Готовност", "Readiness")}</th>
-                <th>{boardT(locale, "Изпълнител", "Assignee")}</th>
-                <th>{boardT(locale, "Почистване", "Cleaning")}</th>
-                <th>{boardT(locale, "Следващо действие", "Next action")}</th>
-                <th>{boardT(locale, "Ремонти", "Issues")}</th>
-                <th>{boardT(locale, "Задача", "Task")}</th>
-                <th>{boardT(locale, "Действия", "Actions")}</th>
-              </tr>
-            </thead>
-            <tbody>
+        <section aria-label={pageTitle}>
+          <div className="ui-section-heading ui-action-strip"><h2>{boardT(locale, "Локации", "Locations")}</h2><span className="muted">{board.filteredLocations.length} / {board.locations.length} {boardT(locale, "показани", "shown")}</span></div>
+          {board.filteredLocations.length === 0 && <EmptyState title={boardT(locale, "Няма съвпадащи локации", "No matching locations")} description={boardT(locale, "Променете или изчистете филтрите.", "Change or clear your filters.")} />}
+          <div className="ui-location-grid">
               {board.filteredLocations.map((loc) => (
                 <LocationRow
                   key={loc.id}
@@ -428,9 +419,8 @@ export function LocationsPage({
                   refresh={board.refresh}
                 />
               ))}
-            </tbody>
-          </table>
-        </div>
+          </div>
+        </section>
       )}
 
       {board.detailLocation && board.occupancyHandlers && (

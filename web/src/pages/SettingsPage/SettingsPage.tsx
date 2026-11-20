@@ -146,42 +146,28 @@ export function SettingsPage({ user }: Props) {
   }
 
   return (
-    <main className="content">
-      <header className="page-header">
+    <main className="content ui-workspace ui-settings-workspace">
+      <header className="ui-intro">
         <div>
+          <p className="ui-eyebrow">{label("КОНФИГУРАЦИЯ НА ИМОТА", "PROPERTY CONFIGURATION")}</p>
           <h1>{label("Настройки", "Settings")}</h1>
           <p>
             {label(
-              "Модули, флагове, операции и системно състояние",
-              "Modules, flags, operations and system status",
+              "Настройте работата на хотела. Всяка промяна има ясна история.",
+              "Set up how your property works. Keep a clear history of every change.",
             )}
           </p>
         </div>
       </header>
 
-      {systemStatus.system && (
-        <SystemStatusSection
-          system={systemStatus.system}
-          label={label}
-          stale={systemStatus.stale}
-          lastSuccessAt={systemStatus.lastSuccessAt}
-        />
-      )}
-      {!systemStatus.system && systemStatus.stale && (
-        <SystemStatusUnavailable
-          label={label}
-          onRetry={() => void refreshSystem()}
-        />
-      )}
-
-      <div className="settings-tabs" role="tablist">
+      <div className="ui-section-layout">
+      <nav className="ui-section-nav" aria-label={label("Раздели на настройките", "Settings sections")}>
         {TABS.map((t) => (
           <button
             key={t.id}
             type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={tab === t.id ? "nav-tab active" : "nav-tab"}
+            aria-current={tab === t.id ? "page" : undefined}
+            className={tab === t.id ? "active" : ""}
             disabled={busy}
             onClick={() => setTab(t.id)}
           >
@@ -191,15 +177,19 @@ export function SettingsPage({ user }: Props) {
         {canManageIssues && (
           <button
             type="button"
-            role="tab"
-            aria-selected={tab === "issues"}
-            className={tab === "issues" ? "nav-tab active" : "nav-tab"}
+            aria-current={tab === "issues" ? "page" : undefined}
+            className={tab === "issues" ? "active" : ""}
             disabled={busy}
             onClick={() => setTab("issues")}
           >
             {label("Опции за проблеми", "Issue options")}
           </button>
         )}
+      </nav>
+      <div className="ui-section-content">
+      <div className="ui-section-heading">
+        <h2>{tab === "issues" ? label("Опции за проблеми", "Issue options") : (() => { const section = TABS.find((item) => item.id === tab); return section ? label(section.bg, section.en) : ""; })()}</h2>
+        {isEditableTab(tab) && <span className={dirty ? "pill status-pending" : "muted small"} role="status">{dirty ? label("Незапазени промени", "Unsaved changes") : label("Няма незапазени промени", "No unsaved changes")}</span>}
       </div>
 
       {feedback.error && <div className="error banner">{feedback.error}</div>}
@@ -260,7 +250,7 @@ export function SettingsPage({ user }: Props) {
         </div>
       )}
 
-      <section className="panel">
+      <section className="panel ui-focused-form">
         <fieldset
           disabled={busy}
           style={{ border: 0, margin: 0, padding: 0, minInlineSize: 0 }}
@@ -330,7 +320,7 @@ export function SettingsPage({ user }: Props) {
         )}
 
         {isEditableTab(tab) && (
-          <div className="settings-save">
+          <div className="settings-save ui-commit-bar">
             <label>
               {label("Причина (опционално)", "Reason (optional)")}
               <input
@@ -351,6 +341,13 @@ export function SettingsPage({ user }: Props) {
           </div>
         )}
       </section>
+      <details className="ui-system-disclosure">
+        <summary>{label("Системно състояние", "System status")}</summary>
+        {systemStatus.system && <SystemStatusSection system={systemStatus.system} label={label} stale={systemStatus.stale} lastSuccessAt={systemStatus.lastSuccessAt} />}
+        {!systemStatus.system && systemStatus.stale && <SystemStatusUnavailable label={label} onRetry={() => void refreshSystem()} />}
+      </details>
+      </div>
+      </div>
     </main>
   );
 }

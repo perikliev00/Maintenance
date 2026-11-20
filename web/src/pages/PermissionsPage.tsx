@@ -17,6 +17,7 @@ import {
   type Role,
 } from "../api/client";
 import { LoadingIndicator } from "../components/LoadingIndicator";
+import { SectionNav, Surface, Workspace, WorkspaceIntro } from "../ui";
 import {
   applySavedRoleToDraft,
   historyStatusFromResult,
@@ -40,6 +41,16 @@ type Props = {
 };
 
 type Tab = "panels" | "actions" | "history";
+
+const GRANT_LABELS: Record<string, string> = {
+  mywork: "Моите задачи", repairs: "Ремонти", home: "Обзор", rooms: "Стаи", common: "Общи части", team: "Екип", live: "Текуща работа", plan: "Дневен план", attendance: "Присъствие", cards: "Карти за достъп", results: "Резултати", analytics: "Аналитика", cleaning: "Организация на почистването", audit: "Дневник", control: "Оперативни решения", settings: "Настройки", permissions: "Политики за достъп", notifications: "Известия",
+  "rooms.view": "Преглежда помещения", "rooms.mark_dirty": "Маркира за почистване", "rooms.manage": "Управлява каталога на помещенията", "rooms.set_occupancy": "Променя заетостта", "rooms.set_service_status": "Променя експлоатационния статус",
+  "cleaning.create": "Създава задачи за почистване", "cleaning.start": "Започва почистване", "cleaning.complete": "Приключва почистване", "cleaning.inspect": "Одобрява или връща за доработка", "cleaning.reassign": "Преназначава почистване", "cleaning.review_overdue": "Преглежда просрочени сесии", "cleaning.results_view": "Преглежда резултати от почистване",
+  "operations.view_live": "Следи текущата работа", "tickets.report": "Докладва проблеми", "tickets.resolve": "Работи по и решава проблеми", "tickets.assign": "Назначава ремонт", "tickets.close": "Потвърждава приключени ремонти",
+  "people.view": "Преглежда екипа", "people.change_role": "Променя ролите", "people.invite": "Издава покани", "people.manage_access": "Управлява достъпа и устройствата", "control.access": "Отваря оперативните решения", "settings.manage": "Управлява настройките", "permissions.manage": "Управлява правата",
+  "plan.view": "Преглежда дневния план", "plan.manage": "Променя дневния план", "attendance.view": "Преглежда присъствието", "attendance.ingest": "Приема записи за присъствие", "attendance.request_adjustment": "Заявява корекция на присъствие", "attendance.approve_adjustment": "Одобрява корекции на присъствие",
+  "cards.view": "Преглежда картите", "cards.issue": "Издава карти", "cards.revoke": "Отменя карти", "analytics.view": "Преглежда аналитиката", "sectors.manage": "Управлява секторите", "sectors.transfer_cross": "Прехвърля между сектори", "shifts.manage": "Управлява смените", "issue_options.manage": "Управлява каталога на проблемите", "audit.view": "Преглежда дневника", "jobs.view": "Преглежда системни задачи", "jobs.run": "Стартира системни задачи",
+};
 
 /**
  * Role permission matrix editor (panels + actions) with change history.
@@ -305,245 +316,46 @@ export function PermissionsPage({ user, onUserUpdated }: Props) {
   }
 
   const roles = matrix.roles;
-
   return (
-    <main className="content">
-      <header className="page-header">
-        <div>
-          <h1>Права</h1>
-          <p>Матрица роли × панели / действия (DB-driven)</p>
+    <Workspace className="ui-permissions-workspace">
+      <WorkspaceIntro eyebrow="ПОЛИТИКИ ЗА ДОСТЪП" title="Права" description="Прегледайте достъпа по роли. Запазвайте всяка промяна с ясна причина." />
+      {error && <div className="error banner" role="alert">{error}</div>}
+      {feedback && <div role="status" className={feedback.kind === "ok" ? "ok banner" : "error banner"}>{feedback.text}
+        {feedback.kind === "saved_refresh_failed" && <button type="button" className="linkish" onClick={() => void refresh().catch((err) => setError(err instanceof Error ? err.message : "Reload failed"))}>Презареди матрицата</button>}
+      </div>}
+      <div className="ui-section-layout">
+        <aside>
+          <SectionNav<Tab> label="Permission sections" items={[{id: "panels", label: "Панели", description: "Кои работни пространства са достъпни"}, {id: "actions", label: "Actions", description: "Кои действия може да изпълнява ролята"}, {id: "history", label: "Хронология", description: "Кой е променил политиката и защо"}]} value={tab} onChange={setTab} />
+          <div className="ui-context-note"><strong>{ROLE_LABELS.owner}</strong><p>Собственикът има всички права. Достъпът му е постоянен и не се редактира.</p></div>
+        </aside>
+        <div className="ui-section-content">
+          {tab !== "history" ? <div className="ui-policy-grid">
+            {roles.map((role) => {
+              const keys = tab === "panels" ? matrix.panels : matrix.actions;
+              const list = tab === "panels" ? draft[role]?.panels ?? [] : draft[role]?.actions ?? [];
+              const editable = editableSet.has(role);
+              const saving = savingRoles.has(role);
+              const conflict = conflictRoles.has(role);
+              return <Surface key={role} className="ui-policy-card" title={ROLE_LABELS[role]} description={`${list.length} / ${keys.length} ${tab === "panels" ? "панела" : "действия"}`}>
+                {!editable && <p className="muted">Само за преглед</p>}
+                {conflict && <div className="error banner" role="status">Има по-нова версия на сървъра.<button type="button" className="linkish" disabled={saving} onClick={() => acceptRemote(role)}>Приеми сървърната</button></div>}
+                <fieldset className="ui-grant-list" disabled={!editable || saving}><legend className="sr-only">{ROLE_LABELS[role]} — {tab === "panels" ? "панели" : "действия"}</legend>
+                  {keys.map((key) => <label key={key} className="ui-grant-option"><input type="checkbox" checked={list.includes(key)} aria-label={`${role} ${key}`} onChange={() => toggle(role, tab === "panels" ? "panels" : "actions", key)} /><span>{GRANT_LABELS[key] ?? key}</span></label>)}
+                </fieldset>
+                {editable && <div className="ui-policy-commit"><label>Причина за промяната<input placeholder="причина" value={reasonByRole[role] ?? ""} disabled={saving} onChange={(e) => setReasonByRole((previous) => ({...previous, [role]: e.target.value}))} /></label><button type="button" disabled={saving || conflict} onClick={() => void saveRole(role)}>{saving ? "Запис…" : "Save"}</button></div>}
+              </Surface>;
+            })}
+          </div> : <Surface title="История на достъпа">
+            {historyStatus === "loading" && <LoadingIndicator variant="inline" label="Зареждане…" delayMs={0} />}
+            {historyStatus === "error" && <p className="error" role="alert">{historyError ?? "Грешка при зареждане на хронологията"}</p>}
+            {historyStatus === "empty" && <p className="muted">Няма записи</p>}
+            {historyStatus === "success" && <ol className="ui-history-ledger">{history.map((row) => <li key={row.id}>
+              <time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString()}</time><div><strong>{ROLE_LABELS[row.role] ?? row.role}</strong><p>{row.granted ? "Предоставен" : "Отнет"} достъп · {GRANT_LABELS[row.key] ?? row.key}</p><p className="muted">{row.actor.fullName} · {row.reason ?? "Без посочена причина"}</p></div>
+            </li>)}</ol>}
+          </Surface>}
+          <p className="muted small">Достъпът до настройката за права се запазва заедно с разрешението за управление.</p>
         </div>
-      </header>
-
-      <div className="settings-tabs" role="tablist">
-        {(
-          [
-            ["panels", "Панели"],
-            ["actions", "Actions"],
-            ["history", "Хронология"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            className={tab === id ? "nav-tab active" : "nav-tab"}
-            aria-selected={tab === id}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
       </div>
-
-      {error && <div className="error banner">{error}</div>}
-      {feedback && (
-        <div
-          className={
-            feedback.kind === "ok" ? "ok banner" : "error banner"
-          }
-        >
-          {feedback.text}
-          {feedback.kind === "saved_refresh_failed" && (
-            <>
-              {" "}
-              <button
-                type="button"
-                className="linkish"
-                onClick={() => {
-                  void refresh().catch((err) =>
-                    setError(
-                      err instanceof Error ? err.message : "Reload failed",
-                    ),
-                  );
-                }}
-              >
-                Презареди матрицата
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      {tab !== "history" && (
-        <section className="panel">
-          <div className="table-wrap perm-matrix-wrap">
-            <table className="perm-matrix">
-              <thead>
-                <tr>
-                  <th>{tab === "panels" ? "Панел" : "Action"}</th>
-                  {roles.map((role) => (
-                    <th key={role}>
-                      {ROLE_LABELS[role]}
-                      {!editableSet.has(role) && (
-                        <div className="muted">read-only</div>
-                      )}
-                      {conflictRoles.has(role) && (
-                        <div className="error">
-                          conflict
-                          <button
-                            type="button"
-                            className="linkish"
-                            disabled={savingRoles.has(role)}
-                            onClick={() => acceptRemote(role)}
-                          >
-                            Приеми сървърната
-                          </button>
-                        </div>
-                      )}
-                    </th>
-                  ))}
-                  <th>
-                    {ROLE_LABELS.owner}
-                    <div className="muted">всички</div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {(tab === "panels" ? matrix.panels : matrix.actions).map(
-                  (key) => (
-                    <tr key={key}>
-                      <td>
-                        <code>{key}</code>
-                      </td>
-                      {roles.map((role) => {
-                        const list =
-                          tab === "panels"
-                            ? draft[role]?.panels ?? []
-                            : draft[role]?.actions ?? [];
-                        const checked = list.includes(key);
-                        const canEdit =
-                          editableSet.has(role) && !savingRoles.has(role);
-                        return (
-                          <td key={role} className="perm-cell">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={!canEdit}
-                              onChange={() =>
-                                toggle(
-                                  role,
-                                  tab === "panels" ? "panels" : "actions",
-                                  key,
-                                )
-                              }
-                              aria-label={`${role} ${key}`}
-                            />
-                          </td>
-                        );
-                      })}
-                      <td className="perm-cell">
-                        <input type="checkbox" checked disabled readOnly />
-                      </td>
-                    </tr>
-                  ),
-                )}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td>Запис</td>
-                  {roles.map((role) => (
-                    <td key={role} className="perm-save-cell">
-                      {editableSet.has(role) ? (
-                        <div className="perm-save-col">
-                          <input
-                            placeholder="причина"
-                            value={reasonByRole[role] ?? ""}
-                            disabled={savingRoles.has(role)}
-                            onChange={(e) =>
-                              setReasonByRole((r) => ({
-                                ...r,
-                                [role]: e.target.value,
-                              }))
-                            }
-                          />
-                          <button
-                            type="button"
-                            disabled={
-                              savingRoles.has(role) || conflictRoles.has(role)
-                            }
-                            onClick={() => saveRole(role)}
-                          >
-                            {savingRoles.has(role) ? "…" : "Save"}
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                  ))}
-                  <td className="muted">—</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <p className="muted">
-            Owner винаги има всички права. Панелът <code>permissions</code> е
-            вързан с <code>permissions.manage</code>.
-          </p>
-        </section>
-      )}
-
-      {tab === "history" && (
-        <section className="panel">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Време</th>
-                  <th>Роля</th>
-                  <th>Вид</th>
-                  <th>Ключ</th>
-                  <th>Промяна</th>
-                  <th>Актор</th>
-                  <th>Причина</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historyStatus === "loading" && (
-                  <tr>
-                    <td colSpan={7}>
-                      <LoadingIndicator
-                        variant="inline"
-                        label="Зареждане…"
-                        delayMs={0}
-                      />
-                    </td>
-                  </tr>
-                )}
-                {historyStatus === "error" && (
-                  <tr>
-                    <td colSpan={7} className="error">
-                      {historyError ?? "Грешка при зареждане на хронологията"}
-                    </td>
-                  </tr>
-                )}
-                {historyStatus === "empty" && (
-                  <tr>
-                    <td colSpan={7} className="muted">
-                      Няма записи
-                    </td>
-                  </tr>
-                )}
-                {historyStatus === "success" &&
-                  history.map((row) => (
-                    <tr key={row.id}>
-                      <td>{new Date(row.createdAt).toLocaleString()}</td>
-                      <td>{ROLE_LABELS[row.role] ?? row.role}</td>
-                      <td>{row.kind}</td>
-                      <td>
-                        <code>{row.key}</code>
-                      </td>
-                      <td>{row.granted ? "granted" : "revoked"}</td>
-                      <td>{row.actor.fullName}</td>
-                      <td>{row.reason ?? "—"}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-    </main>
+    </Workspace>
   );
 }

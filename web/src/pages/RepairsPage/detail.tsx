@@ -31,6 +31,7 @@ export type TicketEventRow = {
 };
 
 type DetailProps = {
+  mode?: "report" | "timeline";
   locale: "bg" | "en";
   canReport: boolean;
   locationId: string;
@@ -59,6 +60,7 @@ type DetailProps = {
  * summary and event timeline.
  */
 export function Detail({
+  mode,
   locale,
   canReport,
   locationId,
@@ -83,10 +85,11 @@ export function Detail({
   // Render output.
   // Side panel.
   return (
-    <aside className="panel repairs-side">
+    <div className="ui-repair-detail">
       {/* Report form — hidden without report permission. */}
       {/* Editable form. */}
-      {canReport && (
+      {canReport && mode !== "timeline" && (
+        <details className="ui-report-composer" open><summary>{t(locale, "Нов сигнал", "New issue")}</summary>
         <form className="stack" onSubmit={onReport}>
           {/* Section heading. */}
           <h2>{t(locale, "Докладвай", "Report")}</h2>
@@ -156,11 +159,12 @@ export function Detail({
             </p>
           )}
         </form>
+        </details>
       )}
 
       {/* Timeline for the ticket currently selected in the list. */}
-      {selected && (
-        <div className="stack" style={{ marginTop: "1.5rem" }}>
+      {selected && mode !== "report" && (
+        <section className="panel stack" aria-label={t(locale, "Хронология", "Timeline")}>
           {/* Section heading. */}
           <h2>{t(locale, "Хронология", "Timeline")}</h2>
           <p className="muted">
@@ -204,8 +208,8 @@ export function Detail({
               </li>
             ))}
           </ul>
-        </div>
+        </section>
       )}
-    </aside>
+    </div>
   );
 }

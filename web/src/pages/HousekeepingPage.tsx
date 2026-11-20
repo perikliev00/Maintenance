@@ -29,6 +29,7 @@ import {
   mergeIndependentLoadErrors,
 } from "./housekeepingLogic";
 import { labelFor } from "../i18n";
+import { Workspace, WorkspaceIntro } from "../ui";
 
 type Props = { user: AuthUser };
 
@@ -249,27 +250,16 @@ export function HousekeepingPage({ user }: Props) {
         : null;
 
   return (
-    <main className="content">
-      <header className="page-header">
-        <div>
-          <h1>{label("Почистване", "Housekeeping")}</h1>
-          <p>
-            {label(
-              "Каталог помещения, сектори и смени за оперативното разпределение.",
-              "Location catalog, sectors and shifts for operational assignment.",
-            )}
-          </p>
-        </div>
-      </header>
-
-      <div className="settings-tabs" role="tablist">
+    <Workspace className="ui-housekeeping-workspace">
+      <WorkspaceIntro eyebrow={label("РАЗПРЕДЕЛЕНИЕ НА РАБОТАТА", "WORKFORCE PLANNING")} title={label("Почистване", "Housekeeping")} description={label("Определете покритието по сектори и подгответе хората за всяка смяна.", "Define sector coverage and prepare the team for each shift.")} />
+      <div className="ui-section-layout">
+      <nav className="ui-section-nav" aria-label={label("Организация на почистването", "Housekeeping organisation")}>
         {TABS.filter((t) => t.id !== "catalog" || canManageLocations).map(
           (t) => (
             <button
               key={t.id}
               type="button"
-              role="tab"
-              aria-selected={tab === t.id}
+              aria-current={tab === t.id ? "page" : undefined}
               className={tab === t.id ? "active" : ""}
               disabled={busy}
               onClick={() => {
@@ -282,7 +272,10 @@ export function HousekeepingPage({ user }: Props) {
             </button>
           ),
         )}
-      </div>
+        <div className="ui-context-note"><strong>{label("Работен обхват", "Working scope")}</strong><p>{isSupervisorScope ? label("Управлявате секторите във вашия обхват.", "You manage sectors within your assigned scope.") : label("Управлявате организацията на имота.", "You manage the property's workforce organisation.")}</p></div>
+      </nav>
+      <div className="ui-section-content">
+      <div className="ui-section-heading"><h2>{label(TABS.find((item) => item.id === tab)!.bg, TABS.find((item) => item.id === tab)!.en)}</h2><p className="muted">{tab === "sectors" ? label("Локации, отговорници и покритие", "Locations, ownership and coverage") : tab === "shifts" ? label("Работни смени и дневен график", "Shift definitions and daily roster") : label("Каталог на стаи и общи части", "Room and common-area inventory")}</p></div>
 
       {pageError && (
         <p className="error-banner">
@@ -370,6 +363,8 @@ export function HousekeepingPage({ user }: Props) {
           editor={shiftEditor}
         />
       )}
-    </main>
+      </div>
+      </div>
+    </Workspace>
   );
 }

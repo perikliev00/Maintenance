@@ -104,7 +104,7 @@ test.describe("MA-03 shift roster stale load", () => {
 
     await uiLogin(page, USERS.manager, DEMO_PASSWORD);
     await openNav(page, /Почистване|Housekeeping/);
-    await page.getByRole("tab", { name: /Смени|Shifts/i }).click();
+    await page.getByRole("button", { name: /Смени|Shifts/i }).click();
 
     const dateInput = page.locator(".roster-block input[type='date']");
     await expect(dateInput).toBeVisible({ timeout: 20_000 });

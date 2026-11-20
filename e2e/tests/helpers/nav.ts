@@ -1,18 +1,37 @@
 // Playwright test runner APIs for browser E2E scenarios.
 import { expect, type Page } from "@playwright/test";
 
-/** Click a main-nav tab by its visible label (bg or en). */
-export async function openNav(page: Page, label: string | RegExp): Promise<void> {
+/** Reveal a destination through the workspace navigation (bg or en). */
+async function revealNav(page: Page, label: string | RegExp) {
   const nav = page.getByRole("navigation", { name: "Main" });
   const tab = nav.getByRole("button", { name: label });
-  // Narrow viewports park the sidebar off-canvas; open Menu before clicking.
-  const box = await tab.boundingBox();
-  if (!box || box.x + box.width <= 0) {
-    const menu = page.getByRole("button", { name: /Open navigation|^Menu$/i });
-    await expect(menu).toBeVisible();
-    await menu.click();
-    await expect(tab).toBeInViewport();
+  if (await tab.isVisible()) {
+    await tab.scrollIntoViewIfNeeded();
+    return tab;
   }
+  const menu = page.getByRole("button", { name: /Open navigation|^Menu$/i });
+  if (await menu.isVisible()) await menu.click();
+  if (await tab.isVisible()) return tab;
+
+  // Workspace triggers expose the authorised destinations for that area.
+  // Use their semantic test contract rather than depending on CSS layout.
+  const workspaces = page.locator("[data-workspace]");
+  for (let index = 0; index < await workspaces.count(); index++) {
+    const workspace = workspaces.nth(index);
+    if (!(await workspace.isVisible())) continue;
+    await workspace.click();
+    if (await tab.isVisible()) {
+      await tab.scrollIntoViewIfNeeded();
+      return tab;
+    }
+  }
+  await expect(tab).toBeVisible();
+  return tab;
+}
+
+/** Click a main-nav destination without assuming a sidebar composition. */
+export async function openNav(page: Page, label: string | RegExp): Promise<void> {
+  const tab = await revealNav(page, label);
   await tab.click();
 }
 
@@ -26,8 +45,15 @@ export async function expectNavVisible(
     .getByRole("navigation", { name: "Main" })
     .getByRole("button", { name: label });
   if (visible) {
-    await expect(tab).toBeVisible();
+    await expect(await revealNav(page, label)).toBeVisible();
   } else {
     await expect(tab).toHaveCount(0);
+    const workspaces = page.locator("[data-workspace]");
+    for (let index = 0; index < await workspaces.count(); index++) {
+      const workspace = workspaces.nth(index);
+      if (!(await workspace.isVisible())) continue;
+      await workspace.click();
+      await expect(tab).toHaveCount(0);
+    }
   }
 }

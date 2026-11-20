@@ -38,11 +38,8 @@ export function TeamPersonDetailDialog({ person, locale, onClose }: Props) {
             {t(locale, "Затвори", "Close")}
           </button>
         </div>
-        <dl className="stack">
-          <div>
-            <dt className="muted">{t(locale, "Име", "Name")}</dt>
-            <dd>{person.fullName}</dd>
-          </div>
+        <div className="ui-person-summary"><p className="ui-eyebrow">{t(locale, "ПРОФИЛ НА СЛУЖИТЕЛ", "EMPLOYEE PROFILE")}</p><h3>{person.fullName}</h3><p>{person.department ?? t(locale, "Няма посочен отдел", "No department specified")}</p></div>
+        <dl className="ui-record-facts">
           <div>
             <dt className="muted">{t(locale, "Номер", "Number")}</dt>
             <dd>{person.employeeNumber}</dd>

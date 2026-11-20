@@ -6,6 +6,7 @@
   "scripts": {
     "test": "playwright test",
     "test:scenarios": "playwright test --config playwright.scenarios.config.ts tests/scenarios",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:scenarios": "tsc --noEmit -p tsconfig.scenarios.json",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",

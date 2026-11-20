@@ -17,7 +17,7 @@ test.describe("housekeeping modals", () => {
   }) => {
     await uiLogin(page, USERS.manager, DEMO_PASSWORD);
     await openNav(page, /Почистване|Housekeeping/);
-    const sectorsTab = page.getByRole("tab", { name: /Сектори|Sectors/i });
+    const sectorsTab = page.getByRole("button", { name: /Сектори|Sectors/i });
     await expect(sectorsTab).toBeVisible({ timeout: 20_000 });
     await sectorsTab.click();
 
@@ -63,7 +63,7 @@ test.describe("housekeeping modals", () => {
   }) => {
     await uiLogin(page, USERS.manager, DEMO_PASSWORD);
     await openNav(page, /Почистване|Housekeeping/);
-    await page.getByRole("tab", { name: /Сектори|Sectors/i }).click();
+    await page.getByRole("button", { name: /Сектори|Sectors/i }).click();
 
     await page
       .locator("tr")
@@ -91,7 +91,7 @@ test.describe("housekeeping modals", () => {
   }) => {
     await uiLogin(page, USERS.manager, DEMO_PASSWORD);
     await openNav(page, /Почистване|Housekeeping/);
-    await page.getByRole("tab", { name: /Сектори|Sectors/i }).click();
+    await page.getByRole("button", { name: /Сектори|Sectors/i }).click();
 
     await page
       .locator("tr")
@@ -139,7 +139,7 @@ test.describe("housekeeping modals", () => {
   }) => {
     await uiLogin(page, USERS.manager, DEMO_PASSWORD);
     await openNav(page, /Почистване|Housekeeping/);
-    await page.getByRole("tab", { name: /Сектори|Sectors/i }).click();
+    await page.getByRole("button", { name: /Сектори|Sectors/i }).click();
 
     await page
       .locator("tr")
@@ -181,7 +181,7 @@ test.describe("housekeeping modals", () => {
   }) => {
     await uiLogin(page, USERS.supervisor, DEMO_PASSWORD);
     await openNav(page, /Почистване|Housekeeping/);
-    await page.getByRole("tab", { name: /Сектори|Sectors/i }).click();
+    await page.getByRole("button", { name: /Сектори|Sectors/i }).click();
 
     await expect(
       page.getByRole("button", {
@@ -208,7 +208,7 @@ test.describe("housekeeping modals", () => {
     try {
       await uiLogin(page, USERS.owner, DEMO_PASSWORD);
       await openNav(page, /Почистване|Housekeeping/);
-      const catalogTab = page.getByRole("tab", { name: /Каталог|Catalog/i });
+      const catalogTab = page.getByRole("button", { name: /Каталог|Catalog/i });
       await expect(catalogTab).toBeVisible({ timeout: 20_000 });
       await catalogTab.click();
 
@@ -321,7 +321,7 @@ test.describe("housekeeping modals", () => {
     try {
       await uiLogin(page, USERS.manager, DEMO_PASSWORD);
       await openNav(page, /Почистване|Housekeeping/);
-      await page.getByRole("tab", { name: /Сектори|Sectors/i }).click();
+      await page.getByRole("button", { name: /Сектори|Sectors/i }).click();
 
       const row = page.getByRole("row").filter({ hasText: uniqueName });
       await row.getByRole("button", { name: /Редакция|Edit/i }).click();
@@ -353,7 +353,7 @@ test.describe("housekeeping modals", () => {
   test("shifts: add shift opens centered modal", async ({ page }) => {
     await uiLogin(page, USERS.manager, DEMO_PASSWORD);
     await openNav(page, /Почистване|Housekeeping/);
-    await page.getByRole("tab", { name: /Смени|Shifts/i }).click();
+    await page.getByRole("button", { name: /Смени|Shifts/i }).click();
 
     const add = page.getByRole("button", {
       name: /\+ Добави смяна|\+ Add shift/i,

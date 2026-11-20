@@ -141,24 +141,15 @@ export function TeamPersonDevicesDialog({
             )}
           </p>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t(locale, "Име", "Name")}</th>
-                  <th>{t(locale, "Активирано", "Activated")}</th>
-                  <th>{t(locale, "Последна активност", "Last activity")}</th>
-                  {canRevoke && <th></th>}
-                </tr>
-              </thead>
-              <tbody>
+          <div className="ui-device-records">
                 {devices.map((d) => (
-                  <tr key={d.id}>
-                    <td>{d.label}</td>
-                    <td>{new Date(d.activatedAt).toLocaleString()}</td>
-                    <td>{new Date(d.lastSeenAt).toLocaleString()}</td>
+                  <article className="ui-device-record" key={d.id}>
+                    <h3>{d.label}</h3>
+                    <dl className="ui-record-facts">
+                      <div><dt>{t(locale, "Активирано", "Activated")}</dt><dd>{new Date(d.activatedAt).toLocaleString()}</dd></div>
+                      <div><dt>{t(locale, "Последна активност", "Last activity")}</dt><dd>{new Date(d.lastSeenAt).toLocaleString()}</dd></div>
+                    </dl>
                     {canRevoke && (
-                      <td>
                         <button
                           type="button"
                           className="ghost"
@@ -169,12 +160,9 @@ export function TeamPersonDevicesDialog({
                             ? t(locale, "Отнемане…", "Revoking…")
                             : t(locale, "Отнеми достъпа", "Revoke access")}
                         </button>
-                      </td>
                     )}
-                  </tr>
+                  </article>
                 ))}
-              </tbody>
-            </table>
           </div>
         )}
         {error && !loading && (

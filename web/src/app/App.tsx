@@ -1,305 +1,95 @@
-/**
- * Authenticated shell: sidebar / mobile nav, theme + logout controls, and the
- * active panel. Pre-auth routes (login, activate) are handled by
- * `AppRouting` before this shell renders.
- */
-import { useCallback, useEffect, useState } from "react";
-import { BrandMark } from "../components/BrandMark";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { NotificationInbox } from "../components/NotificationInbox";
-import {
-  logout,
-  logoutAll,
-  ROLE_LABELS,
-  type Panel,
-} from "../api/client";
+import { logout, logoutAll, ROLE_LABELS, type Panel } from "../api/client";
+import { StudioMark, EmptyState } from "../ui";
+import { useModalLifecycle } from "../hooks/useModalLifecycle";
 import type { BoardFocus } from "./boardFocus";
-import { NavIcon } from "./NavIcon";
 import { ActivePanel, AppRouting } from "./routing";
 import { useAuthBootstrap } from "./useAuthBootstrap";
+import { PANEL_NAMES, WORKSPACES, workspaceFor } from "./workspaces";
 
-/** Bilingual / lookup table `PANEL_LABELS_BG` (data only). */
-const PANEL_LABELS_BG: Record<Panel, string> = {
-  // Provide mywork field/parameter used by this structure.
-  mywork: "Моите задачи",
-  // Provide repairs field/parameter used by this structure.
-  repairs: "Повреди",
-  // Provide home field/parameter used by this structure.
-  home: "Начало",
-  // Provide rooms field/parameter used by this structure.
-  rooms: "Стаи",
-  // Provide common field/parameter used by this structure.
-  common: "Общи части",
-  // Provide team field/parameter used by this structure.
-  team: "Екип",
-  // Provide live field/parameter used by this structure.
-  live: "На живо",
-  // Provide plan field/parameter used by this structure.
-  plan: "План",
-  // Provide attendance field/parameter used by this structure.
-  attendance: "Присъствие",
-  // Provide cards field/parameter used by this structure.
-  cards: "Карти",
-  // Provide results field/parameter used by this structure.
-  results: "Резултати",
-  // Provide analytics field/parameter used by this structure.
-  analytics: "Аналитика",
-  // Provide cleaning field/parameter used by this structure.
-  cleaning: "Почистване",
-  // Provide audit field/parameter used by this structure.
-  audit: "Одит",
-  // Provide control field/parameter used by this structure.
-  control: "Контрол",
-  // Provide settings field/parameter used by this structure.
-  settings: "Настройки",
-  // Provide permissions field/parameter used by this structure.
-  permissions: "Права",
-  // Provide notifications field/parameter used by this structure.
-  notifications: "Известия",
-};
+function WorkspaceFinder({ panels, locale, onSelect, onClose }: {
+  panels: Panel[]; locale: "bg" | "en"; onSelect: (panel: Panel) => void; onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  const previous = useRef(document.activeElement as HTMLElement | null);
+  useModalLifecycle(onClose, { onCleanup: () => previous.current?.focus() });
+  useEffect(() => { input.current?.focus(); }, []);
+  const matches = panels.filter(panel => (PANEL_NAMES[panel].en + " " + PANEL_NAMES[panel].bg).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  return createPortal(<div className="ui-dialog-backdrop" onClick={onClose}>
+    <section className="ui-finder" role="dialog" aria-modal="true" aria-labelledby="finder-title" onClick={e => e.stopPropagation()}>
+      <header><h2 id="finder-title">{locale === "en" ? "Find a workspace" : "Намерете раздел"}</h2><button type="button" className="ghost" onClick={onClose} aria-label="Close">×</button></header>
+      <label className="ui-finder-search"><span>{locale === "en" ? "Search pages" : "Търсене на раздел"}</span><input ref={input} value={query} onChange={e => setQuery(e.target.value)} placeholder={locale === "en" ? "Rooms, repairs, people…" : "Стаи, повреди, екип…"} /></label>
+      <div className="ui-finder-results">{matches.map(panel => <button type="button" className="ghost" key={panel} onClick={() => onSelect(panel)}><span>{PANEL_NAMES[panel][locale]}</span><small>{workspaceFor(panel)[locale]}</small></button>)}
+        {!matches.length && <p className="muted">{locale === "en" ? "No matching workspace." : "Няма намерен раздел."}</p>}</div>
+    </section>
+  </div>, document.body);
+}
 
-/** Bilingual / lookup table `PANEL_LABELS_EN` (data only). */
-const PANEL_LABELS_EN: Record<Panel, string> = {
-  // Provide mywork field/parameter used by this structure.
-  mywork: "My Work",
-  // Provide repairs field/parameter used by this structure.
-  repairs: "Repairs",
-  // Provide home field/parameter used by this structure.
-  home: "Home",
-  // Provide rooms field/parameter used by this structure.
-  rooms: "Rooms",
-  // Provide common field/parameter used by this structure.
-  common: "Common",
-  // Provide team field/parameter used by this structure.
-  team: "Team",
-  // Provide live field/parameter used by this structure.
-  live: "Live",
-  // Provide plan field/parameter used by this structure.
-  plan: "Plan",
-  // Provide attendance field/parameter used by this structure.
-  attendance: "Attendance",
-  // Provide cards field/parameter used by this structure.
-  cards: "Cards",
-  // Provide results field/parameter used by this structure.
-  results: "Results",
-  // Provide analytics field/parameter used by this structure.
-  analytics: "Analytics",
-  // Provide cleaning field/parameter used by this structure.
-  cleaning: "Housekeeping",
-  // Provide audit field/parameter used by this structure.
-  audit: "Audit",
-  // Provide control field/parameter used by this structure.
-  control: "Control",
-  // Provide settings field/parameter used by this structure.
-  settings: "Settings",
-  // Provide permissions field/parameter used by this structure.
-  permissions: "Permissions",
-  // Provide notifications field/parameter used by this structure.
-  notifications: "Notifications",
-};
-
-/** Root authenticated shell; pre-auth gates live in `AppRouting`. */
 export default function App() {
-  const {
-    user,
-    setUser,
-    signedIn,
-    setSignedIn,
-    authReady,
-    setAuthEpoch,
-    view,
-    setView,
-    theme,
-    publicSettings,
-    panels,
-    navPanels,
-    locale,
-    onToggleTheme,
-  } = useAuthBootstrap();
-
-  // Local React state.
-  const [navOpen, setNavOpen] = useState(false);
+  const { user, setUser, signedIn, setSignedIn, authReady, setAuthEpoch, view, setView, theme, publicSettings, panels, locale, onToggleTheme } = useAuthBootstrap();
+  const [finderOpen, setFinderOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [boardFocus, setBoardFocus] = useState<BoardFocus | null>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const currentGroup = workspaceFor(view);
+  const groups = WORKSPACES.filter(group => group.panels.some(panel => panels.includes(panel)));
+  const contextPanels = currentGroup.panels.filter(panel => panels.includes(panel));
+  const navigate = useCallback((panel: Panel) => {
+    if (!panels.includes(panel)) return;
+    setView(panel); setFinderOpen(false); setAccountOpen(false);
+  }, [panels, setView]);
+  const onNavigateToFocus = useCallback((panel: Panel, focus?: BoardFocus | null) => {
+    if (!panels.includes(panel)) return;
+    setBoardFocus(focus ?? null); navigate(panel);
+  }, [panels, navigate]);
+  const consumeFocus = useCallback(() => setBoardFocus(null), []);
   useEffect(() => { if (user) setSignOutError(null); }, [user?.id]);
-  // Locale-driven sidebar labels (BG default, EN when settings say so).
-  const panelLabels = locale === "en" ? PANEL_LABELS_EN : PANEL_LABELS_BG;
-
-  const onNavigateToFocus = useCallback(
-    (panel: Panel, focus?: BoardFocus | null) => {
-      if (!panels.includes(panel)) return;
-      setBoardFocus(focus ?? null);
-      setView(panel);
-    },
-    [panels, setView],
-  );
-  const onBoardFocusConsumed = useCallback(() => setBoardFocus(null), []);
-
-  // Close the mobile drawer whenever the active panel changes.
+  useEffect(() => { document.documentElement.lang = signedIn && user ? locale : "en"; }, [signedIn, user?.id, locale]);
   useEffect(() => {
-    setNavOpen(false);
-  }, [view]);
-
-  return (
-    <>
-        {signOutError && <p role="alert" className="error">{signOutError}</p>}
-        <AppRouting
-      authReady={authReady}
-      signedIn={signedIn}
-      user={user}
-      theme={theme}
-      onToggleTheme={onToggleTheme}
-      setUser={setUser}
-      setSignedIn={setSignedIn}
-      setView={setView}
-      setAuthEpoch={setAuthEpoch}
-    >
-      {/* Shell only mounts once bootstrap has a signed-in user. */}
-      {user && (
-        <div
-          className={`app-shell${navOpen ? " nav-open" : ""}${
-            publicSettings?.interface.density === "compact"
-              ? " density-compact"
-              : ""
-          }`}
-        >
-          {/* Mobile overlay — tap outside to close the drawer. */}
-          {navOpen && (
-            <button
-              type="button"
-              className="sidebar-backdrop"
-              // Set accessibility attribute for assistive tech.
-              aria-label="Close navigation"
-              onClick={() => setNavOpen(false)}
-            />
-          )}
-
-          <aside className="sidebar">
-            <div className="sidebar-brand">
-              <BrandMark size={34} />
-              <div className="sidebar-brand-text">
-                <strong>Meridian</strong>
-                <span>Maintenance</span>
-              </div>
-            </div>
-
-            <nav className="sidebar-nav" aria-label="Main">
-              {navPanels.map((panel) => (
-                <button
-                  key={panel}
-                  type="button"
-                  className={view === panel ? "nav-tab active" : "nav-tab"}
-                  onClick={() => setView(panel)}
-                >
-                  <NavIcon panel={panel} />
-                  {panelLabels[panel]}
-                </button>
-              ))}
-            </nav>
-
-            <div className="sidebar-footer">
-              <div className="sidebar-user-row">
-                <div className="sidebar-user">
-                  <strong>{user.fullName}</strong>
-                  <span>{ROLE_LABELS[user.role] ?? user.role}</span>
-                </div>
-                <NotificationInbox
-                  locale={locale}
-                  active={view === "notifications"}
-                  onOpen={() => setView("notifications")}
-                />
-              </div>
-              <div className="sidebar-actions">
-                <button type="button" className="ghost" onClick={onToggleTheme}>
-                  {theme === "dark" ? "Light" : "Dark"}
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => {
-                    // Clear cookies + local cache, then re-bootstrap as logged out.
-                    void logout().finally(() => {
-                      setSignedIn(false);
-                      setUser(null);
-                      setAuthEpoch((n) => n + 1);
-                    });
-                  }}
-                >
-                  Log out
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  title="Revoke all sessions on all devices"
-                  onClick={() => {
-                    // Revoke every device session, then same local wipe as logout.
-                    void logoutAll().then(() => {
-                      setSignedIn(false);
-                      setUser(null);
-                      setAuthEpoch((n) => n + 1);
-                    }).catch(() => {
-                      setSignedIn(false);
-                      setUser(null);
-                      // Do not bootstrap with credentials whose global revoke
-                      // failed. Local private data has already been purged.
-                      setSignOutError(locale === "bg"
-                        ? "Не успяхме да потвърдим излизането от всички устройства. Локалните данни са почистени."
-                        : "Could not confirm sign out on all devices. Local data has been cleared.");
-                    });
-                  }}
-                >
-                  Sign out everywhere
-                </button>
-              </div>
-            </div>
-          </aside>
-
-          <div className="shell-main">
-            <div className="mobile-bar">
-              <div className="mobile-bar-brand">
-                <BrandMark size={26} />
-                Meridian
-              </div>
-              <div className="mobile-bar-actions">
-                <NotificationInbox
-                  locale={locale}
-                  active={view === "notifications"}
-                  onOpen={() => {
-                    setView("notifications");
-                    setNavOpen(false);
-                  }}
-                />
-                <button
-                  type="button"
-                  className="ghost"
-                  // Set accessibility attribute for assistive tech.
-                  aria-expanded={navOpen}
-                  // Set accessibility attribute for assistive tech.
-                  aria-label="Open navigation"
-                  onClick={() => setNavOpen((open) => !open)}
-                >
-                  Menu
-                </button>
-              </div>
-            </div>
-
-            <div key={view} className="page-enter">
-              <ActivePanel
-                view={view}
-                user={user}
-                locale={locale}
-                publicSettings={publicSettings}
-                panels={panels}
-                setView={setView}
-                setUser={setUser}
-                boardFocus={boardFocus}
-                onBoardFocusConsumed={onBoardFocusConsumed}
-                onNavigateToFocus={onNavigateToFocus}
-              />
+    const keydown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setFinderOpen(open => !open); }
+      if (event.key === "Escape") setAccountOpen(false);
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, []);
+  useEffect(() => { pageRef.current?.focus({ preventScroll: true }); window.scrollTo(0, 0); }, [view]);
+  const finishLogout = () => { setSignedIn(false); setUser(null); setAuthEpoch(n => n + 1); };
+  return <>
+    {signOutError && <p role="alert" className="error banner">{signOutError}</p>}
+    <AppRouting authReady={authReady} signedIn={signedIn} user={user} theme={theme} onToggleTheme={onToggleTheme} setUser={setUser} setSignedIn={setSignedIn} setView={setView} setAuthEpoch={setAuthEpoch}>
+      {user && <div className={"ui-studio" + (publicSettings?.interface.density === "compact" ? " density-compact" : "")}>
+        <a className="ui-skip" href="#workspace-content">{locale === "en" ? "Skip to content" : "Към съдържанието"}</a>
+        <header className="ui-masthead">
+          <div className="ui-wordmark"><StudioMark /><div><strong>MERIDIAN</strong><span>{locale === "en" ? "Operations studio" : "Оперативен център"}</span></div></div>
+          <nav className="ui-workspace-nav" aria-label={locale === "en" ? "Workspaces" : "Работни пространства"}>
+            {groups.map(group => <button type="button" key={group.id} data-workspace={group.id} className={currentGroup.id === group.id ? "active" : ""} aria-current={currentGroup.id === group.id ? "true" : undefined}
+              onClick={() => { const first = group.panels.find(panel => panels.includes(panel)); if (first) navigate(first); }}>{group[locale]}</button>)}
+          </nav>
+          <div className="ui-masthead-tools">
+            <button type="button" className="ui-find-trigger" onClick={() => setFinderOpen(true)} aria-label={locale === "en" ? "Find a workspace" : "Намерете раздел"}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><span>{locale === "en" ? "Find" : "Търсене"}</span><kbd>Ctrl K</kbd></button>
+            {panels.includes("notifications") && <NotificationInbox locale={locale} active={view === "notifications"} onOpen={() => navigate("notifications")} />}
+            <div className="ui-account-wrap"><button type="button" className="ui-avatar" aria-expanded={accountOpen} aria-controls="account-menu" aria-label={locale === "en" ? "Account menu" : "Профил"} onClick={() => setAccountOpen(open => !open)}>{user.fullName.split(" ").map(part => part[0]).slice(0, 2).join("")}</button>
+              {accountOpen && <div id="account-menu" className="ui-account"><strong>{user.fullName}</strong><span className="muted">{locale === "en" ? user.role : ROLE_LABELS[user.role]}</span><span className="muted">{user.email}</span>
+                <button type="button" className="ghost" onClick={onToggleTheme}>{theme === "dark" ? "Light" : "Dark"}</button>
+                <button type="button" className="ghost" onClick={() => { void logout().finally(finishLogout); }}>Log out</button>
+                <button type="button" className="ghost" onClick={() => { void logoutAll().then(finishLogout).catch(() => { setSignedIn(false); setUser(null); setSignOutError(locale === "bg" ? "Не успяхме да потвърдим излизането от всички устройства. Локалните данни са почистени." : "Could not confirm sign out on all devices. Local data has been cleared."); }); }}>Sign out everywhere</button>
+              </div>}
             </div>
           </div>
+        </header>
+        <div className="ui-context-bar"><span className="ui-context-name">{currentGroup[locale]}</span><nav aria-label="Main">{contextPanels.map(panel => <button type="button" key={panel} data-panel={panel} aria-current={view === panel ? "page" : undefined} className={view === panel ? "active" : ""} onClick={() => navigate(panel)}>{PANEL_NAMES[panel][locale]}</button>)}</nav></div>
+        <div id="workspace-content" className="ui-page-host" ref={pageRef} tabIndex={-1} data-current-panel={view}>
+          {panels.includes(view) ? <ActivePanel view={view} user={user} locale={locale} publicSettings={publicSettings} panels={panels} setView={navigate} setUser={setUser} boardFocus={boardFocus} onBoardFocusConsumed={consumeFocus} onNavigateToFocus={onNavigateToFocus} />
+            : <EmptyState title={locale === "en" ? "No workspaces assigned" : "Няма предоставени раздели"} description={locale === "en" ? "Your administrator can grant workspace access." : "Администраторът може да предостави достъп."} />}
         </div>
-      )}
+        <footer className="ui-studio-footer"><span>Meridian</span><span>{locale === "en" ? "Hotel operations, in focus." : "Хотелските операции на фокус."}</span></footer>
+        {finderOpen && <WorkspaceFinder panels={panels} locale={locale} onSelect={navigate} onClose={() => setFinderOpen(false)} />}
+      </div>}
     </AppRouting>
-    </>
-  );
+  </>;
 }

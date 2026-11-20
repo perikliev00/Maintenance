@@ -38,8 +38,8 @@ for (const screen of ["rooms", "common", "repairs"] as const) {
       await picker.selectOption(late.id);
       await expect(picker).toHaveValue(late.id);
     } else {
-      await expect(page.locator("table tbody tr")).toHaveCount(501);
-      await expect(page.locator("table tbody tr").filter({ hasText: late.number })).toHaveCount(1);
+      await expect(page.locator("article[data-location-id]")).toHaveCount(501);
+      await expect(page.locator("article[data-location-id]").filter({ hasText: late.number })).toHaveCount(1);
       await expect(page.getByText(/Late cleaner/)).toBeVisible();
       await expect(page.getByText(/Foreign cleaner/)).toHaveCount(0);
     }

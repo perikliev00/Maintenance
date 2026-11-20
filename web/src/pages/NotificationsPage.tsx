@@ -50,6 +50,7 @@ function relativeTime(iso: string, locale: "bg" | "en") {
  */
 export function NotificationsPage({ locale = "bg", onNavigate }: Props) {
   // Inbox rows loaded so far (cursor pages append).
+  const [inboxView, setInboxView] = useState<"all" | "unread">("all");
   const [items, setItems] = useState<AppNotification[]>([]);
   // Cursor for the next page; null when exhausted.
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -205,116 +206,31 @@ export function NotificationsPage({ locale = "bg", onNavigate }: Props) {
     }
   }
 
+  const visibleItems = inboxView === "unread" ? items.filter((item) => item.unread) : items;
   return (
-    <div className="page notifications-page">
-      <header className="page-header">
-        <div>
-          <h1>{t(locale, "Известия", "Notifications")}</h1>
-          <p className="muted">
-            {t(
-              locale,
-              "Важни събития и напомняния за вас",
-              "Important events and reminders for you",
-            )}
-          </p>
-        </div>
-        {/* Mark-all only when there is at least one unread. */}
-        {unreadCount > 0 && (
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => void onMarkAll()}
-          >
-            {t(locale, "Прочети всички", "Mark all read")}
-          </button>
-        )}
+    <main className="content notifications-page ui-inbox">
+      <header className="page-header ui-briefing">
+        <div><p className="ui-eyebrow">{t(locale, "ЛИЧНА ПОЩА", "YOUR INBOX")}</p><h1>{t(locale, "Известия", "Notifications")}</h1><p>{t(locale, "Важните събития, събрани на едно място.", "The updates that matter, in one place.")}</p></div>
+        {unreadCount > 0 && <button type="button" className="ghost" onClick={() => void onMarkAll()}>{t(locale, "Прочети всички", "Mark all read")}</button>}
       </header>
-
-      {/* Load-error banner above the list. */}
-      {error && <div className="banner error">{error}</div>}
-
-      {/* Loading gate vs populated inbox panel. */}
-      {loading ? (
-        <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
-      ) : (
-        <section className="panel">
-          <div className="panel-header">
-            <h2>
-              {t(locale, "Всички", "All")} ({items.length})
-              {/* Unread count suffix only when non-zero. */}
-              {unreadCount > 0 && (
-                <span className="muted" style={{ fontWeight: 400 }}>
-                  {" "}
-                  · {unreadCount} {t(locale, "непрочетени", "unread")}
-                </span>
-              )}
-            </h2>
+      {error && <div className="banner error" role="alert">{error}</div>}
+      {loading ? <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} /> : <section className="ui-surface">
+        <div className="ui-action-strip ui-section-heading">
+          <div className="ui-view-switch" role="group" aria-label={t(locale, "Изглед на пощата", "Inbox view")}>
+            <button type="button" aria-pressed={inboxView === "all"} className={inboxView === "all" ? "" : "ghost"} onClick={() => setInboxView("all")}>{t(locale, "Всички", "All")} ({items.length})</button>
+            <button type="button" aria-pressed={inboxView === "unread"} className={inboxView === "unread" ? "" : "ghost"} onClick={() => setInboxView("unread")}>{t(locale, "Непрочетени", "Unread")} ({unreadCount})</button>
           </div>
-
-          {/* Empty inbox vs scrollable list. */}
-          {items.length === 0 ? (
-            <p className="muted" style={{ padding: "1rem" }}>
-              {t(locale, "Няма известия", "No notifications")}
-            </p>
-          ) : (
-            <>
-              <ul className="notif-page-list">
-                {items.map((n) => (
-                  <li
-                    key={n.id}
-                    className={`notif-page-item${n.unread ? " unread" : ""}`}
-                  >
-                    {/* Open: mark read + optional panel navigation. */}
-                    <button
-                      type="button"
-                      className="notif-page-item-main"
-                      onClick={() => void onOpenItem(n)}
-                    >
-                      <strong>{n.title}</strong>
-                      <span>{n.body}</span>
-                      <time dateTime={n.createdAt}>
-                        {relativeTime(n.createdAt, locale)}
-                        {/* Absolute locale string alongside relative time. */}
-                        {n.createdAt
-                          ? ` · ${new Date(n.createdAt).toLocaleString()}`
-                          : ""}
-                      </time>
-                    </button>
-                    {/* Dismiss removes the row without navigating. */}
-                    <button
-                      type="button"
-                      className="ghost notif-dismiss"
-                      onClick={() => void onDismiss(n.id)}
-                    >
-                      {t(locale, "Скрий", "Dismiss")}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {nextCursor && (
-                <div style={{ padding: "0.75rem 1rem" }}>
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={loadingMore}
-                    onClick={() => void loadMore()}
-                  >
-                    {loadingMore ? (
-                      <LoadingIndicator
-                        variant="inline"
-                        delayMs={0}
-                        label={t(locale, "Зареждане…", "Loading…")}
-                      />
-                    ) : (
-                      t(locale, "Зареди още", "Load more")
-                    )}
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </section>
-      )}
-    </div>
+          <span className="muted">{t(locale, "Филтър върху заредените известия", "Filtering loaded notifications")}</span>
+        </div>
+        {visibleItems.length === 0 ? <p className="ui-empty muted">{inboxView === "unread" ? t(locale, "Няма непрочетени в заредените известия.", "No unread items in loaded notifications.") : t(locale, "Няма известия", "No notifications")}</p> : <ul className="ui-queue notif-page-list">
+          {visibleItems.map((notification) => <li key={notification.id} className={`ui-work-item notif-page-item${notification.unread ? " unread" : ""}`}>
+            <div className="ui-message-state"><span className={`badge ${notification.unread ? "status-new" : "status-completed"}`}>{notification.unread ? t(locale, "Ново", "Unread") : t(locale, "Прочетено", "Read")}</span><time dateTime={notification.createdAt} title={new Date(notification.createdAt).toLocaleString()}>{relativeTime(notification.createdAt, locale)}</time></div>
+            <div className="ui-work-item-body"><h2>{notification.title}</h2><p>{notification.body}</p><small className="muted">{new Date(notification.createdAt).toLocaleString()}</small></div>
+            <div className="ui-work-item-actions"><button type="button" className="ghost notif-page-item-main" onClick={() => void onOpenItem(notification)} aria-label={`${t(locale, "Отвори", "Open")}: ${notification.title}`}>{t(locale, "Отвори", "Open")}</button><button type="button" className="ghost notif-dismiss" onClick={() => void onDismiss(notification.id)}>{t(locale, "Скрий", "Dismiss")}</button></div>
+          </li>)}
+        </ul>}
+        {nextCursor && <div className="ui-action-strip"><button type="button" className="ghost" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? <LoadingIndicator variant="inline" delayMs={0} label={t(locale, "Зареждане…", "Loading…")} /> : t(locale, "Зареди още", "Load more")}</button></div>}
+      </section>}
+    </main>
   );
 }

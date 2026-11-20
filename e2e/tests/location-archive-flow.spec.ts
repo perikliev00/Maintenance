@@ -28,8 +28,8 @@ test.describe("location archive flow", () => {
     try {
       await uiLogin(page, USERS.owner, DEMO_PASSWORD);
       await openNav(page, /Почистване|Housekeeping/);
-      // Catalog is a settings-style tab (role=tab), not a plain button.
-      const catalogTab = page.getByRole("tab", { name: /Каталог|Catalog/i });
+      // Catalog is a focused destination in the housekeeping workspace.
+      const catalogTab = page.getByRole("button", { name: /Каталог|Catalog/i });
       await expect(catalogTab).toBeVisible({ timeout: 20_000 });
       await catalogTab.click();
 

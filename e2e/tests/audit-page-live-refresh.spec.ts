@@ -141,12 +141,12 @@ test.describe("Audit page live refresh", () => {
       `PATCH operations → ${patch.status} ${JSON.stringify(patch.body)}`,
     ).toBe(200);
 
-    // No page.reload() — settings.changed must soft-refresh the events table.
+    // No page.reload() — settings.changed must refresh the event timeline.
     // Unique reason is the strong signal (filter <option> also says "Обновена настройка").
-    const eventsPanel = page.locator("section.panel").filter({
+    const eventsPanel = page.locator("section").filter({
       has: page.getByRole("heading", { name: /Събития|Events/ }),
     });
-    await expect(eventsPanel.getByText(reason, { exact: true })).toBeVisible({
+    await expect(eventsPanel.locator("[data-audit-event-id]").filter({ hasText: reason })).toBeVisible({
       timeout: 20_000,
     });
   });

@@ -1,7 +1,7 @@
 // Playwright test runner APIs for browser E2E scenarios.
 import { expect, test, type Page } from "@playwright/test";
-import { uiLogin, USERS } from "../helpers/auth";
-import { openNav } from "../helpers/nav";
+import { openAccount, uiLogin, USERS } from "../helpers/auth";
+import { expectNavVisible, openNav } from "../helpers/nav";
 // Local helper mutation used by cases in this file.
 async function mutation(page: Page, method: string, path: string, data?: unknown) {
   const csrf = (await page.context().cookies()).find(c => c.name === "csrf")?.value;
@@ -120,7 +120,7 @@ test("real queued report reloads then single-flight sync replaces optimistic row
   await page.reload(); await openNav(page, /Повреди|Repairs/);
   // Room number is unique per run; catalog titles collide across prior SC-OFFLINE-* tickets.
   await expect(
-    page.locator("tr").filter({ hasText: target.number }).filter({ hasText: matched[0].title }),
+    page.locator("article[data-ticket-id]").filter({ hasText: target.number }).filter({ hasText: matched[0].title }),
   ).toHaveCount(1);
 });
 // Case: card type switches send applicable fields; delayed double click commits one actual card.
@@ -154,7 +154,7 @@ test("Rooms uses saved task due hours without changing an existing task", async 
   await mutation(page, "POST", `/rooms/${b.id}/mark-dirty`, {});
   // Board labels room cells as "<building> <number>", so exact number match misses the row.
   const createTask = /Създай задача|Create task/;
-  const row = (number: string) => page.locator("tbody tr").filter({ hasText: number });
+  const row = (number: string) => page.locator("article[data-location-id]").filter({ hasText: number });
   const findRoom = async (number: string) => {
     await page.getByLabel(/Търсене|Search/).fill(number);
     await expect(row(number).getByRole("button", { name: createTask })).toBeVisible();
@@ -226,9 +226,9 @@ test("disabling current module selects allowed panel and remains hidden after re
   try {
     await openNav(page, /Присъствие|Attendance/); await expect(page.getByRole("heading", { name: /Присъствие|Attendance/ })).toBeVisible();
     await patchSetting(page, "modules", { ...original, attendance: false }, "scenario current module");
-    await expect(page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: /Присъствие|Attendance/ })).toHaveCount(0);
+    await expectNavVisible(page, /Присъствие|Attendance/, false);
     await expect(page.getByRole("heading", { name: /Присъствие|Attendance/ })).toHaveCount(0);
-    await page.reload(); await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible(); await expect(page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: /Присъствие|Attendance/ })).toHaveCount(0);
+    await page.reload(); await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible(); await expectNavVisible(page, /Присъствие|Attendance/, false);
   } finally { await patchSetting(page, "modules", original, "scenario restore"); }
 });
 // Case: legacy room-QR hash clears without calling retired by-qr API.
@@ -250,7 +250,7 @@ test("app logout aborts its shared live stream and never reconnects", async ({ p
   page.on("request", request => { if (request.url().includes("/events/stream")) streams.push(request); });
   page.on("requestfailed", request => { finished.add(request); }); page.on("requestfinished", request => { finished.add(request); });
   await uiLogin(page, USERS.owner); await openNav(page, /Повреди|Repairs/); await expect.poll(() => streams.length).toBe(1);
-  await page.getByRole("button", { name: "Log out", exact: true }).click(); await expect(page.getByRole("button", { name: /Вход|Sign in/, exact: true })).toBeVisible();
+  await openAccount(page); await page.getByRole("button", { name: "Log out", exact: true }).click(); await expect(page.getByRole("button", { name: /Вход|Sign in/, exact: true })).toBeVisible();
   await expect.poll(() => finished.has(streams[0]!)).toBe(true); const count = streams.length;
   await page.clock.install(); await page.clock.fastForward(60000); expect(streams.length).toBe(count);
 });

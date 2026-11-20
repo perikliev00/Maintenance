@@ -2,7 +2,7 @@
  * Full repair cycle through Repairs UI (happy + history).
  */
 import { expect, test } from "@playwright/test";
-import { uiLogin, USERS, DEMO_PASSWORD } from "./helpers/auth";
+import { openAccount, uiLogin, USERS, DEMO_PASSWORD } from "./helpers/auth";
 import { openNav } from "./helpers/nav";
 import { apiGet, apiPost } from "./helpers/api";
 import {
@@ -30,9 +30,10 @@ test.describe("repairs lifecycle flow", () => {
     await uiLogin(page, USERS.owner, DEMO_PASSWORD);
     // BG nav label is "Повреди", not "Ремонти".
     await openNav(page, /Повреди|Repairs/);
-    await expect(page.getByRole("heading", { name: /Докладвай|Report/i })).toBeVisible({
+    await expect(page.locator("summary").filter({ hasText: /Нов сигнал|New issue/i })).toBeVisible({
       timeout: 20_000,
     });
+    await expect(page.getByRole("combobox", { name: /^(Стая|Room)$/ })).toBeVisible();
 
     await page.getByLabel(/Стая|Room/).selectOption({ value: room.id });
     const optionSelect = page.getByLabel(/Опция|Option/);
@@ -78,6 +79,7 @@ test.describe("repairs lifecycle flow", () => {
       assigneeId: techId,
     });
 
+    await openAccount(page);
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
     await uiLogin(page, USERS.technician, DEMO_PASSWORD);
@@ -85,7 +87,7 @@ test.describe("repairs lifecycle flow", () => {
 
     // Catalog titles collide across leftover tickets; room number is unique per run.
     const ticketRow = () =>
-      page.locator("tr").filter({ hasText: room.number });
+      page.locator("article[data-ticket-id]").filter({ hasText: room.number });
     const startBtn = /Старт|Start/;
     const waitBtn = /Изчакай|Wait/;
     const resumeBtn = /Продължи|Resume/;
@@ -121,6 +123,7 @@ test.describe("repairs lifecycle flow", () => {
       // Chained expectation refining the UI/API assertion.
       .toBe(true);
 
+    await openAccount(page);
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
     await uiLogin(page, USERS.owner, DEMO_PASSWORD);
@@ -153,7 +156,12 @@ test.describe("repairs lifecycle flow", () => {
     await expect(controlCard.getByRole("button", { name: "Reopen" })).toBeVisible({
       timeout: 20_000,
     });
+    const reopened = page.waitForResponse(response =>
+      response.url().endsWith(`/maintenance/tickets/${ticket!.id}/reopen`) &&
+      response.request().method() === "POST" && response.status() === 200,
+    );
     await controlCard.getByRole("button", { name: "Reopen" }).click();
+    await reopened;
 
     const events = await apiGet(token, `/maintenance/tickets/${ticket!.id}/events`);
     expect(events.status).toBe(200);

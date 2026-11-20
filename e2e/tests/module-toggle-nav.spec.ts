@@ -30,7 +30,7 @@ test.describe("module toggle nav", () => {
 
       await openNav(page, /Настройки|Settings/);
       await expect(page.getByRole("heading", { name: /Настройки|Settings/ })).toBeVisible();
-      await page.getByRole("tab", { name: /Модули|Modules/ }).click();
+      await page.getByRole("button", { name: /Модули|Modules/ }).click();
 
       const attendanceBox = page.getByRole("checkbox", {
         name: /Присъствие|Attendance/,
