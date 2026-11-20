@@ -20,12 +20,16 @@ sudo mkdir -p /etc/maintenance /opt/maintenance/infra/monitoring/textfile
 sudo chown maintenance-backup:maintenance-backup /opt/maintenance/infra/monitoring/textfile
 ```
 
-2. Write `/etc/maintenance/backup.env` (mode `0600`, owner `maintenance-backup`):
+2. Write `/etc/maintenance/backup.env` (mode `0600`):
 
 ```sh
-DATABASE_URL=postgresql://backup_role:...@db-host:5432/maintenance?sslmode=require
+# On Compose EC2 hosts the DB hostname is `db` on the internal backend network.
+# Use scripts/aws/backup-via-docker-network.sh (systemd example) so pg_dump can reach it.
+DATABASE_URL=postgresql://backup_user:...@db:5432/maintenance
 BACKUP_S3_URI=s3://your-offhost-bucket/maintenance-pg/
 BACKUP_AGE_RECIPIENT=age1...
+# Optional: assume the dedicated backup uploader role from the instance profile
+# BACKUP_ROLE_ARN=arn:aws:iam::ACCOUNT:role/maintenance-backup-uploader
 # Optional dead-man for when the host itself is down:
 # BACKUP_HEARTBEAT_URL=https://uptime.example/heartbeat/maintenance-backup
 # BACKUP_METRICS_FILE is set by the systemd unit example

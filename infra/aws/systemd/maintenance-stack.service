@@ -1,0 +1,22 @@
+[Unit]
+Description=Meridian Maintenance Docker Compose stack
+Documentation=file:/opt/maintenance/docs/operations/aws-ec2.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=maintenance
+Group=maintenance
+WorkingDirectory=/opt/maintenance
+EnvironmentFile=-/etc/maintenance/stack.env
+EnvironmentFile=-/etc/maintenance/.env.production
+# Image-only start after reboot; never compose build on production (OPS-001 / DEP-01).
+ExecStart=/usr/bin/docker compose --env-file /etc/maintenance/.env.production -f compose.prod.yml up -d --no-build
+ExecStop=/usr/bin/docker compose --env-file /etc/maintenance/.env.production -f compose.prod.yml stop
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

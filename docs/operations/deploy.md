@@ -4,7 +4,9 @@
 
 Use a clean Linux host with Docker Engine and the Compose v2 plugin. Set public DNS for `APP_DOMAIN` and allow inbound TCP 80/443 and UDP 443. Store `.env.production` outside Git with permissions restricted to the deploy account. Start from `.env.production.example`; generate independent random credentials for the PostgreSQL administrator, migration role, bootstrap role, runtime role, monitoring role, JWT signing key, Grafana, and alert receiver. Do not copy production credentials into staging.
 
-Before first deploy, provision PostgreSQL roles and grants using the database provider or an operator-controlled SQL session. Runtime role needs only the application DML privileges required by current services and sequence access. Migration role owns the schema and migration ledger. Bootstrap role can write settings, grants, and SLA defaults. Metrics role has `pg_monitor` and read-only access. Keep PostgreSQL on the internal network or managed private endpoint; never publish port 5432.
+**AWS EC2 path (preferred):** bootstrap with Terraform + cloud-init + SSM — see [`aws-ec2.md`](./aws-ec2.md) and [`agent-access.md`](./agent-access.md). GitHub Actions deploys via OIDC → SSM `maintenance-promote` (no long-lived SSH deploy keys).
+
+Before first deploy, provision PostgreSQL roles and grants using the database provider or an operator-controlled SQL session (example: [`infra/postgres/provision-roles.sql.example`](../../infra/postgres/provision-roles.sql.example)). Runtime role needs only the application DML privileges required by current services and sequence access. Migration role owns the schema and migration ledger. Bootstrap role can write settings, grants, and SLA defaults. Metrics role has `pg_monitor` and read-only access. Keep PostgreSQL on the internal network or managed private endpoint; never publish port 5432.
 
 ## Production promote (image-only — required)
 
@@ -12,10 +14,13 @@ Before first deploy, provision PostgreSQL roles and grants using the database pr
 
 From the deployment host (or via `.github/workflows/deploy.yml`):
 
-The workflow passes the job token to GitHub CLI and logs in to GHCR with
-`packages: read` for manifest verification. Private packages must grant this
-repository access to that token. The production host uses its own preconfigured
-read-only registry credentials; the runner login is not forwarded over SSH.
+The workflow verifies CI success and GHCR manifests, assumes the AWS deploy role
+via GitHub OIDC, confirms the instance SSM agent is Online, then runs
+`scripts/aws/ssm-promote.sh` (SSM document `maintenance-promote`). After promote
+it runs `scripts/post-deploy-smoke.sh` against `APP_URL`. Private GHCR packages
+must allow the repository token to inspect manifests; the EC2 host uses its own
+read-only GHCR credentials from Secrets Manager. Long-lived SSH deploy keys are
+not part of the supported path.
 
 The web image runs as UID 1000. When upgrading volumes created by an older
 root-run Caddy image, ensure its data/config volumes are writable by that UID
@@ -23,10 +28,14 @@ before the upgrade; the image build cannot change ownership of existing volumes.
 
 ```sh
 export RELEASE_SHA=<40-char-git-sha>
-# Workflow also verifies GHCR manifests exist for this SHA before SSH.
+# Preferred: from a workstation with ops/GHA AWS creds
+./scripts/aws/ssm-promote.sh
+APP_URL=https://$APP_DOMAIN ./scripts/post-deploy-smoke.sh
+
+# Equivalent on the host itself (SSM session or emergency console):
 git fetch origin "$RELEASE_SHA" && git checkout --detach "$RELEASE_SHA"
-docker compose --env-file .env.production -f compose.prod.yml pull
-docker compose --env-file .env.production -f compose.prod.yml up -d --no-build
+docker compose --env-file /etc/maintenance/.env.production -f compose.prod.yml pull
+docker compose --env-file /etc/maintenance/.env.production -f compose.prod.yml up -d --no-build
 curl --fail https://$APP_DOMAIN/api/health/ready
 ```
 
@@ -117,4 +126,4 @@ The command serializes creation with a PostgreSQL advisory lock, refuses to run 
 
 ## Rollback
 
-Restore the previous API/web image tags by setting `RELEASE_SHA` to the prior release and applying Compose with `pull` + `up -d --no-build`. Confirm readiness and run the staging smoke flows before reopening traffic. This is an application rollback only: Prisma migrations are not automatically reversed. Every production migration must be backward compatible with the prior application during the rollback window (expand/contract); otherwise use the documented forward fix or an approved database recovery. Never run a demo seed during rollback.
+Restore the previous API/web image tags by setting `RELEASE_SHA` to the prior release and applying Compose with `pull` + `up -d --no-build` (host helper: `scripts/aws/ssm-rollback-app.sh`, which reads `/var/lib/maintenance/previous-release-sha`). Confirm readiness and run smoke checks before reopening traffic. This is an application rollback only: Prisma migrations are not automatically reversed. Every production migration must be backward compatible with the prior application during the rollback window (expand/contract); otherwise use the documented forward fix or an approved database recovery. Never run a demo seed during rollback.

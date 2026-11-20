@@ -296,6 +296,29 @@ jobs:
             e2e/test-results
           retention-days: 7
 
+  aws-deploy-config:
+    name: AWS deploy config
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.7"
+          terraform_wrapper: false
+      - name: Static AWS deploy validation
+        run: node scripts/ci/validate-aws-deploy-config.mjs
+      - name: Terraform fmt + validate
+        working-directory: infra/aws/terraform
+        env:
+          TF_VAR_github_org: ci-example
+          TF_VAR_app_domain: maintenance.example.com
+          TF_VAR_git_clone_url: https://github.com/example/maintenance.git
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+
   containers:
     name: Container verification
     runs-on: ubuntu-latest
