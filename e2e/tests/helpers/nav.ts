@@ -4,6 +4,8 @@ import { expect, type Page } from "@playwright/test";
 /** Reveal a destination through the workspace navigation (bg or en). */
 async function revealNav(page: Page, label: string | RegExp) {
   const nav = page.getByRole("navigation", { name: "Main" });
+  // After reload / soft bootstrap the shell mounts before Main exists.
+  await expect(nav).toBeVisible({ timeout: 20_000 });
   const tab = nav.getByRole("button", { name: label });
   if (await tab.isVisible()) {
     await tab.scrollIntoViewIfNeeded();
@@ -16,6 +18,7 @@ async function revealNav(page: Page, label: string | RegExp) {
   // Workspace triggers expose the authorised destinations for that area.
   // Use their semantic test contract rather than depending on CSS layout.
   const workspaces = page.locator("[data-workspace]");
+  await expect(workspaces.first()).toBeVisible({ timeout: 20_000 });
   for (let index = 0; index < await workspaces.count(); index++) {
     const workspace = workspaces.nth(index);
     if (!(await workspace.isVisible())) continue;
