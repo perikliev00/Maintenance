@@ -112,9 +112,9 @@ gh api repos/perikliev00/Maintenance/rulesets
 
 Required status check **context** names must match the job `name:` values from
 `ci.yml` after they have appeared on a workflow run (for example `API`, `Web`,
-`Smoke`, `Smoke audit upgrade`, `E2E`, `Container verification`, `Secret scan`).
-PR-only jobs such as `Dependency review (PR)` should be required on pull
-requests when that check exists in history.
+`Smoke`, `Smoke audit upgrade`, `E2E`, `Container verification`, `Secret scan`,
+`Dependency review (PR)`). The prepared ruleset requires the OSV PR gate
+(`Dependency review (PR)`); re-apply the JSON after updating it.
 
 Manual UI path: **Settings → Rules → Rulesets** → target `main` → require the
 status checks above → require PR / block force pushes per team policy.

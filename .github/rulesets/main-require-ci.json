@@ -38,7 +38,8 @@
           { "context": "Smoke audit upgrade" },
           { "context": "E2E" },
           { "context": "Container verification" },
-          { "context": "Secret scan" }
+          { "context": "Secret scan" },
+          { "context": "Dependency review (PR)" }
         ]
       }
     }
