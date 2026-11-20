@@ -43,7 +43,7 @@ FROM build AS runtime-deps
 # Keep generated Prisma client, prune dev deps, and drop unused packages.
 RUN cp -a node_modules/.prisma /tmp/prisma-generated \
  && npm prune --omit=dev \
- && rm -rf node_modules/prisma node_modules/@prisma/config node_modules/deepmerge-ts \
+ && rm -rf node_modules/prisma node_modules/@prisma/config node_modules/deepmerge-ts node_modules/effect \
  && mkdir -p node_modules/.prisma \
  && cp -a /tmp/prisma-generated/client node_modules/.prisma/client
 

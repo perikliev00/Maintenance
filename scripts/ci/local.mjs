@@ -261,12 +261,41 @@ function baseEnv(extra = {}) {
   };
 }
 
+function dockerDaemonHint() {
+  if (process.platform === "win32") {
+    return "Start Docker Desktop, wait until it is Running, then retry npm run ci:local";
+  }
+  if (process.platform === "darwin") {
+    return "Start Docker Desktop (or Colima), wait until the engine is ready, then retry npm run ci:local";
+  }
+  return "Start the Docker daemon (e.g. systemctl start docker), then retry npm run ci:local";
+}
+
+function ensureDockerDaemon() {
+  const info = spawnSync("docker", ["info"], {
+    cwd: rootDir,
+    encoding: "utf8",
+  });
+  if (info.status === 0) return true;
+  const errText = `${info.stderr || ""}\n${info.stdout || ""}`;
+  const daemonDown =
+    /cannot connect to the docker (?:daemon|API)|dockerDesktopLinuxEngine|Is the docker daemon running|failed to connect/i.test(
+      errText,
+    );
+  const detail = daemonDown
+    ? `Docker engine is not running — ${dockerDaemonHint()}`
+    : `docker info failed — ${dockerDaemonHint()}`;
+  mark("postgres", "fail", detail);
+  return false;
+}
+
 function ensureDockerDb() {
   const docker = which("docker") || which("docker.exe");
   if (!docker) {
     mark("postgres", "fail", "docker not found on PATH");
     return false;
   }
+  if (!ensureDockerDaemon()) return false;
   const ps = spawnSync("docker", ["compose", "ps", "-q", "db"], {
     cwd: rootDir,
     encoding: "utf8",
@@ -278,7 +307,7 @@ function ensureDockerDb() {
       label: "docker compose up -d db",
     });
     if (up !== 0) {
-      mark("postgres", "fail", "docker compose up -d db failed");
+      mark("postgres", "fail", `docker compose up -d db failed — ${dockerDaemonHint()}`);
       return false;
     }
   }
