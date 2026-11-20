@@ -1,0 +1,26 @@
+# Copy to terraform.tfvars (untracked) before plan/apply.
+# Do NOT run terraform apply until the owner explicitly approves paid EC2 resources.
+
+aws_region  = "eu-central-1"
+stack_name  = "maintenance"
+github_org  = "perikliev00"
+github_repo = "maintenance"
+
+app_domain    = "maintenance.example.com"
+git_clone_url = "https://github.com/perikliev00/maintenance.git"
+git_ref       = "main"
+deploy_path   = "/opt/maintenance"
+
+instance_type   = "t3.medium"
+root_volume_gb  = 40
+allocate_eip    = true
+allowed_ssh_cidrs = [] # keep empty; use SSM
+
+# If this AWS account already has a GitHub OIDC provider:
+# create_github_oidc_provider = false
+# existing_oidc_provider_arn  = "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+
+# Optional: pin VPC/subnet/AMI instead of default VPC lookup
+# vpc_id    = "vpc-xxxxxxxx"
+# subnet_id = "subnet-xxxxxxxx"
+# ami_id    = "ami-xxxxxxxx"

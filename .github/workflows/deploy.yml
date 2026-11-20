@@ -11,35 +11,55 @@ on:
         description: Full commit SHA of a successful CI and image publish
         type: string
         required: true
+  workflow_run:
+    workflows: ["Publish immutable images"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
   actions: read
   packages: read
+  id-token: write
 
 concurrency:
-  group: deploy-${{ inputs.environment }}
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
   cancel-in-progress: false
 
 jobs:
   deploy:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+    env:
+      RELEASE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.release_sha || github.event.workflow_run.head_sha }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+
       - name: Validate target settings and release SHA
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ inputs.release_sha }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          APP_URL: ${{ vars.APP_URL }}
         run: |
+          set -euo pipefail
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
-          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
-          [[ "$DEPLOY_USER" =~ ^[A-Za-z0-9._-]+$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RELEASE_SHA&per_page=100" --jq '[.workflow_runs[] | select(.name == "CI" and .head_sha == env.RELEASE_SHA and .event == "push")] | any(.[]; .conclusion == "success")' | grep -qx true
+          [[ "$EC2_INSTANCE_ID" =~ ^i-[0-9a-f]+$ ]]
+          [[ "$AWS_ROLE_ARN" =~ ^arn:aws:iam::[0-9]+:role/.+ ]]
+          [[ "$APP_URL" =~ ^https:// ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RELEASE_SHA&per_page=100" \
+            --jq '[.workflow_runs[] | select(.name == "CI" and .head_sha == env.RELEASE_SHA and .event == "push")] | any(.[]; .conclusion == "success")' \
+            | grep -qx true
 
       - name: Authenticate to GHCR for image verification
         uses: docker/login-action@v3
@@ -50,43 +70,83 @@ jobs:
 
       - name: Verify GHCR images exist for RELEASE_SHA
         env:
-          RELEASE_SHA: ${{ inputs.release_sha }}
           IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX }}
         run: |
           set -euo pipefail
-          # Contract: images are tagged with the full git SHA (not a content digest pin).
-          # Residual: a mutable tag can be overwritten if registry ACLs allow it.
           owner="${GITHUB_REPOSITORY_OWNER}"
           prefix="${IMAGE_PREFIX:-ghcr.io/${owner}}"
+          prefix="$(printf '%s' "$prefix" | tr '[:upper:]' '[:lower:]')"
           for name in maintenance-api maintenance-web maintenance-migrate maintenance-bootstrap maintenance-owner; do
             img="${prefix}/${name}:${RELEASE_SHA}"
             echo "Checking $img"
             docker buildx imagetools inspect "$img" >/dev/null
           done
 
-      - name: Deploy and run readiness + smoke checks
+      - name: Resolve AWS region and SSM document names
+        id: aws_meta
+        run: |
+          set -euo pipefail
+          echo "aws_region=${AWS_REGION_VAR:-eu-central-1}" >> "$GITHUB_OUTPUT"
+          echo "ssm_promote_doc=${SSM_PROMOTE_DOC_VAR:-maintenance-promote}" >> "$GITHUB_OUTPUT"
+          echo "ssm_diag_doc=${SSM_DIAG_DOC_VAR:-maintenance-diag}" >> "$GITHUB_OUTPUT"
         env:
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          AWS_REGION_VAR: ${{ vars.AWS_REGION }}
+          SSM_PROMOTE_DOC_VAR: ${{ vars.SSM_PROMOTE_DOC }}
+          SSM_DIAG_DOC_VAR: ${{ vars.SSM_DIAG_DOC }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ steps.aws_meta.outputs.aws_region }}
+          role-session-name: gha-maintenance-deploy
+
+      - name: Verify SSM agent online
+        env:
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ steps.aws_meta.outputs.aws_region }}
+        run: |
+          set -euo pipefail
+          info="$(aws ssm describe-instance-information \
+            --filters "Key=InstanceIds,Values=$EC2_INSTANCE_ID" \
+            --query 'InstanceInformationList[0].PingStatus' \
+            --output text)"
+          echo "SSM PingStatus=$info"
+          test "$info" = "Online"
+
+      - name: Promote release via SSM
+        id: promote
+        env:
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-          DEPLOY_PRIVATE_KEY: ${{ secrets.DEPLOY_PRIVATE_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          RELEASE_SHA: ${{ inputs.release_sha }}
+          AWS_REGION: ${{ steps.aws_meta.outputs.aws_region }}
+          SSM_PROMOTE_DOC: ${{ steps.aws_meta.outputs.ssm_promote_doc }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/aws/ssm-promote.sh
+          ./scripts/aws/ssm-promote.sh
+
+      - name: Post-deploy smoke (ready, metrics lockdown, live, validation)
+        env:
           APP_URL: ${{ vars.APP_URL }}
         run: |
-          test -n "$DEPLOY_PRIVATE_KEY" && test -n "$DEPLOY_KNOWN_HOSTS" && test -n "$APP_URL"
-          key="$RUNNER_TEMP/maintenance-deploy-key"
-          known_hosts="$RUNNER_TEMP/maintenance-known-hosts"
-          printf '%s\n' "$DEPLOY_PRIVATE_KEY" > "$key"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known_hosts"
-          chmod 600 "$key" "$known_hosts"
-          # Image-only promote: pull + up --no-build. Never compose build on the prod host.
-          ssh -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd '$DEPLOY_PATH' && git fetch origin '$RELEASE_SHA' && git checkout --detach '$RELEASE_SHA' && RELEASE_SHA='$RELEASE_SHA' docker compose --env-file .env.production -f compose.prod.yml pull && RELEASE_SHA='$RELEASE_SHA' docker compose --env-file .env.production -f compose.prod.yml up -d --no-build"
-          ready="$(curl --fail --retry 12 --retry-delay 5 --retry-connrefused "$APP_URL/api/health/ready")"
-          printf '%s' "$ready" | jq -e '.ok == true and .ready == true' >/dev/null
-          # DEP-05: public metrics must stay blocked at the edge (B0 / SEC-001).
-          for path in /api/metrics /api/metrics/ /api/METRICS/ /api/%6detrics; do
-            code="$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL$path" || true)"
-            test "$code" = "404" -o "$code" = "401" -o "$code" = "403"
-          done
+          set -euo pipefail
+          chmod +x scripts/post-deploy-smoke.sh
+          # Allow TLS / container settle after promote.
+          sleep 15
+          APP_URL="$APP_URL" ./scripts/post-deploy-smoke.sh
+
+      - name: Deploy failure diagnostics
+        if: failure()
+        env:
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ steps.aws_meta.outputs.aws_region }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          SSM_DIAG_DOC: ${{ steps.aws_meta.outputs.ssm_diag_doc }}
+        run: |
+          set +e
+          echo "::group::SSM diagnostics"
+          chmod +x scripts/aws/ssm-diag.sh
+          ./scripts/aws/ssm-diag.sh || true
+          echo "::endgroup::"
+          echo "::error::Deploy failed. Application-only rollback: scripts/aws/ssm-rollback-app.sh (schema must remain compatible). Database rollback is never automatic."

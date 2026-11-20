@@ -1,0 +1,57 @@
+-- Provision isolated PostgreSQL roles for Meridian Maintenance (production).
+-- Run once as the compose POSTGRES_ADMIN_USER against the maintenance database.
+-- Replace every REPLACE_WITH_* password before execution. Do not commit real secrets.
+--
+-- Roles:
+--   migration_user  — owns schema + _prisma_migrations (prisma migrate deploy)
+--   bootstrap_user  — settings / grants / SLA defaults bootstrap
+--   runtime_user    — application DML only
+--   metrics_user    — read-only + pg_monitor for postgres-exporter
+--   backup_user     — SELECT / dump privileges for encrypted off-host backups
+
+BEGIN;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'migration_user') THEN
+    CREATE ROLE migration_user LOGIN PASSWORD 'REPLACE_WITH_MIGRATION_PASSWORD';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bootstrap_user') THEN
+    CREATE ROLE bootstrap_user LOGIN PASSWORD 'REPLACE_WITH_BOOTSTRAP_PASSWORD';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'runtime_user') THEN
+    CREATE ROLE runtime_user LOGIN PASSWORD 'REPLACE_WITH_RUNTIME_PASSWORD';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metrics_user') THEN
+    CREATE ROLE metrics_user LOGIN PASSWORD 'REPLACE_WITH_METRICS_PASSWORD';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'backup_user') THEN
+    CREATE ROLE backup_user LOGIN PASSWORD 'REPLACE_WITH_BACKUP_PASSWORD';
+  END IF;
+END
+$$;
+
+GRANT CONNECT ON DATABASE maintenance TO migration_user, bootstrap_user, runtime_user, metrics_user, backup_user;
+GRANT USAGE, CREATE ON SCHEMA public TO migration_user;
+GRANT USAGE ON SCHEMA public TO bootstrap_user, runtime_user, metrics_user, backup_user;
+
+-- After migrate deploy, migration_user owns tables. Re-grant runtime DML:
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO runtime_user;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO runtime_user;
+-- ALTER DEFAULT PRIVILEGES FOR ROLE migration_user IN SCHEMA public
+--   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO runtime_user;
+-- ALTER DEFAULT PRIVILEGES FOR ROLE migration_user IN SCHEMA public
+--   GRANT USAGE, SELECT ON SEQUENCES TO runtime_user;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bootstrap_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO bootstrap_user;
+
+GRANT pg_read_all_data TO metrics_user;
+GRANT pg_monitor TO metrics_user;
+
+GRANT pg_read_all_data TO backup_user;
+
+COMMIT;
+
+-- Optional: tighten public schema create after migrate ownership is established:
+-- REVOKE CREATE ON SCHEMA public FROM PUBLIC;

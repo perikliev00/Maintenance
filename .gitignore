@@ -22,3 +22,11 @@ api/coverage/
 web/coverage/
 api/reports/analytics-measure-*.json
 api/reports/baseline/
+
+# Terraform (AWS) local state and secrets
+infra/aws/terraform/.terraform/
+infra/aws/terraform/*.tfstate
+infra/aws/terraform/*.tfstate.*
+infra/aws/terraform/tfplan
+infra/aws/terraform/terraform.tfvars
+infra/aws/terraform/crash.log

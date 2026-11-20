@@ -1,0 +1,238 @@
+#cloud-config
+# Templated by Terraform (infra/aws/terraform/ec2.tf). Do not put secrets here.
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - git
+  - ufw
+  - age
+  - postgresql-client
+  - unattended-upgrades
+  - amazon-ec2-utils
+  - snapd
+  - util-linux
+
+groups:
+  - docker
+
+users:
+  - default
+  - name: maintenance
+    groups: [docker, sudo]
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ["ALL=(ALL) NOPASSWD: /bin/systemctl start maintenance-stack.service, /bin/systemctl stop maintenance-stack.service, /bin/systemctl restart maintenance-stack.service, /bin/systemctl status maintenance-stack.service, /usr/bin/docker, /usr/bin/docker-compose, /usr/libexec/docker/cli-plugins/docker-compose"]
+  - name: maintenance-backup
+    system: true
+    shell: /usr/sbin/nologin
+    lock_passwd: true
+    homedir: /var/lib/maintenance-backup
+
+write_files:
+  - path: /etc/maintenance/stack.env
+    owner: root:root
+    permissions: "0644"
+    content: |
+      DEPLOY_PATH=${deploy_path}
+      APP_DOMAIN=${app_domain}
+      AWS_REGION=${aws_region}
+      STACK_NAME=${stack_name}
+      GHCR_SECRET_ID=${ghcr_secret_id}
+      ENV_SECRET_ID=${env_secret_id}
+      BACKUP_ROLE_ARN=${backup_role_arn}
+      BACKUP_S3_URI=${backup_s3_uri}
+      GIT_CLONE_URL=${git_clone_url}
+      GIT_REF=${git_ref}
+
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root:root
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  - path: /usr/local/sbin/maintenance-bootstrap-host.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      # shellcheck disable=SC1091
+      source /etc/maintenance/stack.env
+
+      export DEBIAN_FRONTEND=noninteractive
+      export AWS_DEFAULT_REGION="$${AWS_REGION}"
+
+      install -d -m 0755 -o maintenance -g maintenance "$${DEPLOY_PATH}"
+      install -d -m 0750 -o root -g maintenance /etc/maintenance
+      install -d -m 0750 -o maintenance -g maintenance /var/lib/maintenance
+      install -d -m 0755 -o maintenance-backup -g maintenance-backup /var/lib/maintenance-backup
+      install -d -m 0775 -o maintenance -g maintenance "$${DEPLOY_PATH}/infra/monitoring/textfile" || true
+
+      # Docker Engine + Compose plugin (official Docker apt repo).
+      if ! command -v docker >/dev/null 2>&1; then
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        . /etc/os-release
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $${VERSION_CODENAME} stable" \
+          > /etc/apt/sources.list.d/docker.list
+        apt-get update -y
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      fi
+      systemctl enable --now docker
+
+      # AWS CLI v2 if missing.
+      if ! command -v aws >/dev/null 2>&1; then
+        tmp="$(mktemp -d)"
+        curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "$${tmp}/awscliv2.zip"
+        apt-get install -y unzip
+        unzip -q "$${tmp}/awscliv2.zip" -d "$${tmp}"
+        "$${tmp}/aws/install" --update
+        rm -rf "$${tmp}"
+      fi
+
+      # SSM Agent (snap on Ubuntu 24.04).
+      snap install amazon-ssm-agent --classic || true
+      systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || \
+        systemctl enable --now amazon-ssm-agent || true
+
+      # UFW: public edge only.
+      ufw default deny incoming
+      ufw default allow outgoing
+      ufw allow 80/tcp
+      ufw allow 443/tcp
+      ufw allow 443/udp
+      ufw --force enable
+
+      # Clone application if missing.
+      if [ ! -d "$${DEPLOY_PATH}/.git" ]; then
+        sudo -u maintenance git clone "$${GIT_CLONE_URL}" "$${DEPLOY_PATH}"
+      fi
+      cd "$${DEPLOY_PATH}"
+      sudo -u maintenance git fetch --all --tags
+      sudo -u maintenance git checkout --detach "$${GIT_REF}" || sudo -u maintenance git checkout "$${GIT_REF}"
+
+      # Install host helper scripts into /usr/local/bin.
+      for src in \
+        scripts/aws/promote-release.sh \
+        scripts/aws/rollback-app.sh \
+        scripts/aws/host-health.sh \
+        scripts/aws/admin-action.sh \
+        scripts/aws/backup-via-docker-network.sh \
+        scripts/backup-db.sh \
+        scripts/post-deploy-smoke.sh
+      do
+        if [ -f "$${DEPLOY_PATH}/$${src}" ]; then
+          base="$(basename "$${src}" .sh)"
+          case "$${base}" in
+            promote-release) dest=maintenance-promote-release.sh ;;
+            rollback-app) dest=maintenance-rollback-app.sh ;;
+            host-health) dest=maintenance-host-health.sh ;;
+            admin-action) dest=maintenance-admin-action.sh ;;
+            backup-via-docker-network) dest=maintenance-backup-via-docker-network.sh ;;
+            backup-db) dest=maintenance-backup-db.sh ;;
+            post-deploy-smoke) dest=maintenance-post-deploy-smoke.sh ;;
+            *) dest="maintenance-$${base}.sh" ;;
+          esac
+          install -m 0755 "$${DEPLOY_PATH}/$${src}" "/usr/local/bin/$${dest}"
+        fi
+      done
+
+      # Materialize secrets from Secrets Manager when present (never log values).
+      if aws secretsmanager get-secret-value --secret-id "$${ENV_SECRET_ID}" --query SecretString --output text >/etc/maintenance/.env.production.tmp 2>/dev/null; then
+        chown root:maintenance /etc/maintenance/.env.production.tmp
+        chmod 0640 /etc/maintenance/.env.production.tmp
+        mv /etc/maintenance/.env.production.tmp /etc/maintenance/.env.production
+        ln -sfn /etc/maintenance/.env.production "$${DEPLOY_PATH}/.env.production"
+      fi
+
+      if raw="$(aws secretsmanager get-secret-value --secret-id "$${GHCR_SECRET_ID}" --query SecretString --output text 2>/dev/null)"; then
+        user="x-access-token"
+        pass="$${raw}"
+        if printf '%s' "$${raw}" | jq -e . >/dev/null 2>&1; then
+          user="$(printf '%s' "$${raw}" | jq -r '.username // "x-access-token"')"
+          pass="$(printf '%s' "$${raw}" | jq -r '.token // .password // empty')"
+        fi
+        printf '%s' "$${pass}" | docker login ghcr.io -u "$${user}" --password-stdin
+        install -d -m 0700 -o maintenance -g maintenance /home/maintenance/.docker
+        if [ -f /root/.docker/config.json ]; then
+          cp /root/.docker/config.json /home/maintenance/.docker/config.json
+          chown maintenance:maintenance /home/maintenance/.docker/config.json
+          chmod 0600 /home/maintenance/.docker/config.json
+        fi
+        unset raw user pass
+      fi
+
+      # Backup env skeleton (operator fills DATABASE_URL / age recipient).
+      if [ ! -f /etc/maintenance/backup.env ]; then
+        umask 077
+        cat >/etc/maintenance/backup.env <<EOF
+# Filled by operator after first Postgres role provisioning.
+# DATABASE_URL=postgresql://backup_user:secret@db:5432/maintenance
+BACKUP_S3_URI=$${BACKUP_S3_URI}
+BACKUP_ROLE_ARN=$${BACKUP_ROLE_ARN}
+AWS_DEFAULT_REGION=$${AWS_REGION}
+# BACKUP_AGE_RECIPIENT=age1...
+# BACKUP_HEARTBEAT_URL=https://...
+EOF
+        chown root:root /etc/maintenance/backup.env
+        chmod 0600 /etc/maintenance/backup.env
+      fi
+
+      # systemd units from repo examples when present.
+      if [ -f "$${DEPLOY_PATH}/infra/aws/systemd/maintenance-stack.service" ]; then
+        cp "$${DEPLOY_PATH}/infra/aws/systemd/maintenance-stack.service" /etc/systemd/system/maintenance-stack.service
+      fi
+      if [ -f "$${DEPLOY_PATH}/infra/backup/maintenance-backup.service.example" ]; then
+        cp "$${DEPLOY_PATH}/infra/backup/maintenance-backup.service.example" /etc/systemd/system/maintenance-backup.service
+      fi
+      if [ -f "$${DEPLOY_PATH}/infra/backup/maintenance-backup.timer.example" ]; then
+        cp "$${DEPLOY_PATH}/infra/backup/maintenance-backup.timer.example" /etc/systemd/system/maintenance-backup.timer
+      fi
+      systemctl daemon-reload
+      systemctl enable maintenance-stack.service
+      # Do not force-start stack until .env.production exists.
+      if [ -f /etc/maintenance/.env.production ]; then
+        systemctl restart maintenance-stack.service || true
+      fi
+
+      /usr/local/bin/maintenance-host-health.sh || true
+      echo "maintenance host bootstrap complete"
+
+  - path: /etc/systemd/system/maintenance-stack.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Meridian Maintenance Docker Compose stack
+      Documentation=file:/opt/maintenance/docs/operations/aws-ec2.md
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      User=maintenance
+      Group=maintenance
+      WorkingDirectory=${deploy_path}
+      EnvironmentFile=-/etc/maintenance/stack.env
+      EnvironmentFile=-/etc/maintenance/.env.production
+      # Image-only start after reboot; never compose build on production.
+      ExecStart=/usr/bin/docker compose --env-file /etc/maintenance/.env.production -f compose.prod.yml up -d --no-build
+      ExecStop=/usr/bin/docker compose --env-file /etc/maintenance/.env.production -f compose.prod.yml stop
+      TimeoutStartSec=600
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - [/usr/local/sbin/maintenance-bootstrap-host.sh]
+
+final_message: "Meridian Maintenance host cloud-init finished. Configure secrets, then enable stack."
