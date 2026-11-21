@@ -56,6 +56,7 @@ function ticketCategoryLabel(
  */
 export function HomePage({ user, locale: localeProp }: Props) {
   const locale = localeProp ?? "bg";
+  const [reportOpen, setReportOpen] = useState(false);
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [categories, setCategories] = useState<MaintenanceCategoryRow[]>([]);
@@ -260,135 +261,26 @@ export function HomePage({ user, locale: localeProp }: Props) {
   }
 
   return (
-    <main className="content">
-      <header className="page-header">
+    <main className="content ui-home">
+      <header className="page-header ui-briefing">
         <div>
+          <p className="ui-eyebrow">{t(locale, "ОПЕРАТИВЕН ПРЕГЛЕД", "OPERATIONS BRIEFING")}</p>
           <h1>{t(locale, "Начало", "Home")}</h1>
-          <p>
-            {t(
-              locale,
-              "Отворени проблеми и бързо докладване",
-              "Open issues and quick reporting",
-            )}
-          </p>
+          <p>{t(locale, "Ясни приоритети за всяко помещение.", "A clear next step for every space.")}</p>
         </div>
+        {canReport && <button type="button" aria-expanded={reportOpen} aria-controls="home-report" onClick={() => setReportOpen((open) => !open)}>{t(locale, "Докладвай проблем", "Report issue")}</button>}
       </header>
-      {error && <div className="error banner">{error}</div>}
-      {message && <div className="ok banner">{message}</div>}
-      {refreshWarning && (
-        <div className="warn banner" role="status">
-          {refreshWarning}
-        </div>
-      )}
-      {loading ? (
-        <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
-      ) : (
-        <div className="home-grid">
-          <section className="panel home-feed">
-            <div className="panel-header">
-              <h2>{t(locale, "Последни проблеми", "Recent issues")}</h2>
-              <button type="button" className="ghost" onClick={() => refresh()}>
-                {t(locale, "Обнови", "Refresh")}
-              </button>
-              {liveAt && (
-                <span className="muted live-stamp" title={liveAt}>
-                  {t(locale, "на живо", "live")}
-                </span>
-              )}
-            </div>
-            {tickets.length === 0 ? (
-              <p className="muted">
-                {t(locale, "Няма отворени проблеми.", "No open issues.")}
-              </p>
-            ) : (
-              <ul className="issue-feed">
-                {tickets.map((ticket) => {
-                  const overdue =
-                    ticket.slaBreached ||
-                    (ticket.dueAt &&
-                      new Date(ticket.dueAt).getTime() < Date.now());
-                  return (
-                    <li
-                      key={ticket.id}
-                      className={`issue-card priority-${ticket.priority}`}
-                    >
-                      <div className="issue-card-top">
-                        <strong>
-                          {ticket.location.floor.building.code}{" "}
-                          {ticket.location.number}
-                        </strong>
-                        <span className={`pill priority-${ticket.priority}`}>
-                          {priorityLabel(locale, ticket.priority)}
-                        </span>
-                        <span className={`pill status-${ticket.status}`}>
-                          {statusLabel(locale, ticket.status)}
-                        </span>
-                        {ticket.blocksRoom && (
-                          <span className="pill repairs-blocking">
-                            {t(locale, "блокира стая", "blocks room")}
-                          </span>
-                        )}
-                      </div>
-                      <p className="issue-title">{ticket.title}</p>
-                      {ticket.description ? (
-                        <p className="issue-description muted">
-                          {ticket.description}
-                        </p>
-                      ) : null}
-                      <div className="issue-meta muted">
-                        <span>
-                          {ticket.reportedBy.fullName} (
-                          {ticket.reportedBy.employeeNumber})
-                        </span>
-                        <span>{formatWhen(ticket.openedAt, locale)}</span>
-                        <span>
-                          {ticketCategoryLabel(ticket, locale)}
-                        </span>
-                        {ticket.assignee ? (
-                          <span>
-                            {t(locale, "Изпълнител", "Assignee")}:{" "}
-                            {ticket.assignee.fullName}
-                          </span>
-                        ) : (
-                          <span>
-                            {t(locale, "Без изпълнител", "Unassigned")}
-                          </span>
-                        )}
-                        {ticket.dueAt && (
-                          <span
-                            className={overdue ? "sla-overdue" : undefined}
-                            title={formatWhen(ticket.dueAt, locale)}
-                          >
-                            {t(locale, "Срок", "Due")}:{" "}
-                            {formatDue(ticket.dueAt, locale)}
-                            {overdue
-                              ? ` · ${t(locale, "просрочен", "overdue")}`
-                              : ""}
-                          </span>
-                        )}
-                      </div>
-                      <TicketLifecycleActions
-                        ticket={ticket}
-                        busy={resolvingId === ticket.id}
-                        canResolve={canResolve}
-                        locale={locale}
-                        onBusy={setResolvingId}
-                        onDone={(result) => {
-                          setMessage(result.message);
-                          setError(null);
-                          void refresh();
-                        }}
-                        onError={(msg) => setError(msg)}
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-
-          <section className="panel home-form">
-            <h2>{t(locale, "Добави проблем", "Report issue")}</h2>
+      {error && <div className="error banner" role="alert">{error}</div>}
+      {message && <div className="ok banner" role="status">{message}</div>}
+      {refreshWarning && <div className="warn banner" role="status">{refreshWarning}</div>}
+      {loading ? <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} /> : <>
+        <section className="ui-metrics" aria-label={t(locale, "Последни отворени сигнали — до 20", "Recent open issue sample — up to 20")}>
+          <div className="ui-metric"><span>{t(locale, "Заредени сигнали", "Loaded issues")}</span><strong>{tickets.length}</strong><small>{t(locale, "Последни отворени · до 20", "Recent open · up to 20")}</small></div>
+          <div className="ui-metric"><span>{t(locale, "Блокират готовността", "Blocking readiness")}</span><strong>{tickets.filter((ticket) => ticket.blocksRoom).length}</strong><small>{t(locale, "Сред заредените сигнали", "Within loaded issues")}</small></div>
+          <div className="ui-metric"><span>{t(locale, "Без изпълнител", "Awaiting assignment")}</span><strong>{tickets.filter((ticket) => !ticket.assignee).length}</strong><small>{t(locale, "Сред заредените сигнали", "Within loaded issues")}</small></div>
+        </section>
+<section className="ui-surface ui-report-composer" id="home-report" hidden={!reportOpen}>
+            <div className="ui-action-strip"><div><p className="ui-eyebrow">{t(locale, "НОВ СИГНАЛ", "NEW REPORT")}</p><h2>{t(locale, "Добави проблем", "Report issue")}</h2></div><button type="button" className="ghost" onClick={() => setReportOpen(false)} disabled={submitting}>{t(locale, "Затвори", "Close")}</button></div>
             {!canReport ? (
               <p className="muted">
                 {t(
@@ -588,8 +480,46 @@ export function HomePage({ user, locale: localeProp }: Props) {
               </form>
             )}
           </section>
-        </div>
-      )}
+<section className="ui-surface">
+            <div className="ui-section-heading ui-action-strip">
+              <h2>{t(locale, "Последни проблеми", "Recent issues")}</h2>
+              <button type="button" className="ghost" onClick={() => refresh()}>
+                {t(locale, "Обнови", "Refresh")}
+              </button>
+              {liveAt && (
+                <span className="muted live-stamp" title={liveAt}>
+                  {t(locale, "на живо", "live")}
+                </span>
+              )}
+            </div>
+            {tickets.length === 0 ? (
+              <p className="muted">
+                {t(locale, "Няма отворени проблеми.", "No open issues.")}
+              </p>
+            ) : (
+              <ul className="ui-queue">
+                {tickets.map((ticket) => {
+                  const overdue = ticket.slaBreached || (ticket.dueAt && new Date(ticket.dueAt).getTime() < Date.now());
+                  return <li key={ticket.id} className={`ui-work-item priority-${ticket.priority}`}>
+                    <div className="ui-work-item-location"><strong>{ticket.location.floor.building.code} {ticket.location.number}</strong><small>{t(locale, "Помещение", "Location")}</small></div>
+                    <div className="ui-work-item-body">
+                      <div className="ui-work-item-heading"><h3>{ticket.title}</h3><span className={`pill priority-${ticket.priority}`}>{priorityLabel(locale, ticket.priority)}</span><span className={`pill status-${ticket.status}`}>{statusLabel(locale, ticket.status)}</span>{ticket.blocksRoom && <span className="pill repairs-blocking">{t(locale, "блокира стая", "blocks room")}</span>}</div>
+                      {ticket.description && <p className="muted">{ticket.description}</p>}
+                      <div className="ui-work-item-meta muted">
+                        <span>{ticket.reportedBy.fullName} ({ticket.reportedBy.employeeNumber})</span>
+                        <span>{formatWhen(ticket.openedAt, locale)}</span>
+                        <span>{ticketCategoryLabel(ticket, locale)}</span>
+                        <span>{ticket.assignee ? `${t(locale, "Изпълнител", "Assignee")}: ${ticket.assignee.fullName}` : t(locale, "Без изпълнител", "Unassigned")}</span>
+                        {ticket.dueAt && <span className={overdue ? "sla-overdue" : undefined} title={formatWhen(ticket.dueAt, locale)}>{t(locale, "Срок", "Due")}: {formatDue(ticket.dueAt, locale)}{overdue ? ` · ${t(locale, "просрочен", "overdue")}` : ""}</span>}
+                      </div>
+                    </div>
+                    <div className="ui-work-item-actions"><TicketLifecycleActions ticket={ticket} busy={resolvingId === ticket.id} canResolve={canResolve} locale={locale} onBusy={setResolvingId} onDone={(result) => { setMessage(result.message); setError(null); void refresh(); }} onError={(msg) => setError(msg)} /></div>
+                  </li>;
+                })}
+              </ul>
+            )}
+          </section>
+      </>}
     </main>
   );
 }

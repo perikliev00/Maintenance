@@ -72,6 +72,9 @@ test("real offline cleaning start and complete reconcile to authoritative sessio
     const cachedTask = (cached?.tasks as any[]).find(t => t.id === task.id);
     expect(cachedTask).toMatchObject({ id: task.id, status: completed.status, version: completed.version, sessions: completed.sessions, inspections: completed.inspections });
     await page.reload();
+    await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible({
+      timeout: 20_000,
+    });
     await openNav(page, /^(Моите задачи|My Work)$/);
     await expect(card).toHaveCount(1);
     await expect(card.getByText(/^(Чака инспекция|Awaiting inspection)$/)).toBeVisible();

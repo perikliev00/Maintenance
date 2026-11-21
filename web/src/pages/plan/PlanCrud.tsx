@@ -53,58 +53,13 @@ function EntryRow({
 }) {
   // Early / value return.
   return (
-    <tr>
-      <td>
-        <strong>
-          {entry.room.buildingCode} {entry.room.number}
-        </strong>
-        <div className="muted small">
-          ет. {entry.room.floor} · {entry.room.cleaningStatus} ·{" "}
-          {entry.room.occupancy}
-        </div>
-      </td>
-      <td>
-        {/* Linked cleaning task summary, or "no task" placeholder. */}
-        {entry.task ? (
-          <>
-            <span>
-              {TASK_STATUS_BG[entry.task.status] ?? entry.task.status}
-            </span>
-            <div className="muted small">
-              {entry.task.priority}
-              {/* Render branch: entry.task.sector ? ` · $entry.task.sector.code` : "" */}
-              {entry.task.sector ? ` · ${entry.task.sector.code}` : ""}
-              {entry.task.assignedEmployee
-                ? ` · ${entry.task.assignedEmployee.fullName}`
-                : ""}
-              {/* Render branch: entry.task.shift ? ` · $entry.task.shift.code` : "" */}
-              {entry.task.shift ? ` · ${entry.task.shift.code}` : ""}
-            </div>
-          </>
-        ) : (
-          <span className="muted">без задача</span>
-        )}
-      </td>
-      <td>
-        <span className="muted small">
-          {SOURCE_LABELS[entry.source] ?? entry.source}
-        </span>
-      </td>
-      <td>{entry.notes ?? "—"}</td>
-      <td>
-        {/* Render branch: canManage && ( */}
-        {canManage && (
-          <button
-            type="button"
-            className="ghost"
-            disabled={removing}
-            onClick={() => onRemove(entry.id)}
-          >
-            Премахни
-          </button>
-        )}
-      </td>
-    </tr>
+    <li className="ui-plan-entry">
+      <div className="ui-action-strip"><strong className="ui-plan-room">{entry.room.buildingCode} {entry.room.number}</strong><span className="badge">{SOURCE_LABELS[entry.source] ?? entry.source}</span></div>
+      <p className="muted">ет. {entry.room.floor} · {entry.room.cleaningStatus} · {entry.room.occupancy}</p>
+      {entry.task ? <div className="ui-plan-task"><span className={`pill status-${entry.task.status}`}>{TASK_STATUS_BG[entry.task.status] ?? entry.task.status}</span><p>{entry.task.priority}{entry.task.sector ? ` · ${entry.task.sector.code}` : ""}{entry.task.assignedEmployee ? ` · ${entry.task.assignedEmployee.fullName}` : ""}{entry.task.shift ? ` · ${entry.task.shift.code}` : ""}</p></div> : <p className="muted">без задача</p>}
+      <p>{entry.notes ?? "—"}</p>
+      {canManage && <button type="button" className="ghost" disabled={removing} onClick={() => onRemove(entry.id)}>Премахни</button>}
+    </li>
   );
 }
 
@@ -124,42 +79,9 @@ function PlanSection({
 }) {
   // Early / value return.
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <h2>
-          {title}{" "}
-          <span className="muted">({entries.length})</span>
-        </h2>
-      </div>
-      {entries.length === 0 ? (
-        <p className="muted">Няма записи</p>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Стая</th>
-                <th>Задача</th>
-                <th>Източник</th>
-                <th>Бележка</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry) => (
-                <EntryRow
-                  key={entry.id}
-                  entry={entry}
-                  // Permission / capability gate.
-                  canManage={canManage}
-                  onRemove={onRemove}
-                  removing={removingId === entry.id}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <section className="ui-plan-lane">
+      <div className="ui-plan-lane-heading"><h2>{title}</h2><span className="badge">{entries.length}</span></div>
+      {entries.length === 0 ? <p className="ui-empty muted">Няма записи</p> : <ul className="ui-plan-entry-list">{entries.map((entry) => <EntryRow key={entry.id} entry={entry} canManage={canManage} onRemove={onRemove} removing={removingId === entry.id} />)}</ul>}
     </section>
   );
 }
@@ -250,10 +172,41 @@ export function PlanCrud({
   // Early / value return.
   return (
     <>
+      {loading || !plan ? (
+        <LoadingIndicator label="Зареждане на плана…" />
+      ) : (
+        <div className="ui-service-timeline">
+          <PlanSection
+            title={CATEGORY_LABELS.departure}
+            entries={plan.departures}
+            // Permission / capability gate.
+            canManage={canManage}
+            onRemove={onRemove}
+            removingId={removingId}
+          />
+          <PlanSection
+            title={CATEGORY_LABELS.arrival}
+            entries={plan.arrivals}
+            // Permission / capability gate.
+            canManage={canManage}
+            onRemove={onRemove}
+            removingId={removingId}
+          />
+          <PlanSection
+            title={CATEGORY_LABELS.priority}
+            entries={plan.priority}
+            // Permission / capability gate.
+            canManage={canManage}
+            onRemove={onRemove}
+            removingId={removingId}
+          />
+        </div>
+      )}
       {/* Add form — manage-gated. */}
       {canManage && (
-        <section className="panel">
-          <h2>Добави в плана</h2>
+        <details className="ui-surface ui-plan-composer">
+          <summary>Добави в плана</summary>
+          <h2>Нов запис за {hotelDate}</h2>
           <form className="report-form" onSubmit={onAdd}>
             <label>
               Стая
@@ -333,41 +286,11 @@ export function PlanCrud({
             става свободна + мръсна; бъдещ план не променя occupancy. Приоритет /
             пристигане създават или свързват cleaning task.
           </p>
-        </section>
+        </details>
       )}
 
       {children}
 
-      {loading || !plan ? (
-        <LoadingIndicator label="Зареждане на плана…" />
-      ) : (
-        <div className="control-grid">
-          <PlanSection
-            title={CATEGORY_LABELS.departure}
-            entries={plan.departures}
-            // Permission / capability gate.
-            canManage={canManage}
-            onRemove={onRemove}
-            removingId={removingId}
-          />
-          <PlanSection
-            title={CATEGORY_LABELS.arrival}
-            entries={plan.arrivals}
-            // Permission / capability gate.
-            canManage={canManage}
-            onRemove={onRemove}
-            removingId={removingId}
-          />
-          <PlanSection
-            title={CATEGORY_LABELS.priority}
-            entries={plan.priority}
-            // Permission / capability gate.
-            canManage={canManage}
-            onRemove={onRemove}
-            removingId={removingId}
-          />
-        </div>
-      )}
     </>
   );
 }

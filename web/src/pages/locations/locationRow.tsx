@@ -99,23 +99,22 @@ export function LocationRow({
     (owner || user.role === "supervisor" || isMyRunning);
 
   return (
-    <tr
+    <article
+      data-location-id={loc.id}
+      aria-label={`${loc.buildingCode} ${loc.number}`}
       id={`location-row-${loc.id}`}
-      className={`location-row-clickable${
+      className={`ui-location-card${
         detailLocationId === loc.id ? " location-row-selected" : ""
       }`}
-      onClick={() => setDetailLocationId(loc.id)}
     >
-      <td>
-        <strong>
-          {loc.buildingCode} {loc.number}
-        </strong>
+      <div className="ui-location-field">
+        <button type="button" className="ui-location-title" onClick={() => setDetailLocationId(loc.id)} aria-label={`${unitLabelCap} ${loc.buildingCode} ${loc.number}`}>{loc.buildingCode} {loc.number}</button>
         <div className="muted small">
           {boardT(locale, "Етаж", "Floor")} {loc.floor}
           {loc.sector ? ` · ${loc.sector.code}` : ""}
         </div>
-      </td>
-      <td>
+      </div>
+      <div className="ui-location-field">
         <span className={`pill ready-${loc.readiness}`}>
           {readinessLabel(locale, loc.readiness)}
         </span>
@@ -124,8 +123,9 @@ export function LocationRow({
             {loc.readinessReasons.map((r) => reasonLabel(locale, r)).join(", ")}
           </div>
         )}
-      </td>
-      <td>
+      </div>
+      <div className="ui-location-field">
+        <span className="ui-field-label">{boardT(locale, "Изпълнител", "Assignee")}</span>
         {task?.assignee ? (
           <span>
             {task.assignee.fullName}
@@ -134,8 +134,8 @@ export function LocationRow({
         ) : (
           <span className="muted">—</span>
         )}
-      </td>
-      <td>
+      </div>
+      <div className="ui-location-field">
         <span className={`pill cleaning-${loc.cleaningStatus}`}>
           {cleaningLabel(locale, loc.cleaningStatus)}
         </span>
@@ -150,13 +150,14 @@ export function LocationRow({
             {serviceLabel(locale, loc.serviceStatus)}
           </div>
         )}
-      </td>
-      <td>
+      </div>
+      <div className="ui-location-next">
+        <span className="ui-field-label">{boardT(locale, "Следващо действие", "Next action")}</span>
         <span className="next-action">
           {nextActionLabel(locale, loc, { isCommon })}
         </span>
         <TaskPriorityDueCell task={task} locale={locale} />
-      </td>
+      </div>
       <IssuesCell
         location={loc}
         busyIds={busyIds}
@@ -170,7 +171,7 @@ export function LocationRow({
         onOpenRepairs={onOpenRepairs}
       />
       <TaskInfoCell task={task} locale={locale} />
-      <td>
+      <div className="ui-location-actions">
         <LifecycleActions
           location={loc}
           busy={busy}
@@ -204,7 +205,7 @@ export function LocationRow({
             ) : null
           }
         />
-      </td>
-    </tr>
+      </div>
+    </article>
   );
 }

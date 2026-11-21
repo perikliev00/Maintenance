@@ -79,8 +79,8 @@ export function TeamOnboardingPanel({
   onLoadMoreCandidates,
 }: TeamOnboardingPanelProps) {
   return (
-    <div className="control-grid">
-      <section className="panel">
+    <div className="ui-onboarding-layout">
+      <section className="panel ui-focused-form">
         <div className="panel-header">
           <h2>{t(locale, "Издаване на покана", "Issue invitation")}</h2>
         </div>

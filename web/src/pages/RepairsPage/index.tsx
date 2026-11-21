@@ -3,6 +3,7 @@
  * New tickets enqueue via `reportTicketQueued` when offline; live refresh on
  * ticket/location events. Assign/close/report/resolve are separately gated.
  */
+import { WorkspaceIntro, EmptyState } from "../../ui";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   // Permission / capability gate.
@@ -304,147 +305,65 @@ export function RepairsPage({
     }
   }
 
-  // Early / value return.
   return (
-    <div className="page repairs-page">
-      <header className="page-header">
-        <div>
-          <h1>{t(locale, "Повреди", "Repairs")}</h1>
-          <p className="muted">
-            {t(
-              locale,
-              "Опашка и lifecycle на технически тикети",
-              "Technician ticket queue and lifecycle",
-            )}
-            {liveAt
-              ? ` · ${t(locale, "обновено", "updated")} ${new Date(liveAt).toLocaleTimeString()}`
-              : ""}
-          </p>
-        </div>
-        <ConnStatusBadge
-          locale={locale}
-          conn={conn}
-          pending={queueStats.pending}
-          sending={queueStats.sending}
-        />
-      </header>
-
-      {/* Render branch: error && <div className="banner error">error</div> */}
-      {(error || loadError) && (
-        <div className="banner error">{error ?? loadError}</div>
-      )}
-      {/* Render branch: message && <div className="banner ok">message</div> */}
-      {message && <div className="banner ok">{message}</div>}
-      <OutboxIssuesPanel
-        locale={locale}
-        conflictCount={queueStats.conflict}
-        failedCount={queueStats.failed}
-      />
-
-      <Filters
-        locale={locale}
-        statusFilter={statusFilter}
-        onStatusFilterChange={setStatusFilter}
-        assigneeFilter={assigneeFilter}
-        onAssigneeFilterChange={setAssigneeFilter}
-        slaOnly={slaOnly}
-        onSlaOnlyChange={setSlaOnly}
-        blocksOnly={blocksOnly}
-        onBlocksOnlyChange={setBlocksOnly}
-        people={people}
-      />
-
-      {loading ? (
-        <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} />
-      ) : (
-        <div className="repairs-grid">
-          <section className="panel">
-            <div className="panel-header">
-              <h2>
-                {t(locale, "Тикети", "Tickets")}{" "}
-                <span className="muted repairs-count">
-                  {t(
-                    locale,
-                    `(${tickets.length} от ${totalCountDisplay})`,
-                    `(${tickets.length} of ${totalCountDisplay})`,
-                  )}
-                </span>
-              </h2>
-            </div>
-            <div className="table-wrap">
-              <table className="data-table repairs-table">
-                <thead>
-                  <tr>
-                    <th>{t(locale, "Стая", "Room")}</th>
-                    <th>{t(locale, "Заглавие", "Title")}</th>
-                    <th>{t(locale, "Статус", "Status")}</th>
-                    <th>{t(locale, "Приоритет", "Priority")}</th>
-                    <th>{t(locale, "Изпълнител", "Assignee")}</th>
-                    <th>SLA</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {tickets.map((ticket) => (
-                    <tr
-                      key={ticket.id}
-                      className={selectedId === ticket.id ? "selected" : ""}
-                      onClick={() => setSelectedId(ticket.id)}
-                    >
-                      <td>
-                        {locLabel(ticket)}
-                        {isArchivedLocation(ticket) ? (
-                          <span className="pill repairs-archived">
-                            {t(locale, "архив", "archived")}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td>
-                        {ticket.title}
-                        {ticket.blocksRoom ? (
-                          <span
-                            className="pill repairs-blocking"
-                            title={t(locale, "Блокира стая", "Blocks room")}
-                          >
-                            {t(locale, "блокира", "blocking")}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td>
-                        <span className={`pill status-${ticket.status}`}>
-                          {statusLabel(locale, ticket.status)}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`pill priority-${ticket.priority}`}>
-                          {priorityLabel(locale, ticket.priority)}
-                        </span>
-                      </td>
-                      <td>
-                        {ticket.assignee?.fullName ?? (
-                          <span className="muted">
-                            {t(locale, "Неназначен", "Unassigned")}
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        {ticket.slaBreached ? (
-                          <span className="pill status-rework">
-                            {t(locale, "просрочен", "breached")}
-                          </span>
-                        ) : ticket.dueAt ? (
-                          <span
-                            title={new Date(ticket.dueAt).toLocaleString()}
-                            className="repairs-sla-due"
-                          >
-                            {new Date(ticket.dueAt).toLocaleString()}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <TicketLifecycleActions
+    <main className="ui-workspace repairs-page">
+      <WorkspaceIntro eyebrow={t(locale, "ОПЕРАЦИИ / ТЕХНИЧЕСКА ПОДДРЪЖКА", "OPERATIONS / MAINTENANCE")}
+        title={t(locale, "Повреди", "Repairs")}
+        description={<>{t(locale, "От сигнал до решение. Следете работата и освободете блокираните стаи.", "From report to resolution. Keep work moving and clear blocked rooms.")}{liveAt ? ` · ${t(locale, "обновено", "updated")} ${new Date(liveAt).toLocaleTimeString()}` : ""}</>}
+        actions={<ConnStatusBadge locale={locale} conn={conn} pending={queueStats.pending} sending={queueStats.sending} />} />
+      {(error || loadError) && <div className="banner error" role="alert">{error ?? loadError}</div>}
+      {message && <div className="banner ok" role="status">{message}</div>}
+      <OutboxIssuesPanel locale={locale} conflictCount={queueStats.conflict} failedCount={queueStats.failed} />
+                <Detail mode="report"
+            locale={locale}
+            // Permission / capability gate.
+            canReport={canReport}
+            locationId={report.locationId}
+            onLocationIdChange={report.setLocationId}
+            issueOptionId={report.issueOptionId}
+            title={report.title}
+            description={report.description}
+            onDescriptionChange={report.setDescription}
+            priority={report.priority}
+            onPriorityChange={report.setPriority}
+            blocksRoom={report.blocksRoom}
+            onBlocksRoomChange={report.setBlocksRoom}
+            submitting={report.submitting}
+            rooms={report.rooms}
+            options={report.options}
+            categories={report.categories}
+            selected={selected}
+            events={events}
+            onReport={handleReport}
+            onIssueOptionSelect={report.selectIssueOption}
+          />
+      <div className="ui-repair-workspace">
+        <aside className="ui-repair-criteria">
+          <p className="ui-eyebrow">{t(locale, "ВАШИЯТ ИЗГЛЕД", "YOUR VIEW")}</p>
+          <h2>{t(locale, "Работна опашка", "Work queue")}</h2>
+          <Filters locale={locale} statusFilter={statusFilter} onStatusFilterChange={setStatusFilter}
+            assigneeFilter={assigneeFilter} onAssigneeFilterChange={setAssigneeFilter}
+            slaOnly={slaOnly} onSlaOnlyChange={setSlaOnly} blocksOnly={blocksOnly} onBlocksOnlyChange={setBlocksOnly} people={people} />
+        </aside>
+        <section className="ui-repair-results">
+          <div className="ui-section-heading"><h2>{t(locale, "Тикети", "Tickets")}</h2>
+            <span className="muted repairs-count">{t(locale, `(${tickets.length} от ${totalCountDisplay})`, `(${tickets.length} of ${totalCountDisplay})`)}</span></div>
+          {loading ? <LoadingIndicator label={t(locale, "Зареждане…", "Loading…")} /> : <>
+            {tickets.length === 0 && <EmptyState title={t(locale, "Няма тикети в този изглед", "No tickets in this view")} description={t(locale, "Променете филтрите или създайте нов сигнал.", "Adjust the filters or report a new issue.")} />}
+            <div className="ui-queue">
+              {tickets.map(ticket => <article key={ticket.id} data-ticket-id={ticket.id} className={`ui-work-item ui-ticket-item${selectedId === ticket.id ? " selected" : ""}`}>
+                <div className="ui-work-item-location">{locLabel(ticket)}{isArchivedLocation(ticket) && <span className="pill repairs-archived">{t(locale, "архив", "archived")}</span>}</div>
+                <div className="ui-work-item-body">
+                  <button type="button" className="ui-ticket-title" onClick={() => setSelectedId(ticket.id)} aria-expanded={selectedId === ticket.id}>{ticket.title}</button>
+                  <div className="ui-work-item-meta">
+                    <span className={`pill status-${ticket.status}`}>{statusLabel(locale,ticket.status)}</span>
+                    <span className={`pill priority-${ticket.priority}`}>{priorityLabel(locale,ticket.priority)}</span>
+                    {ticket.blocksRoom && <span className="pill repairs-blocking" title={t(locale, "Блокира стая", "Blocks room")}>{t(locale, "блокира", "blocking")}</span>}
+                  </div>
+                  <span className="muted">{ticket.assignee?.fullName ?? t(locale, "Неназначен", "Unassigned")}</span>
+                  <span className="muted repairs-sla-due">SLA · {ticket.slaBreached ? <span className="pill status-rework">{t(locale,"просрочен","breached")}</span> : ticket.dueAt ? <time dateTime={ticket.dueAt}>{new Date(ticket.dueAt).toLocaleString()}</time> : "—"}</span>
+                </div>
+                <div className="ui-work-item-actions">                        <TicketLifecycleActions
                           ticket={ticket}
                           busy={busyId === ticket.id}
                           locale={locale}
@@ -501,36 +420,12 @@ export function RepairsPage({
                           >
                             {t(locale, "Затвори", "Close")}
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        )}</div>
+              </article>)}
             </div>
-            {nextCursor ? (
-              <div className="repairs-load-more">
-                <button
-                  type="button"
-                  className="subtle"
-                  disabled={loadingMore}
-                  onClick={() => void loadMore()}
-                >
-                  {loadingMore ? (
-                    <LoadingIndicator
-                      variant="inline"
-                      delayMs={0}
-                      label={t(locale, "Зареждане…", "Loading…")}
-                    />
-                  ) : (
-                    t(locale, "Зареди още", "Load more")
-                  )}
-                </button>
-              </div>
-            ) : null}
-          </section>
-
-          <Detail
+          </>}
+          {nextCursor && <div className="repairs-load-more"><button type="button" className="subtle" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? <LoadingIndicator variant="inline" delayMs={0} label={t(locale,"Зареждане…","Loading…")} /> : t(locale,"Зареди още","Load more")}</button></div>}
+                    <Detail mode="timeline"
             locale={locale}
             // Permission / capability gate.
             canReport={canReport}
@@ -553,8 +448,8 @@ export function RepairsPage({
             onReport={handleReport}
             onIssueOptionSelect={report.selectIssueOption}
           />
-        </div>
-      )}
-    </div>
+        </section>
+      </div>
+    </main>
   );
 }

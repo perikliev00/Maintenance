@@ -183,7 +183,7 @@ export function IssuesCell({
   const nonBlocking = location.nonBlockingIssueCount ?? 0;
 
   return (
-    <td>
+    <div className="ui-location-facts">
       <div className="issue-summary">
         <span>
           {blocking}{" "}
@@ -246,7 +246,7 @@ export function IssuesCell({
           )}
         </>
       )}
-    </td>
+    </div>
   );
 }
 

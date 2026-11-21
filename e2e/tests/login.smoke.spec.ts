@@ -1,6 +1,6 @@
 // Playwright test runner APIs for browser E2E scenarios.
 import { expect, test } from "@playwright/test";
-import { uiLogin, USERS } from "./helpers/auth";
+import { openAccount, uiLogin, USERS } from "./helpers/auth";
 
 /**
  * Browser smoke: seed owner can sign in and reach the authenticated shell.
@@ -10,6 +10,7 @@ test.describe("login smoke", () => {
   // Case: owner signs in and sees main navigation.
   test("owner signs in and sees main navigation", async ({ page }) => {
     await uiLogin(page, USERS.owner);
+    await openAccount(page);
     await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Meridian" })).toHaveCount(0);
   });

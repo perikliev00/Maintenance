@@ -1,3 +1,4 @@
+import { openAccount } from "../helpers/auth";
 // Playwright test runner APIs for browser E2E scenarios.
 import { expect, test, type Page } from "@playwright/test";
 import { createRequire } from "node:module";
@@ -94,7 +95,7 @@ test("logout-all with expired access cookie revokes two devices, survives reload
     const secondPage = await second.newPage(), otherPage = await other.newPage();
     await signIn(page, user.email); await signIn(secondPage, user.email); await signIn(otherPage, otherUser.email);
     const staleAccess = (await page.context().cookies()).find(c => c.name === "session")!.value;
-    await page.goto("/"); await expect(page.getByRole("button", { name: "Sign out everywhere" })).toBeVisible();
+    await page.goto("/"); await openAccount(page); await expect(page.getByRole("button", { name: "Sign out everywhere" })).toBeVisible();
     await page.context().clearCookies({ name: "session" });
     // Refresh cookie is authentication here: CSRF must still be mandatory.
     expect((await page.request.post("/api/auth/logout-all")).status()).toBe(403);
@@ -113,7 +114,7 @@ test("logout-all with expired access cookie revokes two devices, survives reload
 // Case: server revoke-all failure is visible and still clears this browser.
 test("server revoke-all failure is visible and still clears this browser's private identity", async ({ page }) => {
   const user = await account(); await signIn(page, user.email);
-  await page.goto("/"); await expect(page.getByRole("button", { name: "Sign out everywhere" })).toBeVisible();
+  await page.goto("/"); await openAccount(page); await expect(page.getByRole("button", { name: "Sign out everywhere" })).toBeVisible();
   await failingRevocation(user.id, async () => {
     await page.getByRole("button", { name: "Sign out everywhere" }).click();
     await expect(page.getByRole("alert")).toContainText(/Could not confirm|Не успяхме/);

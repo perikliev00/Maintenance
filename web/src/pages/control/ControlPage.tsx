@@ -2,7 +2,9 @@
  * Manager control desk: role edits, create cleaning tasks, and ticket
  * assign/close/reopen/lifecycle. Role changes are limited by `assignableRolesFor`.
  */
+import { useState } from "react";
 import type { AuthUser } from "../../api/client";
+import { EmptyState, SectionNav, Workspace, WorkspaceIntro } from "../../ui";
 import { ControlCleaningSection } from "./ControlCleaningSection";
 import { ControlRolesSection } from "./ControlRolesSection";
 import { ControlTicketsSection } from "./ControlTicketsSection";
@@ -16,15 +18,17 @@ type Props = {
 export function ControlPage({ user }: Props) {
   // Invoke useControlBoard hook for page/feature state and behavior.
   const board = useControlBoard(user);
+  const [section, setSection] = useState("repairs");
+  const sections = [
+    ...(board.canWorkTickets ? [{ id: "repairs", label: "Проблеми и ремонти", description: "Назначаване, решение и потвърждение" }] : []),
+    ...(board.canCreateCleaning ? [{ id: "cleaning", label: "Нова задача за почистване", description: "Локация, приоритет и изпълнител" }] : []),
+    ...(board.canChangeRole ? [{ id: "access", label: "Роли на екипа", description: "Отговорности и достъп" }] : []),
+  ];
+  const activeSection = sections.some((item) => item.id === section) ? section : sections[0]?.id;
 
   return (
-    <main className="content">
-      <header className="page-header">
-        <div>
-          <h1>Control</h1>
-          <p>Роли, задачи за почистване и отворени проблеми</p>
-        </div>
-      </header>
+    <Workspace className="ui-control-workspace">
+      <WorkspaceIntro eyebrow="ОПЕРАТИВНИ РЕШЕНИЯ" title="Control" description="Изберете работен процес. Разпределете работа, проследете решенията и управлявайте отговорностите." />
 
       {user.role === "owner" && (
         <div className="owner-banner">
@@ -40,11 +44,17 @@ export function ControlPage({ user }: Props) {
         </div>
       )}
 
+      <div className="ui-section-layout">
+        <aside>
+          <SectionNav label="Control sections" items={sections} value={activeSection ?? ""} onChange={setSection} />
+          <div className="ui-context-note"><strong>Ясна отговорност</strong><p>Действията се изпълняват с текущите ви права и се записват в историята.</p></div>
+        </aside>
+        <div className="ui-section-content">
       {board.initialLoading ? (
         <p className="muted">Loading control…</p>
       ) : (
-        <div className="control-grid">
-                    {board.canChangeRole && (
+        <div className="ui-decision-workspace">
+                    {board.canChangeRole && activeSection === "access" && (
             <ControlRolesSection
               user={board.user}
               allowedRoles={board.allowedRoles}
@@ -61,7 +71,7 @@ export function ControlPage({ user }: Props) {
             />
           )}
 
-                    {board.canCreateCleaning && (
+                    {board.canCreateCleaning && activeSection === "cleaning" && (
             <ControlCleaningSection
               rooms={board.rooms}
               housekeepers={board.housekeepers}
@@ -77,7 +87,7 @@ export function ControlPage({ user }: Props) {
             />
           )}
 
-                    {board.canWorkTickets && (
+                    {board.canWorkTickets && activeSection === "repairs" && (
             <ControlTicketsSection
               canAssign={board.canAssign}
               canClose={board.canClose}
@@ -102,6 +112,9 @@ export function ControlPage({ user }: Props) {
           )}
         </div>
       )}
-    </main>
+      {!board.initialLoading && sections.length === 0 && <EmptyState title="Няма достъпни действия" description="За този профил няма предоставени оперативни действия." />}
+        </div>
+      </div>
+    </Workspace>
   );
 }

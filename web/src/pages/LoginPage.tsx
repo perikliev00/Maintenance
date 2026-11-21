@@ -4,7 +4,7 @@
  */
 import { FormEvent, useState } from "react";
 import { login, type AuthUser } from "../api/client";
-import { BrandMark } from "../components/BrandMark";
+import { AccessLayout } from "../components/AccessLayout";
 import type { ThemeMode } from "../theme";
 
 type Props = {
@@ -44,22 +44,12 @@ export function LoginPage({ onLogin, theme, onToggleTheme }: Props) {
   }
 
   return (
-    <div className="login-page">
-      {/* Theme toggle outside the card (does not submit the form). */}
-      <button
-        type="button"
-        className="ghost login-theme-toggle"
-        onClick={onToggleTheme}
-      >
-        {theme === "dark" ? "Light" : "Dark"}
-      </button>
-      <form className="login-card" onSubmit={handleSubmit}>
-        <div className="login-brand">
-          <BrandMark size={44} />
-          <div className="login-brand-text">
-            <h1>Meridian</h1>
-            <p className="muted">Housekeeping &amp; Maintenance</p>
-          </div>
+    <AccessLayout theme={theme} onToggleTheme={onToggleTheme}>
+      <form className="ui-form-stack" onSubmit={handleSubmit} aria-labelledby="sign-in-title">
+        <div className="ui-section-heading">
+          <p className="ui-eyebrow">YOUR WORKSPACE</p>
+          <h1 id="sign-in-title">Welcome back</h1>
+          <p className="muted">Sign in to pick up where your team left off.</p>
         </div>
         <label>
           Email
@@ -82,12 +72,14 @@ export function LoginPage({ onLogin, theme, onToggleTheme }: Props) {
           />
         </label>
         {/* Inline auth error above the submit button. */}
-        {error && <div className="error">{error}</div>}
+        {error && <div className="error" role="alert">{error}</div>}
         <button type="submit" disabled={loading}>
           {loading ? "Signing in…" : "Sign in"}
         </button>
-        <p className="muted small" style={{ marginTop: "0.75rem" }}>
+        <div className="ui-access-enrollment">
+          <p className="muted">
           Have an invitation code?{" "}
+          </p>
           <button
             type="button"
             className="ghost"
@@ -97,14 +89,15 @@ export function LoginPage({ onLogin, theme, onToggleTheme }: Props) {
           >
             Activate device
           </button>
-        </p>
+        </div>
         {/* Seed-user hint for local demos. */}
-        <div className="demo-hint">
+        <details className="ui-demo-help">
+          <summary>Demo account details</summary>
           <div>Demo: owner / manager / supervisor / admin /</div>
           <div>housekeeper / reception / technician @meridian.local</div>
           <div>password: demo1234</div>
-        </div>
+        </details>
       </form>
-    </div>
+    </AccessLayout>
   );
 }

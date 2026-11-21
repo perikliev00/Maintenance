@@ -41,75 +41,28 @@ export function TaskCard({
   const canComplete = Boolean(running) && !pendingSync;
 
   return (
-    <article
-      className={`mywork-card${task.status === "rework" ? " mywork-card-rework" : ""}${running ? " mywork-card-current" : ""}`}
-    >
-      <div className="mywork-card-top">
+    <article className={`mywork-card ui-work-item${task.status === "rework" ? " ui-work-item-rework" : ""}${running ? " ui-work-item-running" : ""}`}>
+      <div className="ui-work-item-location">
         <strong>{locationLabel(task)}</strong>
-        {/* Pending-sync pill overrides the normal status while outbox drains. */}
-        {pendingSync ? (
-          <span className="pill status-awaiting_inspection">
-            {t(locale, "Чака синхрон", "Pending sync")}
-          </span>
-        ) : (
-          <span className={`pill status-${task.status}`}>
-            {statusLabel(locale, task.status)}
-          </span>
-        )}
+        <small>{task.location.kind === "common_area" ? t(locale, "Обща част", "Common area") : t(locale, "Стая", "Room")}</small>
       </div>
-      <p className="muted">
-        {task.priority}
-        {task.shift
-          ? ` · ${locale === "bg" ? task.shift.nameBg : task.shift.nameEn} (${task.shift.startTime}–${task.shift.endTime})`
-          : ""}
-        {task.location.kind === "common_area"
-          ? ` · ${t(locale, "обща част", "common area")}`
-          : ""}
-      </p>
-      {/* Show reject findings when the task is back in rework. */}
-      {task.status === "rework" && lastReject?.findings && (
-        <p className="mywork-findings">
-          {t(locale, "Забележки", "Findings")}: {lastReject.findings}
-        </p>
-      )}
-      <div className="mywork-actions">
-        {canStart && (
-          <button
-            type="button"
-            className="mywork-btn primary"
-            disabled={busy}
-            onClick={onStart}
-          >
-            {t(locale, "Начало", "Start")}
-          </button>
-        )}
-        {canComplete && (
-          <button
-            type="button"
-            className="mywork-btn primary"
-            disabled={busy}
-            onClick={() => {
-              // Optional notes via prompt; cancel aborts complete.
-              const notes = window.prompt(
-                t(locale, "Бележки (опционално)", "Notes (optional)"),
-              );
-              if (notes === null) return;
-              onComplete(notes.trim() || undefined);
-            }}
-          >
-            {t(locale, "Приключи", "Complete")}
-          </button>
-        )}
-        {pendingSync && (
-          <span className="muted">
-            {t(locale, "Чака синхронизация…", "Waiting for sync…")}
-          </span>
-        )}
-        {task.status === "awaiting_inspection" && !pendingSync && (
-          <span className="muted">
-            {t(locale, "Чака проверка", "Waiting for inspection")}
-          </span>
-        )}
+      <div className="ui-work-item-body">
+        <div className="ui-work-item-heading">
+          <h3>{task.shift ? (locale === "bg" ? task.shift.nameBg : task.shift.nameEn) : t(locale, "Почистване", "Cleaning")}</h3>
+          <span className={`pill status-${pendingSync ? "awaiting_inspection" : task.status}`}>{pendingSync ? t(locale, "Чака синхрон", "Pending sync") : statusLabel(locale, task.status)}</span>
+        </div>
+        <p className="muted">{task.priority}{task.shift ? ` · ${task.shift.startTime}–${task.shift.endTime}` : ""}</p>
+        {task.status === "rework" && lastReject?.findings && <p className="warn">{t(locale, "Забележки", "Findings")}: {lastReject.findings}</p>}
+        {pendingSync && <p className="muted" role="status">{t(locale, "Чака синхронизация…", "Waiting for sync…")}</p>}
+        {task.status === "awaiting_inspection" && !pendingSync && <p className="muted">{t(locale, "Чака проверка", "Waiting for inspection")}</p>}
+      </div>
+      <div className="ui-work-item-actions">
+        {canStart && <button type="button" disabled={busy} onClick={onStart}>{t(locale, "Начало", "Start")}</button>}
+        {canComplete && <button type="button" disabled={busy} onClick={() => {
+          const notes = window.prompt(t(locale, "Бележки (опционално)", "Notes (optional)"));
+          if (notes === null) return;
+          onComplete(notes.trim() || undefined);
+        }}>{t(locale, "Приключи", "Complete")}</button>}
       </div>
     </article>
   );
@@ -132,8 +85,8 @@ export function CurrentTaskSection({
   onComplete: (notes?: string) => void;
 }) {
   return (
-    <section className="mywork-section">
-      <h2>{t(locale, "Текущо", "Current")}</h2>
+    <section className="ui-surface ui-current-work" id="current-work">
+      <div className="ui-section-heading"><p className="ui-eyebrow">{t(locale, "НА ФОКУС", "IN FOCUS")}</p><h2>{t(locale, "Текущо", "Current")}</h2></div>
       <TaskCard
         task={currentTask}
         locale={locale}
@@ -168,14 +121,14 @@ export function CleaningTasksSection({
   onComplete: (task: CleaningTaskRow, notes?: string) => void;
 }) {
   return (
-    <section className="mywork-section">
-      <h2>{t(locale, "Почистване", "Cleaning")}</h2>
-      {activeTasks.length === 0 ? (
+    <section className="ui-surface" id="cleaning-queue">
+      <div className="ui-section-heading ui-action-strip"><h2>{t(locale, "Почистване", "Cleaning")}</h2><span className="muted">{activeTasks.filter((task) => task.id !== currentTaskId).length} {t(locale, "в опашката", "in queue")}</span></div>
+      {activeTasks.filter((task) => task.id !== currentTaskId).length === 0 ? (
         <p className="muted">
           {t(locale, "Няма възложени задачи", "No assigned tasks")}
         </p>
       ) : (
-        <div className="mywork-cards">
+        <div className="ui-queue">
           {/* Exclude the current task — it lives in CurrentTaskSection. */}
           {activeTasks
             .filter((task) => task.id !== currentTaskId)

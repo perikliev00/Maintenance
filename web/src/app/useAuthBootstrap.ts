@@ -5,7 +5,7 @@
  * user and offline outbox, while hard auth rejection wipes them. Binds
  * `setOfflineUser` to the signed-in id for scoped IndexedDB access.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   clearSession,
   fetchMe,
@@ -51,6 +51,10 @@ export function useAuthBootstrap() {
   const [publicSettings, setPublicSettings] = useState<PublicSettings | null>(
     null,
   );
+  // First successful /me after mount (or after hard logout) should honour
+  // role landing. Remount always starts view at "home", which would otherwise
+  // shadow landings like housekeeper → mywork across reload.
+  const viewBootstrappedRef = useRef(false);
 
   // Effect: sync props/state to side effects.
   useEffect(() => {
@@ -85,9 +89,13 @@ export function useAuthBootstrap() {
             panelsForUser(me),
             pub.modules,
           );
-          if (panels.includes(current)) return current;
           const landing = landingForUser(me);
-          return panels.includes(landing) ? landing : panels[0] ?? "home";
+          const preferLanding = !viewBootstrappedRef.current;
+          viewBootstrappedRef.current = true;
+          if (!preferLanding && panels.includes(current)) return current;
+          if (panels.includes(landing)) return landing;
+          if (panels.includes(current)) return current;
+          return panels[0] ?? "home";
         });
       } catch (err) {
         if (cancelled) return;
@@ -101,6 +109,7 @@ export function useAuthBootstrap() {
           setSignedIn(false);
           setUser(null);
           setPublicSettings(null);
+          viewBootstrappedRef.current = false;
         } else {
           // Transient / unverified: keep cached identity + offline outbox.
           const cached = getStoredUser();

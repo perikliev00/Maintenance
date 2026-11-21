@@ -57,23 +57,35 @@ describe("POST /jobs/run shared execution lock", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+    let acquired!: () => void;
+    const lockAcquired = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
     const active = runWithJobExecutionLock(async () => {
+      acquired();
       await held;
       return "held";
     });
-    // Let the lock acquire before racing the HTTP trigger.
-    await Promise.resolve();
+    // Wait for the actual database lock, not just a JavaScript microtask.
+    // PostgreSQL connection acquisition can complete after the HTTP request.
+    await Promise.race([
+      lockAcquired,
+      active.then((result) => { throw new Error(`Test lock was not held: ${JSON.stringify(result)}`); }),
+    ]);
 
-    const blocked = await postJson(api, ownerToken, "/jobs/run", {
-      jobKey: "overdue_sessions",
-    });
-    assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
-    assert.equal(
-      (blocked.body as { error?: string }).error,
-      "job_already_running",
-    );
-
-    release();
+    try {
+      const blocked = await postJson(api, ownerToken, "/jobs/run", {
+        jobKey: "overdue_sessions",
+      });
+      assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
+      assert.equal(
+        (blocked.body as { error?: string }).error,
+        "job_already_running",
+      );
+    } finally {
+      release();
+      await active;
+    }
     assert.deepEqual(await active, { acquired: true, value: "held" });
 
     const ok = await postJson(api, ownerToken, "/jobs/run", {

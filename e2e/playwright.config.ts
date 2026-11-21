@@ -16,7 +16,7 @@ const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 const apiHealthURL =
   process.env.E2E_API_HEALTH_URL ?? "http://127.0.0.1:4000/health";
 
-/** When unset, start API + Vite locally (reuse if already running outside CI). */
+/** When unset, start API + Vite locally in the isolated test environment. */
 const startServers = process.env.E2E_START_SERVERS !== "0";
 
 /**
@@ -58,12 +58,12 @@ export default defineConfig({
           // Fail closed: P1 register redirects dotenv .env → .env.p1_test and
           // rejects non-maintenance_p1_test database names.
           command:
-            "node --import ./tests/registerP1TestEnv.mjs ./node_modules/tsx/dist/cli.mjs src/index.ts",
+            "node --import ./tests/registerP1TestEnv.mjs --import tsx src/index.ts",
           // Configure cwd for the request/server under test.
           cwd: apiDir,
           // Configure url for the request/server under test.
           url: apiHealthURL,
-          reuseExistingServer: !process.env.CI,
+          reuseExistingServer: false,
           timeout: 120_000,
           // Configure env for the request/server under test.
           env: {
@@ -82,7 +82,7 @@ export default defineConfig({
           cwd: webDir,
           // Configure url for the request/server under test.
           url: baseURL,
-          reuseExistingServer: !process.env.CI,
+          reuseExistingServer: false,
           timeout: 120_000,
         },
       ]

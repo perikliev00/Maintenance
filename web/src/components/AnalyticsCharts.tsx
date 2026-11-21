@@ -57,8 +57,8 @@ export function AnalyticsBarChart({
 
   return (
     // Render JSX element.
-    <section className="panel analytics-chart-panel">
-            <div className="panel-header">
+    <section className="ui-surface analytics-chart-panel">
+            <div className="ui-section-heading ui-action-strip">
                 <h2>{title}</h2>
                 <span className="muted">
                     {countLabel ?? `${items.length} · общо ${total}`}
@@ -71,7 +71,7 @@ export function AnalyticsBarChart({
       // Invoke helper or pass arguments.
       ) : (
         // Render JSX element.
-        <div className="analytics-hchart" role="img" aria-label={title}>
+        <div className="analytics-hchart" role="list" aria-label={title}>
                     {items.map((item, idx) => {
             // Const arrow/function binding.
             const pctOfMax = (item.count / max) * 100;
@@ -85,6 +85,7 @@ export function AnalyticsBarChart({
               // Render JSX element.
               <div
                 key={item.key}
+                role="listitem"
                 className={`analytics-hchart-row${isTop ? " is-top" : ""}`}
               >
                                 <span className="analytics-hchart-label" title={item.key}>
@@ -173,8 +174,8 @@ export function AnalyticsTrendChart({
 
   return (
     // Render JSX element.
-    <section className="panel analytics-chart-panel">
-            <div className="panel-header">
+    <section className="ui-surface analytics-chart-panel">
+            <div className="ui-section-heading ui-action-strip">
                 <h2>Тренд</h2>
                 <span className="muted">
                     {series.length} дни · общо {total}
@@ -261,7 +262,7 @@ export function AnalyticsTrendChart({
                         <path
               className="analytics-area-line"
               d={plot.line}
-              filter={`url(#soft-${gradId})`}
+
             />
 
                         {hover && (
@@ -332,6 +333,7 @@ export function AnalyticsTrendChart({
           )}
                 </div>
       )}
+      {series.length > 0 && <details className="ui-chart-data"><summary>Данни по дни</summary><div className="table-wrap"><table><caption>Дневен тренд — стойности за избрания период</caption><thead><tr><th scope="col">Дата</th><th scope="col">Брой</th></tr></thead><tbody>{series.map((point) => <tr key={point.date}><th scope="row">{point.date}</th><td>{point.count}</td></tr>)}</tbody></table></div></details>}
         </section>
   );
 }

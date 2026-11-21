@@ -9,6 +9,8 @@ export const USERS = {
   owner: "owner@meridian.local",
   manager: "manager@meridian.local",
   supervisor: "supervisor@meridian.local",
+  reception: "reception@meridian.local",
+  admin: "admin@meridian.local",
   housekeeper: "housekeeper@meridian.local",
   elena: "elena@meridian.local",
   technician: "technician@meridian.local",
@@ -21,7 +23,7 @@ export async function uiLogin(
   password = DEMO_PASSWORD,
 ): Promise<void> {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Meridian" })).toBeVisible();
+  await expect(page.getByLabel("Email")).toBeVisible();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -45,6 +47,18 @@ export async function storedUserId(page: Page): Promise<string> {
 
 /** Expect the unauthenticated login screen. */
 export async function expectLoginScreen(page: Page): Promise<void> {
-  await expect(page.getByRole("heading", { name: "Meridian" })).toBeVisible();
+  await expect(page.getByLabel("Email")).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+}
+
+/** Account actions live in the account popover in the new application shell. */
+export async function openAccount(page: Page): Promise<void> {
+  const account = page.getByRole("button", { name: /^(Account menu|Профил)$/ });
+  await expect(account).toBeVisible();
+  if ((await account.getAttribute("aria-expanded")) !== "true") await account.click();
+}
+
+export async function uiLogout(page: Page): Promise<void> {
+  await openAccount(page);
+  await page.getByRole("button", { name: "Log out", exact: true }).click();
 }

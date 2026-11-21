@@ -95,444 +95,87 @@ export function LiveBoardPage({
     actionForNeed,
   } = board;
 
-  function cardProps(
-    key: LiveBoardCategoryFilter,
-    label: string,
-    count: number,
-    cat: "active" | "overdue" | "anomaly" | "inspection" | "blocking",
-    hint: string,
-  ) {
-    const active = categoryFilter === key;
-    const zero = count === 0;
-    return (
-      <button
-        type="button"
-        className={`stat-card live-stat-card ${categoryClass(cat)}${
-          active ? " live-stat-card-active" : ""
-        }${zero ? " live-stat-card-zero" : ""}`}
-        aria-pressed={active}
-        aria-label={`${label}: ${count}. ${hint}`}
-        title={hint}
-        onClick={() =>
-          setCategoryFilter((prev) => (prev === key ? "all" : key))
-        }
-      >
-        <span className="live-stat-marker" aria-hidden />
-        <span className="muted">{label}</span>
-        <strong>{count}</strong>
-      </button>
-    );
-  }
+  const summaries: { key: LiveBoardCategoryFilter; label: string; count: number; hint: string }[] = [
+    { key: "active", label: t("Активни", "Active"), count: liveCounts.active, hint: t("Текуща работа по помещения", "Current cleaning work") },
+    { key: "overdue", label: t("Просрочени", "Overdue"), count: liveCounts.overdue, hint: t("Сесии с изтекло време (≥ праг). Филтърът за внимание показва и просрочени задачи.", "Sessions at/over the duration threshold. Attention filter also shows past-due tasks.") },
+    { key: "anomaly", label: t("Аномалии", "Anomalies"), count: liveCounts.anomalies, hint: t("Сесии с двойно просрочване", "Sessions at double the overdue threshold") },
+    { key: "inspection", label: t("Инспекции", "Inspections"), count: liveCounts.awaitingInspection, hint: t("Задачи, чакащи проверка", "Tasks awaiting inspection") },
+    { key: "blocking", label: t("Блокиращи", "Blocking"), count: liveCounts.blockingTickets, hint: t("Отворени повреди, блокиращи помещение", "Open issues that block a room") },
+  ];
 
   return (
-    <div className="content live-board">
-      <header className="page-header live-board-header">
+    <main className="content ui-live-monitor">
+      <header className="page-header ui-briefing">
         <div>
+          <p className="ui-eyebrow">{t("ОПЕРАЦИИ В МОМЕНТА", "OPERATIONS, RIGHT NOW")}</p>
           <h1>{t("Табло на живо", "Live board")}</h1>
-          <p className="muted">
-            {t(
-              "Активни сесии, внимание и скорошни събития",
-              "Active sessions, attention items, and recent events",
-            )}
-          </p>
+          <p>{t("Вижте какво изисква решение. Поддържайте работата в движение.", "See what needs a decision. Keep the work moving.")}</p>
           <ScopeHint user={user} locale={locale} />
         </div>
-        <div className="live-board-toolbar">
-          <span className={`live-conn live-conn-${conn}`} role="status">
-            <span className="live-conn-dot" aria-hidden />
-            {connLabel}
-          </span>
-          {data && (
-            <span className="muted live-updated">
-              {t("Сървър", "Server")}:{" "}
-              {new Date(data.updatedAt).toLocaleTimeString()}
-              {lastSuccessAt
-                ? ` · ${t("получено", "fetched")} ${new Date(
-                    lastSuccessAt,
-                  ).toLocaleTimeString()}`
-                : null}
-            </span>
-          )}
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => void refresh({ silent: false, force: true })}
-            disabled={loading}
-          >
-            {t("Обнови", "Refresh")}
-          </button>
+        <div className="ui-monitor-status">
+          <span className={`badge live-conn-${conn}`} role="status">{connLabel}</span>
+          <button type="button" className="ghost" onClick={() => void refresh({ silent: false, force: true })} disabled={loading}>{t("Обнови", "Refresh")}</button>
+          {data && <small className="muted">{t("Сървър", "Server")}: {new Date(data.updatedAt).toLocaleTimeString()}{lastSuccessAt ? ` · ${t("получено", "fetched")} ${new Date(lastSuccessAt).toLocaleTimeString()}` : null}</small>}
         </div>
       </header>
+      {(conn === "stale" || (conn === "offline" && !(loading && !data))) && <div className={`banner ${conn === "offline" ? "error" : "warn"}`} role="status">{conn === "offline" ? t("Няма връзка — показват се последните получени данни.", "No connection — showing last received data.") : t("Данните не са обновявани от над 45 секунди.", "Data has not refreshed for over 45 seconds.")}</div>}
+      {error && <div className="error banner" role="alert">{error}</div>}
+      {message && <div className="ok banner" role="status">{message}</div>}
+      {loading && !data ? <LoadingIndicator label={t("Зареждане…", "Loading…")} /> : data ? <>
+        <section className="ui-metrics ui-monitor-filters" aria-label={t("Обобщение", "Summary")}>
+          {summaries.map((item) => <button key={item.key} type="button" className={`ui-metric ${categoryFilter === item.key ? "is-selected" : ""}`} aria-pressed={categoryFilter === item.key} aria-label={`${item.label}: ${item.count}. ${item.hint}`} title={item.hint} onClick={() => setCategoryFilter((previous) => previous === item.key ? "all" : item.key)}><span>{item.label}</span><strong>{item.count}</strong></button>)}
+        </section>
+        {categoryFilter !== "all" && <div className="ui-action-strip"><span className="muted">{t("Филтър", "Filter")}: <strong>{summaries.find((item) => item.key === categoryFilter)?.label}</strong></span><button type="button" className="ghost" onClick={() => setCategoryFilter("all")}>{t("Всички", "All")}</button></div>}
 
-      {/* Hide offline banner during the first in-flight load (conn starts offline). */}
-      {(conn === "stale" || (conn === "offline" && !(loading && !data))) && (
-        <div className={`banner ${conn === "offline" ? "error" : "warn"}`}>
-          {conn === "offline"
-            ? t(
-                "Няма връзка — показват се последните получени данни.",
-                "No connection — showing last received data.",
-              )
-            : t(
-                "Данните не са обновявани от над 45 секунди.",
-                "Data has not refreshed for over 45 seconds.",
-              )}
-        </div>
-      )}
+        <section className="ui-surface ui-attention-workspace">
+          <div className="ui-section-heading"><p className="ui-eyebrow">{t("СЛЕДВАЩО РЕШЕНИЕ", "NEXT DECISION")}</p><h2>{t("Нуждаещи се от внимание", "Needs attention")}</h2></div>
+          {filteredNeeds.length === 0 ? <p className="ui-empty muted">{t("Няма елементи.", "Nothing needs attention.")}</p> : <ul className="ui-queue">
+            {filteredNeeds.map((item) => {
+              const category = item.kind === "awaiting_inspection" ? "inspection" : item.kind === "past_due" ? "overdue" : "blocking";
+              const action = actionForNeed(item);
+              return <li key={`${item.kind}:${item.id}`} className={`ui-work-item ui-need-${category}`}>
+                <div className="ui-work-item-location"><strong>{item.location.number}</strong><small>{kindLabel(item.location.kind, locale)}</small></div>
+                <div className="ui-work-item-body"><span className={`badge ${categoryClass(category)}`}>{needKindLabel(item.kind, locale)}</span><h3>{needTitle(item, locale)}</h3><p className="muted">{item.employee?.fullName}{item.priority ? ` · ${priorityLabel(locale, item.priority)}` : ""}</p></div>
+                {action && <div className="ui-work-item-actions"><button type="button" onClick={action.run}>{action.label}</button></div>}
+              </li>;
+            })}
+          </ul>}
+          {categoryFilter === "all" && data.attention && <div className="ui-action-strip">
+            {data.attention.awaitingInspection.hasMore && <button type="button" className="ghost" disabled={loadingMoreKind === "awaiting_inspection"} onClick={() => void loadMore("awaiting_inspection")}>{t("Още инспекции", "More inspections")}{` (${data.attention.awaitingInspection.returned}/${data.attention.awaitingInspection.total})`}</button>}
+            {data.attention.pastDue.hasMore && <button type="button" className="ghost" disabled={loadingMoreKind === "past_due"} onClick={() => void loadMore("past_due")}>{t("Още просрочени задачи", "More past-due tasks")}{` (${data.attention.pastDue.returned}/${data.attention.pastDue.total})`}</button>}
+            {data.attention.blockingTickets.hasMore && <button type="button" className="ghost" disabled={loadingMoreKind === "blocking_ticket"} onClick={() => void loadMore("blocking_ticket")}>{t("Още блокиращи", "More blocking")}{` (${data.attention.blockingTickets.returned}/${data.attention.blockingTickets.total})`}</button>}
+          </div>}
+        </section>
 
-      {error && <div className="error banner">{error}</div>}
-      {message && <div className="ok banner">{message}</div>}
-
-      {loading && !data ? (
-        <LoadingIndicator label={t("Зареждане…", "Loading…")} />
-      ) : data ? (
-        <>
-          <section className="live-counts" aria-label={t("Обобщение", "Summary")}>
-            {cardProps(
-              "active",
-              t("Активни", "Active"),
-              liveCounts.active,
-              "active",
-              t("Текуща работа по помещения", "Current cleaning work"),
-            )}
-            {cardProps(
-              "overdue",
-              t("Просрочени", "Overdue"),
-              liveCounts.overdue,
-              "overdue",
-              t(
-                "Сесии с изтекло време (≥ праг). Филтърът за внимание показва и просрочени задачи.",
-                "Sessions at/over the duration threshold. Attention filter also shows past-due tasks.",
-              ),
-            )}
-            {cardProps(
-              "anomaly",
-              t("Аномалии", "Anomalies"),
-              liveCounts.anomalies,
-              "anomaly",
-              t("Сесии с двойно просрочване", "Sessions at double the overdue threshold"),
-            )}
-            {cardProps(
-              "inspection",
-              t("Инспекции", "Inspections"),
-              liveCounts.awaitingInspection,
-              "inspection",
-              t("Задачи, чакащи проверка", "Tasks awaiting inspection"),
-            )}
-            {cardProps(
-              "blocking",
-              t("Блокиращи", "Blocking"),
-              liveCounts.blockingTickets,
-              "blocking",
-              t("Отворени повреди, блокиращи помещение", "Open issues that block a room"),
-            )}
-          </section>
-
-          {categoryFilter !== "all" && (
-            <div className="live-filter-bar">
-              <span className="muted">
-                {t("Филтър", "Filter")}:{" "}
-                <strong>
-                  {categoryFilter === "active"
-                    ? t("Активни", "Active")
-                    : categoryFilter === "overdue"
-                      ? t("Просрочени", "Overdue")
-                      : categoryFilter === "anomaly"
-                        ? t("Аномалии", "Anomalies")
-                        : categoryFilter === "inspection"
-                          ? t("Инспекции", "Inspections")
-                          : t("Блокиращи", "Blocking")}
-                </strong>
-              </span>
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => setCategoryFilter("all")}
-              >
-                {t("Всички", "All")}
-              </button>
-            </div>
-          )}
-
-          {(categoryFilter === "all" ||
-            categoryFilter === "active" ||
-            categoryFilter === "overdue" ||
-            categoryFilter === "anomaly") && (
-            <section className="panel">
-              <h2>
-                {t("Активни сесии", "Active sessions")}
-                <span className="muted">
-                  {" "}
-                  · {t("просрочване", "overdue")} ≥{" "}
-                  {data.overdueThresholdMinutes}m · {t("аномалия", "anomaly")} ≥{" "}
-                  {data.anomalyThresholdMinutes}m
-                </span>
-              </h2>
-              {filteredSessions.length === 0 ? (
-                <p className="muted">
-                  {t("Няма активни сесии.", "No active sessions.")}
-                </p>
-              ) : (
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>{t("Помещение", "Location")}</th>
-                        <th>{t("Камериер", "Housekeeper")}</th>
-                        <th>{t("Изтекло", "Elapsed")}</th>
-                        <th>{t("Статус", "Status")}</th>
-                        <th>{t("Действие", "Action")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSessions.map((s) => {
-                        const rowCat = sessionCategory(s);
-                        const canOpenLoc = canOpenPanel(
-                          panelForLocationKind(s.location.kind),
-                        );
-                        return (
-                          <tr
-                            key={s.sessionId}
-                            className={`live-row-${rowCat}`}
-                          >
-                            <td>
-                              {kindLabel(s.location.kind, locale)}{" "}
-                              <strong>{s.location.number}</strong>
-                              <span className="muted">
-                                {" "}
-                                · {s.location.buildingCode} /{" "}
-                                {t("ет.", "fl.")} {s.location.floor}
-                              </span>
-                            </td>
-                            <td>
-                              {s.employee.fullName}
-                              <span className="muted">
-                                {" "}
-                                · {s.employee.employeeNumber}
-                              </span>
-                            </td>
-                            <td>{formatElapsed(s.elapsedMinutes)}</td>
-                            <td>
-                              {s.anomaly ? (
-                                <span
-                                  className={`badge ${categoryClass("anomaly")}`}
-                                >
-                                  {t("Аномалия", "Anomaly")}
-                                </span>
-                              ) : s.overdue ? (
-                                <span
-                                  className={`badge ${categoryClass("overdue")}`}
-                                >
-                                  {t("Просрочено", "Overdue")}
-                                </span>
-                              ) : (
-                                <span
-                                  className={`badge ${categoryClass("active")}`}
-                                >
-                                  {t("Текуща", "Running")}
-                                </span>
-                              )}
-                            </td>
-                            <td className="live-row-actions">
-                              {canOpenLoc && (
-                                <button
-                                  type="button"
-                                  className="ghost"
-                                  onClick={() =>
-                                    openLocation(s.location, {
-                                      taskId: s.taskId,
-                                      sessionId: s.sessionId,
-                                    })
-                                  }
-                                >
-                                  {s.location.kind === "common_area"
-                                    ? t(
-                                        "Отвори помещението",
-                                        "Open location",
-                                      )
-                                    : t("Отвори стаята", "Open room")}
-                                </button>
-                              )}
-                              {(s.overdue || s.anomaly) && (
-                                <button
-                                  type="button"
-                                  className="ghost"
-                                  onClick={() =>
-                                    openLocation(s.location, {
-                                      taskId: s.taskId,
-                                      sessionId: s.sessionId,
-                                    })
-                                  }
-                                  disabled={!canOpenLoc}
-                                >
-                                  {t("Преглед на сесията", "Review session")}
-                                </button>
-                              )}
-                              {canComplete && (s.overdue || s.anomaly) && (
-                                <button
-                                  type="button"
-                                  className="ghost"
-                                  disabled={busyIds.has(s.sessionId)}
-                                  onClick={() => void onComplete(s.sessionId)}
-                                >
-                                  {busyIds.has(s.sessionId)
-                                    ? "…"
-                                    : t("Приключи", "Complete")}
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+        {(categoryFilter === "all" || categoryFilter === "active" || categoryFilter === "overdue" || categoryFilter === "anomaly") && <section className="ui-surface">
+          <div className="ui-section-heading ui-action-strip"><h2>{t("Активни сесии", "Active sessions")}</h2><span className="muted">{t("просрочване", "overdue")} ≥ {data.overdueThresholdMinutes}m · {t("аномалия", "anomaly")} ≥ {data.anomalyThresholdMinutes}m</span></div>
+          {filteredSessions.length === 0 ? <p className="ui-empty muted">{t("Няма активни сесии.", "No active sessions.")}</p> : <ul className="ui-queue">
+            {filteredSessions.map((session) => {
+              const category = sessionCategory(session);
+              const canOpenLocation = canOpenPanel(panelForLocationKind(session.location.kind));
+              return <li key={session.sessionId} className={`ui-work-item live-row-${category}`}>
+                <div className="ui-work-item-location"><strong>{session.location.number}</strong><small>{kindLabel(session.location.kind, locale)}</small></div>
+                <div className="ui-work-item-body"><h3>{session.employee.fullName}</h3><p className="muted">{session.employee.employeeNumber} · {session.location.buildingCode} / {t("ет.", "fl.")} {session.location.floor}</p><span className={`badge ${categoryClass(category)}`}>{session.anomaly ? t("Аномалия", "Anomaly") : session.overdue ? t("Просрочено", "Overdue") : t("Текуща", "Running")}</span></div>
+                <div className="ui-session-clock"><strong>{formatElapsed(session.elapsedMinutes)}</strong><small>{t("Изтекло", "Elapsed")}</small></div>
+                <div className="ui-work-item-actions">
+                  {canOpenLocation && <button type="button" className="ghost" onClick={() => openLocation(session.location, { taskId: session.taskId, sessionId: session.sessionId })}>{session.location.kind === "common_area" ? t("Отвори помещението", "Open location") : t("Отвори стаята", "Open room")}</button>}
+                  {(session.overdue || session.anomaly) && <button type="button" className="ghost" disabled={!canOpenLocation} onClick={() => openLocation(session.location, { taskId: session.taskId, sessionId: session.sessionId })}>{t("Преглед на сесията", "Review session")}</button>}
+                  {canComplete && (session.overdue || session.anomaly) && <button type="button" disabled={busyIds.has(session.sessionId)} onClick={() => void onComplete(session.sessionId)}>{busyIds.has(session.sessionId) ? "…" : t("Приключи", "Complete")}</button>}
                 </div>
-              )}
-            </section>
-          )}
+              </li>;
+            })}
+          </ul>}
+        </section>}
 
-          <div className="live-two-col">
-            <section className="panel">
-              <h2>{t("Нуждаещи се от внимание", "Needs attention")}</h2>
-              {filteredNeeds.length === 0 ? (
-                <p className="muted">
-                  {t("Няма елементи.", "Nothing needs attention.")}
-                </p>
-              ) : (
-                <ul className="live-feed">
-                  {filteredNeeds.map((item) => {
-                    const cat =
-                      item.kind === "awaiting_inspection"
-                        ? "inspection"
-                        : item.kind === "past_due"
-                          ? "overdue"
-                          : "blocking";
-                    const action = actionForNeed(item);
-                    return (
-                      <li
-                        key={`${item.kind}:${item.id}`}
-                        className={`live-need live-need-${cat}`}
-                      >
-                        <div className="live-need-main">
-                          <span className={`badge ${categoryClass(cat)}`}>
-                            {needKindLabel(item.kind, locale)}
-                          </span>{" "}
-                          <strong>{item.location.number}</strong>
-                          {" — "}
-                          {needTitle(item, locale)}
-                          {item.employee ? (
-                            <span className="muted">
-                              {" "}
-                              · {item.employee.fullName}
-                            </span>
-                          ) : null}
-                          {item.priority ? (
-                            <span className="muted">
-                              {" "}
-                              · {priorityLabel(locale, item.priority)}
-                            </span>
-                          ) : null}
-                        </div>
-                        {action && (
-                          <button
-                            type="button"
-                            className="ghost"
-                            onClick={action.run}
-                          >
-                            {action.label}
-                          </button>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-              {categoryFilter === "all" && data.attention && (
-                <div className="live-load-more">
-                  {data.attention.awaitingInspection.hasMore && (
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={loadingMoreKind === "awaiting_inspection"}
-                      onClick={() => void loadMore("awaiting_inspection")}
-                    >
-                      {t("Още инспекции", "More inspections")}
-                      {` (${data.attention.awaitingInspection.returned}/${data.attention.awaitingInspection.total})`}
-                    </button>
-                  )}
-                  {data.attention.pastDue.hasMore && (
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={loadingMoreKind === "past_due"}
-                      onClick={() => void loadMore("past_due")}
-                    >
-                      {t("Още просрочени задачи", "More past-due tasks")}
-                      {` (${data.attention.pastDue.returned}/${data.attention.pastDue.total})`}
-                    </button>
-                  )}
-                  {data.attention.blockingTickets.hasMore && (
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={loadingMoreKind === "blocking_ticket"}
-                      onClick={() => void loadMore("blocking_ticket")}
-                    >
-                      {t("Още блокиращи", "More blocking")}
-                      {` (${data.attention.blockingTickets.returned}/${data.attention.blockingTickets.total})`}
-                    </button>
-                  )}
-                </div>
-              )}
-            </section>
-
-            <section className="panel">
-              <h2>{t("Току-що завършени", "Just completed")}</h2>
-              {data.recentlyCompleted.length === 0 ? (
-                <p className="muted">
-                  {t(
-                    "Няма завършени през последния час.",
-                    "None completed in the last hour.",
-                  )}
-                </p>
-              ) : (
-                <ul className="live-feed">
-                  {data.recentlyCompleted.map((s) => (
-                    <li key={s.sessionId}>
-                      <strong>{s.location.number}</strong> · {s.employee.fullName}{" "}
-                      <span className="muted">
-                        · {formatElapsed(s.durationMinutes)} ·{" "}
-                        {new Date(s.finishedAt).toLocaleTimeString()}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
-
-          <section className="panel">
-            <h2>{t("Одит / събития", "Ops audit")}</h2>
-            {data.auditFeed.length === 0 ? (
-              <p className="muted">
-                {t("Няма скорошни събития.", "No recent events.")}
-              </p>
-            ) : (
-              <ul className="live-feed">
-                {data.auditFeed.map((ev) => (
-                  <li key={`${ev.type}:${ev.entityId}:${ev.at}`}>
-                    <span className="muted">
-                      {new Date(ev.at).toLocaleString()}
-                    </span>{" "}
-                    — {ev.summary}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </>
-      ) : (
-        <p className="muted">{t("Няма данни.", "No data.")}</p>
-      )}
-    </div>
+        <section className="ui-surface">
+          <div className="ui-section-heading"><p className="ui-eyebrow">{t("ПОСЛЕДНИЯТ ЧАС", "THE LAST HOUR")}</p><h2>{t("Току-що завършени", "Just completed")}</h2></div>
+          {data.recentlyCompleted.length === 0 ? <p className="ui-empty muted">{t("Няма завършени през последния час.", "None completed in the last hour.")}</p> : <ol className="ui-completion-log">{data.recentlyCompleted.map((session) => <li key={session.sessionId}><strong>{session.location.number}</strong><span>{session.employee.fullName}</span><span className="muted">{formatElapsed(session.durationMinutes)}</span><time>{new Date(session.finishedAt).toLocaleTimeString()}</time></li>)}</ol>}
+        </section>
+        <details className="ui-surface ui-event-log">
+          <summary>{t("Одит / събития", "Ops audit")} <span className="muted">({data.auditFeed.length})</span></summary>
+          {data.auditFeed.length === 0 ? <p className="ui-empty muted">{t("Няма скорошни събития.", "No recent events.")}</p> : <ol className="ui-completion-log">{data.auditFeed.map((event) => <li key={`${event.type}:${event.entityId}:${event.at}`}><time className="muted">{new Date(event.at).toLocaleString()}</time><span>{event.summary}</span></li>)}</ol>}
+        </details>
+      </> : <p className="ui-empty muted">{t("Няма данни.", "No data.")}</p>}
+    </main>
   );
 }

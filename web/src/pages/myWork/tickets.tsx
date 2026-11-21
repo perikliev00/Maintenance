@@ -34,39 +34,24 @@ export function TicketsSection({
   onError: (message: string) => void;
 }) {
   return (
-    <section className="mywork-section">
-      <h2>{t(locale, "Повреди", "Repairs")}</h2>
+    <section className="ui-surface" id="repair-queue">
+      <div className="ui-section-heading ui-action-strip"><h2>{t(locale, "Повреди", "Repairs")}</h2><span className="muted">{tickets.length} {t(locale, "заредени", "loaded")}</span></div>
       {tickets.length === 0 ? (
         <p className="muted">
           {t(locale, "Няма назначени тикети", "No assigned tickets")}
         </p>
       ) : (
-        <div className="mywork-cards">
+        <div className="ui-queue">
           {tickets.map((ticket) => (
-            <article key={ticket.id} className="mywork-card">
-              <div className="mywork-card-top">
-                <strong>{ticketLocationLabel(ticket)}</strong>
-                <span className={`pill status-${ticket.status}`}>
-                  {statusLabel(locale, ticket.status)}
-                </span>
+            <article key={ticket.id} className="mywork-card ui-work-item">
+              <div className="ui-work-item-location"><strong>{ticketLocationLabel(ticket)}</strong><small>{t(locale, "Повреда", "Repair")}</small></div>
+              <div className="ui-work-item-body">
+                <div className="ui-work-item-heading"><h3>{ticket.title}</h3><span className={`pill status-${ticket.status}`}>{statusLabel(locale, ticket.status)}</span></div>
+                <p className="muted">{ticket.priority}{ticket.blocksRoom ? ` · ${t(locale, "блокира стая", "blocks room")}` : ""}</p>
               </div>
-              <p>{ticket.title}</p>
-              <p className="muted">
-                {ticket.priority}
-                {/* Call out blocking tickets so housekeepers can see impact. */}
-                {ticket.blocksRoom
-                  ? ` · ${t(locale, "блокира стая", "blocks room")}`
-                  : ""}
-              </p>
-              {/* Shared lifecycle buttons; busyId scopes disable to one card. */}
-              <TicketLifecycleActions
-                ticket={ticket}
-                busy={busyId === ticket.id}
-                canResolve={canResolve}
-                onBusy={onBusy}
-                onDone={(result) => onDone(ticket, result)}
-                onError={onError}
-              />
+              <div className="ui-work-item-actions">
+                <TicketLifecycleActions ticket={ticket} busy={busyId === ticket.id} canResolve={canResolve} locale={locale} onBusy={onBusy} onDone={(result) => onDone(ticket, result)} onError={onError} />
+              </div>
             </article>
           ))}
         </div>

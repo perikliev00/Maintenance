@@ -442,6 +442,66 @@ jobs:
           path: trivy-web.json
           if-no-files-found: warn
           retention-days: 7
+      # Third-party prod stack images (compose.prod.yml) — not covered by api/web builds.
+      - name: Resolve Postgres image from compose.prod.yml
+        id: stack_images
+        run: |
+          IMG=$(docker compose --env-file .env.production.example -f compose.prod.yml config --format json | node -e '
+            const c = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            const img = c.services?.db?.image;
+            if (!img) { console.error("db.image missing from compose.prod.yml"); process.exit(1); }
+            process.stdout.write(img);
+          ')
+          echo "postgres=$IMG" >> "$GITHUB_OUTPUT"
+          docker pull "$IMG"
+      # Third-party image: scan Alpine OS packages only. Embedded gosu Go stdlib
+      # CVEs are not fixable without rebuilding upstream binaries.
+      - name: Scan Postgres image
+        if: ${{ always() && steps.stack_images.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.stack_images.outputs.postgres }}
+          format: json
+          output: trivy-postgres.json
+          severity: CRITICAL,HIGH
+          vuln-type: os
+          trivyignores: .github/trivyignore-postgres
+          exit-code: "1"
+      - name: Summarize Postgres vulnerability paths
+        if: always()
+        run: |
+          node - trivy-postgres.json <<'NODE'
+          const fs = require('node:fs');
+          const path = process.argv[2];
+          if (!fs.existsSync(path)) {
+            console.log('Trivy Postgres JSON report was not created');
+            process.exit(0);
+          }
+          const report = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const groups = new Map();
+          for (const result of report.Results ?? []) {
+            for (const item of result.Vulnerabilities ?? []) {
+              if (!['HIGH', 'CRITICAL'].includes(item.Severity)) continue;
+              const key = [result.Type, result.Target, item.PkgName, item.InstalledVersion, item.PkgPath, item.Severity].join('|');
+              const group = groups.get(key) ?? {
+                type: result.Type, target: result.Target, package: item.PkgName,
+                installed: item.InstalledVersion, path: item.PkgPath ?? null,
+                severity: item.Severity, advisories: []
+              };
+              group.advisories.push({ id: item.VulnerabilityID, fixed: item.FixedVersion || null });
+              groups.set(key, group);
+            }
+          }
+          console.log(JSON.stringify([...groups.values()], null, 2));
+          NODE
+      - name: Upload Postgres Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-postgres-json
+          path: trivy-postgres.json
+          if-no-files-found: warn
+          retention-days: 7
 
   secret-scan:
     name: Secret scan

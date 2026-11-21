@@ -114,7 +114,7 @@ test.describe("Repairs pagination", () => {
     await expect(page.getByRole("button", { name: /Зареди още|Load more/i })).toHaveCount(0);
 
     const titles = await page
-      .locator("table.repairs-table tbody tr td:nth-child(2)")
+      .locator("article[data-ticket-id]")
       .allTextContents();
     const matched = titles.filter((t) => t.includes(stamp));
     expect(new Set(matched).size).toBe(58);
@@ -146,10 +146,11 @@ test.describe("Repairs pagination", () => {
 
     await page.getByLabel(/Изпълнител|Assignee/).selectOption("all");
     await expect(page.locator(".repairs-count")).toBeVisible({ timeout: 20_000 });
-    const text = await page.locator(".repairs-count").innerText();
-    const totalMatch = text.match(/(\d+)\s*(?:от|of)\s*(\d+)/i);
-    expect(totalMatch).toBeTruthy();
-    expect(Number(totalMatch![2])).toBeGreaterThanOrEqual(58);
+    await expect.poll(async () => {
+      const text = await page.locator(".repairs-count").innerText();
+      const totalMatch = text.match(/(\d+)\s*(?:от|of)\s*(\d+)/i);
+      return totalMatch ? Number(totalMatch[2]) : -1;
+    }).toBeGreaterThanOrEqual(58);
   });
 
   // Case: load-more network failure keeps current rows and allows retry.
@@ -174,7 +175,7 @@ test.describe("Repairs pagination", () => {
     await page.getByRole("button", { name: /Зареди още|Load more/i }).click();
     await expect(page.locator(".banner.error")).toBeVisible({ timeout: 15_000 });
     await expect(page.locator(".repairs-count")).toContainText(/50.*58/);
-    expect(await page.locator("table.repairs-table tbody tr").count()).toBe(50);
+    expect(await page.locator("article[data-ticket-id]").count()).toBe(50);
 
     blocked = false;
     await page.getByRole("button", { name: /Зареди още|Load more/i }).click();
@@ -182,7 +183,7 @@ test.describe("Repairs pagination", () => {
       timeout: 20_000,
     });
     const titles = await page
-      .locator("table.repairs-table tbody tr td:nth-child(2)")
+      .locator("article[data-ticket-id]")
       .allTextContents();
     const matched = titles.filter((t) => t.includes(stamp));
     expect(matched).toHaveLength(58);
@@ -194,7 +195,7 @@ test.describe("Repairs pagination", () => {
     page,
   }) => {
     // Reach Repairs at desktop width, then shrink — exercises mobile layout of
-    // the page itself; openNav also covers Menu → sidebar on narrow viewports.
+    // the page itself; openNav also covers workspace navigation on narrow viewports.
     await openRepairsFiltered(page);
     await expect(page.locator(".repairs-count")).toContainText(/50.*58/, {
       timeout: 20_000,
@@ -215,7 +216,7 @@ test.describe("Repairs pagination", () => {
       timeout: 20_000,
     });
 
-    // Table may scroll inside .table-wrap; the document itself must not.
+    // The responsive queue must stay within the viewport.
     const pageOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth + 2,
     );

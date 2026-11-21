@@ -18,6 +18,7 @@ type Props = {
   dirty?: boolean;
   error?: string | null;
   submitLabel: string;
+  submitDisabled?: boolean;
   cancelLabel: string;
   onSubmit: (e: FormEvent) => void;
   onClose: () => void;
@@ -33,6 +34,7 @@ export function FormModal({
   dirty = false,
   error,
   submitLabel,
+  submitDisabled = false,
   cancelLabel,
   onSubmit,
   onClose,
@@ -105,7 +107,7 @@ export function FormModal({
                         <button type="button" className="ghost" onClick={requestClose} disabled={busy}>
                             {cancelLabel}
                         </button>
-                        <button type="submit" disabled={busy}>
+                        <button type="submit" disabled={busy || submitDisabled}>
                             {busy ? "…" : submitLabel}
                         </button>
                     </div>

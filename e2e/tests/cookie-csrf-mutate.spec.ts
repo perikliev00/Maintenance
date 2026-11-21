@@ -40,7 +40,7 @@ test.describe("cookie CSRF mutate", () => {
 
       await openNav(page, /Настройки|Settings/);
       await expect(page.getByRole("heading", { name: /Настройки|Settings/ })).toBeVisible();
-      await page.getByRole("tab", { name: /Модули|Modules/ }).click();
+      await page.getByRole("button", { name: /Модули|Modules/ }).click();
       await page.getByRole("checkbox", { name: /Присъствие|Attendance/ }).uncheck();
       await page.getByRole("button", { name: /Запази|Save/ }).click();
       await expect(page.getByText(/Запазено|Saved/)).toBeVisible();

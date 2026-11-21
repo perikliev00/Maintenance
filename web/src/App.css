@@ -1,22 +1,4 @@
-/* Split from monolithic App.css — import order matters for cascade. */
-@import "./styles/base.css";
-/* Stylesheet contribution. */
-@import "./styles/login.css";
-/* Stylesheet contribution. */
-@import "./styles/shell.css";
-/* Stylesheet contribution. */
-@import "./styles/modals.css";
-/* Stylesheet contribution. */
-@import "./styles/settings.css";
-/* Stylesheet contribution. */
-@import "./styles/analytics.css";
-/* Stylesheet contribution. */
-@import "./styles/live-board.css";
-/* Stylesheet contribution. */
-@import "./styles/cards.css";
-/* Stylesheet contribution. */
-@import "./styles/my-work.css";
-/* Stylesheet contribution. */
-@import "./styles/repairs.css";
-/* Stylesheet contribution. */
-@import "./styles/loading.css";
+/* Independent Operations Studio stylesheet. */
+@import "./ui/studio.css";
+@import "./ui/workforce.css";
+@import "./ui/reports.css";

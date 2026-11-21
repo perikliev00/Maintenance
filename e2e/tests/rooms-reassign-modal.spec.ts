@@ -95,7 +95,7 @@ test.describe("rooms reassign modal", () => {
       timeout: 20_000,
     });
 
-    const row = page.locator("tr", { hasText: room.number }).first();
+    const row = page.locator("article[data-location-id]", { hasText: room.number }).first();
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: /Преназначи|Reassign/ }).click();
 
@@ -111,14 +111,21 @@ test.describe("rooms reassign modal", () => {
     });
     await expect(elenaOption.first()).toBeVisible({ timeout: 15_000 });
     await elenaOption.first().locator('input[type="radio"]').check();
-
-    const override = dialog.locator(".reassign-override input[type='checkbox']");
-    if ((await override.count()) > 0) {
-      await override.first().check();
-    }
+    await expect(elenaOption.first().locator('input[type="radio"]')).toBeChecked();
 
     await dialog.locator("textarea").fill("E2E reassign Maria to Elena");
-    await dialog.getByRole("button", { name: /Преназначи|Reassign/ }).click();
+
+    // Off-shift / unavailable selections reveal force-override after React
+    // updates. Wait until submit is enabled (check override when it appears).
+    const override = dialog.locator(".reassign-override input[type='checkbox']");
+    const submit = dialog.getByRole("button", { name: /Преназначи|Reassign/ });
+    await expect
+      .poll(async () => {
+        if (await override.isVisible()) await override.check();
+        return submit.isEnabled();
+      }, { timeout: 8_000 })
+      .toBeTruthy();
+    await submit.click();
 
     await expect(dialog).toBeHidden({ timeout: 15_000 });
     await expect(row.getByText(/Elena Petrova/i).first()).toBeVisible({

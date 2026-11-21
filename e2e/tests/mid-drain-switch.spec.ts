@@ -1,6 +1,6 @@
 // Playwright test runner APIs for browser E2E scenarios.
 import { expect, test, type Page } from "@playwright/test";
-import { storedUserId, uiLogin, USERS } from "./helpers/auth";
+import { openAccount, storedUserId, uiLogin, USERS } from "./helpers/auth";
 
 // Shape E2eWindow documents the fixture/response fields this suite touches.
 type E2eWindow = Window & {
@@ -185,6 +185,7 @@ test.describe("mid-drain account switch", () => {
     expect(claimed.userId).toBe(userAId);
     expect(claimed.status).toBe("sending");
 
+    await openAccount(page);
     await page.getByRole("button", { name: "Log out" }).click();
     // logout() awaits IndexedDB purge before showing Sign in.
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();

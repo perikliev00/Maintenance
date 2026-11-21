@@ -5,7 +5,7 @@ import {
   findUserIdByEmail,
   patchUserRole,
 } from "./helpers/api";
-import { expectLoginScreen, uiLogin, USERS } from "./helpers/auth";
+import { openAccount, expectLoginScreen, uiLogin, USERS } from "./helpers/auth";
 
 /**
  * UI: role change revokes sessions; open tab is forced back to login
@@ -22,7 +22,8 @@ test.describe("role change kick-out", () => {
 
     try {
       await uiLogin(page, USERS.elena);
-      await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
+      await openAccount(page);
+    await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
 
       await patchUserRole(ownerToken, elenaId, "technician");
 

@@ -97,25 +97,27 @@ export function TeamPage({ user, locale = "bg" }: Props) {
   );
 
   return (
-    <main className="content">
-      <header className="page-header">
+    <main className="content ui-workspace ui-people-workspace">
+      <header className="ui-intro">
         <div>
+          <p className="ui-eyebrow">{t(locale, "ХОРА И ДОСТЪП", "PEOPLE & ACCESS")}</p>
           <h1>{t(locale, "Екип", "Team")}</h1>
           <p>
             {t(
               locale,
-              "Хора, роли, onboarding и устройства",
-              "People, roles, onboarding and devices",
+              "Намерете човек, подгответе покана или управлявайте достъпа му.",
+              "Find a colleague, prepare an invitation, or manage their access.",
             )}
           </p>
         </div>
       </header>
 
-      <div className="toolbar">
-        <div className="segmented" role="tablist">
+      <div className="ui-section-layout">
+        <nav className="ui-section-nav" aria-label={t(locale, "Екип — раздели", "Team sections")}>
           <button
             type="button"
             className={tab === "directory" ? "active" : ""}
+            aria-current={tab === "directory" ? "page" : undefined}
             onClick={() => setTab("directory")}
           >
             {t(locale, "Списък", "Directory")}
@@ -124,13 +126,15 @@ export function TeamPage({ user, locale = "bg" }: Props) {
             <button
               type="button"
               className={tab === "onboarding" ? "active" : ""}
+              aria-current={tab === "onboarding" ? "page" : undefined}
               onClick={() => setTab("onboarding")}
             >
               Onboarding
 </button>
           )}
-        </div>
-      </div>
+          <p className="muted small">{t(locale, "Управлявайте профили и регистрации на устройства от картата на всеки служител.", "Manage profiles and device registrations from each person's record.")}</p>
+        </nav>
+        <div className="ui-section-content">
 
             {displayError && <div className="error banner">{displayError}</div>}
             {onboarding.inviteMessage && tab === "onboarding" && (
@@ -203,6 +207,9 @@ export function TeamPage({ user, locale = "bg" }: Props) {
           onLoadMoreCandidates={() => void onboarding.onLoadMoreCandidates()}
         />
       )}
+
+        </div>
+      </div>
 
             {devicesPerson && (
         <TeamPersonDevicesDialog

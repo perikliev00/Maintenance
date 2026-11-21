@@ -8,7 +8,7 @@ import {
   redeemInvitation,
   type AuthUser,
 } from "../api/client";
-import { BrandMark } from "../components/BrandMark";
+import { AccessLayout } from "../components/AccessLayout";
 import type { ThemeMode } from "../theme";
 
 type Props = {
@@ -88,22 +88,15 @@ export function ActivatePage({
   }
 
   return (
-    <div className="login-page">
-      <button
-        type="button"
-        className="ghost login-theme-toggle"
-        onClick={onToggleTheme}
-      >
-        {theme === "dark" ? "Light" : "Dark"}
-      </button>
-      <form className="login-card" onSubmit={handleSubmit}>
-        <div className="login-brand">
-          <BrandMark size={44} />
-          <div className="login-brand-text">
-            <h1>Activate device</h1>
-            <p className="muted">Enter your invitation code</p>
-          </div>
+    <AccessLayout theme={theme} onToggleTheme={onToggleTheme} enrollment>
+      <form className="ui-form-stack" onSubmit={handleSubmit} aria-labelledby="activate-title">
+        <div className="ui-section-heading">
+          <p className="ui-eyebrow">JOIN YOUR TEAM</p>
+          <h1 id="activate-title">Activate device</h1>
+          <p className="muted">Enter your invitation code and name this device.</p>
         </div>
+        <fieldset>
+          <legend>Workspace invitation</legend>
         <label>
           Invitation code
           <input
@@ -114,6 +107,9 @@ export function ActivatePage({
             placeholder="ABCD-EFGH"
           />
         </label>
+        </fieldset>
+        <fieldset>
+          <legend>Account access</legend>
         <label>
           Device label
           <input
@@ -143,7 +139,8 @@ export function ActivatePage({
           />
         </label>
         {/* Render branch: error && <div className="error">error</div> */}
-        {error && <div className="error">{error}</div>}
+        </fieldset>
+        {error && <div className="error" role="alert">{error}</div>}
         <button type="submit" disabled={loading}>
           {/* Render branch: loading ? "Activating…" : "Activate" */}
           {loading ? "Activating…" : "Activate"}
@@ -152,6 +149,6 @@ export function ActivatePage({
           Back to sign in
         </button>
       </form>
-    </div>
+    </AccessLayout>
   );
 }

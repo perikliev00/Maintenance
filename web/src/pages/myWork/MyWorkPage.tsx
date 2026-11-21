@@ -216,9 +216,10 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
   }
 
   return (
-    <div className="page mywork-page">
-      <header className="page-header mywork-header">
+    <main className="content ui-my-work">
+      <header className="page-header ui-briefing">
         <div>
+          <p className="ui-eyebrow">{t(locale, "ЛИЧЕН РАБОТЕН ПЛАН", "YOUR WORKDAY")}</p>
           <h1>{t(locale, "Моите задачи", "My Work")}</h1>
           <p className="muted">
             {user.fullName}
@@ -232,8 +233,8 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
       </header>
 
       {/* Success / error / stale-cache banners. */}
-      {message && <div className="banner ok">{message}</div>}
-      {error && <div className="banner error">{error}</div>}
+      {message && <div className="banner ok" role="status">{message}</div>}
+      {error && <div className="banner error" role="alert">{error}</div>}
       {fromCache && (
         <div className="banner warn">
                     {t(locale, "Данните може да са остарели", "Data may be stale")}
@@ -252,6 +253,11 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
       ) : (
         // Open a React fragment to group children without an extra DOM node.
         <>
+          <section className="ui-metrics" aria-label={t(locale, "Вашата работа", "Your workload")}>
+            {showCleaning && <div className="ui-metric"><span>{t(locale, "Задачи за почистване", "Cleaning assignments")}</span><strong>{activeTasks.length}</strong><small>{t(locale, "Активни задачи за деня", "Active tasks for the day")}</small></div>}
+            {showTickets && <div className="ui-metric"><span>{t(locale, "Възложени ремонти", "Assigned repairs")}</span><strong>{tickets.length}</strong><small>{ticketCursor ? t(locale, "Заредени · има още", "Loaded · more available") : t(locale, "Заредени отворени тикети", "Loaded open tickets")}</small></div>}
+            <div className="ui-metric"><span>{t(locale, "Чакащи синхронизация", "Awaiting synchronization")}</span><strong>{queueStats.pending + queueStats.sending + queueStats.failed + queueStats.conflict}</strong><small>{t(locale, "Действия в локалната опашка", "Actions in the local outbox")}</small></div>
+          </section>
           {/* Highlighted current running session, if any. */}
           {currentTask && (
             <CurrentTaskSection
@@ -437,6 +443,6 @@ export function MyWorkPage({ user, locale = "bg" }: Props) {
           )}
         </>
       )}
-    </div>
+    </main>
   );
 }

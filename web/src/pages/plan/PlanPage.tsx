@@ -95,10 +95,10 @@ export function PlanPage({ user }: Props) {
 
   // Early / value return.
   return (
-    <main className="content">
-      <header className="page-header">
+    <main className="content ui-daily-plan">
+      <header className="page-header ui-briefing">
         <div>
-          <h1>Дневен план (Clock)</h1>
+          <p className="ui-eyebrow">ПОДГОТОВКА НА ДЕНЯ</p><h1>Дневен план (Clock)</h1>
           <p>
             Ръчен план и договорен JSON импорт — не жива PMS/Clock синхронизация
           </p>
@@ -115,23 +115,12 @@ export function PlanPage({ user }: Props) {
       </header>
 
       {/* Render branch: error && <div className="error banner">error</div> */}
-      {error && <div className="error banner">{error}</div>}
+      {error && <div className="error banner" role="alert">{error}</div>}
       {/* Render branch: message && <div className="ok banner">message</div> */}
-      {message && <div className="ok banner">{message}</div>}
+      {message && <div className="ok banner" role="status">{message}</div>}
 
-      {/* Deferred vacant/dirty apply — gated inside the panel. */}
-      <DepartureEffectsPanel
-        // Permission / capability gate.
-        canManage={canManage}
-        hotelDate={hotelDate}
-        loading={loading}
-        refresh={refresh}
-        setError={setError}
-        setMessage={setMessage}
-      />
-
+      {plan && <section className="ui-metrics" aria-label="Планирана работа"><div className="ui-metric"><span>Заминаващи</span><strong>{plan.departures.length}</strong></div><div className="ui-metric"><span>Пристигащи</span><strong>{plan.arrivals.length}</strong></div><div className="ui-metric"><span>Приоритетни</span><strong>{plan.priority.length}</strong></div></section>}
       <PlanLastImport plan={plan} />
-
       {/* CRUD + import as children; both respect canManage. */}
       <PlanCrud
         // Permission / capability gate.
@@ -148,7 +137,7 @@ export function PlanPage({ user }: Props) {
         setError={setError}
         setMessage={setMessage}
       >
-        <ImportPanel
+        {canManage && <details className="ui-surface ui-plan-import"><summary>Импорт на дневен план</summary><ImportPanel
           // Permission / capability gate.
           canManage={canManage}
           hotelDate={hotelDate}
@@ -156,8 +145,11 @@ export function PlanPage({ user }: Props) {
           setPlan={setPlan}
           setError={setError}
           setMessage={setMessage}
-        />
+        /></details>}
       </PlanCrud>
+      <section className="ui-surface ui-departure-effects"><div className="ui-section-heading"><h2>Готовност след напускане</h2><p className="muted">Прегледайте и приложете ефектите за избраната дата.</p></div>
+      <DepartureEffectsPanel canManage={canManage} hotelDate={hotelDate} loading={loading} refresh={refresh} setError={setError} setMessage={setMessage} />
+      </section>
     </main>
   );
 }
