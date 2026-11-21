@@ -1,0 +1,3 @@
+# Official postgres:16.16-alpine still ships libxml2 2.13.9-r2; Alpine has
+# 2.13.9-r3. Drop this ignore once the Docker official image rebuild picks it up.
+CVE-2026-86144

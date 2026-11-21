@@ -5,7 +5,7 @@
 name: maintenance
 services:
   db:
-    image: postgres:16.10-alpine
+    image: postgres:16.16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}

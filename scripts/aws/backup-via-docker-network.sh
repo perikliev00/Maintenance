@@ -6,7 +6,7 @@ set -euo pipefail
 DEPLOY_PATH="${DEPLOY_PATH:-/opt/maintenance}"
 COMPOSE_PROJECT="${COMPOSE_PROJECT:-maintenance}"
 BACKEND_NETWORK="${BACKEND_NETWORK:-${COMPOSE_PROJECT}_backend}"
-PG_IMAGE="${PG_IMAGE:-postgres:16.10-alpine}"
+PG_IMAGE="${PG_IMAGE:-postgres:16.16-alpine}"
 ENV_FILE="${BACKUP_ENV_FILE:-/etc/maintenance/backup.env}"
 
 # shellcheck disable=SC1090

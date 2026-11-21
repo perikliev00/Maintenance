@@ -454,6 +454,8 @@ jobs:
           ')
           echo "postgres=$IMG" >> "$GITHUB_OUTPUT"
           docker pull "$IMG"
+      # Third-party image: scan Alpine OS packages only. Embedded gosu Go stdlib
+      # CVEs are not fixable without rebuilding upstream binaries.
       - name: Scan Postgres image
         if: ${{ always() && steps.stack_images.outcome == 'success' }}
         uses: aquasecurity/trivy-action@v0.36.0
@@ -462,6 +464,8 @@ jobs:
           format: json
           output: trivy-postgres.json
           severity: CRITICAL,HIGH
+          vuln-type: os
+          trivyignores: .github/trivyignore-postgres
           exit-code: "1"
       - name: Summarize Postgres vulnerability paths
         if: always()
