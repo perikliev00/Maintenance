@@ -97,8 +97,15 @@ are **out of scope** for the push gate.
 Prepared ruleset payload:
 [`.github/rulesets/main-require-ci.json`](../../.github/rulesets/main-require-ci.json)
 
+The payload requires a PR into `main`, blocks force-push/deletion, and requires the
+CI job contexts below. `required_approving_review_count` is **0** so a sole
+maintainer is not blocked waiting on a fictitious second reviewer. Raise it when
+a second human reviewer is available.
+
 Apply only with a token that can administer the repository, then **verify** in
 the GitHub UI or API. Until that is done, do **not** claim protection is active.
+On a private free-plan repository, rulesets / classic branch protection may return
+HTTP 403 until the repository is public (or the org plan supports them).
 
 ```bash
 # Example (owner/admin token required) — review the JSON before applying
@@ -118,3 +125,40 @@ Required status check **context** names must match the job `name:` values from
 
 Manual UI path: **Settings → Rules → Rulesets** → target `main` → require the
 status checks above → require PR / block force pushes per team policy.
+
+## Production environment deployment gate
+
+`deploy.yml` uses the GitHub Environment `production`. Without a deployment branch
+policy, any workflow that can target that environment may deploy. Restrict it to
+`main` (and keep `workflow_dispatch` only for explicitly chosen release SHAs).
+
+Do **not** enable required environment reviewers for a sole maintainer — that can
+deadlock self-approvals. Prefer branch policy (+ optional wait timer) instead.
+
+```bash
+# Enable custom deployment branch policies on the production environment
+gh api --method PUT repos/perikliev00/Maintenance/environments/production \
+  --input - <<'EOF'
+{
+  "wait_timer": 0,
+  "prevent_self_review": false,
+  "deployment_branch_policy": {
+    "protected_branches": false,
+    "custom_branch_policies": true
+  }
+}
+EOF
+
+# Allow only main
+gh api --method POST \
+  repos/perikliev00/Maintenance/environments/production/deployment-branch-policies \
+  -f name=main -f type=branch
+
+# Verify
+gh api repos/perikliev00/Maintenance/environments/production
+```
+
+Risk without this gate: a successful `Publish immutable images` run on `main`
+auto-triggers deploy with OIDC AWS credentials. Missing protection is an
+operational/process risk, not by itself a publication blocker for making the
+source repository public.

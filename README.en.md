@@ -24,6 +24,7 @@ This is a live domain model plus a working demo (API + web), built incrementally
 12. [Technical rules](#technical-rules)
 13. [Code layout](#code-layout)
 14. [Roadmap](#roadmap)
+15. [License](#license)
 
 ---
 
@@ -91,30 +92,76 @@ Readiness is **not a single status** — it is composed from several independent
 | `api/` | Node.js, Express, TypeScript, Prisma, JWT, Zod, bcrypt |
 | `web/` | Vite, React, TypeScript, PWA (vite-plugin-pwa) |
 | `e2e/` | Playwright (browser smoke / UI flows) |
-| DB | PostgreSQL 16 (Docker), host port **5433** |
+| DB | PostgreSQL 16 (Docker Compose), host port **5433** |
+
+### Prerequisites
+
+- **Node.js 22** and the matching npm (CI uses `node-version: "22"`; newer LTS/Current often works locally, but 22 is the supported version)
+- **Docker Engine + Compose v2** (for the Postgres service in `docker-compose.yml`)
+- Two free terminals (API and web start separately)
+
+### 1. Database
 
 ```bash
 docker compose up -d
+```
 
+Compose starts Postgres 16 on `127.0.0.1:5433` (user/password/DB: `maintenance` / `maintenance` / `maintenance`).
+
+### 2. API — env, dependencies, migrations, seed
+
+```bash
 cd api
-npm install
-npx prisma migrate dev
-ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed
-npm run dev
+cp .env.example .env
+```
 
+`api/.env` must include at least:
+
+| Variable | Local value (from `.env.example`) |
+|---|---|
+| `DATABASE_URL` | `postgresql://maintenance:maintenance@localhost:5433/maintenance?schema=public` |
+| `JWT_SECRET` | local placeholder (production refuses this value) |
+| `WEB_ORIGIN` | `http://localhost:5173` |
+| `PORT` | `4000` |
+
+Without `JWT_SECRET` the API refuses to start with “JWT_SECRET is not set”.
+
+```bash
+npm install
+npx prisma generate
+npx prisma migrate dev
+```
+
+Destructive demo seed — **only** against a disposable local DB named `maintenance` (never production):
+
+```bash
+ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed
+```
+
+The command **wipes and recreates** data; it refuses to run without both env values, when the declared name does not match `DATABASE_URL`, and always in production.
+
+Start the API (terminal 1):
+
+```bash
+npm run dev
+```
+
+- API: http://localhost:4000 (`GET /health`)
+
+### 3. Web (terminal 2)
+
+```bash
 cd web
 npm install
 npm run dev
 ```
 
-- API: http://localhost:4000 (`/health`)
 - Web: http://localhost:5173
-- `DATABASE_URL=postgresql://maintenance:maintenance@localhost:5433/maintenance`
-- Demo password for all users: **`demo1234`**
+- Password for seeded demo users: **`demo1234`** (see [Seed / demo data](#seed--demo-data)); the development Login UI shows them as a hint
 
 ### E2E (Playwright)
 
-Needs a seeded DB. Playwright starts API + web unless they are already running.
+Needs a seeded local DB. Playwright starts API + web unless they are already running.
 
 ```bash
 cd e2e
@@ -742,6 +789,16 @@ After the current foundation (not built yet):
 - New roles (e.g. `hk_lead`)
 - Drive all UI buttons from `actions[]` (no ad-hoc role ifs)
 - Live PMS/Clock import adapters (`DailyPlanImportBatch` / JobRun skeleton exists)
+
+---
+
+## License
+
+This project is licensed under the [MIT License](./LICENSE) — Copyright (c) 2026 perikliev00.
+
+The vendored dependency `web/vendor/deepmerge` keeps its own MIT notice in
+[`web/vendor/deepmerge/license.txt`](./web/vendor/deepmerge/license.txt). npm
+dependencies remain under their own licenses; the project MIT does not re-license them.
 
 ---
 

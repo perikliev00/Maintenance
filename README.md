@@ -24,6 +24,7 @@
 12. [Технически правила](#технически-правила)
 13. [Структура на кода](#структура-на-кода)
 14. [Roadmap](#roadmap)
+15. [Лиценз](#лиценз)
 
 ---
 
@@ -91,30 +92,76 @@ Readiness **не е един статус**, а композиция от няк
 | `api/` | Node.js, Express, TypeScript, Prisma, JWT, Zod, bcrypt |
 | `web/` | Vite, React, TypeScript, PWA (vite-plugin-pwa) |
 | `e2e/` | Playwright (browser smoke / UI flows) |
-| DB | PostgreSQL 16 (Docker), хост порт **5433** |
+| DB | PostgreSQL 16 (Docker Compose), хост порт **5433** |
+
+### Предпоставки
+
+- **Node.js 22** и съответният npm (CI ползва `node-version: "22"`; локално работи и по-нова LTS/Current, но 22 е поддържаната версия)
+- **Docker Engine + Compose v2** (за Postgres услугата в `docker-compose.yml`)
+- Два свободни терминала (API и web се стартират отделно)
+
+### 1. База данни
 
 ```bash
 docker compose up -d
+```
 
+Compose вдига Postgres 16 на `127.0.0.1:5433` (потребител/парола/DB: `maintenance` / `maintenance` / `maintenance`).
+
+### 2. API — env, зависимости, миграции, seed
+
+```bash
 cd api
-npm install
-npx prisma migrate dev
-ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed
-npm run dev
+cp .env.example .env
+```
 
+`api/.env` трябва да съдържа поне:
+
+| Променлива | Локална стойност (от `.env.example`) |
+|---|---|
+| `DATABASE_URL` | `postgresql://maintenance:maintenance@localhost:5433/maintenance?schema=public` |
+| `JWT_SECRET` | локален placeholder (production отказва тази стойност) |
+| `WEB_ORIGIN` | `http://localhost:5173` |
+| `PORT` | `4000` |
+
+Без `JWT_SECRET` API отказва старт с „JWT_SECRET is not set“.
+
+```bash
+npm install
+npx prisma generate
+npx prisma migrate dev
+```
+
+Destructive demo seed — **само** срещу disposable локална DB с име `maintenance` (никога production):
+
+```bash
+ALLOW_DEMO_SEED=true DEMO_SEED_DATABASE_NAME=maintenance npm run db:seed
+```
+
+Командата **изтрива и пресъздава** данните; отказва работа без двете env стойности, при несъвпадение с името в `DATABASE_URL` и винаги в production.
+
+Стартиране на API (терминал 1):
+
+```bash
+npm run dev
+```
+
+- API: http://localhost:4000 (`GET /health`)
+
+### 3. Web (терминал 2)
+
+```bash
 cd web
 npm install
 npm run dev
 ```
 
-- API: http://localhost:4000 (`/health`)
 - Web: http://localhost:5173
-- `DATABASE_URL=postgresql://maintenance:maintenance@localhost:5433/maintenance`
-- Парола за демо потребители: **`demo1234`**
+- Парола за seed демо потребители: **`demo1234`** (виж [Seed / демо данни](#seed--демо-данни)); в development Login UI ги показва като подсказка
 
 ### E2E (Playwright)
 
-Изисква seed-ната DB (и при нужда вече пуснати API/web — иначе Playwright ги стартира сам).
+Изисква seed-ната локална DB. Playwright стартира API + web, освен ако вече работят.
 
 ```bash
 cd e2e
@@ -741,6 +788,16 @@ maintenance/
 - Нови роли (напр. `hk_lead`)
 - UI бутони изцяло от `actions[]` (без ad-hoc role if-ове)
 - Реални PMS/Clock импорт адаптери (скелетът `DailyPlanImportBatch` / JobRun е наличен)
+
+---
+
+## Лиценз
+
+Този проект е под [MIT License](./LICENSE) — Copyright (c) 2026 perikliev00.
+
+Vendored dependency `web/vendor/deepmerge` запазва своя собствен MIT notice в
+[`web/vendor/deepmerge/license.txt`](./web/vendor/deepmerge/license.txt). npm
+зависимостите си остават под своите лицензи; проектният MIT не ги пре-лицензира.
 
 ---
 
