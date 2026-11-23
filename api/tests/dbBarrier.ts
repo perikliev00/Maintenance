@@ -82,6 +82,31 @@ export async function waitForBlockedBehind(
   );
 }
 
+/**
+ * Same as waitForBlockedBehind, but succeeds when any candidate blocker has
+ * enough Lock waiters. Parallel FOR SHARE holders may surface the conflicting
+ * UPDATE behind either pid first; requiring a fixed index flakes on CI.
+ */
+export async function waitForBlockedBehindAny(
+  db: PrismaClient,
+  blockerPids: number[],
+  count = 1,
+  timeoutMs = 30_000,
+): Promise<number[]> {
+  assert.ok(blockerPids.length > 0, "blockerPids required");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const blockerPid of blockerPids) {
+      const pids = await listBlockedBehind(db, blockerPid);
+      if (pids.length >= count) return pids;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(
+    `No PostgreSQL waiter blocked by any of backends [${blockerPids.join(", ")}] (need ≥${count}, transitive recurse)`,
+  );
+}
+
 // Helper lockDiagnostics: concurrency/isolation coordination.
 async function lockDiagnostics(
   db: PrismaClient,

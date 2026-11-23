@@ -6,7 +6,7 @@ import { PrismaClient, Role, type Prisma } from "@prisma/client";
 // Guard that mutating suites only run against the isolated test database.
 import { assertTestDatabase } from "../assertTestDatabase";
 // Concurrency helpers to order/observe PostgreSQL lock waiters.
-import { waitForBlockedBehind } from "../dbBarrier";
+import { waitForBlockedBehind, waitForBlockedBehindAny } from "../dbBarrier";
 // Shared test fixtures for seeding users, locations, and domain entities.
 import { createCleaningWorld, cleanupCleaningWorld, resetCleaningWork, hotelTodayYmd, createOpenMaintenanceTicket, type CleaningWorld } from "./fixtures";
 import { createCleaningTask, reassignCleaningTask, startCleaningTask } from "../../src/services/cleaning";
@@ -16,7 +16,9 @@ import { createDailyPlanEntry } from "../../src/services/dailyPlan";
 import { linkOrCreateDepartureTask } from "../../src/services/dailyPlanEffects/tasks";
 
 // Shared Prisma client bound to the isolated test database.
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  transactionOptions: { maxWait: 20_000, timeout: 60_000 },
+});
 let world: CleaningWorld;
 
 // Pause the actual assignment write after the final eligibility SELECT. Unlike
@@ -40,19 +42,26 @@ async function withLateAssignmentBarrier(
     held(row!.pid);
     await gate;
   // Runner option controlling stability or isolation of the suite.
-  }, { timeout: 20000 });
+  }, { timeout: 60_000, maxWait: 20_000 });
   let assignment: Promise<unknown> | undefined;
   let mutation: Promise<unknown> | undefined;
   try {
     const holderPid = await acquired;
     assignment = assign();
     assignment.catch(() => undefined);
-    const assignmentPids = await waitForBlockedBehind(prisma, holderPid, assignmentCount);
+    const assignmentPids = await waitForBlockedBehind(
+      prisma,
+      holderPid,
+      assignmentCount,
+      assignmentCount > 1 ? 30_000 : 15_000,
+    );
     mutation = mutate();
     mutation.catch(() => undefined);
     // The User UPDATE must wait for an assignment transaction that already
     // passed eligibility under FOR SHARE, not just any unrelated lock.
-    await waitForBlockedBehind(prisma, assignmentPids[0]!);
+    // With parallel assignees, the conflicting UPDATE may appear behind any
+    // FOR SHARE holder — do not pin assertions to assignmentPids[0].
+    await waitForBlockedBehindAny(prisma, assignmentPids);
     release();
     await holder;
     await assignment;
