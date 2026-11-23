@@ -14,13 +14,19 @@ type Props = {
 };
 
 /**
- * Standalone login screen with demo seed credentials prefilled.
+ * Standalone login screen. Demo seed autofill/hints are development-only
+ * (`import.meta.env.DEV`); production builds leave the form empty.
  * On success, parent binds identity via `onLogin`.
  */
 export function LoginPage({ onLogin, theme, onToggleTheme }: Props) {
-  // Demo defaults for local seed users (see hint under the form).
-  const [email, setEmail] = useState("owner@meridian.local");
-  const [password, setPassword] = useState("demo1234");
+  // Vite replaces DEV at build time — production bundles never ship demo defaults.
+  const showDemoHints = import.meta.env.DEV;
+  const [email, setEmail] = useState(
+    showDemoHints ? "owner@meridian.local" : "",
+  );
+  const [password, setPassword] = useState(
+    showDemoHints ? "demo1234" : "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -90,13 +96,15 @@ export function LoginPage({ onLogin, theme, onToggleTheme }: Props) {
             Activate device
           </button>
         </div>
-        {/* Seed-user hint for local demos. */}
-        <details className="ui-demo-help">
-          <summary>Demo account details</summary>
-          <div>Demo: owner / manager / supervisor / admin /</div>
-          <div>housekeeper / reception / technician @meridian.local</div>
-          <div>password: demo1234</div>
-        </details>
+        {/* Seed-user hint for local demos only — stripped from production UI. */}
+        {showDemoHints ? (
+          <details className="ui-demo-help">
+            <summary>Demo account details</summary>
+            <div>Demo: owner / manager / supervisor / admin /</div>
+            <div>housekeeper / reception / technician @meridian.local</div>
+            <div>password: demo1234</div>
+          </details>
+        ) : null}
       </form>
     </AccessLayout>
   );
