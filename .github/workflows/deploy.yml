@@ -95,7 +95,7 @@ jobs:
           SSM_DIAG_DOC_VAR: ${{ vars.SSM_DIAG_DOC }}
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ steps.aws_meta.outputs.aws_region }}
